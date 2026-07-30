@@ -127,10 +127,10 @@ function ReportsPage() {
                   {/* View workspace button */}
                   <button
                     onClick={() => {
-                      // Navigate to reports page with view-as context
+                      // Navigate to team member's workspace with view-as context
                       navigate({
-                        to: "/app/reports",
-                        search: { viewAs: report.id },
+                        to: "/app/workspace",
+                        search: { viewAsUserId: report.id },
                       });
                     }}
                     className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-muted-foreground transition-all hover:bg-primary/5 hover:text-primary hover:border-primary/30 group-hover:border-primary/20"
