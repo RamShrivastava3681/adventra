@@ -105,11 +105,13 @@ export async function login(req: Request, res: Response) {
     const users = await db.scanByType("User");
     const user = users.find((u: any) => u.email === email) as UserProfile | undefined;
     if (!user) {
+      console.warn(`[Auth] Login failed: user not found for email: ${email}`);
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
+      console.warn(`[Auth] Login failed: wrong password for email: ${email}`);
       return res.status(401).json({ error: "Invalid credentials" });
     }
 

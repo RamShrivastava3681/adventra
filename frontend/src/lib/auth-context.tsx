@@ -26,6 +26,7 @@ type AuthState = {
   isSalesRep: boolean;
   isOperations: boolean;
   isReportingManager: boolean;
+  signOut: () => void;
   refreshRoles: () => Promise<void>;
   refreshAuth: () => Promise<void>;
 };
@@ -122,9 +123,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isSalesRep,
     isOperations,
     isReportingManager,
-    refreshRoles: () => loadRoles(user?.id),
-    refreshAuth,
-  };
+  signOut: () => {
+    localStorage.removeItem("auth_token");
+    setUser(null);
+    setToken(null);
+    setRoles([]);
+    qc.clear();
+  },
+  refreshRoles: () => loadRoles(user?.id),
+  refreshAuth,
+};
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

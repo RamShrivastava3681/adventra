@@ -1,7 +1,6 @@
 import { createFileRoute, Outlet, useNavigate, Link, useRouterState } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
-import api from "@/lib/api-client";
 import {
   LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart,
   Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, FileMinus, Palette,
@@ -32,7 +31,7 @@ type NavSection =
   | { type: "group"; label: string; icon: any; items: NavItem[] };
 
 function AppLayout() {
-  const { user, loading, isAdmin, isTreasury, isChecker, isSalesRep, isOperations, isReportingManager } = useAuth();
+  const { user, loading, signOut, isAdmin, isTreasury, isChecker, isSalesRep, isOperations, isReportingManager } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -100,10 +99,8 @@ function AppLayout() {
     );
   }
 
-  const signOut = async () => {
-    await qc.cancelQueries();
-    qc.clear();
-    api.auth.clearToken();
+  const handleSignOut = () => {
+    signOut();
     navigate({ to: "/auth", replace: true });
   };
 
@@ -406,7 +403,7 @@ function AppLayout() {
         <div className="rounded-[12px] bg-slate-50/80 p-3 transition-colors hover:bg-slate-100/80 border border-sidebar-border/50">
           <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Signed in as</div>
           <div className="mt-0.5 truncate text-sm font-medium text-sidebar-foreground">{user?.email}</div>
-          <button onClick={signOut} className="mt-2.5 inline-flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground">
+          <button onClick={handleSignOut} className="mt-2.5 inline-flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground">
             <LogOut className="h-3.5 w-3.5" /> Sign out
           </button>
         </div>
@@ -527,7 +524,7 @@ function AppLayout() {
                 <Settings className="mr-2 h-4 w-4" /> Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={signOut} className="cursor-pointer text-destructive focus:text-destructive">
+              <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-destructive focus:text-destructive">
                 <LogOut className="mr-2 h-4 w-4" /> Sign out
               </DropdownMenuItem>
             </DropdownMenuContent>

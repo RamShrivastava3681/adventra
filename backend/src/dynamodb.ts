@@ -133,14 +133,24 @@ export async function scanByType(
   entityType: string,
   options?: { limit?: number }
 ) {
-  const params = {
-    TableName: TABLE,
-    FilterExpression: "entityType = :t",
-    ExpressionAttributeValues: { ":t": entityType },
-    Limit: options?.limit || 1000,
-  };
-  const result = await docClient.send(new ScanCommand(params));
-  return result.Items ?? [];
+  const maxLimit = options?.limit || 1000;
+  let lastKey: Record<string, any> | undefined;
+  const allItems: Record<string, any>[] = [];
+
+  do {
+    const params: any = {
+      TableName: TABLE,
+      FilterExpression: "entityType = :t",
+      ExpressionAttributeValues: { ":t": entityType },
+      Limit: maxLimit,
+      ExclusiveStartKey: lastKey,
+    };
+    const result = await docClient.send(new ScanCommand(params));
+    if (result.Items) allItems.push(...result.Items);
+    lastKey = result.LastEvaluatedKey;
+  } while (lastKey);
+
+  return allItems;
 }
 
 export async function queryByGSI2(
