@@ -20,7 +20,19 @@ async function request<T = any>(
   };
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
-  const res = await fetch(`${API_URL}${path}`, {
+  // Auto-forward viewAsUserId from browser URL search params to API calls
+  // This enables the reporting manager's view-as mode to work across all API requests
+  let apiPath = path;
+  if (!options.method || options.method === "GET") {
+    const urlParams = new URLSearchParams(window.location.search);
+    const viewAsUserId = urlParams.get("viewAsUserId");
+    if (viewAsUserId) {
+      const separator = apiPath.includes("?") ? "&" : "?";
+      apiPath = `${apiPath}${separator}viewAsUserId=${encodeURIComponent(viewAsUserId)}`;
+    }
+  }
+
+  const res = await fetch(`${API_URL}${apiPath}`, {
     ...options,
     headers,
   });
@@ -249,6 +261,9 @@ const api = {
     list: (type?: string) => api.get<any[]>(`/requests${type ? `?type=${type}` : ""}`),
     updateStatus: (id: string, status: string) => api.put(`/requests/${id}/status`, { status }),
   },
+
+  // User Progress (for reporting managers)
+  userProgress: () => api.get<any>("/user-progress"),
 
   // Admin
   admin: {

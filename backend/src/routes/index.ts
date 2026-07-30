@@ -49,6 +49,7 @@ import * as CoA from "../models/chart-of-account.js";
 import * as Journal from "../models/journal.js";
 import * as CDNote from "../models/credit-debit-note.js";
 import * as Combined from "../models/models-combined.js";
+import * as db from "../dynamodb.js";
 
 const router = Router();
 
@@ -643,6 +644,109 @@ router.post("/upload-url", authMiddleware, async (req, res) => {
     // Note: For direct upload, use presigned POST. For now, accept base64 or buffer.
     res.json({ message: "Upload endpoint ready. Use S3 presigned URLs for direct browser uploads." });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ===================== USER PROGRESS (for reporting managers) =====================
+router.get("/user-progress", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.user!.userId;
+
+    // Get user profile
+    const user = await db.getItem(`USER#${userId}`);
+    if (!user) return res.status(404).json({ error: "User not found" });
+
+    const roles: string[] = (user as any).roles || [];
+    const isSalesRep = roles.includes("sales_rep");
+    const isOperations = roles.includes("operations");
+    const isChecker = roles.includes("checker");
+    const isTreasury = roles.includes("treasury");
+
+    // Fetch all data in parallel
+    const [
+      leads,
+      opportunities,
+      activities,
+      invoices,
+      purchaseInvoices,
+      purchaseOrders,
+      expenses,
+      advances,
+      allSubmissions,
+    ] = await Promise.all([
+      isSalesRep ? Combined.listLeads(userId) : Promise.resolve([]),
+      isSalesRep ? Combined.listOpportunities(userId) : Promise.resolve([]),
+      isSalesRep ? Combined.listActivities(userId) : Promise.resolve([]),
+      isOperations || isChecker || isTreasury ? Invoice.list(userId) : Promise.resolve([]),
+      isOperations ? PurchaseInvoice.list(userId) : Promise.resolve([]),
+      isOperations ? PurchaseOrder.list(userId) : Promise.resolve([]),
+      Expense.list(userId),
+      Advance.list(userId),
+      db.scanByType("Submission").then((items: any[]) => items.filter((s: any) => s.userId === userId)),
+    ]);
+
+    // Compute stats
+    const leadsByStatus: Record<string, number> = {};
+    for (const l of leads) {
+      const st = (l as any).status || "unknown";
+      leadsByStatus[st] = (leadsByStatus[st] || 0) + 1;
+    }
+
+    const oppsByStage: Record<string, number> = {};
+    let totalOppAmount = 0;
+    for (const o of opportunities) {
+      const st = (o as any).stage || "unknown";
+      oppsByStage[st] = (oppsByStage[st] || 0) + 1;
+      totalOppAmount += (o as any).amount || 0;
+    }
+
+    const invoicesByStatus: Record<string, number> = {};
+    let totalInvoiceAmount = 0;
+    for (const inv of invoices) {
+      const st = (inv as any).status || "unknown";
+      invoicesByStatus[st] = (invoicesByStatus[st] || 0) + 1;
+      totalInvoiceAmount += (inv as any).amount || 0;
+    }
+
+    const poByStatus: Record<string, number> = {};
+    for (const po of purchaseInvoices) {
+      const st = (po as any).status || "unknown";
+      poByStatus[st] = (poByStatus[st] || 0) + 1;
+    }
+
+    const subsByType: Record<string, number> = {};
+    const subsByStatus: Record<string, number> = {};
+    for (const s of allSubmissions) {
+      const t = (s as any).type || "unknown";
+      const st = (s as any).status || "unknown";
+      subsByType[t] = (subsByType[t] || 0) + 1;
+      subsByStatus[st] = (subsByStatus[st] || 0) + 1;
+    }
+
+    const progress = {
+      user: {
+        id: (user as any).id,
+        email: (user as any).email,
+        companyName: (user as any).companyName,
+        contactName: (user as any).contactName,
+        roles,
+      },
+      stats: {
+        leads: { total: leads.length, byStatus: leadsByStatus, totalEstimatedValue: leads.reduce((s: number, l: any) => s + (l.estimatedValue || 0), 0) },
+        opportunities: { total: opportunities.length, byStage: oppsByStage, totalAmount: totalOppAmount },
+        activities: { total: activities.length, recent: activities.slice(-5).reverse() },
+        invoices: { total: invoices.length, byStatus: invoicesByStatus, totalAmount: totalInvoiceAmount },
+        purchaseInvoices: { total: purchaseInvoices.length, byStatus: poByStatus },
+        purchaseOrders: { total: purchaseOrders.length },
+        expenses: { total: expenses.length, totalAmount: expenses.reduce((s: number, e: any) => s + (e.amount || 0), 0) },
+        advances: { total: advances.length, totalAmount: advances.reduce((s: number, a: any) => s + (a.amount || 0), 0) },
+        submissions: { total: allSubmissions.length, byType: subsByType, byStatus: subsByStatus },
+      },
+    };
+
+    res.json(progress);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;
