@@ -10,7 +10,7 @@ import {
   Eye, EyeOff, Users, UserCircle, TrendingUp, Target, Activity,
   FileText, ShoppingCart, ClipboardCheck, Banknote, Shield,
   AlertCircle, CheckCircle2, XCircle, Building2,
-  Mail, Briefcase, DollarSign, BarChart3
+  Mail, Briefcase, DollarSign, BarChart3, Phone
 } from "lucide-react";
 
 export const Route = createFileRoute("/app/workspace")({
