@@ -1,8 +1,39 @@
-import { Router, Request, Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import { authMiddleware } from "../middleware/auth.js";
 import { requireAdmin, requireChecker } from "../middleware/roles.js";
 import { requireRole } from "../middleware/roles.js";
 import * as User from "../models/user.js";
+import * as Submission from "../models/submission.js";
+
+// ─── View-As middleware (for reporting managers to see their reports' data) ──
+const viewAsMiddleware = async (req: Request, res: Response, next: NextFunction) => {
+  const viewAsUserId = req.query.viewAsUserId as string | undefined;
+  if (!viewAsUserId) return next();
+
+  // Only for GET requests (read-only view)
+  if (req.method !== "GET") return next();
+
+  try {
+    // Verify the requester is a reporting_manager
+    if (!req.user?.roles?.includes("reporting_manager")) {
+      return res.status(403).json({ error: "Only reporting managers can use view-as" });
+    }
+
+    // Verify the target user is managed by this reporting manager
+    const target = await User.getViewAsTarget(req.user.userId, viewAsUserId);
+    if (!target) {
+      return res.status(403).json({ error: "You do not manage this user" });
+    }
+
+    // Store both the original and the viewed user ID
+    req.originalUserId = req.user.userId;
+    req.user = { ...req.user, userId: viewAsUserId };
+    req.viewAsUserId = viewAsUserId;
+    next();
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+};
 import * as Product from "../models/product.js";
 import * as StockMovement from "../models/stock-movement.js";
 import * as Debtor from "../models/debtor.js";
@@ -21,6 +52,9 @@ import * as Combined from "../models/models-combined.js";
 
 const router = Router();
 
+// Apply view-as middleware to all data routes
+router.use(viewAsMiddleware);
+
 // ===================== AUTH =====================
 router.post("/auth/signup", (req, res) => User.signup(req, res));
 router.post("/auth/login", (req, res) => User.login(req, res));
@@ -29,7 +63,11 @@ router.put("/auth/profile", authMiddleware, (req, res) => User.updateProfile(req
 
 // ===================== ADMIN =====================
 router.get("/admin/users", authMiddleware, requireAdmin, (req, res) => User.getUsers(req, res));
+router.post("/admin/users/create", authMiddleware, requireAdmin, (req, res) => User.adminCreateUser(req, res));
 router.put("/admin/users/role", authMiddleware, requireAdmin, (req, res) => User.updateUserRole(req, res));
+router.get("/admin/users/managers", authMiddleware, requireAdmin, (req, res) => User.listManagers(req, res));
+router.put("/admin/users/:userId/assign-manager", authMiddleware, requireAdmin, (req, res) => User.assignManager(req, res));
+router.get("/admin/users/:managerId/reports", authMiddleware, requireAdmin, (req, res) => User.getReports(req, res));
 
 // ===================== PRODUCTS =====================
 router.get("/products", authMiddleware, async (req, res) => {
@@ -558,6 +596,16 @@ router.get("/dashboard", authMiddleware, async (req, res) => {
     res.json({ pendingInvoices: pendingInvoices.length, approvedInvoices: approvedInvoices.length, overdueInvoices: overdueInvoices.length, totalSalesAdvance, totalPurchaseAdvance, inventoryValue, invoices, advances, debtors, products });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
+
+// ===================== SUBMISSIONS (Visits, Travel, Expenses, Leave) =====================
+router.post("/submissions", authMiddleware, (req, res) => Submission.create(req, res));
+router.get("/submissions", authMiddleware, (req, res) => Submission.list(req, res));
+router.put("/submissions/:id", authMiddleware, (req, res) => Submission.update(req, res));
+router.delete("/submissions/:id", authMiddleware, (req, res) => Submission.remove(req, res));
+
+// Reporting Manager: team requests
+router.get("/requests", authMiddleware, (req, res) => Submission.listTeamRequests(req, res));
+router.put("/requests/:id/status", authMiddleware, (req, res) => Submission.updateRequestStatus(req, res));
 
 // ===================== NOA (Notification of Assignment) =====================
 router.get("/noa/:token", async (req, res) => {

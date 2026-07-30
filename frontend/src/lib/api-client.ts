@@ -236,11 +236,31 @@ const api = {
     runAll: () => api.post<any>("/reminders/run"),
   },
 
+  // Submissions (Visits, Travel, Expenses, Leave)
+  submissions: {
+    list: (type?: string) => api.get<any[]>(`/submissions${type ? `?type=${type}` : ""}`),
+    create: (data: { type: string; data: any }) => api.post<any>("/submissions", data),
+    update: (id: string, data: any) => api.put<any>(`/submissions/${id}`, data),
+    delete: (id: string) => api.delete(`/submissions/${id}`),
+  },
+
+  // Reporting Manager: Team Requests
+  requests: {
+    list: (type?: string) => api.get<any[]>(`/requests${type ? `?type=${type}` : ""}`),
+    updateStatus: (id: string, status: string) => api.put(`/requests/${id}/status`, { status }),
+  },
+
   // Admin
   admin: {
     users: () => api.get<any[]>("/admin/users"),
+    createUser: (data: { email: string; password: string; contactName?: string; role: string; managerId?: string }) =>
+      api.post<any>("/admin/users/create", data),
     updateRole: (userId: string, role: string, add: boolean) =>
       api.put("/admin/users/role", { userId, role, add }),
+    listManagers: () => api.get<any[]>("/admin/users/managers"),
+    assignManager: (userId: string, managerId: string | null) =>
+      api.put(`/admin/users/${userId}/assign-manager`, { managerId }),
+    getReports: (managerId: string) => api.get<any[]>(`/admin/users/${managerId}/reports`),
   },
 };
 

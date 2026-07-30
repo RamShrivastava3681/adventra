@@ -240,6 +240,137 @@ export async function sendInvoiceReminder(params: {
 // Send debtor reminder email (simpler version sent to debtor)
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Submission notification emails (requests created / approved / rejected)
+// ---------------------------------------------------------------------------
+
+const SUBMISSION_TYPE_LABELS: Record<string, string> = {
+  visit: "Visit Report",
+  travel: "Travel Request",
+  expense: "Expense Report",
+  leave: "Leave Request",
+};
+
+function submissionFieldsHTML(data: Record<string, any>): string {
+  const labels: Record<string, string> = {
+    date: "Date", location: "Location", contactPerson: "Contact Person",
+    purpose: "Purpose", notes: "Notes", fromDate: "From Date", toDate: "To Date",
+    fromLocation: "From", toLocation: "To", amount: "Amount",
+    category: "Category", description: "Description", reason: "Reason",
+    leaveType: "Leave Type",
+  };
+  return Object.entries(data)
+    .filter(([k]) => labels[k])
+    .map(([k, v]) => {
+      const val = k === "amount" ? `$${Number(v).toLocaleString()}` : String(v);
+      return invoiceTableRow(labels[k], val);
+    }).join("");
+}
+
+export async function sendSubmissionEmail(params: {
+  type: "new_request" | "status_update";
+  submissionType: string;
+  submitterName: string;
+  submitterEmail: string;
+  recipientEmail: string;
+  recipientName: string;
+  status?: string;
+  data: Record<string, any>;
+  submissionId: string;
+}): Promise<boolean> {
+  if (!isEmailConfigured()) {
+    console.log(`  ⚠ Email not configured — skipping submission notification`);
+    return false;
+  }
+
+  const typeLabel = SUBMISSION_TYPE_LABELS[params.submissionType] || params.submissionType;
+
+  let subject: string;
+  let body: string;
+
+  if (params.type === "new_request") {
+    subject = `[New Request] ${typeLabel} from ${params.submitterName}`;
+    body = `
+      <div style="margin-bottom:24px;">
+        <div style="font-size:13px;color:#64748b;margin-bottom:4px;">NEW REQUEST</div>
+        <div style="font-size:20px;font-weight:700;color:#1e293b;">${typeLabel}</div>
+      </div>
+
+      <p style="font-size:14px;color:#475569;margin:0 0 16px;line-height:1.6;">
+        <strong>${params.submitterName}</strong> has submitted a new ${typeLabel.toLowerCase()} awaiting your review.
+      </p>
+
+      <table cellpadding="0" cellspacing="0" style="width:100%;">
+        ${invoiceTableRow("Submitted by", params.submitterName)}
+        ${invoiceTableRow("Submitter email", params.submitterEmail)}
+        ${invoiceTableRow("Type", typeLabel)}
+        ${invoiceTableRow("Submitted at", new Date().toLocaleString())}
+        ${invoiceTableRow("Status", statusBadge("pending"))}
+      </table>
+
+      <div style="margin-top:16px;padding:12px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;">
+        <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Details</div>
+        <table cellpadding="0" cellspacing="0" style="width:100%;">
+          ${submissionFieldsHTML(params.data)}
+        </table>
+      </div>
+
+      <div style="margin-top:24px;text-align:center;">
+        <a href="${config.appUrl}/app/requests" style="display:inline-block;background:#1e293b;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">
+          📋 Review in Dashboard
+        </a>
+      </div>
+    `;
+  } else {
+    const statusEmoji = params.status === "approved" ? "✅" : "❌";
+    const statusColor = params.status === "approved" ? "#059669" : "#dc2626";
+    subject = `[${params.status === "approved" ? "Approved" : "Rejected"}] ${typeLabel} — ${params.submitterName}`;
+    body = `
+      <div style="margin-bottom:24px;">
+        <div style="font-size:13px;color:#64748b;margin-bottom:4px;">${params.status === "approved" ? "APPROVED" : "REJECTED"}</div>
+        <div style="font-size:20px;font-weight:700;color:#1e293b;">${typeLabel}</div>
+      </div>
+
+      <div style="background:${params.status === "approved" ? "#ecfdf5" : "#fef2f2"};border-radius:8px;padding:16px;margin-bottom:20px;border-left:4px solid ${statusColor};">
+        <div style="font-size:16px;font-weight:700;color:${statusColor};">
+          ${statusEmoji} ${params.status === "approved" ? "Approved" : "Rejected"}
+        </div>
+        <div style="font-size:13px;color:#475569;margin-top:4px;">
+          Your ${typeLabel.toLowerCase()} has been ${params.status === "approved" ? "approved" : "rejected"} by <strong>${params.recipientName}</strong>.
+        </div>
+      </div>
+
+      <table cellpadding="0" cellspacing="0" style="width:100%;">
+        ${invoiceTableRow("Type", typeLabel)}
+        ${invoiceTableRow("Status", statusBadge(params.status || "pending"))}
+        ${invoiceTableRow("Reviewed by", params.recipientName)}
+      </table>
+
+      <div style="margin-top:16px;padding:12px;background:#f8fafc;border-radius:6px;border:1px solid #e2e8f0;">
+        <div style="font-size:11px;font-weight:600;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">Details</div>
+        <table cellpadding="0" cellspacing="0" style="width:100%;">
+          ${submissionFieldsHTML(params.data)}
+        </table>
+      </div>
+    `;
+  }
+
+  try {
+    const transporter = getTransporter();
+    await transporter.sendMail({
+      from: `"Insight Factor" <${config.smtp.user}>`,
+      to: params.recipientEmail,
+      subject,
+      html: wrapHTML(body),
+    });
+    console.log(`  ✅ Submission email sent: ${subject} → ${params.recipientEmail}`);
+    return true;
+  } catch (err) {
+    console.error(`  ❌ Failed to send submission email:`, err);
+    return false;
+  }
+}
+
 export async function sendDebtorReminder(params: {
   invoiceNumber: string;
   amount: number;

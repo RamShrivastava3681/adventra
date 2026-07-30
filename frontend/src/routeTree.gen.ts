@@ -31,11 +31,14 @@ import { Route as AppProformasRouteImport } from './routes/app.proformas'
 import { Route as AppPurchasesRouteImport } from './routes/app.purchases'
 import { Route as AppQueueRouteImport } from './routes/app.queue'
 import { Route as AppRemindersRouteImport } from './routes/app.reminders'
+import { Route as AppProfileRouteImport } from './routes/app.profile'
 import { Route as AppReportsRouteImport } from './routes/app.reports'
+import { Route as AppRequestsRouteImport } from './routes/app.requests'
 import { Route as AppSettingsRouteImport } from './routes/app.settings'
 import { Route as AppSuppliersRouteImport } from './routes/app.suppliers'
 import { Route as AppTemplateRouteImport } from './routes/app.template'
 import { Route as AppVendorsRouteImport } from './routes/app.vendors'
+import { Route as AppWorkspaceRouteImport } from './routes/app.workspace'
 import { Route as NoaTokenRouteImport } from './routes/noa.$token'
 import { Route as AppInvoicePreviewIdRouteImport } from './routes/app.invoice-preview.$id'
 import { Route as AppNotePreviewIdRouteImport } from './routes/app.note-preview.$id'
@@ -150,9 +153,19 @@ const AppRemindersRoute = AppRemindersRouteImport.update({
   path: '/reminders',
   getParentRoute: () => AppRoute,
 } as any)
+const AppProfileRoute = AppProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppReportsRoute = AppReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppRequestsRoute = AppRequestsRouteImport.update({
+  id: '/requests',
+  path: '/requests',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
@@ -214,7 +227,9 @@ export interface FileRoutesByFullPath {
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
   '/app/reminders': typeof AppRemindersRoute
+  '/app/profile': typeof AppProfileRoute
   '/app/reports': typeof AppReportsRoute
+  '/app/requests': typeof AppRequestsRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/template': typeof AppTemplateRoute
@@ -246,7 +261,9 @@ export interface FileRoutesByTo {
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
   '/app/reminders': typeof AppRemindersRoute
+  '/app/profile': typeof AppProfileRoute
   '/app/reports': typeof AppReportsRoute
+  '/app/requests': typeof AppRequestsRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/template': typeof AppTemplateRoute
@@ -279,7 +296,9 @@ export interface FileRoutesById {
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
   '/app/reminders': typeof AppRemindersRoute
+  '/app/profile': typeof AppProfileRoute
   '/app/reports': typeof AppReportsRoute
+  '/app/requests': typeof AppRequestsRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/template': typeof AppTemplateRoute
@@ -313,7 +332,9 @@ export interface FileRouteTypes {
     | '/app/purchases'
     | '/app/queue'
     | '/app/reminders'
+    | '/app/profile'
     | '/app/reports'
+    | '/app/requests'
     | '/app/settings'
     | '/app/suppliers'
     | '/app/template'
@@ -345,7 +366,9 @@ export interface FileRouteTypes {
     | '/app/purchases'
     | '/app/queue'
     | '/app/reminders'
+    | '/app/profile'
     | '/app/reports'
+    | '/app/requests'
     | '/app/settings'
     | '/app/suppliers'
     | '/app/template'
@@ -377,7 +400,9 @@ export interface FileRouteTypes {
     | '/app/purchases'
     | '/app/queue'
     | '/app/reminders'
+    | '/app/profile'
     | '/app/reports'
+    | '/app/requests'
     | '/app/settings'
     | '/app/suppliers'
     | '/app/template'
@@ -606,6 +631,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppNotePreviewIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/profile': {
+      id: '/app/profile'
+      path: '/profile'
+      fullPath: '/app/profile'
+      preLoaderRoute: typeof AppProfileRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/requests': {
+      id: '/app/requests'
+      path: '/requests'
+      fullPath: '/app/requests'
+      preLoaderRoute: typeof AppRequestsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/workspace': {
+      id: '/app/workspace'
+      path: '/workspace'
+      fullPath: '/app/workspace'
+      preLoaderRoute: typeof AppWorkspaceRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
@@ -629,7 +675,9 @@ interface AppRouteChildren {
   AppPurchasesRoute: typeof AppPurchasesRoute
   AppQueueRoute: typeof AppQueueRoute
   AppRemindersRoute: typeof AppRemindersRoute
+  AppProfileRoute: typeof AppProfileRoute
   AppReportsRoute: typeof AppReportsRoute
+  AppRequestsRoute: typeof AppRequestsRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
   AppTemplateRoute: typeof AppTemplateRoute
@@ -658,7 +706,9 @@ const AppRouteChildren: AppRouteChildren = {
   AppPurchasesRoute: AppPurchasesRoute,
   AppQueueRoute: AppQueueRoute,
   AppRemindersRoute: AppRemindersRoute,
+  AppProfileRoute: AppProfileRoute,
   AppReportsRoute: AppReportsRoute,
+  AppRequestsRoute: AppRequestsRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppSuppliersRoute: AppSuppliersRoute,
   AppTemplateRoute: AppTemplateRoute,

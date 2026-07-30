@@ -12,6 +12,8 @@ declare global {
   namespace Express {
     interface Request {
       user?: AuthPayload;
+      viewAsUserId?: string;
+      originalUserId?: string;
     }
   }
 }

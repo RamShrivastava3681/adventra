@@ -3,13 +3,14 @@ import api from "@/lib/api-client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 
-export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "sales_rep";
+export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "sales_rep" | "operations" | "reporting_manager";
 
 export type AuthUser = {
   id: string;
   email: string;
   companyName?: string;
   contactName?: string;
+  photoUrl?: string;
   roles?: AppRole[];
 };
 
@@ -23,6 +24,8 @@ type AuthState = {
   isChecker: boolean;
   isClient: boolean;
   isSalesRep: boolean;
+  isOperations: boolean;
+  isReportingManager: boolean;
   refreshRoles: () => Promise<void>;
   refreshAuth: () => Promise<void>;
 };
@@ -103,7 +106,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isTreasury = roles.includes("treasury");
   const isChecker = roles.includes("checker");
   const isSalesRep = roles.includes("sales_rep");
-  const isClient = roles.includes("client") || (!isAdmin && !isTreasury && !isChecker && !isSalesRep);
+  const isOperations = roles.includes("operations");
+  const isReportingManager = roles.includes("reporting_manager");
+  const isClient = roles.includes("client") || (!isAdmin && !isTreasury && !isChecker && !isSalesRep && !isOperations && !isReportingManager);
 
   const value: AuthState = {
     user,
@@ -115,6 +120,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isChecker,
     isClient,
     isSalesRep,
+    isOperations,
+    isReportingManager,
     refreshRoles: () => loadRoles(user?.id),
     refreshAuth,
   };

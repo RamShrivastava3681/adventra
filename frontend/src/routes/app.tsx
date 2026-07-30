@@ -4,28 +4,42 @@ import { useAuth } from "@/lib/auth-context";
 import api from "@/lib/api-client";
 import {
   LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart,
-  Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, FileMinus, Palette, BookOpen,
-  BarChart3, Scale, Package, TrendingUp, Users, Search, Menu, Command, Mail,
+  Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, FileMinus, Palette,
+  Package, TrendingUp, Users, Search, Menu, Command, Mail, ChevronRight, ChevronDown,
+  User, Briefcase, ClipboardList,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 export const Route = createFileRoute("/app")({
   component: AppLayout,
 });
 
-// ─── Navigation sections ───────────────────────────────────────
+// ─── Navigation section types ──────────────────────────────────
 type NavItem = { to: string; label: string; icon: any };
-type NavSection = { label: string; items: NavItem[] };
+type NavSection =
+  | { type: "single"; label: string; icon: any; to: string }
+  | { type: "group"; label: string; icon: any; items: NavItem[] };
 
 function AppLayout() {
-  const { user, loading, isAdmin, isTreasury, isChecker, isSalesRep } = useAuth();
+  const { user, loading, isAdmin, isTreasury, isChecker, isSalesRep, isOperations, isReportingManager } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [cmdOpen, setCmdOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [activeFlyout, setActiveFlyout] = useState<string | null>(null);
+  const [mobileExpanded, setMobileExpanded] = useState<string | null>(null);
 
   // Cmd+K / Ctrl+K keyboard shortcut
   useEffect(() => {
@@ -39,6 +53,16 @@ function AppLayout() {
     return () => document.removeEventListener("keydown", down);
   }, []);
 
+  // Close flyout on Escape
+  useEffect(() => {
+    if (!activeFlyout) return;
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setActiveFlyout(null);
+    };
+    document.addEventListener("keydown", handleKey);
+    return () => document.removeEventListener("keydown", handleKey);
+  }, [activeFlyout]);
+
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth" });
   }, [loading, user, navigate]);
@@ -46,19 +70,27 @@ function AppLayout() {
   // Role-based route wall
   useEffect(() => {
     if (loading || !user) return;
-    const treasuryBlocked = ["/app/invoices", "/app/purchases", "/app/expenses", "/app/checker", "/app/debtors", "/app/vendors", "/app/inventory", "/app/proformas"];
-    const checkerOnlyBlocked = ["/app/expenses", "/app/queue", "/app/inventory", "/app/advances", "/app/proformas"];
-    const salesRepAllowed = ["/app/dashboard", "/app/crm", "/app/products", "/app/forecast", "/app/settings"];
-    if (isTreasury && !isAdmin && !isChecker && treasuryBlocked.some((p) => pathname.startsWith(p))) {
-      navigate({ to: "/app/queue" });
-    }
-    if (isChecker && !isAdmin && !isTreasury && checkerOnlyBlocked.some((p) => pathname.startsWith(p))) {
+
+    // Allowed pages per role
+    // Shared routes accessible to all logged-in users
+    const SHARED_ROUTES = ["/app/profile", "/app/workspace", "/app/settings"];
+    const operationsAllowed = ["/app/dashboard", "/app/debtors", "/app/suppliers", "/app/invoices", "/app/purchases", "/app/proformas", "/app/advances", "/app/expenses", "/app/notes"];
+    const salesmanAllowed = ["/app/dashboard", "/app/crm", "/app/debtors", "/app/suppliers"];
+
+    if (isAdmin) return; // admin goes anywhere
+
+    if (isChecker && pathname.startsWith("/app/") && ![...operationsAllowed, ...SHARED_ROUTES, "/app/checker"].some((p) => pathname === p || pathname.startsWith(p + "/"))) {
       navigate({ to: "/app/checker" });
-    }
-    if (isSalesRep && !isAdmin && !isChecker && !isTreasury && pathname.startsWith("/app/") && !salesRepAllowed.some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+    } else if (isTreasury && pathname.startsWith("/app/") && ![...operationsAllowed, ...SHARED_ROUTES, "/app/queue"].some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+      navigate({ to: "/app/queue" });
+    } else if (isOperations && pathname.startsWith("/app/") && ![...operationsAllowed, ...SHARED_ROUTES].some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+      navigate({ to: "/app/dashboard" });
+    } else if (isSalesRep && pathname.startsWith("/app/") && ![...salesmanAllowed, ...SHARED_ROUTES].some((p) => pathname === p || pathname.startsWith(p + "/"))) {
       navigate({ to: "/app/crm" });
+    } else if (isReportingManager && pathname.startsWith("/app/") && !["/app/dashboard", "/app/reports", "/app/requests", ...SHARED_ROUTES].some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+      navigate({ to: "/app/dashboard" });
     }
-  }, [loading, user, isTreasury, isChecker, isAdmin, isSalesRep, pathname, navigate]);
+  }, [loading, user, isTreasury, isChecker, isAdmin, isSalesRep, isOperations, isReportingManager, pathname, navigate]);
 
   if (loading || !user) {
     return (
@@ -75,135 +107,189 @@ function AppLayout() {
     navigate({ to: "/auth", replace: true });
   };
 
-  // Build nav sections per role
+  // ─── Shared Transactions items (used by operations, treasury, checker, admin) ──
+  const TRANSACTIONS_ITEMS: NavItem[] = [
+    { to: "/app/purchases", label: "Purchase invoices", icon: ShoppingCart },
+    { to: "/app/invoices", label: "Sales invoices", icon: FileText },
+    { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
+    { to: "/app/debtors", label: "Debtors", icon: Building2 },
+    { to: "/app/suppliers", label: "Suppliers", icon: Truck },
+    { to: "/app/notes", label: "Credit / Debit notes", icon: FileMinus },
+    { to: "/app/expenses", label: "Expenses", icon: Receipt },
+    { to: "/app/advances", label: "Advances", icon: Wallet },
+  ];
+
+  // ─── Build navigation sections per role ──────────────────────
+  // Priority: Checker → Treasury → Operations → Salesman → Admin → fallback
   const navSections: NavSection[] = (() => {
-    if (isSalesRep && !isAdmin && !isChecker && !isTreasury) {
-      return [
-        {
-          label: "Main", items: [
-            { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
-            { to: "/app/crm", label: "CRM / Leads", icon: Users },
-          ],
-        },
-        {
-          label: "Inventory", items: [
-            { to: "/app/products", label: "Product catalog", icon: Package },
-            { to: "/app/forecast", label: "Demand forecast", icon: TrendingUp },
-          ],
-        },
-        {
-          label: "System", items: [
-            { to: "/app/settings", label: "Settings", icon: Settings },
-          ],
-        },
-      ];
-    }
-
-    if (isTreasury && !isAdmin && !isChecker) {
-      return [
-        {
-          label: "Overview", items: [
-            { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
-          ],
-        },
-        {
-          label: "Funding", items: [
-            { to: "/app/queue", label: "Funding queue", icon: Banknote },
-            { to: "/app/advances", label: "Advances", icon: Wallet },
-          ],
-        },
-        {
-          label: "System", items: [
-            { to: "/app/alerts", label: "Alerts", icon: BellRing },
-            { to: "/app/settings", label: "Settings", icon: Settings },
-          ],
-        },
-      ];
-    }
-
+    // Checker — operations items + checker desk + Workspace
     if (isChecker && !isAdmin) {
       return [
+        { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+        { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
+        { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
         {
-          label: "Overview", items: [
-            { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
-            { to: "/app/checker", label: "Checker desk", icon: ClipboardCheck },
+          type: "group", label: "Transactions", icon: Receipt,
+          items: TRANSACTIONS_ITEMS,
+        },
+      ];
+    }
+
+    // Treasury — operations items + funding queue + Workspace
+    if (isTreasury && !isAdmin && !isChecker) {
+      return [
+        { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+        { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
+        { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
+        {
+          type: "group", label: "Transactions", icon: Receipt,
+          items: TRANSACTIONS_ITEMS,
+        },
+      ];
+    }
+
+    // Operations — all transaction items + Workspace
+    if (isOperations && !isAdmin && !isChecker && !isTreasury) {
+      return [
+        { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+        { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
+        {
+          type: "group", label: "Transactions", icon: Receipt,
+          items: TRANSACTIONS_ITEMS,
+        },
+      ];
+    }
+
+    // Salesman — CRM / leads, debtors, suppliers + Workspace
+    if (isSalesRep && !isAdmin && !isChecker && !isTreasury && !isOperations) {
+      return [
+        { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+        { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
+        {
+          type: "group", label: "Sales", icon: Users,
+          items: [
+            { to: "/app/crm", label: "Leads", icon: Users },
+            { to: "/app/debtors", label: "Debtors", icon: Building2 },
+            { to: "/app/suppliers", label: "Suppliers", icon: Truck },
           ],
         },
+      ];
+    }
+
+    // Reporting Manager — My Reports + Requests + Dashboard + Settings
+    if (isReportingManager && !isAdmin && !isChecker && !isTreasury && !isOperations && !isSalesRep) {
+      return [
+        { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+        { type: "single", label: "My Reports", icon: Users, to: "/app/reports" },
+        { type: "single", label: "Requests", icon: ClipboardList, to: "/app/requests" },
         {
-          label: "Transactions", items: [
-            { to: "/app/invoices", label: "Sales invoices", icon: FileText },
-            { to: "/app/purchases", label: "Purchases", icon: ShoppingCart },
-          ],
-        },
-        {
-          label: "System", items: [
-            { to: "/app/alerts", label: "Alerts", icon: BellRing },
+          type: "group", label: "System", icon: Settings,
+          items: [
             { to: "/app/settings", label: "Settings", icon: Settings },
           ],
         },
       ];
     }
 
-    // Full admin / power user navigation
-    const sections: NavSection[] = [
-      {
-        label: "Overview", items: [
-          { to: "/app/dashboard", label: "Dashboard", icon: LayoutDashboard },
-          ...(isAdmin || isChecker ? [{ to: "/app/checker", label: "Checker desk", icon: ClipboardCheck }] : []),
-          { to: "/app/queue", label: "Funding queue", icon: Banknote },
-        ],
-      },
-      {
-        label: "Transactions", items: [
-          { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
-          { to: "/app/invoices", label: "Sales invoices", icon: FileText },
-          { to: "/app/purchases", label: "Purchases", icon: ShoppingCart },
-          { to: "/app/expenses", label: "Expenses", icon: Receipt },
-          { to: "/app/notes", label: "Credit / debit notes", icon: FileMinus },
-          { to: "/app/advances", label: "Advances", icon: Wallet },
-        ],
-      },
-      {
-        label: "Catalog & Inventory", items: [
-          { to: "/app/products", label: "Product catalog", icon: Package },
-          { to: "/app/forecast", label: "Demand forecast", icon: TrendingUp },
-          { to: "/app/inventory", label: "Inventory", icon: Boxes },
-        ],
-      },
-      {
-        label: "Relationships", items: [
-          { to: "/app/crm", label: "CRM / Leads", icon: Users },
-          { to: "/app/debtors", label: "Debtors", icon: Building2 },
-          { to: "/app/vendors", label: "Suppliers", icon: Truck },
-        ],
-      },
-      {
-        label: "Finance", items: [
-          { to: "/app/accounting", label: "Accounting", icon: BookOpen },
-          { to: "/app/reports", label: "Reports", icon: BarChart3 },
-          { to: "/app/balance-sheet", label: "Balance sheet", icon: Scale },
-        ],
-      },
-      {
-        label: "System", items: [
-          { to: "/app/alerts", label: "Alerts", icon: BellRing },
-          { to: "/app/reminders", label: "Reminders", icon: Mail },
-          ...(isAdmin ? [{ to: "/app/admin", label: "Operations", icon: Shield }] : []),
-          { to: "/app/template", label: "Invoice template", icon: Palette },
-          { to: "/app/settings", label: "Settings", icon: Settings },
-        ],
-      },
+    // ── Admin — full access ──
+    if (isAdmin) {
+      return [
+        { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+        { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
+        { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
+        {
+          type: "group", label: "Transactions", icon: Receipt,
+          items: TRANSACTIONS_ITEMS,
+        },
+        {
+          type: "group", label: "Catalog & Inventory", icon: Boxes,
+          items: [
+            { to: "/app/products", label: "Product catalog", icon: Package },
+            { to: "/app/forecast", label: "Demand forecasting", icon: TrendingUp },
+            { to: "/app/inventory", label: "Inventory", icon: Boxes },
+          ],
+        },
+        {
+          type: "group", label: "Sales", icon: Users,
+          items: [
+            { to: "/app/crm", label: "Leads", icon: Users },
+            { to: "/app/debtors", label: "Debtors", icon: Building2 },
+            { to: "/app/suppliers", label: "Suppliers", icon: Truck },
+          ],
+        },
+        {
+          type: "group", label: "System", icon: Settings,
+          items: [
+            { to: "/app/alerts", label: "Alerts", icon: BellRing },
+            { to: "/app/reminders", label: "Reminders", icon: Mail },
+            { to: "/app/admin", label: "Operations", icon: Shield },
+            { to: "/app/template", label: "Invoice template", icon: Palette },
+            { to: "/app/settings", label: "Settings", icon: Settings },
+          ],
+        },
+      ];
+    }
+
+    // ── Fallback for unknown / unreporting_manager roles ──
+    return [
+      { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
     ];
-    return sections;
   })();
 
-  // Flatten for command palette search
-  const allNavItems = navSections.flatMap((s) => s.items);
+  // Resolve the currently active flyout section data
+  const activeFlyoutSection =
+    activeFlyout
+      ? (navSections.find(
+          (s): s is Extract<NavSection, { type: "group" }> =>
+            s.type === "group" && s.label === activeFlyout,
+        ) ?? null)
+      : null;
 
-  const consoleLabel = isAdmin ? "Factor console" : isTreasury ? "Treasury desk" : isChecker ? "Checker desk" : isSalesRep ? "Sales workspace" : "Trader portal";
+  const closeAll = () => {
+    setActiveFlyout(null);
+    setMobileExpanded(null);
+  };
 
-  // ─── Sidebar content (reused in desktop + mobile) ──────────
-  const sidebarContent = (
+  const consoleLabel = isAdmin
+    ? "Factor console"
+    : isTreasury
+      ? "Treasury desk"
+      : isChecker
+        ? "Checker desk"
+        : isOperations
+          ? "Operations desk"
+          : isSalesRep
+            ? "Sales workspace"
+            : isReportingManager
+              ? "Reporting console"
+              : "Trader portal";
+
+  // ─── Render a single nav link ─────────────────────────────────
+  const renderNavLink = (n: NavItem, closeSidebar: () => void) => {
+    const active = pathname === n.to || pathname.startsWith(n.to + "/");
+    const Icon = n.icon;
+    return (
+      <Link
+        key={n.to}
+        to={n.to}
+        onClick={() => { closeSidebar(); closeAll(); }}
+        className={`flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+          active
+            ? "bg-blue-50 text-accent"
+            : "text-slate-500 hover:bg-blue-50/50 hover:text-slate-700"
+        }`}
+      >
+        <Icon className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-slate-400"}`} />
+        <span className="truncate">{n.label}</span>
+        {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />}
+      </Link>
+    );
+  };
+
+  // ─── Sidebar content ─────────────────────────────────────────
+  // `mobile` = true → renders inside the Sheet (inline accordion for groups)
+  // `mobile` = false → renders in the desktop sidebar (flyout for groups)
+  const renderSidebarContent = (mobile: boolean) => (
     <>
       {/* Brand header */}
       <div className="flex items-center gap-3 px-5 py-5 border-b border-sidebar-border shrink-0">
@@ -229,36 +315,90 @@ function AppLayout() {
       </div>
 
       {/* Navigation sections */}
-      <nav className="flex-1 overflow-y-auto px-3 py-3 space-y-5 [&::-webkit-scrollbar]:hidden">
-        {navSections.map((section) => (
-          <div key={section.label}>
-            <div className="px-3 pb-1.5 text-[9px] uppercase tracking-[0.2em] text-muted-foreground font-medium">
-              {section.label}
-            </div>
-            <div className="space-y-0.5">
-              {section.items.map((n) => {
-                const active = pathname === n.to || pathname.startsWith(n.to + "/");
-                const Icon = n.icon;
-                return (
-                  <Link
-                    key={n.to}
-                    to={n.to}
-                    onClick={() => setMobileOpen(false)}
-                    className={`flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
-                      active
+      <nav className="relative flex-1 overflow-y-auto px-3 py-3 space-y-0.5 [&::-webkit-scrollbar]:hidden">
+        {navSections.map((section) => {
+          // ── Single item ──
+          if (section.type === "single") {
+            const active = pathname === section.to || pathname.startsWith(section.to + "/");
+            const Icon = section.icon;
+            return (
+              <Link
+                key={section.to}
+                to={section.to}
+                onClick={() => { if (mobile) setMobileOpen(false); }}
+                className={`flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                  active
+                    ? "bg-blue-50 text-accent"
+                    : "text-slate-500 hover:bg-blue-50/50 hover:text-slate-700"
+                }`}
+              >
+                <Icon className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-slate-400"}`} />
+                <span className="truncate">{section.label}</span>
+                {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />}
+              </Link>
+            );
+          }
+
+          // ── Group / expandable section ──
+          const Icon = section.icon;
+          const hasActiveChild = section.items.some(
+            (n) => pathname === n.to || pathname.startsWith(n.to + "/"),
+          );
+          const isOpen = activeFlyout === section.label;
+
+          return (
+            <div key={section.label}>
+              {mobile ? (
+                // ── Mobile: inline accordion ──
+                <>
+                  <button
+                    onClick={() =>
+                      setMobileExpanded(
+                        mobileExpanded === section.label ? null : section.label,
+                      )
+                    }
+                    className={`flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                      hasActiveChild
                         ? "bg-blue-50 text-accent"
                         : "text-slate-500 hover:bg-blue-50/50 hover:text-slate-700"
                     }`}
                   >
-                    <Icon className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-slate-400"}`} />
-                    <span className="truncate">{n.label}</span>
-                    {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />}
-                  </Link>
-                );
-              })}
+                    <Icon className={`h-4 w-4 shrink-0 ${hasActiveChild ? "text-accent" : "text-slate-400"}`} />
+                    <span className="flex-1 truncate text-left">{section.label}</span>
+                    <ChevronDown
+                      className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
+                        mobileExpanded === section.label ? "rotate-180" : ""
+                      } ${hasActiveChild ? "text-accent" : "text-slate-400"}`}
+                    />
+                  </button>
+                  {mobileExpanded === section.label && (
+                    <div className="ml-3 mt-0.5 space-y-0.5 border-l-2 border-blue-100 pl-2 animate-in slide-in-from-top-1 fade-in duration-150">
+                      {section.items.map((n) => renderNavLink(n, () => setMobileOpen(false)))}
+                    </div>
+                  )}
+                </>
+              ) : (
+                // ── Desktop: horizontal flyout ──
+                <button
+                  onClick={() => setActiveFlyout(isOpen ? null : section.label)}
+                  className={`flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                    hasActiveChild || isOpen
+                      ? "bg-blue-50 text-accent"
+                      : "text-slate-500 hover:bg-blue-50/50 hover:text-slate-700"
+                  } ${isOpen ? "ring-1 ring-blue-200" : ""}`}
+                >
+                  <Icon className={`h-4 w-4 shrink-0 ${hasActiveChild ? "text-accent" : "text-slate-400"}`} />
+                  <span className="flex-1 truncate text-left">{section.label}</span>
+                  <ChevronRight
+                    className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
+                      isOpen ? "translate-x-0.5 text-accent" : ""
+                    } ${hasActiveChild ? "text-accent" : "text-slate-400"}`}
+                  />
+                </button>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </nav>
 
       {/* User footer */}
@@ -285,7 +425,7 @@ function AppLayout() {
             </button>
           </SheetTrigger>
           <SheetContent side="left" className="w-[280px] p-0 bg-sidebar">
-            {sidebarContent}
+            {renderSidebarContent(true)}
           </SheetContent>
         </Sheet>
         <div className="flex items-center gap-2">
@@ -301,12 +441,98 @@ function AppLayout() {
       </div>
 
       {/* Desktop sidebar */}
-      <aside className="hidden w-64 flex-col border-r border-sidebar-border bg-sidebar md:flex print:hidden">
-        {sidebarContent}
+      <aside className="relative hidden w-64 flex-col border-r border-sidebar-border bg-sidebar md:flex print:hidden">
+        {renderSidebarContent(false)}
+
+        {/* ── Horizontal flyout panel ── */}
+        {activeFlyoutSection && (
+          <>
+            {/* Backdrop */}
+            <div className="fixed inset-0 z-40" onClick={() => setActiveFlyout(null)} />
+            {/* Flyout panel */}
+            <div className="fixed left-64 top-0 z-50 flex h-full w-60 flex-col border-r border-border bg-white shadow-2xl animate-in slide-in-from-left-2 fade-in duration-200">
+              {/* Flyout header */}
+              <div className="flex items-center gap-3 px-4 h-14 shrink-0 border-b border-border">
+                <button
+                  onClick={() => setActiveFlyout(null)}
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-slate-100 hover:text-foreground"
+                >
+                  <ChevronRight className="h-4 w-4 rotate-180" />
+                </button>
+                <div className="h-4 w-px bg-border" />
+                <span className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                  {activeFlyoutSection.label}
+                </span>
+              </div>
+              {/* Flyout items */}
+              <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+                {activeFlyoutSection.items.map((n) => {
+                  const active = pathname === n.to || pathname.startsWith(n.to + "/");
+                  const ItemIcon = n.icon;
+                  return (
+                    <button
+                      key={n.to}
+                      onClick={() => {
+                        setActiveFlyout(null);
+                        navigate({ to: n.to });
+                      }}
+                      className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                        active
+                          ? "bg-blue-50 text-accent"
+                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-800"
+                      }`}
+                    >
+                      <ItemIcon className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-slate-400"}`} />
+                      <span className="truncate">{n.label}</span>
+                      {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </>
+        )}
       </aside>
 
       {/* Main content area */}
       <main className="flex-1 min-w-0 bg-background pt-14 md:pt-0">
+        {/* Top bar with profile */}
+        <div className="hidden md:flex items-center justify-end gap-3 border-b border-border bg-background px-6 py-2.5">
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted/50">
+                <Avatar className="h-7 w-7">
+                  <AvatarImage src={user?.photoUrl || undefined} />
+                  <AvatarFallback className="bg-primary/10 text-primary text-xs font-medium">
+                    {(user?.email || "U").charAt(0).toUpperCase()}
+                  </AvatarFallback>
+                </Avatar>
+                <span className="text-sm font-medium text-foreground max-w-[140px] truncate">
+                  {user?.email?.split("@")[0] || "User"}
+                </span>
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+                {user?.email}
+              </DropdownMenuLabel>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => navigate({ to: "/app/profile" })} className="cursor-pointer">
+                <User className="mr-2 h-4 w-4" /> Profile
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate({ to: "/app/workspace" })} className="cursor-pointer">
+                <Briefcase className="mr-2 h-4 w-4" /> My Workspace
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => navigate({ to: "/app/settings" })} className="cursor-pointer">
+                <Settings className="mr-2 h-4 w-4" /> Settings
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={signOut} className="cursor-pointer text-destructive focus:text-destructive">
+                <LogOut className="mr-2 h-4 w-4" /> Sign out
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
         <Outlet />
       </main>
 
@@ -315,28 +541,53 @@ function AppLayout() {
         <CommandInput placeholder="Search pages…" />
         <CommandList>
           <CommandEmpty>No pages found.</CommandEmpty>
-          {navSections.map((section) => (
-            <CommandGroup key={section.label} heading={section.label}>
-              {section.items.map((n) => {
-                const Icon = n.icon;
-                return (
+          {navSections.map((section) => {
+            if (section.type === "single") {
+              const Icon = section.icon;
+              return (
+                <CommandGroup key={section.to} heading={section.label}>
                   <CommandItem
-                    key={n.to}
-                    value={`${section.label} ${n.label}`}
+                    value={section.label}
                     onSelect={() => {
                       setCmdOpen(false);
-                      navigate({ to: n.to });
+                      navigate({ to: section.to });
                     }}
                     className="cursor-pointer"
                   >
                     <Icon className="mr-2 h-4 w-4" />
-                    <span>{n.label}</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">{n.to.replace("/app/", "")}</span>
+                    <span>{section.label}</span>
+                    <span className="ml-auto text-[10px] text-muted-foreground">
+                      {section.to.replace("/app/", "")}
+                    </span>
                   </CommandItem>
-                );
-              })}
-            </CommandGroup>
-          ))}
+                </CommandGroup>
+              );
+            }
+            return (
+              <CommandGroup key={section.label} heading={section.label}>
+                {section.items.map((n) => {
+                  const Icon = n.icon;
+                  return (
+                    <CommandItem
+                      key={n.to}
+                      value={`${section.label} ${n.label}`}
+                      onSelect={() => {
+                        setCmdOpen(false);
+                        navigate({ to: n.to });
+                      }}
+                      className="cursor-pointer"
+                    >
+                      <Icon className="mr-2 h-4 w-4" />
+                      <span>{n.label}</span>
+                      <span className="ml-auto text-[10px] text-muted-foreground">
+                        {n.to.replace("/app/", "")}
+                      </span>
+                    </CommandItem>
+                  );
+                })}
+              </CommandGroup>
+            );
+          })}
         </CommandList>
       </CommandDialog>
     </div>
