@@ -1,0 +1,339 @@
+@import "tailwindcss" source(none);
+@source "../src";
+@import "tw-animate-css";
+
+/* ============================================================
+   ADVENTRA — Premium light-mode enterprise fintech dashboard.
+   Inspired by Stripe Dashboard, Linear, Ramp, Brex, Mercury.
+   ============================================================ */
+
+@theme inline {
+  --font-display: "Fraunces", "Times New Roman", serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+  --radius-2xl: 20px;
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+}
+
+:root {
+  --radius: 12px;
+
+  /* Surface & backgrounds */
+  --background: #F8FAFC;
+  --foreground: #0F172A;
+
+  /* Cards */
+  --card: #FFFFFF;
+  --card-foreground: #0F172A;
+
+  --popover: #FFFFFF;
+  --popover-foreground: #0F172A;
+
+  /* Primary: bright cyan accent */
+  --primary: #00B8FF;
+  --primary-foreground: #FFFFFF;
+
+  /* Secondary: subtle light surface */
+  --secondary: #F1F5F9;
+  --secondary-foreground: #0F172A;
+
+  /* Muted: light grey surfaces */
+  --muted: #F1F5F9;
+  --muted-foreground: #64748B;
+
+  /* Accent: cyan (same as primary for consistency) */
+  --accent: #00B8FF;
+  --accent-foreground: #FFFFFF;
+
+  /* Destructive */
+  --destructive: #DC2626;
+  --destructive-foreground: #FFFFFF;
+
+  /* Warning */
+  --warning: #F59E0B;
+  --warning-foreground: #FFFFFF;
+
+  /* Success */
+  --success: #16A34A;
+  --success-foreground: #FFFFFF;
+
+  /* Borders & inputs */
+  --border: #E2E8F0;
+  --input: #FFFFFF;
+  --ring: #00B8FF;
+
+  /* Chart colors — fintech palette */
+  --chart-1: #00B8FF;     /* Cyan */
+  --chart-2: #0066FF;     /* Blue */
+  --chart-3: #7C3AED;     /* Purple */
+  --chart-4: #F59E0B;     /* Amber */
+  --chart-5: #16A34A;     /* Green */
+
+  /* Sidebar — pristine white with cyan accents */
+  --sidebar: #FFFFFF;
+  --sidebar-foreground: #0F172A;
+  --sidebar-primary: #00B8FF;
+  --sidebar-primary-foreground: #FFFFFF;
+  --sidebar-accent: #F0F9FF;
+  --sidebar-accent-foreground: #0F172A;
+  --sidebar-border: #E2E8F0;
+  --sidebar-ring: #00B8FF;
+}
+
+@layer base {
+  * {
+    border-color: var(--color-border);
+    transition-property: background-color, border-color, color;
+    transition-duration: 200ms;
+    transition-timing-function: ease-out;
+  }
+  html, body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+  }
+  body {
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+    letter-spacing: -0.02em;
+  }
+  .num, .font-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  ::selection {
+    background-color: rgba(0, 184, 255, 0.2);
+    color: var(--color-foreground);
+  }
+}
+
+@layer utilities {
+  /* Card shadow — soft subtle elevation */
+  .shadow-card {
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.02);
+  }
+  .shadow-card-hover {
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
+  }
+  .shadow-dropdown {
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  }
+  .shadow-modal {
+    box-shadow: 0 20px 60px rgba(15, 23, 42, 0.12);
+  }
+  .shadow-glow {
+    box-shadow: 0 0 0 1px rgba(0, 184, 255, 0.2), 0 8px 24px -4px rgba(0, 184, 255, 0.15);
+  }
+  .border-hairline {
+    border: 1px solid rgba(226, 232, 240, 0.7);
+  }
+  .grid-lines {
+    background-image:
+      linear-gradient(to right, rgba(226, 232, 240, 0.5) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(226, 232, 240, 0.5) 1px, transparent 1px);
+    background-size: 64px 64px;
+  }
+  .bg-subtle {
+    background-color: var(--color-muted);
+  }
+  .text-balance {
+    text-wrap: balance;
+  }
+  .bg-vault {
+    background-color: #F1F5F9;
+  }
+  .shadow-vault {
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
+  }
+
+  /* Premium table styles */
+  .table-premium th {
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748B;
+    padding: 0.75rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid #E2E8F0;
+    background: #F8FAFC;
+  }
+  .table-premium td {
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #F1F5F9;
+    font-size: 0.8125rem;
+  }
+  .table-premium tr:hover td {
+    background-color: #F8FAFC;
+  }
+  .table-premium tr:nth-child(even) td {
+    background-color: #FAFBFC;
+  }
+  .table-premium tr:nth-child(even):hover td {
+    background-color: #F0F9FF;
+  }
+
+  /* Button styles */
+  .btn-primary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;    border-radius: 12px;
+    background: linear-gradient(135deg, #00B8FF, #0099D9);
+    color: #FFFFFF;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    padding: 0.625rem 1.25rem;
+    box-shadow: 0 1px 3px rgba(0, 184, 255, 0.2);
+    transition: all 200ms ease;
+    cursor: pointer;
+    border: none;
+  }
+  .btn-primary:hover {
+    background: #0099D9;
+    box-shadow: 0 4px 12px rgba(0, 184, 255, 0.3);
+    transform: translateY(-1px);
+  }
+  .btn-primary:active {
+    transform: translateY(0);
+  }
+  .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 12px;
+    background: #FFFFFF;
+    color: #0F172A;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    padding: 0.625rem 1.25rem;
+    border: 1px solid #E2E8F0;
+    transition: all 200ms ease;
+    cursor: pointer;
+  }
+  .btn-secondary:hover {
+    border-color: #00B8FF;
+    color: #00B8FF;
+    box-shadow: 0 1px 3px rgba(0, 184, 255, 0.1);
+  }
+  .btn-danger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 12px;
+    background: #FEF2F2;
+    color: #DC2626;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    padding: 0.625rem 1.25rem;
+    border: 1px solid #FECACA;
+    transition: all 200ms ease;
+    cursor: pointer;
+  }
+  .btn-danger:hover {
+    background: #FEE2E2;
+    border-color: #FCA5A5;
+  }
+
+  /* KPI Metric card */
+  .metric-card {
+    background: #FFFFFF;
+    border: 1px solid #E2E8F0;
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
+    transition: all 200ms ease;
+  }
+  .metric-card:hover {
+    box-shadow: 0 8px 30px rgba(15, 23, 42, 0.08);
+    transform: translateY(-2px);
+  }
+  .metric-value {
+    font-size: 1.75rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: #0F172A;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    line-height: 1.2;
+  }
+  .metric-label {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: #64748B;
+    font-weight: 500;
+    margin-bottom: 0.25rem;
+  }
+  .metric-delta {
+    font-size: 0.75rem;
+    margin-top: 0.375rem;
+  }
+
+  /* Status pills */
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 9999px;
+    padding: 0.125rem 0.75rem;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  /* SPA fallback: full height layout */
+  .app-layout {
+    display: flex;
+    min-height: 100vh;
+    width: 100%;
+  }
+}
