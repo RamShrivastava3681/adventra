@@ -67,7 +67,13 @@ router.post("/admin/users/create", authMiddleware, requireAdmin, (req, res) => U
 router.put("/admin/users/role", authMiddleware, requireAdmin, (req, res) => User.updateUserRole(req, res));
 router.get("/admin/users/managers", authMiddleware, requireAdmin, (req, res) => User.listManagers(req, res));
 router.put("/admin/users/:userId/assign-manager", authMiddleware, requireAdmin, (req, res) => User.assignManager(req, res));
-router.get("/admin/users/:managerId/reports", authMiddleware, requireAdmin, (req, res) => User.getReports(req, res));
+router.get("/admin/users/:managerId/reports", authMiddleware, (req, res, next) => {
+  // Allow admins OR the reporting manager themself to fetch reports
+  if (req.user?.roles?.includes("factor_admin") || req.user?.userId === req.params.managerId) {
+    return next();
+  }
+  return res.status(403).json({ error: "Access denied. Only admins and the reporting manager themselves can view reports." });
+}, (req, res) => User.getReports(req, res));
 
 // ===================== PRODUCTS =====================
 router.get("/products", authMiddleware, async (req, res) => {
