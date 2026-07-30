@@ -42,6 +42,7 @@ function AuthPage() {
         navigate({ to: "/app/dashboard", replace: true });
       }
     } catch (err) {
+      console.error("[Auth] Login error:", err);
       toast.error(err instanceof Error ? err.message : "Authentication failed");
     } finally {
       setLoading(false);

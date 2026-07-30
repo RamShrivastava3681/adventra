@@ -29,6 +29,9 @@ async function request<T = any>(
     const body = await res.json().catch(() => ({}));
     const error: any = new Error(body.error || `Request failed: ${res.status}`);
     error.status = res.status;
+    console.error(`[API] ${options.method || "GET"} ${path} → ${res.status}:`, body.error || res.statusText);
+    // Log full error body in development for debugging
+    if (import.meta.env.DEV) console.debug("[API] Response body:", body);
     throw error;
   }
 

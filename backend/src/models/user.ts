@@ -82,6 +82,7 @@ export async function signup(req: Request, res: Response) {
       },
     });
   } catch (err: any) {
+    console.error("[Auth] Signup error:", err);
     return res.status(500).json({ error: err.message || "Signup failed" });
   }
 }
@@ -121,6 +122,7 @@ export async function login(req: Request, res: Response) {
       },
     });
   } catch (err: any) {
+    console.error("[Auth] Login error:", err);
     return res.status(500).json({ error: err.message || "Login failed" });
   }
 }

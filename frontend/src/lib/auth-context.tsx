@@ -42,7 +42,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const data = await api.auth.me();
       setRoles((data.roles ?? []) as AppRole[]);
-    } catch {
+    } catch (err) {
+      console.error("[Auth] loadRoles error:", err);
       setRoles([]);
     }
   };
@@ -68,7 +69,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       };
       setUser(authUser);
       setRoles((data.roles ?? []) as AppRole[]);
-    } catch {
+    } catch (err) {
+      console.error("[Auth] checkAuth /auth/me failed:", err);
       localStorage.removeItem("auth_token");
       setToken(null);
       setUser(null);
