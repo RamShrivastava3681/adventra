@@ -120,21 +120,23 @@ app.listen(config.port, async () => {
 });
 
 // ---------------------------------------------------------------------------
-// Forecast recompute on startup — runs async for every known client
+// Forecast recompute on startup — runs async for every client that has data
 // ---------------------------------------------------------------------------
 async function recomputeAllForecastsOnStartup() {
   try {
     const { recomputeAll } = await import("./services/forecast-service.js");
-    const users = await db.scanByType("User");
+    // Scan inventory entries (stock movements) instead of user accounts so we
+    // only recompute forecasts for clients that actually have inventory data.
+    const movements = await db.scanByType("StockMovement", { limit: 2000 });
     const clientIds = new Set<string>();
-    for (const u of users) {
-      if (u.id) clientIds.add(u.id);
+    for (const m of movements) {
+      if (m.clientId) clientIds.add(m.clientId);
     }
     if (clientIds.size === 0) {
-      console.log("  ⚠ No users found — skipping forecast recompute on startup");
+      console.log("  ⚠ No inventory entries found — skipping forecast recompute on startup");
       return;
     }
-    console.log(`  🔄 Recomputing forecasts for ${clientIds.size} client(s) on startup…`);
+    console.log(`  🔄 Recomputing forecasts for ${clientIds.size} client(s) with inventory on startup…`);
     const results = await Promise.allSettled(
       Array.from(clientIds).map((clientId) => recomputeAll(clientId))
     );

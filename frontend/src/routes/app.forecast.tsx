@@ -25,6 +25,21 @@ type Product = {
 
 type Analysis = { product: Product; stock: number; forecast: ForecastResult; velocityTag: VelocityTag; pricingStrategy: PricingStrategyResult | null };
 
+// Deep-convert snake_case object keys to camelCase (the backend transform
+// middleware snake_cases every response key, so we restore them here).
+function snakeToCamelDeep(value: unknown): any {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map((v) => snakeToCamelDeep(v));
+  if (typeof value === "object") {
+    const out: Record<string, any> = {};
+    for (const [k, v] of Object.entries(value as Record<string, any>)) {
+      out[k.replace(/_([a-z])/g, (_, c: string) => c.toUpperCase())] = snakeToCamelDeep(v);
+    }
+    return out;
+  }
+  return value;
+}
+
 function ForecastPage() {
   const queryClient = useQueryClient();
   const [q, setQ] = useState("");
@@ -56,7 +71,13 @@ function ForecastPage() {
   // Fetch server-side persisted forecasts (auto-fresh via ensureFresh on backend)
   const forecastVarsQ = useQuery({
     queryKey: ["forecast-variables"],
-    queryFn: () => api.forecastVariables.list(),
+    queryFn: async () => {
+      // The backend's transform middleware converts every response key to
+      // snake_case (product_id, final_forecast, days_of_cover, …). Convert it
+      // back to camelCase so the forecast engine + UI below can read it.
+      const data = await api.forecastVariables.list();
+      return snakeToCamelDeep(data);
+    },
     staleTime: 60_000, // 1 min — backend auto-refresh on first request of the day
   });
 
