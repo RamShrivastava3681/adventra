@@ -219,15 +219,30 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
     queryKey: ["products-mini"],
     queryFn: async () => {
       const data = await api.products.list();
-      return data.map((p: any) => ({ id: p.id, sku: p.sku, name: p.name, unit_cost: p.unitCost ?? p.unit_cost })).sort((a: any, b: any) => a.sku?.localeCompare(b.sku ?? "") ?? 0);
+      return data.map((p: any) => ({ id: p.id, sku: p.sku, name: p.name, unit_cost: p.unitCost ?? p.unit_cost, unit_price: p.unitPrice ?? p.unit_price })).sort((a: any, b: any) => a.sku?.localeCompare(b.sku ?? "") ?? 0);
     },
   });
 
-  // When a product is picked, auto-fill item_name, sku, unit_cost
+  // Stock-in (credit) is valued at the product's unit PRICE; stock-out (debit) at unit COST.
+  const unitValueFor = (pid: string, direction: "in" | "out") => {
+    const p = (productsQ.data ?? []).find((x: any) => x.id === pid) as any;
+    if (!p) return "";
+    return String(direction === "in" ? p.unit_price ?? "" : p.unit_cost ?? "");
+  };
+
+  // When a product is picked, auto-fill item_name, sku and the direction-appropriate unit value
   const pickProduct = (pid: string) => {
     const p = (productsQ.data ?? []).find((x: any) => x.id === pid) as any;
-    if (p) setForm((f) => ({ ...f, product_id: pid, item_name: p.name, sku: p.sku, unit_cost: f.unit_cost || String(p.unit_cost ?? "") }));
+    if (p) setForm((f) => ({ ...f, product_id: pid, item_name: p.name, sku: p.sku, unit_cost: f.unit_cost || unitValueFor(pid, f.direction) }));
     else setForm((f) => ({ ...f, product_id: "" }));
+  };
+
+  // Changing direction re-applies the correct value for the selected product
+  const setDirection = (direction: "in" | "out") => {
+    setForm((f) => {
+      const unit_cost = f.product_id ? unitValueFor(f.product_id, direction) : f.unit_cost;
+      return { ...f, direction, unit_cost };
+    });
   };
 
   const create = useMutation({
@@ -263,10 +278,10 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
         </div>
         <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-4 p-5">
           <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => setForm({ ...form, direction: "in" })} className={`rounded-md border px-3 py-2 text-sm ${form.direction === "in" ? "border-success bg-success/10 text-success" : "border-border"}`}>
+            <button type="button" onClick={() => setDirection("in")} className={`rounded-md border px-3 py-2 text-sm ${form.direction === "in" ? "border-success bg-success/10 text-success" : "border-border"}`}>
               <ArrowDownToLine className="mr-2 inline h-4 w-4" /> Stock-in (purchase)
             </button>
-            <button type="button" onClick={() => setForm({ ...form, direction: "out" })} className={`rounded-md border px-3 py-2 text-sm ${form.direction === "out" ? "border-warning bg-warning/10 text-warning" : "border-border"}`}>
+            <button type="button" onClick={() => setDirection("out")} className={`rounded-md border px-3 py-2 text-sm ${form.direction === "out" ? "border-warning bg-warning/10 text-warning" : "border-border"}`}>
               <ArrowUpFromLine className="mr-2 inline h-4 w-4" /> Stock-out (sale)
             </button>
           </div>
@@ -281,7 +296,7 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
             <L label="SKU"><input className="inp" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} /></L>
             <L label="Quantity *"><input required type="number" step="0.001" min="0" className="inp" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></L>
             <L label="Unit"><input className="inp" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder="kg / box / unit" /></L>
-            <L label="Unit cost"><input type="number" step="0.01" min="0" className="inp" value={form.unit_cost} onChange={(e) => setForm({ ...form, unit_cost: e.target.value })} /></L>
+            <L label={form.direction === "in" ? "Unit price" : "Unit cost"}><input type="number" step="0.01" min="0" className="inp" value={form.unit_cost} onChange={(e) => setForm({ ...form, unit_cost: e.target.value })} /></L>
             <L label="Date"><input required type="date" className="inp" value={form.movement_date} onChange={(e) => setForm({ ...form, movement_date: e.target.value })} /></L>
           </div>
           {form.direction === "in" ? (
