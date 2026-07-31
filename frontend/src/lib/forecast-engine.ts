@@ -1374,3 +1374,144 @@ function formatMoney(n: number): string {
   if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
   return `$${n.toFixed(2)}`;
 }
+
+// =============================================================================
+// Timeline recomputation — recalculates date-sensitive fields based on today
+// Use this when displaying persisted forecast snapshots so that dates like
+// estimatedStockoutDate, reorderByDate, and daysOfCover are always current.
+// =============================================================================
+
+/**
+ * Takes a forecast result (from a persisted snapshot) and recalculates all
+ * date-sensitive fields using the current date as "today".
+ *
+ * Fields updated:
+ * - estimatedStockoutDate
+ * - reorderByDate
+ * - nextRefillDate
+ * - stockoutUrgency
+ * - daysOfCover
+ * - stockoutRisk
+ * - overstockRisk
+ * - daysOfCover in calculationBreakdown
+ * - timeline in calculationBreakdown
+ * - risk in calculationBreakdown
+ */
+export function recomputeTimeline(
+  f: ForecastResult,
+  currentStock: number,
+  leadTimeDays: number
+): ForecastResult {
+  const today = new Date();
+  const supplierLead = Math.max(leadTimeDays, 1);
+
+  // Use the first forecast month's daily rate (or the top-level dailyForecast)
+  const dailyForecast = f.dailyForecast > 0
+    ? f.dailyForecast
+    : f.forecast[0]?.dailyRate ?? 0;
+
+  // Inventory position (use currentStock from movements)
+  const inventoryPosition = Math.max(0, currentStock);
+
+  // --- Days of cover ---
+  const coverRates = f.forecast
+    .slice(0, Math.min(3, f.forecast.length))
+    .map((mf) => mf.dailyRate)
+    .filter((r) => r > 0);
+  const coverDailyRate = coverRates.length > 0
+    ? coverRates.reduce((sum, r, i) => sum + r * (coverRates.length - i), 0) /
+      coverRates.reduce((sum, _, i) => sum + (coverRates.length - i), 0)
+    : dailyForecast > 0 ? dailyForecast : 0;
+
+  const daysOfCover =
+    coverDailyRate > 0
+      ? Math.round(inventoryPosition / coverDailyRate)
+      : Infinity;
+
+  // --- Estimated stockout date ---
+  let estimatedStockoutDate: string | null = null;
+  if (dailyForecast > 0 && inventoryPosition > 0) {
+    const daysUntilStockout = Math.ceil(inventoryPosition / dailyForecast);
+    const d = new Date(today);
+    d.setDate(d.getDate() + daysUntilStockout);
+    estimatedStockoutDate = d.toISOString().slice(0, 10);
+  } else if (inventoryPosition <= 0) {
+    estimatedStockoutDate = today.toISOString().slice(0, 10);
+  }
+
+  // --- Reorder-by date ---
+  let reorderByDate: string | null = null;
+  if (estimatedStockoutDate) {
+    const d = new Date(estimatedStockoutDate);
+    d.setDate(d.getDate() - supplierLead);
+    reorderByDate = d.toISOString().slice(0, 10);
+  }
+
+  // --- Next refill date (if ordered today) ---
+  const nextRefill = new Date(today);
+  nextRefill.setDate(nextRefill.getDate() + supplierLead);
+  const nextRefillDate = nextRefill.toISOString().slice(0, 10);
+
+  // --- Stockout urgency ---
+  const stockoutUrgency: ForecastResult["stockoutUrgency"] =
+    inventoryPosition <= 0 || (reorderByDate && new Date(reorderByDate) <= today)
+      ? "critical"
+      : reorderByDate && new Date(reorderByDate) <= new Date(today.getTime() + supplierLead * 86400000)
+      ? "warning"
+      : "safe";
+
+  // --- Risks ---
+  const coverVsLead = daysOfCover === Infinity ? 999 : daysOfCover / supplierLead;
+  const stockoutRisk: ForecastResult["stockoutRisk"] =
+    coverVsLead < 1 ? "high" : coverVsLead < 1.5 ? "medium" : "low";
+  const maxCover = 180;
+  const overstockRisk: ForecastResult["overstockRisk"] =
+    daysOfCover === Infinity && inventoryPosition > 0
+      ? "high"
+      : daysOfCover > maxCover
+      ? "high"
+      : daysOfCover > maxCover * 0.75
+      ? "medium"
+      : "low";
+
+  return {
+    ...f,
+    inventoryPosition,
+    daysOfCover,
+    estimatedStockoutDate,
+    reorderByDate,
+    nextRefillDate,
+    stockoutUrgency,
+    stockoutRisk,
+    overstockRisk,
+    calculationBreakdown: {
+      ...f.calculationBreakdown,
+      daysOfCover: {
+        ...f.calculationBreakdown.daysOfCover,
+        dailyForecast,
+        inventoryPosition,
+        daysOfCover,
+      },
+      risk: {
+        ...f.calculationBreakdown.risk,
+        coverVsLead: Math.round(coverVsLead * 100) / 100,
+        stockoutRisk,
+        overstockRisk,
+      },
+      timeline: {
+        ...f.calculationBreakdown.timeline,
+        dailyForecast,
+        inventoryPosition,
+        daysUntilStockout:
+          dailyForecast > 0 && inventoryPosition > 0
+            ? Math.ceil(inventoryPosition / dailyForecast)
+            : null,
+        estimatedStockoutDate,
+        supplierLeadDays: supplierLead,
+        reorderByDate,
+        nextRefillDate,
+        stockoutUrgency,
+      },
+    },
+  };
+}

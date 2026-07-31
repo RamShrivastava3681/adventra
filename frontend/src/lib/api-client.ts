@@ -231,6 +231,17 @@ const api = {
   // Forecast
   forecast: () => api.get<any>("/forecast"),
 
+  // Forecast Variables (persisted snapshots from backend)
+  forecastVariables: {
+    list: () => api.get<{
+      computedDate: string | null;
+      wasRecomputed: boolean;
+      snapshots: any[];
+      products: any[];
+    }>("/forecast-variables"),
+    recompute: () => api.post<{ computedDate: string; count: number; message: string }>("/forecast-variables/recompute"),
+  },
+
   // NOA
   noa: {
     get: (token: string) => api.get<any>(`/noa/${token}`),

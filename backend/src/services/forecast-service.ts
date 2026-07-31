@@ -1,0 +1,152 @@
+import * as Product from "../models/product.js";
+import * as StockMovement from "../models/stock-movement.js";
+import * as ForecastVariable from "../models/forecast-variable.js";
+import {
+  bucketMovementsByMonth,
+  forecastSKU,
+  computeVelocityByCategory,
+  type CategoryVelocityInput,
+  type ForecastResult,
+  type VelocityTag,
+} from "../../frontend/src/lib/forecast-engine.js";
+
+export type ForecastSnapshot = {
+  productId: string;
+  productSku: string | null;
+  productName: string | null;
+  leadTimeDays: number;
+  forecast: ForecastResult;
+  velocityTag: VelocityTag;
+};
+
+/**
+ * Computes forecasts for all active products of a client and persists them.
+ * Runs exactly the same logic as the frontend but on the server.
+ */
+export async function recomputeAll(clientId: string): Promise<{
+  computedDate: string;
+  count: number;
+  snapshots: ForecastSnapshot[];
+}> {
+  const [products, movements] = await Promise.all([
+    Product.list(clientId),
+    StockMovement.list(clientId),
+  ]);
+
+  const activeProducts = products.filter(
+    (p: any) => p.status === "active"
+  );
+
+  // Group movements by product
+  const byProduct = new Map<string, any[]>();
+  for (const m of movements) {
+    if (!m.productId) continue;
+    const arr = byProduct.get(m.productId) ?? [];
+    arr.push(m);
+    byProduct.set(m.productId, arr);
+  }
+
+  const snapshots: ForecastSnapshot[] = [];
+
+  for (const p of activeProducts) {
+    const productId = p.id;
+    const moves = byProduct.get(productId) ?? [];
+
+    // Calculate current stock
+    let stock = 0;
+    for (const m of moves) {
+      stock += (m.direction === "in" ? 1 : -1) * Number(m.quantity);
+    }
+
+    // Convert movements to the format bucketMovementsByMonth expects
+    const formattedMoves = moves.map((m: any) => ({
+      movement_date: m.movementDate ?? m.movement_date,
+      quantity: m.quantity,
+      direction: m.direction,
+    }));
+
+    const history = bucketMovementsByMonth(formattedMoves, 12);
+    const leadTimeDays = p.leadTimeDays ?? p.lead_time_days ?? 14;
+    const f = forecastSKU(history, stock, leadTimeDays, 6);
+
+    snapshots.push({
+      productId,
+      productSku: p.sku ?? null,
+      productName: p.name ?? null,
+      leadTimeDays,
+      forecast: f,
+      velocityTag: "dead" as VelocityTag,
+    });
+  }
+
+  // 2. Compute category-based velocity for all SKUs
+  const velInputs: CategoryVelocityInput[] = snapshots.map((s) => ({
+    productId: s.productId,
+    category: null, // will look up from product
+    recent3MonthAvg: s.forecast.calculationBreakdown.momentum.recent3MonthAvg,
+  }));
+  // Get categories from products
+  const productMap = new Map(activeProducts.map((p: any) => [p.id, p]));
+  for (const input of velInputs) {
+    const prod = productMap.get(input.productId);
+    input.category = prod?.category ?? null;
+  }
+
+  const velocityMap = computeVelocityByCategory(velInputs);
+
+  // Apply velocity tags
+  for (const s of snapshots) {
+    const vt = velocityMap.get(s.productId);
+    if (vt) s.velocityTag = vt;
+  }
+
+  // 3. Persist each forecast to DynamoDB
+  const computedDate = new Date().toISOString().slice(0, 10);
+
+  for (const s of snapshots) {
+    const f = s.forecast;
+    await ForecastVariable.upsert({
+      clientId,
+      productId: s.productId,
+      productSku: s.productSku,
+      productName: s.productName,
+      computedDate,
+      forecastJson: JSON.stringify(f),
+      finalForecast: f.finalForecast,
+      dailyForecast: f.dailyForecast,
+      daysOfCover: f.daysOfCover,
+      recommendedReorder: f.recommendedReorder,
+      inventoryPosition: f.inventoryPosition,
+      trendDirection: f.trendDirection,
+      momentumTag: f.momentumTag,
+      stockoutRisk: f.stockoutRisk,
+      estimatedStockoutDate: f.estimatedStockoutDate,
+      reorderByDate: f.reorderByDate,
+      nextRefillDate: f.nextRefillDate,
+      stockoutUrgency: f.stockoutUrgency,
+      avgMonthly: f.avgMonthly,
+    });
+  }
+
+  return {
+    computedDate,
+    count: snapshots.length,
+    snapshots,
+  };
+}
+
+/**
+ * Checks if the forecast should be recomputed (outdated or never computed)
+ * and triggers a recompute if needed.
+ */
+export async function ensureFresh(clientId: string): Promise<boolean> {
+  const latestDate = await ForecastVariable.getLatestComputedDate(clientId);
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Recompute if: no forecast exists, or last computed date is before today
+  if (!latestDate || latestDate < today) {
+    await recomputeAll(clientId);
+    return true; // recomputed
+  }
+  return false; // already fresh
+}

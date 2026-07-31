@@ -1,11 +1,11 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
-import { bucketMovementsByMonth, forecastSKU, MONTH_NAMES, computeVelocityByCategory, computePricingStrategy, type ForecastResult, type CalculationBreakdown, type MomentumTag, type VelocityTag, type PricingStrategyResult, type CategoryVelocityInput } from "@/lib/forecast-engine";
+import { bucketMovementsByMonth, forecastSKU, MONTH_NAMES, computeVelocityByCategory, computePricingStrategy, recomputeTimeline, type ForecastResult, type CalculationBreakdown, type MomentumTag, type VelocityTag, type PricingStrategyResult, type CategoryVelocityInput } from "@/lib/forecast-engine";
 import {
-  TrendingUp, TrendingDown, AlertTriangle, Package, Search, BarChart3,
+  TrendingUp, TrendingDown, AlertTriangle, Package, Search, BarChart3, RefreshCw,
   CalendarClock, Clock, Truck, ArrowUpDown, ArrowRight, Zap, ArrowUp, ArrowDown, Minus,
 } from "lucide-react";
 import {
@@ -26,6 +26,7 @@ type Product = {
 type Analysis = { product: Product; stock: number; forecast: ForecastResult; velocityTag: VelocityTag; pricingStrategy: PricingStrategyResult | null };
 
 function ForecastPage() {
+  const queryClient = useQueryClient();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<"all" | "reorder" | "fast" | "slow" | "accelerating" | "declining" | "out" | "critical">("all");
   const [sortBy, setSortBy] = useState<"velocity" | "reorder" | "cover" | "stockout" | "trend">("reorder");
@@ -52,7 +53,87 @@ function ForecastPage() {
     },
   });
 
+  // Fetch server-side persisted forecasts (auto-fresh via ensureFresh on backend)
+  const forecastVarsQ = useQuery({
+    queryKey: ["forecast-variables"],
+    queryFn: () => api.forecastVariables.list(),
+    staleTime: 60_000, // 1 min — backend auto-refresh on first request of the day
+  });
+
+  // Recompute mutation
+  const recomputeMutation = useMutation({
+    mutationFn: () => api.forecastVariables.recompute(),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["forecast-variables"] });
+    },
+  });
+
   const analyses = useMemo(() => {
+    // Try server-side persisted forecasts first
+    const fv = forecastVarsQ.data;
+    if (fv && fv.snapshots && fv.snapshots.length > 0 && fv.products && fv.products.length > 0) {
+      // Build a map of products from the server response
+      const productMap = new Map<string, any>();
+      for (const p of fv.products) {
+        productMap.set(p.id, {
+          id: p.id, sku: p.sku, name: p.name, category: p.category,
+          reorder_level: p.reorderLevel ?? p.reorder_level ?? 0,
+          max_stock: p.maxStock ?? p.max_stock ?? 0,
+          lead_time_days: p.leadTimeDays ?? p.lead_time_days ?? 14,
+          unit_price: p.unitPrice ?? p.unit_price ?? 0,
+          unit_cost: p.unitCost ?? p.unit_cost ?? 0,
+          status: p.status ?? "active",
+        });
+      }
+
+      // Build a map of snapshots by productId
+      const snapshotMap = new Map<string, any>();
+      for (const s of fv.snapshots) {
+        snapshotMap.set(s.productId, s);
+      }
+
+      const rows: Analysis[] = [];
+      for (const [id, product] of productMap) {
+        const snapshot = snapshotMap.get(id);
+        if (!snapshot) continue;
+
+        // Calculate stock from movements (needed for timeline recomputation)
+        const moves = (movementsQ.data ?? []).filter((m: any) => m.product_id === id);
+        let stock = 0;
+        for (const m of moves) stock += (m.direction === "in" ? 1 : -1) * Number(m.quantity);
+
+        const f = recomputeTimeline(snapshot.forecast as ForecastResult, stock, product.lead_time_days);
+
+        rows.push({
+          product,
+          stock,
+          forecast: f,
+          velocityTag: f.velocityTag ?? "dead",
+          pricingStrategy: null as PricingStrategyResult | null,
+        });
+      }
+
+      // Compute pricing strategy for each SKU (needs local data)
+      for (const row of rows) {
+        const p = row.product;
+        const f = row.forecast;
+        row.pricingStrategy = computePricingStrategy({
+          velocity: row.velocityTag,
+          momentum: f.momentumTag,
+          daysOfCover: f.daysOfCover,
+          unitCost: Number(p.unit_cost),
+          unitPrice: Number(p.unit_price),
+          minimumGrossMarginPercentage: 0.40,
+          supplierLeadTimeDays: p.lead_time_days,
+          safetyStockDays: 30,
+          maxCoverDays: 180,
+        });
+      }
+
+      return rows;
+    }
+
+    // Fallback: client-side compute (same as before)
     const byProduct = new Map<string, any[]>();
     for (const m of (movementsQ.data ?? []) as any[]) {
       if (!m.product_id) continue;
@@ -103,7 +184,7 @@ function ForecastPage() {
     }
 
     return rows;
-  }, [productsQ.data, movementsQ.data]);
+  }, [productsQ.data, movementsQ.data, forecastVarsQ.data]);
 
   const filtered = useMemo(() => {
     let r = analyses.filter((a) => {
@@ -215,7 +296,25 @@ function ForecastPage() {
               <option value="stockout">Sort: Stockout date ↑</option>
               <option value="trend">Sort: Trend strength ↓</option>
             </select>
-            <span className="text-[11px] text-muted-foreground ml-auto hidden md:block">
+
+            {/* Recompute button + freshness badge */}
+            <div className="flex items-center gap-2 ml-auto">
+              {forecastVarsQ.data?.computedDate && (
+                <span className="text-[10px] text-muted-foreground/60 whitespace-nowrap">
+                  Computed {forecastVarsQ.data.computedDate}
+                </span>
+              )}
+              <button
+                onClick={() => recomputeMutation.mutate()}
+                disabled={recomputeMutation.isPending}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:border-border hover:bg-muted/30 transition-all duration-200 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${recomputeMutation.isPending ? "animate-spin" : ""}`} />
+                {recomputeMutation.isPending ? "Computing…" : "Recompute"}
+              </button>
+            </div>
+
+            <span className="text-[11px] text-muted-foreground hidden md:block">
               {filtered.length} of {analyses.length} SKUs
             </span>
           </div>

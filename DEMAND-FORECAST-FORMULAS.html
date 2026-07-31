@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Demand Forecast — Every Formula Explained</title>
+<style>
+:root {
+  --bg: #f6f5f2; --card: #ffffff; --ink: #1d2329; --muted: #5c6670;
+  --accent: #0e7a6b; --accent-2: #0d9488; --line: #e3e0d9;
+  --code-bg: #f0ede6; --table-head: #0e7a6b; --quote-bg: #fef8e7;
+  --quote-line: #e5a50a; --radius: 14px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.65; font-size: 16px;
+}
+.container { max-width: 920px; margin: 0 auto; padding: 48px 28px 120px; }
+h1 {
+  font-size: 2.1rem; line-height: 1.25; margin: 0 0 6px;
+  letter-spacing: -0.02em; color: #10231f;
+}
+h2 {
+  font-size: 1.5rem; margin: 56px 0 14px; padding-top: 20px;
+  border-top: 2px solid var(--line); color: #10231f; letter-spacing: -0.01em;
+}
+h3 { font-size: 1.14rem; margin: 30px 0 8px; color: var(--accent); }
+h4 { font-size: 1rem; margin: 22px 0 6px; }
+p { margin: 10px 0; }
+a { color: var(--accent-2); text-decoration: none; border-bottom: 1px solid transparent; }
+a:hover { border-bottom-color: currentColor; }
+strong { color: #10231f; }
+hr { border: none; border-top: 1px solid var(--line); margin: 40px 0; }
+code {
+  background: var(--code-bg); border: 1px solid #e2ddd2; border-radius: 6px;
+  padding: 1px 6px; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.86em; color: #0f4c43;
+}
+pre {
+  background: #1c2b28; color: #d6e6e2; border-radius: var(--radius);
+  padding: 18px 20px; overflow-x: auto; font-size: 0.88rem; line-height: 1.55;
+}
+pre code { background: none; border: none; color: inherit; padding: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 14px 0; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+thead th {
+  background: var(--table-head); color: #fff; font-weight: 600;
+  font-size: 0.82rem; letter-spacing: 0.02em; white-space: nowrap;
+}
+thead th:first-child { border-radius: 12px 0 0 0; }
+thead th:last-child { border-radius: 0 12px 0 0; }
+tbody tr:nth-child(even) { background: #faf9f6; }
+tbody tr:hover { background: #f2f4f1; }
+td code { white-space: nowrap; }
+blockquote {
+  margin: 18px 0; padding: 14px 18px; background: var(--quote-bg);
+  border-left: 4px solid var(--quote-line); border-radius: 0 10px 10px 0;
+  color: #54472c; font-size: 0.95rem;
+}
+blockquote code { background: #f2e6c8; border-color: #e2d3a4; color: #6a5320; }
+ul, ol { padding-left: 26px; }
+li { margin: 5px 0; }
+.toc {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 20px 26px; margin: 26px 0;
+}
+.toc h2 {
+  border: none; margin: 0 0 10px; padding: 0; font-size: 1.05rem;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted);
+}
+.toc ol { margin: 0; padding-left: 22px; columns: 2; column-gap: 34px; font-size: 0.92rem; }
+.toc li { break-inside: avoid; }
+.hero {
+  background: linear-gradient(135deg, #0e7a6b, #0d9488); color: #fff;
+  border-radius: var(--radius); padding: 26px 30px; margin-bottom: 8px;
+}
+.hero h1 { color: #fff; }
+.hero p, .hero strong { color: #cdeee8; }
+.hero code { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.3); color: #eafff9; }
+.badge {
+  display: inline-block; background: rgba(255,255,255,0.16); border-radius: 999px;
+  padding: 3px 12px; font-size: 0.78rem; letter-spacing: 0.04em; margin-bottom: 10px;
+}
+footer { margin-top: 70px; padding-top: 18px; border-top: 2px solid var(--line); color: var(--muted); font-size: 0.85rem; }
+@media (max-width: 720px) {
+  .toc ol { columns: 1; }
+  body { font-size: 15px; }
+  .container { padding: 24px 16px 90px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="hero"><span class="badge">📊 Demand forecasting</span>
+<h1 id="-demand-forecast--every-formula-explained-with-real-numbers">🎒 Demand Forecast — Every Formula Explained (With Real Numbers)</h1>
+<p><strong>Where the numbers come from:</strong> the Demand Forecast page (<code>/app/forecast</code>) runs the forecast engine in <code>frontend/src/lib/forecast-engine.ts</code>. Everything below was produced by <strong>actually running that engine</strong> against a fictional but realistic product, so every number you see here is the *real output* of the code.</p>
+</div>
+<p><strong>The example product used throughout this document:</strong></p>
+<div class="table-wrap"><table><thead><tr><th>Field</th><th>Value</th></tr></thead><tbody><tr><td>SKU</td><td><code>TB-1001</code></td></tr><tr><td>Name</td><td>Trekking Backpack</td></tr><tr><td>Category</td><td>Backpacks</td></tr><tr><td>Unit cost</td><td>$25.00</td></tr><tr><td>Unit price</td><td>$59.99</td></tr><tr><td>Supplier lead time</td><td>14 days</td></tr><tr><td>Stock on hand today</td><td>30 units</td></tr><tr><td>Today's date</td><td>2026-07-31</td></tr></tbody></table></div>
+<blockquote>🧒 <strong>A promise to the reader:</strong> this document explains *every* formula, one tiny step at a time, with the actual numbers plugged in, and a plain-language story for each one. If a formula ever looks scary, read the 🍋 "Lemonade stand" box next to it first — that's the same idea in words, no math at all.</blockquote>
+<hr/>
+<div class="toc">
+<h2 id="table-of-contents">Table of contents</h2>
+<ol><li><a href="#1-the-big-picture">The big picture — what the page does</a></li><li><a href="#2-step-0--the-12-months-of-history">Step 0 — The 12 months of history</a></li><li><a href="#3-step-1--fixing-stockout-months-availability-correction">Step 1 — Fixing stockout months (availability correction)</a></li><li><a href="#4-step-2--the-baseline-weighted-average">Step 2 — The baseline (weighted average)</a></li><li><a href="#5-step-3--the-trend-weighted-line-of-best-fit">Step 3 — The trend (weighted line of best fit)</a></li><li><a href="#6-step-4--seasonality-the-month-personality">Step 4 — Seasonality (the "month personality")</a></li><li><a href="#7-step-5--business-factors-multipliers-from-you">Step 5 — Business factors (multipliers from you)</a></li><li><a href="#8-step-6--the-monthly-forecast-month-by-month">Step 6 — The monthly forecast, month by month</a></li><li><a href="#9-step-7--the-prediction-interval-the-probably-range">Step 7 — The prediction interval (the "probably" range)</a></li><li><a href="#10-step-8--days-of-cover-how-many-days-of-stock">Step 8 — Days of cover (how many days of stock)</a></li><li><a href="#11-step-9--the-reorder-recommendation-how-much-to-buy">Step 9 — The reorder recommendation (how much to buy)</a></li><li><a href="#12-step-10--momentum-is-demand-speeding-up-or-slowing-down">Step 10 — Momentum (is demand speeding up or slowing down?)</a></li><li><a href="#13-step-11--velocity-how-fast-this-product-sells-vs-its-category">Step 11 — Velocity (how fast this product sells vs its category)</a></li><li><a href="#14-step-12--risks-stockout--overstock">Step 12 — Risks (stockout & overstock)</a></li><li><a href="#15-step-13--the-timeline">Step 13 — The timeline (stockout date, reorder-by date, refill date)</a></li><li><a href="#16-step-14--pricing-strategy-what-to-do-with-the-price">Step 14 — Pricing strategy (what to do with the price)</a></li><li><a href="#appendix-a--all-formulas-in-one-place">Appendix A — All formulas in one place</a></li><li><a href="#appendix-b--constants-and-default-values">Appendix B — Constants and default values</a></li><li><a href="#appendix-c--how-to-reproduce-these-exact-numbers">Appendix C — How to reproduce these exact numbers</a></li><li><a href="#glossary--the-words-we-use">Glossary — the words we use</a></li></ol>
+<hr/>
+</div>
+<h2 id="1-the-big-picture">1. The big picture</h2>
+<p>The Demand Forecast page answers one giant question for every product:</p>
+<blockquote><strong>"If I do nothing, when do I run out of stock — and how much should I order so I don't?"</strong></blockquote>
+<p>To answer it, the engine walks through a pipeline. Each step feeds the next:</p>
+<pre><code>12 months of sales
+        │
+        ▼
+Fix stockout months  ──►  "True" demand for each month
+        │
+        ▼
+Weighted average  ──►  Baseline (the typical month)
+        │
+        ▼
+Trend (slope + strength)  ──►  "Sales are going up by X/month"
+        │
+        ▼
+Seasonality  ──►  "August is 1.40× a normal month"
+        │
+        ▼
+Business factors  ──►  "Trekking season +10%, hot weather +5%"
+        │
+        ▼
+Forecast for each of the next 6 months  (+ an 80% confidence range)
+        │
+        ├──► Days of cover        ("I have 30 days of stock")
+        ├──► Reorder amount      ("Buy 50 units")
+        ├──► Momentum &amp; velocity ("Accelerating, medium mover")
+        ├──► Risks               ("Stockout: low · Overstock: low")
+        ├──► Timeline            ("Out on Aug 28 · order by Aug 14")
+        └──► Pricing strategy    ("Hold price")</code></pre>
+<hr/>
+<h2 id="2-step-0--the-12-months-of-history">2. Step 0 — The 12 months of history</h2>
+<p>Every product page starts with <strong>the last 12 months of sales</strong> (outbound stock movements only — <code>direction === "out"</code>; incoming stock is ignored for demand).</p>
+<p>For our Trekking Backpack, here is the history (this is what the page's chart shows as "Actual"):</p>
+<div class="table-wrap"><table><thead><tr><th>Month</th><th>Raw sales (units)</th></tr></thead><tbody><tr><td>Aug 2025</td><td>24</td></tr><tr><td>Sep 2025</td><td>20</td></tr><tr><td>Oct 2025</td><td>14</td></tr><tr><td>Nov 2025</td><td>10</td></tr><tr><td>Dec 2025</td><td>12</td></tr><tr><td>Jan 2026</td><td><strong>8</strong> ⚠️ (stockout month)</td></tr><tr><td>Feb 2026</td><td>9</td></tr><tr><td>Mar 2026</td><td>12</td></tr><tr><td>Apr 2026</td><td>16</td></tr><tr><td>May 2026</td><td>22</td></tr><tr><td>Jun 2026</td><td>28</td></tr><tr><td>Jul 2026</td><td>30</td></tr><tr><td><strong>Total</strong></td><td><strong>205</strong></td></tr></tbody></table></div>
+<blockquote>🍋 <strong>Lemonade stand:</strong> for the last year, every month you counted how many cups of lemonade you sold. That list of 12 numbers is the "history". January was a weird month — you ran out of lemons for half the month, so you only sold 8 cups even though people wanted more.</blockquote>
+<hr/>
+<h2 id="3-step-1--fixing-stockout-months-availability-correction">3. Step 1 — Fixing stockout months (availability correction)</h2>
+<p><strong>Why we need it:</strong> if the shop was out of stock for part of a month, the sales number is *too small* — it hides demand. If you train the forecast on a too-small number, you'll under-order later. The engine fixes that with three small formulas.</p>
+<p><strong>Inputs for a month:</strong></p>
+<ul><li><code>actualOutboundQty</code> — how many units actually sold that month</li><li><code>inStockDays</code> — how many days that month the product was available (0–31)</li><li><code>daysInMonth</code> — how many days the month has (defaults to the real calendar, e.g. 30)</li></ul>
+<h3 id="formula-3a--availability-rate">Formula 3a — Availability rate</h3>
+<pre><code>availabilityRate = inStockDays ÷ daysInMonth</code></pre>
+<p>(clamped to stay between 0 and 1)</p>
+<p><strong>Our January example:</strong></p>
+<pre><code>availabilityRate = 15 ÷ 31 = 0.4839</code></pre>
+<p>The product was only available 48% of January.</p>
+<h3 id="formula-3b--corrected-demand">Formula 3b — Corrected demand</h3>
+<pre><code>divisor        = max(availabilityRate, 0.70)
+correctedDemand = actualOutboundQty ÷ divisor</code></pre>
+<p>Then the result is <strong>capped</strong> so one bad month can't inflate demand forever:</p>
+<pre><code>correctedDemand = min(correctedDemand, actualOutboundQty × 1.4)</code></pre>
+<p><strong>Our January example:</strong></p>
+<pre><code>divisor         = max(0.4839, 0.70) = 0.70
+correctedDemand = 8 ÷ 0.70 = 11.43
+cap             = 8 × 1.4 = 11.2
+final           = min(11.43, 11.2) = 11.2</code></pre>
+<p>So January is recorded as <strong>11.2</strong> units of demand instead of 8.</p>
+<h3 id="more-worked-examples-from-the-engines-own-tests">More worked examples (from the engine's own tests)</h3>
+<div class="table-wrap"><table><thead><tr><th>Sold</th><th>Days in stock / days in month</th><th>Rate</th><th>Divisor</th><th>Raw fix</th><th>Cap (×1.4)</th><th><strong>Result</strong></th></tr></thead><tbody><tr><td>42</td><td>21/30</td><td>0.7</td><td>0.7</td><td>42÷0.7 = 60</td><td>58.8</td><td><strong>58.8</strong></td></tr><tr><td>10</td><td>3/30</td><td>0.1</td><td>0.7</td><td>10÷0.7 = 14.29</td><td>14</td><td><strong>14</strong></td></tr><tr><td>100</td><td>27/30</td><td>0.9</td><td>0.9</td><td>100÷0.9 = 111.11</td><td>140</td><td><strong>111.11</strong></td></tr><tr><td>100</td><td>15/30</td><td>0.5</td><td>0.7</td><td>100÷0.7 = 142.86</td><td>140</td><td><strong>140</strong></td></tr></tbody></table></div>
+<p><strong>Rules of thumb:</strong></p>
+<ul><li><strong>No availability data at all</strong> → the raw number is used unchanged (no correction).</li><li><strong>Fully in stock</strong> (rate = 1) → the raw number is used unchanged.</li><li><strong>Half-in-stock month</strong> → the divisor floor of 0.70 prevents wild inflation: worst case is the 1.4× cap.</li></ul>
+<p>After this step, our 12-month history (what the engine actually uses as "corrected demand") is:</p>
+<div class="table-wrap"><table><thead><tr><th>Month</th><th>Raw</th><th>Corrected demand</th></tr></thead><tbody><tr><td>Aug 2025</td><td>24</td><td>24</td></tr><tr><td>Sep 2025</td><td>20</td><td>20</td></tr><tr><td>Oct 2025</td><td>14</td><td>14</td></tr><tr><td>Nov 2025</td><td>10</td><td>10</td></tr><tr><td>Dec 2025</td><td>12</td><td>12</td></tr><tr><td>Jan 2026</td><td>8</td><td><strong>11.2</strong></td></tr><tr><td>Feb 2026</td><td>9</td><td>9</td></tr><tr><td>Mar 2026</td><td>12</td><td>12</td></tr><tr><td>Apr 2026</td><td>16</td><td>16</td></tr><tr><td>May 2026</td><td>22</td><td>22</td></tr><tr><td>Jun 2026</td><td>28</td><td>28</td></tr><tr><td>Jul 2026</td><td>30</td><td>30</td></tr><tr><td><strong>Total</strong></td><td><strong>205</strong></td><td><strong>208.2</strong></td></tr></tbody></table></div>
+<p>These two totals appear on the page as <strong>Raw outbound demand = 205</strong> and <strong>Corrected demand = 208</strong>. The page also shows <strong>Availability rate = 0.48</strong> — that's the average of the availability rates over the months that had data (only January did, so 0.48 is just January's rate).</p>
+<hr/>
+<h2 id="4-step-2--the-baseline-weighted-average">4. Step 2 — The baseline (weighted average)</h2>
+<p><strong>The idea:</strong> what is a "normal" month for this product? The obvious answer is the plain average (208.2 ÷ 12 = 17.35). But recent months matter *more* than old months — the past is a better guide than the distant past. So the engine computes an <strong>exponentially weighted average</strong>: recent months count more, old months count less, smoothly.</p>
+<h3 id="formula-4a--the-weights">Formula 4a — The weights</h3>
+<p>For month number <code>i</code> (counting 0 = oldest, 11 = newest), with decay <code>d = 0.3</code>:</p>
+<pre><code>weight_i = e^(d × (i − n + 1))          where n = 12 months</code></pre>
+<p><code>e</code> is Euler's number ≈ 2.71828. For the newest month: <code>e^0 = 1</code> (full weight). For the oldest month: <code>e^(0.3 × (0 − 12 + 1)) = e^(−3.3) ≈ 0.0369</code>.</p>
+<p><strong>Our actual weights:</strong></p>
+<div class="table-wrap"><table><thead><tr><th>i</th><th>Month</th><th>Value (yᵢ)</th><th>Weight (wᵢ)</th></tr></thead><tbody><tr><td>0</td><td>Aug 2025</td><td>24</td><td>0.0369</td></tr><tr><td>1</td><td>Sep 2025</td><td>20</td><td>0.0498</td></tr><tr><td>2</td><td>Oct 2025</td><td>14</td><td>0.0672</td></tr><tr><td>3</td><td>Nov 2025</td><td>10</td><td>0.0907</td></tr><tr><td>4</td><td>Dec 2025</td><td>12</td><td>0.1225</td></tr><tr><td>5</td><td>Jan 2026</td><td>11.2</td><td>0.1653</td></tr><tr><td>6</td><td>Feb 2026</td><td>9</td><td>0.2231</td></tr><tr><td>7</td><td>Mar 2026</td><td>12</td><td>0.3012</td></tr><tr><td>8</td><td>Apr 2026</td><td>16</td><td>0.4066</td></tr><tr><td>9</td><td>May 2026</td><td>22</td><td>0.5488</td></tr><tr><td>10</td><td>Jun 2026</td><td>28</td><td>0.7408</td></tr><tr><td>11</td><td>Jul 2026</td><td>30</td><td><strong>1.0000</strong></td></tr></tbody></table></div>
+<h3 id="formula-4b--the-weighted-average-itself">Formula 4b — The weighted average itself</h3>
+<pre><code>weightedAvg = (y₀·w₀ + y₁·w₁ + … + y₁₁·w₁₁) ÷ (w₀ + w₁ + … + w₁₁)
+            = Σ(yᵢ · wᵢ) ÷ Σ(wᵢ)</code></pre>
+<p><strong>Our actual numbers:</strong></p>
+<pre><code>Σ(yᵢ·wᵢ) = 24×0.0369 + 20×0.0498 + 14×0.0672 + 10×0.0907 + 12×0.1225
+         + 11.2×0.1653 + 9×0.2231 + 12×0.3012 + 16×0.4066 + 22×0.5488
+         + 28×0.7408 + 30×1.0
+         = 81.99
+
+Σ(wᵢ)  = 3.7529
+
+weightedAvg = 81.99 ÷ 3.7529 = 21.85</code></pre>
+<p>The page shows this as <strong>Monthly avg = 22</strong> (rounded).</p>
+<blockquote>🍋 <strong>Lemonade stand:</strong> instead of adding all 12 months equally, you say "last month counts fully, the month before counts 74%, the month before that 55%…" — older months get smaller and smaller votes. July (30 cups) matters much more than last August (24 cups).</blockquote>
+<hr/>
+<h2 id="5-step-3--the-trend-weighted-line-of-best-fit">5. Step 3 — The trend (weighted line of best fit)</h2>
+<p><strong>The idea:</strong> is demand going up, down, or flat? The engine draws a straight line through the 12 months and measures its <strong>slope</strong>. But like the average, it lets recent months vote more strongly (exponential decay <code>d = 0.25</code>). This is called an *exponentially weighted linear regression*.</p>
+<h3 id="formula-5a--the-trend-weights">Formula 5a — The trend weights</h3>
+<pre><code>weight_i = e^(0.25 × (i − n + 1))</code></pre>
+<p><strong>Our actual trend weights</strong> (newest = 1.000, oldest = 0.064):</p>
+<pre><code>[0.064, 0.082, 0.105, 0.135, 0.174, 0.223, 0.287, 0.368, 0.472, 0.607, 0.779, 1.000]</code></pre>
+<h3 id="formula-5b--weighted-centers-meanx-meany">Formula 5b — Weighted centers (meanX, meanY)</h3>
+<p><code>x</code> is the month *number* (0 to 11). <code>y</code> is that month's demand.</p>
+<pre><code>meanX = Σ(xᵢ·wᵢ) ÷ Σ(wᵢ)        (weighted "middle" of the month numbers)
+meanY = Σ(yᵢ·wᵢ) ÷ Σ(wᵢ)        (weighted "middle" of the demands — same as our baseline!)</code></pre>
+<p><strong>Our actual numbers:</strong></p>
+<pre><code>meanX = 8.108
+meanY = 21.019</code></pre>
+<h3 id="formula-5c--the-slope-the-trend-itself">Formula 5c — The slope (the trend itself)</h3>
+<pre><code>slope = Σ( wᵢ × (xᵢ − meanX) × (yᵢ − meanY) )  ÷  Σ( wᵢ × (xᵢ − meanX)² )
+        └────────────── numerator ──────────────┘   └── denominator ──┘</code></pre>
+<p><strong>Our actual numbers:</strong></p>
+<pre><code>numerator   = Σ wᵢ(xᵢ − meanX)(yᵢ − meanY) = 72.415
+denominator = Σ wᵢ(xᵢ − meanX)²            = 34.265
+slope       = 72.415 ÷ 34.265 = 2.11</code></pre>
+<p>So demand is rising by about <strong>+2.11 units per month</strong>. The page shows this as <strong>Trend = +2.1/mo</strong>.</p>
+<h3 id="formula-5d--trend-strength-weighted-r">Formula 5d — Trend strength (weighted R²)</h3>
+<p>A slope is only trustworthy if the data really does follow a line. The engine computes a weighted <strong>R²</strong> ("R-squared") between 0 and 1:</p>
+<pre><code>ssRes = Σ wᵢ × (yᵢ − predictedᵢ)²        predictedᵢ = meanY + slope × (xᵢ − meanX)
+ssTot = Σ wᵢ × (yᵢ − meanY)²
+R²    = 1 − ssRes ÷ ssTot</code></pre>
+<p><strong>Our actual numbers:</strong></p>
+<pre><code>ssRes = 107.30
+ssTot = 260.33
+R²    = 1 − 107.30 ÷ 260.33 = 0.59</code></pre>
+<p>The page shows this as <strong>Trend strength = 59%</strong>. (0.59 = 59%.)</p>
+<h3 id="formula-5e--deciding-the-direction-up--down--stable">Formula 5e — Deciding the direction (up / down / stable)</h3>
+<p>A tiny slope isn't a real trend. The engine requires the slope to beat a <strong>threshold</strong>:</p>
+<pre><code>threshold = |meanY| × 0.02      (2% of the average; falls back to 0.5 only if the average is 0)</code></pre>
+<p><strong>Our actual numbers:</strong></p>
+<pre><code>threshold = 21.019 × 0.02 = 0.42</code></pre>
+<p>Then:</p>
+<div class="table-wrap"><table><thead><tr><th>Condition</th><th>Direction</th></tr></thead><tbody><tr><td>slope > +0.42</td><td><strong>up</strong></td></tr></tbody></table></div>
+<blockquote>💡 The parenthetical in the formula above says "0.5 if the average is zero": the code is <code>Math.abs(meanY) × 0.02 || 0.5</code>, meaning 0.5 is only a fallback when the average itself is 0 (no demand at all). It is not a minimum.</blockquote>
+<div class="table-wrap"><table><thead><tr><th>slope < −0.42</th><th><strong>down</strong></th></tr></thead><tbody></tbody></table></div>
+<p>Our slope is <strong>+2.11 > 0.42 → direction = "up"</strong> ✅</p>
+<blockquote>🍋 <strong>Lemonade stand:</strong> each month you sold a little more than the month before. The "slope" is how many extra cups per month. "Strength" is how consistent that growth was — 59% means it's a real pattern, not random noise. Direction says: the line is pointing up.</blockquote>
+<hr/>
+<h2 id="6-step-4--seasonality-the-month-personality">6. Step 4 — Seasonality (the "month personality")</h2>
+<p><strong>The idea:</strong> every product has a personality per month — umbrellas sell in rainy months, tents in summer. The engine compares each calendar month's average to the overall average and gets a <strong>seasonal factor</strong>: 1.0 = normal, 1.4 = 40% above normal, 0.6 = 40% below normal.</p>
+<h3 id="formula-6a--the-overall-average">Formula 6a — The overall average</h3>
+<pre><code>overallAvg = (sum of all 12 corrected demands) ÷ 12</code></pre>
+<p><strong>Our actual number:</strong> <code>overallAvg = 208.2 ÷ 12 = 17.35</code></p>
+<h3 id="formula-6b--each-months-raw-factor">Formula 6b — Each month's raw factor</h3>
+<pre><code>monthAvg   = average demand for that calendar month (across all years of history)
+rawFactor  = monthAvg ÷ overallAvg</code></pre>
+<p>Since we have exactly one year of history, each month has just one value:</p>
+<div class="table-wrap"><table><thead><tr><th>Month</th><th>monthAvg</th><th>rawFactor (monthAvg ÷ 17.35)</th></tr></thead><tbody><tr><td>Jan</td><td>11.2</td><td>0.646</td></tr><tr><td>Feb</td><td>9</td><td>0.519</td></tr><tr><td>Mar</td><td>12</td><td>0.692</td></tr><tr><td>Apr</td><td>16</td><td>0.922</td></tr><tr><td>May</td><td>22</td><td>1.268</td></tr><tr><td>Jun</td><td>28</td><td>1.614</td></tr><tr><td>Jul</td><td>30</td><td>1.729</td></tr><tr><td><strong>Aug</strong></td><td><strong>24</strong></td><td><strong>1.383</strong></td></tr><tr><td>Sep</td><td>20</td><td>1.153</td></tr><tr><td>Oct</td><td>14</td><td>0.807</td></tr><tr><td>Nov</td><td>10</td><td>0.576</td></tr><tr><td>Dec</td><td>12</td><td>0.692</td></tr></tbody></table></div>
+<h3 id="formula-6c--triangular-smoothing-blend-with-neighbors">Formula 6c — Triangular smoothing (blend with neighbors)</h3>
+<p>One month of data is noisy, so each factor gets blended with its two neighbors (70% self, 15% each neighbor):</p>
+<pre><code>smoothedFactor = rawTarget × 0.70  +  (rawPrev + rawNext) × 0.15</code></pre>
+<p><strong>Our actual number for August (the next forecast month):</strong></p>
+<pre><code>smoothedFactor = 1.383 × 0.70 + (1.729 + 1.153) × 0.15
+               = 0.9681       + 0.4323
+               = 1.4006</code></pre>
+<h3 id="formula-6d--clamping-never-let-seasonality-go-crazy">Formula 6d — Clamping (never let seasonality go crazy)</h3>
+<pre><code>seasonalityFactor = clamp(smoothedFactor, 0.5, 2.0)</code></pre>
+<p>August: <code>clamp(1.4006, 0.5, 2.0) = 1.4006</code> — no change. The page shows <strong>Seasonality = ×1.40</strong>. (If a factor computed to 2.3 it would be cut to 2.0; if 0.3 it would be raised to 0.5.)</p>
+<p><strong>All 12 smoothed + clamped factors</strong> (these are what the engine actually uses):</p>
+<div class="table-wrap"><table><thead><tr><th>Month</th><th>Raw</th><th>Smoothed</th><th>Clamped (used)</th></tr></thead><tbody><tr><td>Jan</td><td>0.646</td><td>0.633</td><td>0.633</td></tr><tr><td>Feb</td><td>0.519</td><td>0.564</td><td>0.564</td></tr><tr><td>Mar</td><td>0.692</td><td>0.700</td><td>0.700</td></tr><tr><td>Apr</td><td>0.922</td><td>0.939</td><td>0.939</td></tr><tr><td>May</td><td>1.268</td><td>1.268</td><td>1.268</td></tr><tr><td>Jun</td><td>1.614</td><td>1.579</td><td>1.579</td></tr><tr><td>Jul</td><td>1.729</td><td>1.660</td><td>1.660</td></tr><tr><td>Aug</td><td>1.383</td><td>1.401</td><td><strong>1.401</strong></td></tr><tr><td>Sep</td><td>1.153</td><td>1.135</td><td>1.135</td></tr><tr><td>Oct</td><td>0.807</td><td>0.824</td><td>0.824</td></tr><tr><td>Nov</td><td>0.576</td><td>0.628</td><td>0.628</td></tr><tr><td>Dec</td><td>0.692</td><td>0.667</td><td>0.667</td></tr></tbody></table></div>
+<blockquote>🍋 <strong>Lemonade stand:</strong> August is a hot, busy month, so it always sells ~40% more than average (factor 1.40). November is quiet (~0.63×). The "smoothing" just means: if one month was a freak accident, the neighbors soften it — we only trust a pattern if it's smooth.</blockquote>
+<hr/>
+<h2 id="7-step-5--business-factors-multipliers-from-you">7. Step 5 — Business factors (multipliers from you)</h2>
+<p>The page lets you nudge the forecast with five optional factors (each defaults to 1.0 = no effect):</p>
+<div class="table-wrap"><table><thead><tr><th>Factor</th><th>Meaning</th><th>Allowed range</th></tr></thead><tbody><tr><td><code>trekkingSeasonIndex</code></td><td>Is it trekking season?</td><td>0.85 – 1.20</td></tr><tr><td><code>weatherIndex</code></td><td>Weather-driven demand</td><td>0.80 – 1.25</td></tr><tr><td><code>promotionLift</code></td><td>A promo is running</td><td>1.00 – 1.35</td></tr><tr><td><code>regionalDemandIndex</code></td><td>Demand by region</td><td>0.75 – 1.30</td></tr><tr><td><code>eventLift</code></td><td>Big event boost</td><td>1.00 – 1.25</td></tr></tbody></table></div>
+<h3 id="formula-7a--combined-factor">Formula 7a — Combined factor</h3>
+<pre><code>factorsMultiplied = trekking × weather × promotion × regional × event</code></pre>
+<h3 id="formula-7b--applied-to-the-baseline">Formula 7b — Applied to the baseline</h3>
+<pre><code>adjusted = baseline × factorsMultiplied
+final    = clamp(adjusted, baseline × 0.70, baseline × 1.50)</code></pre>
+<p>The clamp means factors can only move the forecast <strong>between 70% and 150%</strong> of the baseline, no matter what you type.</p>
+<p><strong>Worked example (August 2026):</strong> suppose you set trekking season = 1.10 and weather = 1.05:</p>
+<pre><code>factorsMultiplied = 1.10 × 1.05 × 1.0 × 1.0 × 1.0 = 1.155
+baseline          = 33.56          (computed in Step 6 below)
+adjusted          = 33.56 × 1.155 = 38.76
+clamp range       = 33.56×0.70 = 23.49  …  33.56×1.50 = 50.34
+final             = 38.76  (inside the range, so unchanged)  → page shows 39</code></pre>
+<p>In the main example for this document we set <strong>no factors</strong>, so <code>factorsMultiplied = 1</code> and the forecast stays at baseline.</p>
+<blockquote>🍋 <strong>Lemonade stand:</strong> "it's summer AND the town fair is this week" — so you plan to make a bit more. But the recipe refuses to go below 70% or above 150% of normal, so one lucky day can't make you buy a truckload of lemons.</blockquote>
+<hr/>
+<h2 id="8-step-6--the-monthly-forecast-month-by-month">8. Step 6 — The monthly forecast, month by month</h2>
+<p>Now the engine builds a forecast for each of the next 6 months (Aug 2026 … Jan 2027). For month number <code>i</code> (1 = next month):</p>
+<h3 id="formula-8a--dampened-trend-contribution">Formula 8a — Dampened trend contribution</h3>
+<p>Trends shouldn't run forever — the further out you forecast, the less the trend pushes. Dampening factor <code>λ = 0.9</code>:</p>
+<pre><code>dampening          = 0.9^(i−1)
+trendContribution  = slope × i × dampening
+avgPlusTrend       = weightedAvg + trendContribution</code></pre>
+<p><strong>Our actual numbers:</strong></p>
+<div class="table-wrap"><table><thead><tr><th>Month</th><th>i</th><th>dampening (0.9^(i−1))</th><th>trendContribution (2.11 × i × damp)</th><th>avgPlusTrend (21.85 + contrib)</th></tr></thead><tbody><tr><td>Aug 2026</td><td>1</td><td>1.000</td><td>2.11</td><td>23.96</td></tr><tr><td>Sep 2026</td><td>2</td><td>0.900</td><td>3.80</td><td>25.65</td></tr><tr><td>Oct 2026</td><td>3</td><td>0.810</td><td>5.13</td><td>26.98</td></tr><tr><td>Nov 2026</td><td>4</td><td>0.729</td><td>6.15</td><td>28.00</td></tr><tr><td>Dec 2026</td><td>5</td><td>0.656</td><td>6.92</td><td>28.77</td></tr><tr><td>Jan 2027</td><td>6</td><td>0.590</td><td>7.48</td><td>29.32</td></tr></tbody></table></div>
+<blockquote>Notice the trend contribution grows each month (2.11 → 7.48) but more slowly, because dampening multiplies it down. Trend influence fades the further you look.</blockquote>
+<h3 id="formula-8b--the-baseline-for-the-month">Formula 8b — The baseline for the month</h3>
+<pre><code>baseline = max(0, avgPlusTrend) × seasonalityFactor(month)</code></pre>
+<p><strong>Our actual numbers (using the seasonality factors from Step 4):</strong></p>
+<div class="table-wrap"><table><thead><tr><th>Month</th><th>avgPlusTrend</th><th>× seasonality</th><th>= <strong>baseline</strong></th></tr></thead><tbody><tr><td>Aug 2026</td><td>23.96</td><td>× 1.401</td><td><strong>33.56</strong> → 34</td></tr><tr><td>Sep 2026</td><td>25.65</td><td>× 1.135</td><td><strong>29.11</strong> → 29</td></tr><tr><td>Oct 2026</td><td>26.98</td><td>× 0.824</td><td><strong>22.23</strong> → 22</td></tr><tr><td>Nov 2026</td><td>28.00</td><td>× 0.628</td><td><strong>17.58</strong> → 18</td></tr><tr><td>Dec 2026</td><td>28.77</td><td>× 0.667</td><td><strong>19.20</strong> → 19</td></tr><tr><td>Jan 2027</td><td>29.32</td><td>× 0.633</td><td><strong>18.56</strong> → 19</td></tr></tbody></table></div>
+<h3 id="formula-8c--final-forecast-with-factors">Formula 8c — Final forecast (with factors)</h3>
+<p>With no business factors this equals the baseline. (With factors: Step 5, <code>final = clamp(baseline × factors, 0.7×baseline, 1.5×baseline)</code>.)</p>
+<h3 id="formula-8d--daily-rate">Formula 8d — Daily rate</h3>
+<pre><code>dailyRate = finalForecast ÷ daysInMonth(month)</code></pre>
+<p><strong>Our actual numbers:</strong></p>
+<div class="table-wrap"><table><thead><tr><th>Month</th><th>final</th><th>days</th><th><strong>dailyRate</strong></th></tr></thead><tbody><tr><td>Aug 2026</td><td>34</td><td>31</td><td><strong>1.1/day</strong></td></tr><tr><td>Sep 2026</td><td>29</td><td>30</td><td><strong>1.0/day</strong></td></tr><tr><td>Oct 2026</td><td>22</td><td>31</td><td><strong>0.7/day</strong></td></tr><tr><td>Nov 2026</td><td>18</td><td>30</td><td><strong>0.6/day</strong></td></tr><tr><td>Dec 2026</td><td>19</td><td>31</td><td><strong>0.6/day</strong></td></tr><tr><td>Jan 2027</td><td>19</td><td>31</td><td><strong>0.6/day</strong></td></tr></tbody></table></div>
+<h3 id="formula-8e--stock-required-to-cover-the-month">Formula 8e — Stock required (to cover the month)</h3>
+<pre><code>stockRequired = max(0, finalForecast)</code></pre>
+<h3 id="formula-8f--monthly-safety-stock">Formula 8f — Monthly safety stock</h3>
+<p>The engine wants a buffer on top of the forecast (default <code>safetyStockDays = 30</code>):</p>
+<pre><code>monthlySafetyStock = dailyRate × safetyStockDays</code></pre>
+<h3 id="formula-8g--projected-stock-after-the-month">Formula 8g — Projected stock after the month</h3>
+<pre><code>projectedStockAfter = max(0, runningStock − finalForecast)</code></pre>
+<p><code>runningStock</code> starts at your on-hand stock (30) and becomes last month's <code>projectedStockAfter</code>.</p>
+<h3 id="formula-8h--suggested-order-for-the-month">Formula 8h — Suggested order for the month</h3>
+<p>If the running stock can't cover the forecast <strong>plus</strong> the safety buffer, suggest a top-up:</p>
+<pre><code>if runningStock &lt; final + monthlySafetyStock:
+    suggestedOrder = ceil(final + monthlySafetyStock − runningStock)
+else:
+    suggestedOrder = 0</code></pre>
+<p><strong>Our actual numbers for the full 6-month table</strong> (all from the real engine output):</p>
+<div class="table-wrap"><table><thead><tr><th>Month</th><th>final</th><th>daily</th><th>stock req</th><th>safety</th><th>running before</th><th>shortfall</th><th><strong>suggested order</strong></th><th>projected after</th></tr></thead><tbody><tr><td>Aug 2026</td><td>34</td><td>1.1</td><td>34</td><td>33</td><td>30</td><td>37</td><td><strong>37</strong></td><td>0</td></tr><tr><td>Sep 2026</td><td>29</td><td>1.0</td><td>29</td><td>30</td><td>0</td><td>59</td><td><strong>59</strong></td><td>0</td></tr><tr><td>Oct 2026</td><td>22</td><td>0.7</td><td>22</td><td>21</td><td>0</td><td>43</td><td><strong>44</strong></td><td>0</td></tr><tr><td>Nov 2026</td><td>18</td><td>0.6</td><td>18</td><td>18</td><td>0</td><td>36</td><td><strong>36</strong></td><td>0</td></tr><tr><td>Dec 2026</td><td>19</td><td>0.6</td><td>19</td><td>18</td><td>0</td><td>37</td><td><strong>38</strong></td><td>0</td></tr><tr><td>Jan 2027</td><td>19</td><td>0.6</td><td>19</td><td>18</td><td>0</td><td>37</td><td><strong>37</strong></td><td>0</td></tr></tbody></table></div>
+<blockquote>💡 <strong>Why October shows "shortfall 43" but "suggested order 44"?</strong> The shortfall column is computed from the *displayed* (rounded) values (22 + 21 = 43), but the suggested order is computed from the *unrounded* forecast (true demand 22.23, true daily rate 0.717/day → 22.23 + 21.51 − 0 = 43.74 → rounded up to 44). The engine always uses the unrounded numbers internally and only rounds for display.</blockquote>
+<blockquote>🍋 <strong>Lemonade stand:</strong> August needs 34 cups, plus 33 cups of spare lemons just in case = 67 cups needed. You have 30 → you need 37 more. September needs even more because last month you already used everything up.</blockquote>
+<hr/>
+<h2 id="9-step-7--the-prediction-interval-the-probably-range">9. Step 7 — The prediction interval (the "probably" range)</h2>
+<p>Forecasts are guesses, so the page shows an <strong>80% confidence range</strong>: "we're 80% sure demand lands between these two numbers." The engine builds it from how badly the straight line failed in the past.</p>
+<h3 id="formula-9a--residuals-how-wrong-the-line-was-each-month">Formula 9a — Residuals (how wrong the line was each month)</h3>
+<p>The engine uses a simple (unweighted) line <code>fittedᵢ = avg + slope × i</code> for this step:</p>
+<pre><code>residualᵢ = yᵢ − fittedᵢ</code></pre>
+<p><strong>Our actual residuals:</strong> <code>[2.15, −3.96, −12.08, −18.19, −18.30, −21.22, −25.53, −24.64, −22.76, −18.87, −14.98, −15.10]</code></p>
+<h3 id="formula-9b--standard-error-of-the-estimate-se">Formula 9b — Standard error of the estimate (se)</h3>
+<pre><code>mse = Σ(residualᵢ²) ÷ (n − 2)      n = 12
+se  = √mse</code></pre>
+<p><strong>Our actual numbers:</strong></p>
+<pre><code>mse = 386.70
+se  = √386.70 = 19.66</code></pre>
+<h3 id="formula-9c--standard-error-of-prediction-sepred">Formula 9c — Standard error of prediction (sePred)</h3>
+<p>The further into the future you forecast, the wider the range. With <code>z = 1.28</code> (the 80% z-score), <code>meanX = (n−1)/2 = 5.5</code>, and <code>ssx = Σ(i − meanX)² = 143</code>:</p>
+<pre><code>sePred = se × √( 1 + 1/n + (forecastIndex − meanX)² ÷ ssx )</code></pre>
+<p><strong>Our actual numbers for August 2026 (<code>forecastIndex = 12</code>, one month ahead of the data):</strong></p>
+<pre><code>sePred = 19.66 × √( 1 + 1/12 + (12 − 5.5)² ÷ 143 )
+       = 19.66 × √(1.0833 + 0.2955)
+       = 19.66 × 1.1742
+       = 23.09</code></pre>
+<h3 id="formula-9d--the-interval-centered-on-the-forecast">Formula 9d — The interval, centered on the forecast</h3>
+<pre><code>halfWidth = round(z × sePred)          z = 1.28
+low  = max(0, center − halfWidth)
+high = center + halfWidth</code></pre>
+<p><code>center</code> is the (unrounded) forecast for that month — for August: <strong>33.56</strong>.</p>
+<p><strong>Our actual numbers:</strong></p>
+<pre><code>halfWidth = round(1.28 × 23.09) = round(29.56) = 30
+low       = max(0, 33.56 − 30)  = 3.56    (shown rounded as 4)
+high      = 33.56 + 30          = 63.56   (shown rounded as 64)</code></pre>
+<blockquote>💡 The page renders the raw interval values (e.g. 3.56 – 63.56); the numbers in the table below are rounded to one decimal for readability.</blockquote>
+<p><strong>The 80% prediction interval for every forecast month (from the engine):</strong></p>
+<div class="table-wrap"><table><thead><tr><th>Month</th><th>Forecast</th><th>80% low</th><th>80% high</th></tr></thead><tbody><tr><td>Aug 2026</td><td>34</td><td>3.6</td><td>63.6</td></tr><tr><td>Sep 2026</td><td>29</td><td>0</td><td>60.1</td></tr><tr><td>Oct 2026</td><td>22</td><td>0</td><td>54.2</td></tr><tr><td>Nov 2026</td><td>18</td><td>0</td><td>50.6</td></tr><tr><td>Dec 2026</td><td>19</td><td>0</td><td>53.2</td></tr><tr><td>Jan 2027</td><td>19</td><td>0</td><td>54.6</td></tr></tbody></table></div>
+<blockquote>Notice the intervals get <strong>wider</strong> over time (the <code>(forecastIndex − meanX)²</code> term grows). That's the engine being honest: the further away, the less certain.</blockquote>
+<blockquote>🍋 <strong>Lemonade stand:</strong> last year your guesses were off by about 20 cups on average. So this year you say "I'll probably sell 34 cups, but really it'll be between 4 and 64." A wide range = a brave guess. (If you'd sold the exact same amount every month, the range would be tiny.)</blockquote>
+<p><strong>Small-history rule:</strong> if there are fewer than 3 months of history, the engine can't fit a line, so it falls back to a simple ±30% range: <code>low = center×0.7</code>, <code>high = center×1.3</code>.</p>
+<hr/>
+<h2 id="10-step-8--days-of-cover-how-many-days-of-stock">10. Step 8 — Days of cover (how many days of stock)</h2>
+<p><strong>The question:</strong> "At my forecast selling speed, how many days will my current stock last?"</p>
+<h3 id="formula-10a--the-forward-daily-rate-weighted-3-months">Formula 10a — The forward daily rate (weighted, 3 months)</h3>
+<p>A single month's rate can be misleading (December is a peak), so the engine averages the first 3 forecast months' daily rates, giving more weight to the <strong>nearer</strong> months (weights 3, 2, 1):</p>
+<pre><code>coverDailyRate = (r₁×3 + r₂×2 + r₃×1) ÷ (3 + 2 + 1)</code></pre>
+<p><strong>Our actual numbers (Aug 1.1, Sep 1.0, Oct 0.7):</strong></p>
+<pre><code>coverDailyRate = (1.1×3 + 1.0×2 + 0.7×1) ÷ 6
+               = (3.3 + 2.0 + 0.7) ÷ 6
+               = 6.0 ÷ 6 = 1.0/day</code></pre>
+<p>*(Fallback: if no positive forecast rate exists, the engine uses the recent 3-month history average ÷ 30 = 26.67 ÷ 30 = 0.89/day.)*</p>
+<h3 id="formula-10b--days-of-cover">Formula 10b — Days of cover</h3>
+<pre><code>daysOfCover = round(inventoryPosition ÷ coverDailyRate)</code></pre>
+<p><strong>Our actual numbers:</strong></p>
+<pre><code>inventoryPosition = stock on hand + confirmed inbound − committed customer orders
+                  = 30 + 0 − 0 = 30
+daysOfCover       = round(30 ÷ 1.0) = 30 days</code></pre>
+<p>The page shows <strong>Days cover = 30d</strong>.</p>
+<blockquote>🍋 <strong>Lemonade stand:</strong> you have 30 cups of lemonade and you sell ~1 cup a day → you'll last about 30 days. (If a big order was already promised to a customer, we'd subtract it; if a delivery is already on its way, we'd add it.)</blockquote>
+<hr/>
+<h2 id="11-step-9--the-reorder-recommendation-how-much-to-buy">11. Step 9 — The reorder recommendation (how much to buy)</h2>
+<p><strong>The question:</strong> "How many units should I order right now?" The answer must cover:</p>
+<ol><li><strong>Lead time demand</strong> — how many you'll sell while waiting for the order to arrive (14 days).</li><li><strong>Safety stock</strong> — a buffer against demand surprises.</li><li><strong>Minus what you already have.</strong></li></ol>
+<h3 id="formula-11a--lead-time-demand-day-by-day-month-by-month">Formula 11a — Lead time demand (day-by-day, month-by-month)</h3>
+<p>The engine walks through the forecast months, taking as many days as the lead time needs:</p>
+<pre><code>remainingLeadDays = supplierLeadTimeDays (14)
+for each forecast month:
+    daysToTake     = min(remainingLeadDays, daysInMonth)
+    leadTimeDemand += dailyRate × daysToTake
+    remainingLeadDays −= daysToTake</code></pre>
+<p><strong>Our actual numbers (14 days fits entirely inside August):</strong></p>
+<pre><code>leadTimeDemand = 1.1/day × 14 days = 15.4 units</code></pre>
+<h3 id="formula-11b--demand-variability-de-seasonalized-standard-deviation">Formula 11b — Demand variability (de-seasonalized standard deviation)</h3>
+<p>Safety stock should reflect how *variable* demand is, but seasonality must not inflate it. If a product peaks at 2× in December, its raw standard deviation looks huge — so the engine divides each month by its seasonality factor first, then measures spread:</p>
+<pre><code>deSeasonalizedᵢ = yᵢ ÷ seasonalityFactor(monthᵢ)      (only when history ≥ 12 months)
+desMean         = average of deSeasonalized values
+desVariance     = Σ(deSeasonalizedᵢ − desMean)² ÷ (n − 1)
+demandStdDev    = √desVariance</code></pre>
+<p><strong>Our actual numbers:</strong></p>
+<pre><code>demandMean     = 17.35
+demandVariance = 0.48
+demandStdDev   = √0.48 = 0.70</code></pre>
+<h3 id="formula-11c--safety-stock-units">Formula 11c — Safety stock units</h3>
+<pre><code>serviceLevelZ  = 1.65                      (default, = 95% service level; see Appendix B)
+safetyStock    = round(serviceLevelZ × demandStdDev × √(leadTimeDays ÷ 30))</code></pre>
+<p><strong>Our actual numbers:</strong></p>
+<pre><code>safetyStock = round(1.65 × 0.70 × √(14 ÷ 30))
+            = round(1.65 × 0.70 × 0.6831)
+            = round(0.789) = 1 unit</code></pre>
+<p>*(Fallback when demand is perfectly stable, stdDev = 0: <code>safetyStock = round(dailyForecast × safetyStockDays)</code>.)*</p>
+<h3 id="formula-11d--the-recommendation-step-by-step">Formula 11d — The recommendation, step by step</h3>
+<pre><code>recommended = max(0, leadTimeDemand + safetyStock − inventoryPosition)</code></pre>
+<p><strong>Main example (stock = 30):</strong></p>
+<pre><code>recommended = max(0, 15.4 + 1 − 30) = max(0, −13.6) = 0  → nothing needed (page: "Stocked")</code></pre>
+<p><strong>Low-stock example (stock = 5):</strong></p>
+<pre><code>recommended = max(0, 15.4 + 1 − 5) = 11.4  → page rounds up to 12</code></pre>
+<h3 id="formula-11e--the-caps-and-rules-pass-in-order">Formula 11e — The "caps and rules" pass (in order)</h3>
+<ol><li><strong>Max cover cap</strong> — never order so much that you'd hold more than <code>maxCoverDays</code> of stock</li></ol>
+<p>   (unless the product is a protected core item):</p>
+<pre><code>   maxStock  = dailyForecast × maxCoverDays
+   headroom  = max(0, maxStock − inventoryPosition)
+   recommended = min(recommended, headroom)</code></pre>
+<p>   <strong>Example (stock = 400, maxCoverDays = 180):</strong></p>
+<pre><code>   maxStock = 1.1 × 180 = 198
+   headroom = max(0, 198 − 400) = 0
+   recommended = min(big, 0) = 0  → and overstock risk = high</code></pre>
+<ol><li><strong>Minimum order quantity (MOQ)</strong> — if you order at all, order at least the MOQ:</li></ol>
+<pre><code>   if recommended &gt; 0:  recommended = max(recommended, minimumOrderQty)</code></pre>
+<ol><li><strong>Order multiple</strong> — round *up* to the nearest multiple (e.g. boxes of 25):</li></ol>
+<pre><code>   recommended = ceil(recommended ÷ orderMultiple) × orderMultiple</code></pre>
+<p>   (If no multiple set, just <code>ceil(recommended)</code>.)</p>
+<p><strong>Low-stock example with MOQ 50 and multiple 25:</strong></p>
+<pre><code>11.4 → MOQ → max(11.4, 50) = 50 → multiple → ceil(50÷25)×25 = 50</code></pre>
+<p>The page shows <strong>Reorder now = 50</strong> for that scenario, and the reorder value is <code>50 × unit cost = 50 × $25 = $1,250</code>.</p>
+<blockquote>🍋 <strong>Lemonade stand:</strong> to reorder lemons you need: enough for the 14 days while the delivery comes (15 cups) + a spare cup in case of surprise (1) = 16, minus what you have. If you have 5, buy 11… but the lemon guy only sells boxes of 25 and minimum 50, so you buy 50. And if you already have 400 cups, don't buy anything at all!</blockquote>
+<hr/>
+<h2 id="12-step-10--momentum-is-demand-speeding-up-or-slowing-down">12. Step 10 — Momentum (is demand speeding up or slowing down?)</h2>
+<p><strong>The question:</strong> how is the *recent* demand doing compared to the overall average?</p>
+<h3 id="formula-12a--recent-3-month-average">Formula 12a — Recent 3-month average</h3>
+<pre><code>recent3MonthAvg = (May + Jun + Jul demand) ÷ 3</code></pre>
+<p><strong>Our actual numbers:</strong> <code>(22 + 28 + 30) ÷ 3 = 26.67</code></p>
+<h3 id="formula-12b--thresholds-vs-the-baseline">Formula 12b — Thresholds vs the baseline</h3>
+<pre><code>overallAvg (the weighted baseline) = 21.85
+threshold120pct = 21.85 × 1.2 = 26.22
+threshold60pct  = 21.85 × 0.6 = 13.11</code></pre>
+<h3 id="formula-12c--the-tag">Formula 12c — The tag</h3>
+<div class="table-wrap"><table><thead><tr><th>Condition</th><th>Momentum tag</th></tr></thead><tbody><tr><td>recent3MonthAvg = 0</td><td><code>inactive</code></td></tr><tr><td>recent3MonthAvg ≥ 26.22 (120%)</td><td><code>accelerating</code></td></tr><tr><td>recent3MonthAvg ≥ 13.11 (60%)</td><td><code>stable</code></td></tr><tr><td>otherwise</td><td><code>declining</code></td></tr></tbody></table></div>
+<p><strong>Our actual result:</strong> <code>26.67 ≥ 26.22</code> → <strong><code>accelerating</code></strong> ✅ (page shows "Accelerating")</p>
+<blockquote>🍋 <strong>Lemonade stand:</strong> the last 3 months you sold 26.7 cups/month but your usual is 21.9. That's more than 20% above normal → demand is "accelerating" — people suddenly want more.</blockquote>
+<hr/>
+<h2 id="13-step-11--velocity-how-fast-this-product-sells-vs-its-category">13. Step 11 — Velocity (how fast this product sells vs its category)</h2>
+<p><strong>The question:</strong> is this product a star seller, average, or a shelf warmer — *compared to other products in the same category*? The page computes this for ALL products together, then labels each.</p>
+<h3 id="formula-13a--rank-within-category">Formula 13a — Rank within category</h3>
+<ol><li>Group products by category (products with no category share one bucket).</li><li>Sort each group by <code>recent3MonthAvg</code>, highest first.</li><li>For each product at rank position <code>i</code> (0-based) in a group of <code>total</code>:</li></ol>
+<pre><code>position = (i + 1) ÷ total</code></pre>
+<h3 id="formula-13b--the-labels">Formula 13b — The labels</h3>
+<div class="table-wrap"><table><thead><tr><th>Condition</th><th>Velocity tag</th></tr></thead><tbody><tr><td>recent3MonthAvg = 0</td><td><code>dead</code></td></tr><tr><td>position ≤ 0.2 (top 20%)</td><td><code>fast_mover</code></td></tr><tr><td>position ≤ 0.5 (next 30%)</td><td><code>medium_mover</code></td></tr><tr><td>otherwise</td><td><code>slow_mover</code></td></tr></tbody></table></div>
+<p><strong>Our actual example (the Backpacks category):</strong></p>
+<div class="table-wrap"><table><thead><tr><th>SKU</th><th>recent 3-mo avg</th><th>position</th><th><strong>Velocity</strong></th></tr></thead><tbody><tr><td>TB-1002</td><td>40</td><td>1÷5 = 0.20</td><td><strong>fast_mover</strong></td></tr><tr><td><strong>TB-1001 (ours)</strong></td><td><strong>26.67</strong></td><td><strong>2÷5 = 0.40</strong></td><td><strong>medium_mover</strong></td></tr><tr><td>TB-1005</td><td>22</td><td>3÷5 = 0.60</td><td>slow_mover</td></tr><tr><td>TB-1003</td><td>15</td><td>4÷5 = 0.80</td><td>slow_mover</td></tr><tr><td>TB-1004</td><td>0</td><td>—</td><td>dead</td></tr></tbody></table></div>
+<p><strong>Uncategorised example:</strong> HP-2001 (avg 33) and HP-2002 (avg 5) share the no-category bucket → HP-2001 is rank 1 of 2 → 0.50 → <code>medium_mover</code>; HP-2002 → rank 2 of 2 → 1.0 → <code>slow_mover</code>.</p>
+<blockquote>🍋 <strong>Lemonade stand:</strong> if you sell 27 cups a month but your friend sells 40, you're the "medium" seller. If nobody in your street sells any, you'd be the "fast" one. Velocity is always about your neighborhood, not about the absolute number.</blockquote>
+<hr/>
+<h2 id="14-step-12--risks-stockout--overstock">14. Step 12 — Risks (stockout & overstock)</h2>
+<h3 id="formula-14a--coverage-ratio--stockout-risk">Formula 14a — Coverage ratio & stockout risk</h3>
+<pre><code>coverVsLead = daysOfCover ÷ max(supplierLeadTimeDays, 1)</code></pre>
+<p><strong>Our actual numbers:</strong> <code>coverVsLead = 30 ÷ 14 = 2.14</code></p>
+<div class="table-wrap"><table><thead><tr><th>Condition</th><th>Stockout risk</th></tr></thead><tbody><tr><td>coverVsLead < 1.0</td><td><strong>high</strong> (you'll run out before new stock arrives)</td></tr><tr><td>coverVsLead < 1.5</td><td><strong>medium</strong></td></tr><tr><td>otherwise</td><td><strong>low</strong></td></tr></tbody></table></div>
+<p>Our 2.14 → <strong>low</strong> ✅</p>
+<h3 id="formula-14b--overstock-risk">Formula 14b — Overstock risk</h3>
+<pre><code>maxCoverDays (default 180)</code></pre>
+<div class="table-wrap"><table><thead><tr><th>Condition</th><th>Overstock risk</th></tr></thead><tbody><tr><td>daysOfCover = ∞ AND stock > 0</td><td><strong>high</strong></td></tr><tr><td>daysOfCover > 180</td><td><strong>high</strong></td></tr><tr><td>daysOfCover > 180 × 0.75 = 135</td><td><strong>medium</strong></td></tr><tr><td>otherwise</td><td><strong>low</strong></td></tr></tbody></table></div>
+<p>Our daysOfCover = 30 → <strong>low</strong> ✅ (The 400-unit example from Step 11: 400 > 180 → <strong>high</strong>.)</p>
+<blockquote>🍋 <strong>Lemonade stand:</strong> 30 days of stock vs a 14-day delivery = you're safe (2.14× covered). If you only had 10 days of stock, that's less than 14 → high risk of running out.</blockquote>
+<hr/>
+<h2 id="15-step-13--the-timeline">15. Step 13 — The timeline</h2>
+<p>The page shows three important dates.</p>
+<h3 id="formula-15a--estimated-stockout-date">Formula 15a — Estimated stockout date</h3>
+<pre><code>daysUntilStockout = ceil(inventoryPosition ÷ dailyForecast)
+estimatedStockoutDate = today + daysUntilStockout days</code></pre>
+<p><strong>Our actual numbers:</strong></p>
+<pre><code>daysUntilStockout = ceil(30 ÷ 1.1) = ceil(27.27) = 28 days
+estimatedStockoutDate = 2026-07-31 + 28 days = 2026-08-28</code></pre>
+<p>*(If stock is already 0, the stockout date is today.)*</p>
+<h3 id="formula-15b--reorder-by-date-last-safe-day-to-order">Formula 15b — Reorder-by date (last safe day to order)</h3>
+<pre><code>reorderByDate = estimatedStockoutDate − supplierLeadTimeDays</code></pre>
+<p><strong>Our actual numbers:</strong> <code>2026-08-28 − 14 days = 2026-08-14</code></p>
+<h3 id="formula-15c--next-refill-date-if-you-ordered-today">Formula 15c — Next refill date (if you ordered today)</h3>
+<pre><code>nextRefillDate = today + supplierLeadTimeDays</code></pre>
+<p><strong>Our actual numbers:</strong> <code>2026-07-31 + 14 days = 2026-08-14</code></p>
+<h3 id="formula-15d--stockout-urgency">Formula 15d — Stockout urgency</h3>
+<div class="table-wrap"><table><thead><tr><th>Condition</th><th>Urgency</th></tr></thead><tbody><tr><td>stock ≤ 0, or reorderByDate ≤ today</td><td><code>critical</code></td></tr><tr><td>reorderByDate ≤ today + supplierLeadTimeDays</td><td><code>warning</code></td></tr><tr><td>otherwise</td><td><code>safe</code></td></tr></tbody></table></div>
+<p><strong>Our actual numbers:</strong> reorderByDate (Aug 14) ≤ today + 14 days (Aug 14) → <strong><code>warning</code></strong> ✅</p>
+<blockquote>🍋 <strong>Lemonade stand:</strong> you'll be out on Aug 28. The lemon man takes 14 days, so you must order by Aug 14 at the very latest. If you order today, it arrives Aug 14 — cutting it close, so the page warns you. If you'd missed Aug 14, it would scream "CRITICAL".</blockquote>
+<hr/>
+<h2 id="16-step-14--pricing-strategy-what-to-do-with-the-price">16. Step 14 — Pricing strategy (what to do with the price)</h2>
+<p>Finally, the page suggests a pricing move based on <strong>velocity</strong>, <strong>momentum</strong>, <strong>days of cover</strong>, and your margins.</p>
+<h3 id="formula-16a--minimum-permitted-price-from-your-margin-floor">Formula 16a — Minimum permitted price (from your margin floor)</h3>
+<pre><code>minimumGrossMargin = clamp(minimumGrossMarginPercentage, 0.01, 0.99)   (default 0.40)
+minimumPrice       = unitCost ÷ (1 − minimumGrossMargin)</code></pre>
+<p><strong>Our actual numbers:</strong></p>
+<pre><code>minimumPrice = $25.00 ÷ (1 − 0.40) = $25.00 ÷ 0.60 = $41.67</code></pre>
+<p>So you must never price below <strong>$41.67</strong> if you want at least a 40% gross margin. (Current price is $59.99, so you're comfortably above the floor.)</p>
+<h3 id="formula-16b--inventory-position">Formula 16b — Inventory position</h3>
+<pre><code>if daysOfCover &lt; leadTime + safetyStockDays  →  "low"
+else if daysOfCover &gt; maxCoverDays           →  "high"
+else                                          →  "normal"</code></pre>
+<p><strong>Our actual numbers:</strong> <code>30 &lt; 14 + 30 = 44</code> → <strong>low</strong> stock position.</p>
+<h3 id="formula-16c--the-decision-rules-checked-in-order">Formula 16c — The decision rules (checked in order)</h3>
+<div class="table-wrap"><table><thead><tr><th>Rule</th><th>Condition</th><th>Strategy → Action</th></tr></thead><tbody><tr><td>Clearance</td><td>dead/inactive AND stock high</td><td><strong>Clearance</strong> → cut price 20–40%</td></tr><tr><td>Markdown</td><td>slow mover + declining + high stock</td><td><strong>Markdown / Promotion</strong> → cut 10–20%</td></tr><tr><td>Targeted promo</td><td>slow mover + stable</td><td><strong>Targeted promotion</strong> → cut 5–10% or bundle</td></tr><tr><td>Hold price</td><td>medium mover + stable</td><td><strong>Hold price</strong> → no change</td></tr><tr><td>Protect margin</td><td>fast mover + accelerating + low stock</td><td><strong>Protect margin</strong> → maybe raise 3–5%</td></tr><tr><td>Hold availability</td><td>fast mover + stable</td><td><strong>Hold price / protect availability</strong> → no discount</td></tr><tr><td>Monitor</td><td>fast mover + declining</td><td><strong>Monitor</strong> → hold price, watch it</td></tr><tr><td>Default</td><td>anything else</td><td><strong>Hold price</strong></td></tr></tbody></table></div>
+<p><strong>Our actual result (medium mover + accelerating):</strong> no rule matches exactly → default → <strong>"Hold price — no price change recommended"</strong>. Reason shown on page: *"Medium-moving, accelerating demand."*</p>
+<p><strong>Worked clearance example:</strong> a dead product (velocity <code>dead</code>, momentum <code>inactive</code>) with 250 days of cover, cost $10:</p>
+<pre><code>minimumPrice = $10 ÷ 0.60 = $16.67
+strategy     = Clearance → "Reduce price by 20% to 40% (min $16.67)"</code></pre>
+<blockquote>🍋 <strong>Lemonade stand:</strong> if your lemonade is the fastest seller in town, don't discount it. If it's gathering dust with tons of stock, slash the price to move it. The page just checks your situation against a list of rules and picks the right one.</blockquote>
+<hr/>
+<h2 id="appendix-a--all-formulas-in-one-place">Appendix A — All formulas in one place</h2>
+<p><strong>Availability correction</strong></p>
+<pre><code>availabilityRate = clamp(inStockDays ÷ daysInMonth, 0, 1)
+corrected        = min(actual ÷ max(availabilityRate, 0.70), actual × 1.4)</code></pre>
+<p><strong>Weighted average (baseline)</strong> — decay <code>d = 0.3</code>, newest month = index 11</p>
+<pre><code>wᵢ = e^(d × (i − n + 1))
+weightedAvg = Σ(yᵢ·wᵢ) ÷ Σ(wᵢ)</code></pre>
+<p><strong>Trend</strong> — decay <code>d = 0.25</code></p>
+<pre><code>meanX = Σ(xᵢ·wᵢ) ÷ Σ(wᵢ)      meanY = Σ(yᵢ·wᵢ) ÷ Σ(wᵢ)
+slope = Σ(wᵢ(xᵢ−meanX)(yᵢ−meanY)) ÷ Σ(wᵢ(xᵢ−meanX)²)
+R²    = 1 − Σwᵢ(yᵢ−predᵢ)² ÷ Σwᵢ(yᵢ−meanY)²        predᵢ = meanY + slope(xᵢ−meanX)
+threshold = |meanY| × 0.02    direction: slope&gt;+t → up · slope&lt;−t → down · else stable</code></pre>
+<p><strong>Seasonality</strong></p>
+<pre><code>overallAvg = Σyᵢ ÷ 12
+rawᵢ       = monthAvgᵢ ÷ overallAvg
+smoothᵢ    = rawᵢ × 0.7 + (rawₚᵣₑᵥ + rawₙₑₓₜ) × 0.15
+factorᵢ    = clamp(smoothᵢ, 0.5, 2.0)</code></pre>
+<p><strong>Factors</strong></p>
+<pre><code>adjusted = baseline × (trekking × weather × promotion × regional × event)
+final    = clamp(adjusted, baseline × 0.70, baseline × 1.50)</code></pre>
+<p><strong>Monthly forecast</strong> (month i = 1…6)</p>
+<pre><code>dampening         = 0.9^(i−1)
+trendContribution = slope × i × dampening
+baseline          = max(0, weightedAvg + trendContribution) × seasonalityFactor
+final             = clamp(baseline × factors, 0.7×baseline, 1.5×baseline)
+dailyRate         = final ÷ daysInMonth
+stockRequired     = max(0, final)
+monthlySafety     = dailyRate × safetyStockDays
+projectedAfter    = max(0, runningStock − final)
+suggestedOrder    = runningStock &lt; final + monthlySafety ? ceil(final + monthlySafety − runningStock) : 0</code></pre>
+<p><strong>Prediction interval (80%)</strong> — <code>z = 1.28</code>, <code>meanX = (n−1)/2</code>, <code>ssx = Σ(i−meanX)²</code></p>
+<pre><code>se      = √( Σ(yᵢ − (avg + slope·i))² ÷ (n−2) )
+sePred  = se × √(1 + 1/n + (forecastIndex − meanX)² ÷ ssx)
+half    = round(z × sePred)
+low     = max(0, center − half)    high = center + half</code></pre>
+<p><strong>Days of cover</strong></p>
+<pre><code>coverDailyRate = (r₁×3 + r₂×2 + r₃×1) ÷ 6
+daysOfCover    = round(inventoryPosition ÷ coverDailyRate)
+inventoryPosition = stock + confirmedInbound − committedOrders</code></pre>
+<p><strong>Reorder</strong></p>
+<pre><code>leadTimeDemand = Σ (dailyRate × days) over the months the lead time spans
+stdDev         = √( Σ(deSeasonalizedᵢ − desMean)² ÷ (n−1) )
+safetyStock    = round(z × stdDev × √(leadTime ÷ 30))     z = 1.65 default
+recommended    = max(0, leadTimeDemand + safetyStock − inventoryPosition)
+recommended    = min(recommended, max(0, dailyForecast×maxCoverDays − inventoryPosition))   [unless protected]
+recommended    = max(recommended, minimumOrderQty)                                          [if &gt; 0]
+recommended    = ceil(recommended ÷ orderMultiple) × orderMultiple                          [round up]</code></pre>
+<p><strong>Momentum</strong></p>
+<pre><code>recent = (last 3 months) ÷ 3
+accelerating if recent ≥ baseline × 1.2 · stable if ≥ baseline × 0.6 · else declining · 0 = inactive</code></pre>
+<p><strong>Velocity (per category)</strong></p>
+<pre><code>position = (rank + 1) ÷ groupSize
+dead if recent = 0 · fast if ≤ 0.2 · medium if ≤ 0.5 · slow otherwise</code></pre>
+<p><strong>Risks</strong></p>
+<pre><code>coverVsLead   = daysOfCover ÷ max(lead, 1)        &lt;1 high · &lt;1.5 medium · else low
+overstock     = daysOfCover &gt; maxCover → high · &gt; 0.75×maxCover → medium · else low</code></pre>
+<p><strong>Timeline</strong></p>
+<pre><code>daysUntilStockout = ceil(inventoryPosition ÷ dailyForecast)
+stockoutDate      = today + daysUntilStockout
+reorderByDate     = stockoutDate − leadTime
+nextRefillDate    = today + leadTime
+critical if stock ≤ 0 or reorderByDate ≤ today · warning if reorderByDate ≤ today + lead · else safe</code></pre>
+<p><strong>Pricing</strong></p>
+<pre><code>minimumPrice = unitCost ÷ (1 − minGrossMargin)
+low if cover &lt; lead + safetyDays · high if cover &gt; maxCoverDays · else normal
++ the 8 decision rules in Step 14</code></pre>
+<hr/>
+<h2 id="appendix-b--constants-and-default-values">Appendix B — Constants and default values</h2>
+<div class="table-wrap"><table><thead><tr><th>Constant</th><th>Value</th><th>Where used</th></tr></thead><tbody><tr><td>Baseline decay <code>d</code></td><td>0.3</td><td>weighted average</td></tr><tr><td>Trend decay <code>d</code></td><td>0.25</td><td>trend regression</td></tr><tr><td>Dampening lambda <code>λ</code></td><td>0.9</td><td>trend contribution per month</td></tr><tr><td>Seasonality smoothing</td><td>70% self / 15% each neighbor</td><td>seasonal factors</td></tr><tr><td>Seasonality clamp</td><td>0.5 – 2.0</td><td>seasonal factors</td></tr><tr><td>Factor clamp</td><td>0.7× – 1.5× baseline</td><td>business factors</td></tr><tr><td>Confidence level</td><td>80% (<code>z = 1.28</code>)</td><td>prediction interval</td></tr><tr><td>Small-history fallback</td><td>±30%</td><td>prediction interval (n < 3)</td></tr><tr><td>Availability divisor floor</td><td>0.70</td><td>availability correction</td></tr><tr><td>Availability cap</td><td>1.4× actual</td><td>availability correction</td></tr><tr><td>Service level (default)</td><td>95% → <code>z = 1.65</code></td><td>safety stock</td></tr><tr><td>Service level table</td><td>≥99% → 2.33 · ≥95% → 1.65 · ≥90% → 1.28 · else 1.04</td><td>safety stock</td></tr><tr><td>Safety stock days (default)</td><td>30</td><td>monthly safety stock</td></tr><tr><td>Max cover days (default)</td><td>180</td><td>overstock risk & reorder cap</td></tr><tr><td>Cover-rate weights</td><td>3, 2, 1 (near → far)</td><td>days of cover</td></tr><tr><td>Momentum thresholds</td><td>120% / 60% of baseline</td><td>momentum tag</td></tr><tr><td>Velocity cutoffs</td><td>20% / 50% of category rank</td><td>velocity tag</td></tr><tr><td>History length</td><td>12 months</td><td>everything</td></tr><tr><td>Forecast horizon</td><td>6 months</td><td>the forecast table</td></tr><tr><td>Default gross margin floor</td><td>40%</td><td>pricing strategy</td></tr></tbody></table></div>
+<hr/>
+<h2 id="appendix-c--how-to-reproduce-these-exact-numbers">Appendix C — How to reproduce these exact numbers</h2>
+<p>The engine is pure TypeScript with no dependencies, so it runs anywhere Node ≥ 23.6 is installed (type-stripping is enabled by default there; no <code>bun</code>, no npm install needed):</p>
+<pre><code># from the project root
+cd frontend
+node scripts/forecast-doc-examples.ts        # main worked example (this document's numbers)
+node scripts/forecast-doc-examples-extra.ts  # supplementary examples (reorder caps, PI internals)</code></pre>
+<p>And to rebuild the HTML copy from the Markdown:</p>
+<pre><code>cd frontend
+node scripts/md2html.mjs</code></pre>
+<p>The engine also ships with its own test suite:</p>
+<pre><code>cd frontend
+bun src/lib/forecast-engine.tests.ts     # if bun is installed</code></pre>
+<p>Key source files:</p>
+<ul><li><strong>Engine:</strong> <code>frontend/src/lib/forecast-engine.ts</code></li><li><strong>Page:</strong> <code>frontend/src/routes/app.forecast.tsx</code></li><li><strong>Tests:</strong> <code>frontend/src/lib/forecast-engine.tests.ts</code></li><li><strong>Reproducible examples:</strong> <code>frontend/scripts/forecast-doc-examples.ts</code>, <code>frontend/scripts/forecast-doc-examples-extra.ts</code></li></ul>
+<hr/>
+<h2 id="glossary--the-words-we-use">Glossary — the words we use</h2>
+<div class="table-wrap"><table><thead><tr><th>Word</th><th>Plain meaning</th></tr></thead><tbody><tr><td><strong>Demand</strong></td><td>How many units people want to buy</td></tr><tr><td><strong>Stock / inventory</strong></td><td>How many units you have</td></tr><tr><td><strong>On hand</strong></td><td>Stock physically in your shop/warehouse now</td></tr><tr><td><strong>Stockout</strong></td><td>Running out of stock (you can't sell)</td></tr><tr><td><strong>Lead time</strong></td><td>Days between placing an order and it arriving</td></tr><tr><td><strong>Baseline</strong></td><td>The "normal" monthly demand number</td></tr><tr><td><strong>Trend / slope</strong></td><td>How much demand changes per month (up or down)</td></tr><tr><td><strong>Trend strength (R²)</strong></td><td>How reliably the data follows the trend (0–100%)</td></tr><tr><td><strong>Seasonality factor</strong></td><td>Month multiplier vs normal (1.0 = normal)</td></tr><tr><td><strong>Weighted average</strong></td><td>Average where recent months count more</td></tr><tr><td><strong>Safety stock</strong></td><td>Extra buffer stock for surprises</td></tr><tr><td><strong>Days of cover</strong></td><td>How many days current stock lasts at forecast speed</td></tr><tr><td><strong>Reorder / recommendedReorder</strong></td><td>Units you should order now</td></tr><tr><td><strong>MOQ</strong></td><td>Minimum order quantity (supplier rule)</td></tr><tr><td><strong>Order multiple</strong></td><td>Rounding rule (e.g. boxes of 25)</td></tr><tr><td><strong>Prediction interval</strong></td><td>The "probably between X and Y" range</td></tr><tr><td><strong>Momentum</strong></td><td>Recent demand vs your own history (accelerating/stable/declining)</td></tr><tr><td><strong>Velocity</strong></td><td>Your sales vs others in the same category (fast/medium/slow/dead)</td></tr><tr><td><strong>Overstock</strong></td><td>Holding way more stock than you need</td></tr><tr><td><strong>Gross margin</strong></td><td>(Price − Cost) ÷ Price — profit share of each sale</td></tr><tr><td><strong>Confirmed inbound</strong></td><td>Stock already ordered, arriving soon</td></tr><tr><td><strong>Committed orders</strong></td><td>Stock already promised to customers</td></tr></tbody></table></div>
+<hr/>
+<p>*Generated from the real output of <code>forecastSKU()</code> in <code>frontend/src/lib/forecast-engine.ts</code> on 2026-07-31.*</p>
+<footer>
+<p>Generated from the real output of <code>forecastSKU()</code> in <code>frontend/src/lib/forecast-engine.ts</code> on 2026-07-31.</p>
+</footer>
+</div>
+</body>
+</html>

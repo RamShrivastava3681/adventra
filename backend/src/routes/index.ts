@@ -121,12 +121,22 @@ router.get("/stock-movements", authMiddleware, async (req, res) => {
 router.post("/stock-movements", authMiddleware, async (req, res) => {
   try {
     const item = await StockMovement.create({ ...req.body, clientId: req.user!.userId });
+    // Trigger forecast recompute asynchronously (fire-and-forget)
+    const { recomputeAll } = await import("../services/forecast-service.js");
+    recomputeAll(req.user!.userId).catch((err: any) =>
+      console.error("  ⚠ Forecast recompute after stock movement creation failed:", err)
+    );
     res.status(201).json(item);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.delete("/stock-movements/:id", authMiddleware, async (req, res) => {
   try {
     await StockMovement.remove(req.params.id);
+    // Trigger forecast recompute asynchronously (fire-and-forget)
+    const { recomputeAll } = await import("../services/forecast-service.js");
+    recomputeAll(req.user!.userId).catch((err: any) =>
+      console.error("  ⚠ Forecast recompute after stock movement deletion failed:", err)
+    );
     res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -579,6 +589,62 @@ router.get("/forecast", authMiddleware, async (req, res) => {
     const movements = await StockMovement.list(req.user!.userId);
     res.json({ products, movements });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ===================== FORECAST VARIABLES (persisted snapshots) =====================
+/**
+ * GET /forecast-variables — returns persisted forecast snapshots for all active products.
+ * Auto-triggers a daily recompute if today's forecast hasn't been computed yet.
+ */
+router.get("/forecast-variables", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const { ensureFresh, recomputeAll } = await import("../services/forecast-service.js");
+
+    // Automatically recompute if stale (daily freshness check)
+    const wasRecomputed = await ensureFresh(clientId);
+
+    // Fetch all persisted forecast variables
+    const { listByClient } = await import("../models/forecast-variable.js");
+    const variables = await listByClient(clientId);
+
+    // Parse forecastJson and build response with rich data
+    const snapshots = variables.map((v) => ({
+      ...v,
+      forecast: JSON.parse(v.forecastJson),
+    }));
+
+    // Also fetch products for category info (used by frontend pricing strategy)
+    const products = await Product.list(clientId);
+    const productMap = new Map(products.filter((p: any) => p.status === "active").map((p: any) => [p.id, p]));
+
+    res.json({
+      computedDate: variables.length > 0 ? variables[0].computedDate : null,
+      wasRecomputed,
+      snapshots,
+      products: Array.from(productMap.values()),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /forecast-variables/recompute — manually trigger a full recompute.
+ */
+router.post("/forecast-variables/recompute", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const { recomputeAll } = await import("../services/forecast-service.js");
+    const result = await recomputeAll(clientId);
+    res.json({
+      computedDate: result.computedDate,
+      count: result.count,
+      message: `Forecasts recomputed for ${result.count} products on ${result.computedDate}`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ===================== DASHBOARD =====================

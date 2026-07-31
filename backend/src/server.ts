@@ -112,6 +112,39 @@ app.listen(config.port, async () => {
   startReminderScheduler().catch((err) =>
     console.error("  ❌ Failed to start reminder scheduler:", err)
   );
+
+  // Recompute forecasts for all clients on startup so snapshots are always fresh
+  recomputeAllForecastsOnStartup().catch((err) =>
+    console.error("  ❌ Forecast recompute on startup failed:", err)
+  );
 });
+
+// ---------------------------------------------------------------------------
+// Forecast recompute on startup — runs async for every known client
+// ---------------------------------------------------------------------------
+async function recomputeAllForecastsOnStartup() {
+  try {
+    const { recomputeAll } = await import("./services/forecast-service.js");
+    const users = await db.scanByType("User");
+    const clientIds = new Set<string>();
+    for (const u of users) {
+      if (u.id) clientIds.add(u.id);
+    }
+    if (clientIds.size === 0) {
+      console.log("  ⚠ No users found — skipping forecast recompute on startup");
+      return;
+    }
+    console.log(`  🔄 Recomputing forecasts for ${clientIds.size} client(s) on startup…`);
+    const results = await Promise.allSettled(
+      Array.from(clientIds).map((clientId) => recomputeAll(clientId))
+    );
+    const succeeded = results.filter((r) => r.status === "fulfilled").length;
+    const failed = results.filter((r) => r.status === "rejected").length;
+    const emoji = failed > 0 ? "⚠" : "✅";
+    console.log(`  ${emoji} Forecast recompute complete: ${succeeded} succeeded, ${failed} failed`);
+  } catch (err) {
+    console.error("  ❌ Forecast recompute on startup error:", err);
+  }
+}
 
 export default app;
