@@ -8,7 +8,7 @@ import {
   type CategoryVelocityInput,
   type ForecastResult,
   type VelocityTag,
-} from "../../frontend/src/lib/forecast-engine.js";
+} from "../lib/forecast-engine.js";
 
 export type ForecastSnapshot = {
   productId: string;
@@ -66,7 +66,7 @@ export async function recomputeAll(clientId: string): Promise<{
     }));
 
     const history = bucketMovementsByMonth(formattedMoves, 12);
-    const leadTimeDays = p.leadTimeDays ?? p.lead_time_days ?? 14;
+    const leadTimeDays = p.leadTimeDays ?? 14;
     const f = forecastSKU(history, stock, leadTimeDays, 6);
 
     snapshots.push({

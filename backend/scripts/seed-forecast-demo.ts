@@ -16,7 +16,7 @@ import {
   forecastSKU,
   computeVelocityByCategory,
   type MovementInput,
-} from "../../frontend/src/lib/forecast-engine.ts";
+} from "../src/lib/forecast-engine.js";
 
 const log = (s: string) => console.log(s);
 
