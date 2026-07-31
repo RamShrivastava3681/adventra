@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
 import { bucketMovementsByMonth, forecastSKU, MONTH_NAMES, computeVelocityByCategory, computePricingStrategy, recomputeTimeline, type ForecastResult, type CalculationBreakdown, type MomentumTag, type VelocityTag, type PricingStrategyResult, type CategoryVelocityInput } from "@/lib/forecast-engine";
@@ -47,6 +47,15 @@ function ForecastPage() {
   const [sortBy, setSortBy] = useState<"velocity" | "reorder" | "cover" | "stockout" | "trend">("reorder");
   const [expanded, setExpanded] = useState<string | null>(null);
 
+  // Tick every minute so date-sensitive fields (estimatedStockoutDate,
+  // reorderByDate, nextRefillDate, days of cover) are recomputed against the
+  // live clock instead of staying frozen at page-load time.
+  const [clockTick, setClockTick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => setClockTick((t) => t + 1), 60_000);
+    return () => clearInterval(id);
+  }, []);
+
   const productsQ = useQuery({
     queryKey: ["products-forecast"],
     queryFn: async () => {
@@ -58,6 +67,7 @@ function ForecastPage() {
         unit_cost: p.unitCost ?? p.unit_cost, status: p.status,
       })).sort((a: any, b: any) => a.sku?.localeCompare(b.sku ?? "") ?? 0);
     },
+    refetchInterval: 60_000, // keep SKU data current (lead times, prices, …)
   });
 
   const movementsQ = useQuery({
@@ -66,6 +76,7 @@ function ForecastPage() {
       const data = await api.stockMovements.list();
       return data.map((m: any) => ({ product_id: m.productId ?? m.product_id, direction: m.direction, quantity: m.quantity, movement_date: m.movementDate ?? m.movement_date }));
     },
+    refetchInterval: 60_000, // live stock levels — sales/stock-ins flow in every minute
   });
 
   // Fetch server-side persisted forecasts (auto-fresh via ensureFresh on backend)
@@ -79,6 +90,7 @@ function ForecastPage() {
       return snakeToCamelDeep(data);
     },
     staleTime: 60_000, // 1 min — backend auto-refresh on first request of the day
+    refetchInterval: 60_000, // re-pull persisted snapshots + trigger ensureFresh every minute
   });
 
   // Recompute mutation
@@ -205,7 +217,7 @@ function ForecastPage() {
     }
 
     return rows;
-  }, [productsQ.data, movementsQ.data, forecastVarsQ.data]);
+  }, [productsQ.data, movementsQ.data, forecastVarsQ.data, clockTick]);
 
   const filtered = useMemo(() => {
     let r = analyses.filter((a) => {
@@ -320,6 +332,13 @@ function ForecastPage() {
 
             {/* Recompute button + freshness badge */}
             <div className="flex items-center gap-2 ml-auto">
+              <span className="inline-flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                <span className="relative flex h-1.5 w-1.5">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                </span>
+                Live · refresh 60s
+              </span>
               {forecastVarsQ.data?.computedDate && (
                 <span className="text-[10px] text-muted-foreground/60 whitespace-nowrap">
                   Computed {forecastVarsQ.data.computedDate}
