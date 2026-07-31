@@ -82,7 +82,7 @@ Forecast for each of the next 6 months  (+ an 80% confidence range)
         ├──► Reorder amount      ("Buy 50 units")
         ├──► Momentum & velocity ("Accelerating, medium mover")
         ├──► Risks               ("Stockout: low · Overstock: low")
-        ├──► Timeline            ("Out on Aug 28 · order by Aug 14")
+        ├──► Timeline            ("Out on Aug 30 · order by Aug 16")
         └──► Pricing strategy    ("Hold price")
 ```
 
@@ -999,18 +999,22 @@ The page shows three important dates.
 
 ### Formula 15a — Estimated stockout date
 
+The stockout date is simply **today + days of cover** — the days-of-cover number already
+computed in Step 8 tells you how many days of stock you have left, so the date you run out is
+exactly that many days from today.
+
 ```
-daysUntilStockout = ceil(inventoryPosition ÷ dailyForecast)
-estimatedStockoutDate = today + daysUntilStockout days
+estimatedStockoutDate = today + daysOfCover days
 ```
 
 **Our actual numbers:**
 ```
-daysUntilStockout = ceil(30 ÷ 1.1) = ceil(27.27) = 28 days
-estimatedStockoutDate = 2026-07-31 + 28 days = 2026-08-28
+daysOfCover           = 30 days          (from Step 8)
+estimatedStockoutDate = 2026-07-31 + 30 days = 2026-08-30
 ```
 
-*(If stock is already 0, the stockout date is today.)*
+*(If stock is already 0, the stockout date is today. If there is no forecast demand at all
+(daysOfCover = ∞), there is no stockout date and the SKU shows as "Sufficient".)*
 
 ### Formula 15b — Reorder-by date (last safe day to order)
 
@@ -1018,7 +1022,7 @@ estimatedStockoutDate = 2026-07-31 + 28 days = 2026-08-28
 reorderByDate = estimatedStockoutDate − supplierLeadTimeDays
 ```
 
-**Our actual numbers:** `2026-08-28 − 14 days = 2026-08-14`
+**Our actual numbers:** `2026-08-30 − 14 days = 2026-08-16`
 
 ### Formula 15c — Next refill date (if you ordered today)
 
@@ -1036,11 +1040,12 @@ nextRefillDate = today + supplierLeadTimeDays
 | reorderByDate ≤ today + supplierLeadTimeDays | `warning` |
 | otherwise | `safe` |
 
-**Our actual numbers:** reorderByDate (Aug 14) ≤ today + 14 days (Aug 14) → **`warning`** ✅
+**Our actual numbers:** reorderByDate (Aug 16) > today + 14 days (Aug 14) → **`safe`** ✅
 
-> 🍋 **Lemonade stand:** you'll be out on Aug 28. The lemon man takes 14 days, so you must order
-> by Aug 14 at the very latest. If you order today, it arrives Aug 14 — cutting it close, so the
-> page warns you. If you'd missed Aug 14, it would scream "CRITICAL".
+> 🍋 **Lemonade stand:** you have 30 days of stock, so you'll run out on Aug 30. The lemon man
+> takes 14 days, so you must order by Aug 16 at the very latest. Since that's comfortably in the
+> future, the page rates you "safe". If the date ever slips inside the 14-day delivery window the
+> page would warn, and past Aug 16 it would scream "CRITICAL".
 
 ---
 
@@ -1199,8 +1204,7 @@ overstock     = daysOfCover > maxCover → high · > 0.75×maxCover → medium �
 
 **Timeline**
 ```
-daysUntilStockout = ceil(inventoryPosition ÷ dailyForecast)
-stockoutDate      = today + daysUntilStockout
+stockoutDate      = today + daysOfCover
 reorderByDate     = stockoutDate − leadTime
 nextRefillDate    = today + leadTime
 critical if stock ≤ 0 or reorderByDate ≤ today · warning if reorderByDate ≤ today + lead · else safe

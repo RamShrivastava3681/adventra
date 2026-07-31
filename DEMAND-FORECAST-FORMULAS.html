@@ -136,7 +136,7 @@ Forecast for each of the next 6 months  (+ an 80% confidence range)
         ├──► Reorder amount      ("Buy 50 units")
         ├──► Momentum &amp; velocity ("Accelerating, medium mover")
         ├──► Risks               ("Stockout: low · Overstock: low")
-        ├──► Timeline            ("Out on Aug 28 · order by Aug 14")
+        ├──► Timeline            ("Out on Aug 30 · order by Aug 16")
         └──► Pricing strategy    ("Hold price")</code></pre>
 <hr/>
 <h2 id="2-step-0--the-12-months-of-history">2. Step 0 — The 12 months of history</h2>
@@ -473,22 +473,22 @@ threshold60pct  = 21.85 × 0.6 = 13.11</code></pre>
 <h2 id="15-step-13--the-timeline">15. Step 13 — The timeline</h2>
 <p>The page shows three important dates.</p>
 <h3 id="formula-15a--estimated-stockout-date">Formula 15a — Estimated stockout date</h3>
-<pre><code>daysUntilStockout = ceil(inventoryPosition ÷ dailyForecast)
-estimatedStockoutDate = today + daysUntilStockout days</code></pre>
+<p>The stockout date is simply <strong>today + days of cover</strong> — the days-of-cover number already computed in Step 8 tells you how many days of stock you have left, so the date you run out is exactly that many days from today.</p>
+<pre><code>estimatedStockoutDate = today + daysOfCover days</code></pre>
 <p><strong>Our actual numbers:</strong></p>
-<pre><code>daysUntilStockout = ceil(30 ÷ 1.1) = ceil(27.27) = 28 days
-estimatedStockoutDate = 2026-07-31 + 28 days = 2026-08-28</code></pre>
-<p>*(If stock is already 0, the stockout date is today.)*</p>
+<pre><code>daysOfCover           = 30 days          (from Step 8)
+estimatedStockoutDate = 2026-07-31 + 30 days = 2026-08-30</code></pre>
+<p>*(If stock is already 0, the stockout date is today. If there is no forecast demand at all (daysOfCover = ∞), there is no stockout date and the SKU shows as "Sufficient".)*</p>
 <h3 id="formula-15b--reorder-by-date-last-safe-day-to-order">Formula 15b — Reorder-by date (last safe day to order)</h3>
 <pre><code>reorderByDate = estimatedStockoutDate − supplierLeadTimeDays</code></pre>
-<p><strong>Our actual numbers:</strong> <code>2026-08-28 − 14 days = 2026-08-14</code></p>
+<p><strong>Our actual numbers:</strong> <code>2026-08-30 − 14 days = 2026-08-16</code></p>
 <h3 id="formula-15c--next-refill-date-if-you-ordered-today">Formula 15c — Next refill date (if you ordered today)</h3>
 <pre><code>nextRefillDate = today + supplierLeadTimeDays</code></pre>
 <p><strong>Our actual numbers:</strong> <code>2026-07-31 + 14 days = 2026-08-14</code></p>
 <h3 id="formula-15d--stockout-urgency">Formula 15d — Stockout urgency</h3>
 <div class="table-wrap"><table><thead><tr><th>Condition</th><th>Urgency</th></tr></thead><tbody><tr><td>stock ≤ 0, or reorderByDate ≤ today</td><td><code>critical</code></td></tr><tr><td>reorderByDate ≤ today + supplierLeadTimeDays</td><td><code>warning</code></td></tr><tr><td>otherwise</td><td><code>safe</code></td></tr></tbody></table></div>
-<p><strong>Our actual numbers:</strong> reorderByDate (Aug 14) ≤ today + 14 days (Aug 14) → <strong><code>warning</code></strong> ✅</p>
-<blockquote>🍋 <strong>Lemonade stand:</strong> you'll be out on Aug 28. The lemon man takes 14 days, so you must order by Aug 14 at the very latest. If you order today, it arrives Aug 14 — cutting it close, so the page warns you. If you'd missed Aug 14, it would scream "CRITICAL".</blockquote>
+<p><strong>Our actual numbers:</strong> reorderByDate (Aug 16) > today + 14 days (Aug 14) → <strong><code>safe</code></strong> ✅</p>
+<blockquote>🍋 <strong>Lemonade stand:</strong> you have 30 days of stock, so you'll run out on Aug 30. The lemon man takes 14 days, so you must order by Aug 16 at the very latest. Since that's comfortably in the future, the page rates you "safe". If the date ever slips inside the 14-day delivery window the page would warn, and past Aug 16 it would scream "CRITICAL".</blockquote>
 <hr/>
 <h2 id="16-step-14--pricing-strategy-what-to-do-with-the-price">16. Step 14 — Pricing strategy (what to do with the price)</h2>
 <p>Finally, the page suggests a pricing move based on <strong>velocity</strong>, <strong>momentum</strong>, <strong>days of cover</strong>, and your margins.</p>
@@ -568,8 +568,7 @@ dead if recent = 0 · fast if ≤ 0.2 · medium if ≤ 0.5 · slow otherwise</co
 <pre><code>coverVsLead   = daysOfCover ÷ max(lead, 1)        &lt;1 high · &lt;1.5 medium · else low
 overstock     = daysOfCover &gt; maxCover → high · &gt; 0.75×maxCover → medium · else low</code></pre>
 <p><strong>Timeline</strong></p>
-<pre><code>daysUntilStockout = ceil(inventoryPosition ÷ dailyForecast)
-stockoutDate      = today + daysUntilStockout
+<pre><code>stockoutDate      = today + daysOfCover
 reorderByDate     = stockoutDate − leadTime
 nextRefillDate    = today + leadTime
 critical if stock ≤ 0 or reorderByDate ≤ today · warning if reorderByDate ≤ today + lead · else safe</code></pre>

@@ -240,6 +240,28 @@ test("suggested order triggers when stock is low", () => {
   truthy(r.forecast[0].projectedStockAfter <= r.forecast[0].stockRequired, "stock after should be <= required");
 });
 
+console.log("\ntimeline — stockout date = today + days of cover");
+test("estimatedStockoutDate equals today + daysOfCover", () => {
+  const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
+  const r = forecastSKU(h, 30, 14);
+  truthy(Number.isFinite(r.daysOfCover), "daysOfCover should be finite");
+  truthy(r.estimatedStockoutDate != null, "estimatedStockoutDate should exist");
+  const d = new Date();
+  d.setDate(d.getDate() + r.daysOfCover);
+  eq(r.estimatedStockoutDate, d.toISOString().slice(0, 10));
+});
+test("no stockout date when demand is zero (daysOfCover = Infinity)", () => {
+  const h = mkHistory([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  const r = forecastSKU(h, 30, 14);
+  eq(r.daysOfCover, Infinity);
+  eq(r.estimatedStockoutDate, null);
+});
+test("stockout date is today when already out of stock", () => {
+  const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
+  const r = forecastSKU(h, 0, 14);
+  eq(r.estimatedStockoutDate, new Date().toISOString().slice(0, 10));
+});
+
 console.log("\nnew fields — stock requirement");
 
 console.log("\ndampened trend for longer horizons");

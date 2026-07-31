@@ -399,7 +399,7 @@ export type ForecastResult = {
   stockoutRisk: "low" | "medium" | "high";
   overstockRisk: "low" | "medium" | "high";
   // --- New timeline fields ---
-  /** Estimated date stock will run out (based on dailyForecast) */
+  /** Estimated date stock will run out (today + days of cover) */
   estimatedStockoutDate: string | null;
   /** Last safe date to place a purchase order to avoid stockout */
   reorderByDate: string | null;
@@ -728,7 +728,7 @@ export function forecastSKU(
 
   // ---- Improved calculations using per-month data ----
 
-  // Daily forecast: next month's actual daily rate (used for stockout timeline)
+  // Daily forecast: next month's actual daily rate (used for reorder & cover fallback)
   const dailyForecast = forecast[0]?.dailyRate ?? 0;
 
   // Recent daily rate for fallback cover calculation
@@ -852,15 +852,14 @@ export function forecastSKU(
 
   // --- Timeline calculations ---
   const today = new Date();
-  // Estimated stockout date
+  // Estimated stockout date: today + days of cover
   let estimatedStockoutDate: string | null = null;
-  if (dailyForecast > 0 && inventoryPosition > 0) {
-    const daysUntilStockout = Math.ceil(inventoryPosition / dailyForecast);
-    const d = new Date(today);
-    d.setDate(d.getDate() + daysUntilStockout);
-    estimatedStockoutDate = d.toISOString().slice(0, 10);
-  } else if (inventoryPosition <= 0) {
+  if (inventoryPosition <= 0) {
     estimatedStockoutDate = today.toISOString().slice(0, 10); // already out
+  } else if (Number.isFinite(daysOfCover)) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + daysOfCover);
+    estimatedStockoutDate = d.toISOString().slice(0, 10);
   }
 
   // Reorder-by date (order must be placed by this date to avoid stockout)
@@ -1082,9 +1081,7 @@ export function forecastSKU(
       dailyForecast,
       inventoryPosition,
       daysUntilStockout:
-        dailyForecast > 0 && inventoryPosition > 0
-          ? Math.ceil(inventoryPosition / dailyForecast)
-          : null,
+        Number.isFinite(daysOfCover) && inventoryPosition > 0 ? daysOfCover : null,
       estimatedStockoutDate,
       supplierLeadDays: supplierLead,
       reorderByDate,
@@ -1430,15 +1427,14 @@ export function recomputeTimeline(
       ? Math.round(inventoryPosition / coverDailyRate)
       : Infinity;
 
-  // --- Estimated stockout date ---
+  // --- Estimated stockout date: today + days of cover ---
   let estimatedStockoutDate: string | null = null;
-  if (dailyForecast > 0 && inventoryPosition > 0) {
-    const daysUntilStockout = Math.ceil(inventoryPosition / dailyForecast);
-    const d = new Date(today);
-    d.setDate(d.getDate() + daysUntilStockout);
-    estimatedStockoutDate = d.toISOString().slice(0, 10);
-  } else if (inventoryPosition <= 0) {
+  if (inventoryPosition <= 0) {
     estimatedStockoutDate = today.toISOString().slice(0, 10);
+  } else if (Number.isFinite(daysOfCover)) {
+    const d = new Date(today);
+    d.setDate(d.getDate() + daysOfCover);
+    estimatedStockoutDate = d.toISOString().slice(0, 10);
   }
 
   // --- Reorder-by date ---
@@ -1505,9 +1501,7 @@ export function recomputeTimeline(
         dailyForecast,
         inventoryPosition,
         daysUntilStockout:
-          dailyForecast > 0 && inventoryPosition > 0
-            ? Math.ceil(inventoryPosition / dailyForecast)
-            : null,
+          Number.isFinite(daysOfCover) && inventoryPosition > 0 ? daysOfCover : null,
         estimatedStockoutDate,
         supplierLeadDays: supplierLead,
         reorderByDate,
