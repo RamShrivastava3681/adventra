@@ -18,12 +18,15 @@ export interface ForecastVariable {
   /** The forecast output — stored as serialized JSON */
   forecastJson: string;
 
-  /** Selected top-level fields for quick queries without deserializing */
-  finalForecast: number;
-  dailyForecast: number;
-  daysOfCover: number;
-  recommendedReorder: number;
-  inventoryPosition: number;
+  /** Selected top-level fields for quick queries without deserializing.
+   *  Numerics are nullable because the engine can produce non-finite values
+   *  (e.g. daysOfCover = Infinity for products with no sales history), which
+   *  are persisted as null. */
+  finalForecast: number | null;
+  dailyForecast: number | null;
+  daysOfCover: number | null;
+  recommendedReorder: number | null;
+  inventoryPosition: number | null;
   trendDirection: string;
   momentumTag: string;
   stockoutRisk: string;
@@ -31,7 +34,7 @@ export interface ForecastVariable {
   reorderByDate: string | null;
   nextRefillDate: string;
   stockoutUrgency: string;
-  avgMonthly: number;
+  avgMonthly: number | null;
 
   createdAt: string;
   updatedAt: string;

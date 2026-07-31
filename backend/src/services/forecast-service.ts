@@ -103,34 +103,62 @@ export async function recomputeAll(clientId: string): Promise<{
   // 3. Persist each forecast to DynamoDB
   const computedDate = new Date().toISOString().slice(0, 10);
 
+  // DynamoDB rejects non-finite numbers (e.g. daysOfCover = Infinity for a
+  // product with no sales history). Map them to null before persisting so one
+  // quiet SKU can never crash the whole client's recompute.
+  const safeNumber = (n: number | null | undefined): number | null =>
+    typeof n === "number" && Number.isFinite(n) ? n : null;
+
+  let persisted = 0;
+  const failures: string[] = [];
+
   for (const s of snapshots) {
     const f = s.forecast;
-    await ForecastVariable.upsert({
-      clientId,
-      productId: s.productId,
-      productSku: s.productSku,
-      productName: s.productName,
-      computedDate,
-      forecastJson: JSON.stringify(f),
-      finalForecast: f.finalForecast,
-      dailyForecast: f.dailyForecast,
-      daysOfCover: f.daysOfCover,
-      recommendedReorder: f.recommendedReorder,
-      inventoryPosition: f.inventoryPosition,
-      trendDirection: f.trendDirection,
-      momentumTag: f.momentumTag,
-      stockoutRisk: f.stockoutRisk,
-      estimatedStockoutDate: f.estimatedStockoutDate,
-      reorderByDate: f.reorderByDate,
-      nextRefillDate: f.nextRefillDate,
-      stockoutUrgency: f.stockoutUrgency,
-      avgMonthly: f.avgMonthly,
-    });
+    try {
+      await ForecastVariable.upsert({
+        clientId,
+        productId: s.productId,
+        productSku: s.productSku,
+        productName: s.productName,
+        computedDate,
+        forecastJson: JSON.stringify(f),
+        finalForecast: safeNumber(f.finalForecast),
+        dailyForecast: safeNumber(f.dailyForecast),
+        daysOfCover: safeNumber(f.daysOfCover),
+        recommendedReorder: safeNumber(f.recommendedReorder),
+        inventoryPosition: safeNumber(f.inventoryPosition),
+        trendDirection: f.trendDirection,
+        momentumTag: f.momentumTag,
+        stockoutRisk: f.stockoutRisk,
+        estimatedStockoutDate: f.estimatedStockoutDate,
+        reorderByDate: f.reorderByDate,
+        nextRefillDate: f.nextRefillDate,
+        stockoutUrgency: f.stockoutUrgency,
+        avgMonthly: safeNumber(f.avgMonthly),
+      });
+      persisted += 1;
+    } catch (err: any) {
+      // Never let a single SKU's persistence failure abort the whole client.
+      console.error(
+        `  ⚠ Failed to persist forecast for ${s.productSku ?? s.productId}:`,
+        err?.message ?? err
+      );
+      failures.push(s.productSku ?? s.productId);
+    }
+  }
+
+  // If every write failed (e.g. DynamoDB unreachable), fail loudly so the
+  // startup/recompute caller reports the client as failed instead of
+  // silently reporting "succeeded" with zero snapshots persisted.
+  if (snapshots.length > 0 && persisted === 0) {
+    throw new Error(
+      `All ${snapshots.length} forecast(s) failed to persist (e.g. ${failures[0] ?? "unknown"}).`
+    );
   }
 
   return {
     computedDate,
-    count: snapshots.length,
+    count: persisted,
     snapshots,
   };
 }
