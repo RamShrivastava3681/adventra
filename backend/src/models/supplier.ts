@@ -5,7 +5,8 @@ export interface Supplier {
   pk: string; sk: string; entityType: "Supplier";
   id: string; companyName: string;
   contactName: string | null; contactEmail: string | null; contactPhone: string | null;
-  industry: string | null; advanceRate: number; feeRate: number; creditLimit: number;
+  industry: string | null;
+  addressLine: string | null; city: string | null; country: string | null; postalCode: string | null;
   status: string; notes: string | null; supplierCode: string;
   createdAt: string; updatedAt: string;
 }
@@ -20,8 +21,8 @@ export async function create(data: Partial<Supplier> & { companyName: string }) 
     pk: `SUPPLIER#${id}`, sk: `SUPPLIER#${id}`, entityType: "Supplier", id,
     companyName: data.companyName, contactName: data.contactName || null,
     contactEmail: data.contactEmail || null, contactPhone: data.contactPhone || null,
-    industry: data.industry || null, advanceRate: data.advanceRate ?? 0.80,
-    feeRate: data.feeRate ?? 0.025, creditLimit: data.creditLimit || 0,
+    industry: data.industry || null,
+    addressLine: data.addressLine || null, city: data.city || null, country: data.country || null, postalCode: data.postalCode || null,
     status: data.status || "prospect", notes: data.notes || null,
     supplierCode: code, createdAt: now, updatedAt: now,
   };
@@ -31,7 +32,7 @@ export async function create(data: Partial<Supplier> & { companyName: string }) 
 
 export async function update(id: string, updates: Partial<Supplier>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
-  const allowed = ["companyName","contactName","contactEmail","contactPhone","industry","advanceRate","feeRate","creditLimit","status","notes"];
+  const allowed = ["companyName","contactName","contactEmail","contactPhone","industry","addressLine","city","country","postalCode","status","notes"];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   return db.updateItem(`SUPPLIER#${id}`, `SUPPLIER#${id}`, patch);
 }

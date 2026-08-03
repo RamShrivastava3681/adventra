@@ -419,21 +419,12 @@ router.put("/alerts/:id/read", authMiddleware, async (req, res) => {
 router.post("/alerts/generate", authMiddleware, requireAdmin, async (req, res) => {
   try {
     const invoices = await Invoice.list();
-    const debtors = await Debtor.list();
     const alerts: Array<{ message: string; type: string }> = [];
     for (const inv of invoices) {
       if (!inv.dueDate) continue;
       const dpd = Math.max(0, Math.floor((Date.now() - new Date(inv.dueDate).getTime()) / 86400000));
       if (dpd > 0 && inv.status !== "paid" && inv.status !== "rejected") {
         alerts.push({ message: `Invoice ${inv.invoiceNumber} overdue ${dpd} days — $${inv.amount}`, type: "overdue" });
-      }
-    }
-    for (const d of debtors) {
-      const exposure = invoices.filter((i) => i.debtorId === d.id && i.status !== "paid" && i.status !== "rejected")
-        .reduce((s, i) => s + i.amount, 0);
-      const util = d.creditLimit > 0 ? exposure / d.creditLimit : 0;
-      if (util > 0.85) {
-        alerts.push({ message: `${d.name} at ${(util * 100).toFixed(0)}% of credit limit`, type: "credit_limit" });
       }
     }
     for (const a of alerts) await Alert.create(a);

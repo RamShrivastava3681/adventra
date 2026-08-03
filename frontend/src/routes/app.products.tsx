@@ -225,8 +225,6 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
     season: product?.season ?? "all",
     unit_price: String(product?.unit_price ?? ""),
     unit_cost: String(product?.unit_cost ?? ""),
-    reorder_level: String(product?.reorder_level ?? "10"),
-    max_stock: String(product?.max_stock ?? "100"),
     lead_time_days: String(product?.lead_time_days ?? "30"),
     status: product?.status ?? "active",
   });
@@ -247,8 +245,8 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
         season: f.season,
         unit_price: Number(f.unit_price) || 0,
         unit_cost: Number(f.unit_cost) || 0,
-        reorder_level: Number(f.reorder_level) || 0,
-        max_stock: Number(f.max_stock) || 0,
+        // Fixed defaults (field hidden from the form) so low-stock indicators keep working.
+        reorder_level: 10,
         lead_time_days: Number(f.lead_time_days) || 30,
         status: f.status,
       };
@@ -294,8 +292,6 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
             <L label="Color"><input className="inp" value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} /></L>
             <L label="Unit price"><input type="number" step="0.01" className="inp" value={f.unit_price} onChange={(e) => setF({ ...f, unit_price: e.target.value })} /></L>
             <L label="Unit cost"><input type="number" step="0.01" className="inp" value={f.unit_cost} onChange={(e) => setF({ ...f, unit_cost: e.target.value })} /></L>
-            <L label="Reorder level"><input type="number" className="inp" value={f.reorder_level} onChange={(e) => setF({ ...f, reorder_level: e.target.value })} /></L>
-            <L label="Max stock"><input type="number" className="inp" value={f.max_stock} onChange={(e) => setF({ ...f, max_stock: e.target.value })} /></L>
             <L label="Lead time (days)"><input type="number" className="inp" value={f.lead_time_days} onChange={(e) => setF({ ...f, lead_time_days: e.target.value })} /></L>
             <L label="Status">
               <select className="inp" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>

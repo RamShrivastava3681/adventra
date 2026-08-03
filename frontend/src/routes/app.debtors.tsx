@@ -15,6 +15,8 @@ function DebtorsPage() {
   const { isAdmin } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<any | null>(null);
+  const [viewing, setViewing] = useState<any | null>(null);
 
   const debtorsQ = useQuery({
     queryKey: ["debtors-full"],
@@ -42,7 +44,7 @@ function DebtorsPage() {
       <PageHeader
         eyebrow="Counterparties"
         title="Debtor book"
-        description="Credit limits, risk scores, and live exposure across every payer."
+        description="Payment terms and live exposure across every payer."
         actions={
           isAdmin && (
             <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
@@ -67,35 +69,26 @@ function DebtorsPage() {
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Name</th>
                     <th className="px-5 py-2 text-left font-normal">Industry</th>
-                    <th className="px-5 py-2 text-right font-normal">Credit limit</th>
                     <th className="px-5 py-2 text-right font-normal">Exposure</th>
-                    <th className="px-5 py-2 text-right font-normal">Utilization</th>
-                    <th className="px-5 py-2 text-left font-normal">Risk</th>
                     <th className="px-5 py-2 text-right font-normal">Terms</th>
+                    <th className="px-5 py-2 text-right font-normal" />
                   </tr>
                 </thead>
                 <tbody>
                   {(debtorsQ.data ?? []).map((d) => {
                     const exposure = exposureFor(d.id);
-                    const util = Number(d.credit_limit) > 0 ? (exposure / Number(d.credit_limit)) * 100 : 0;
-                    const utilTone = util > 90 ? "text-destructive" : util > 70 ? "text-warning" : "text-success";
-                    const riskTone = d.risk_score >= 75 ? "text-success" : d.risk_score >= 50 ? "text-warning" : "text-destructive";
                     return (
                       <tr key={d.id} className="border-b border-border/60">
                         <td className="px-5 py-3 font-medium">{d.name}</td>
                         <td className="px-5 py-3 text-muted-foreground">{d.industry ?? "—"}</td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(d.credit_limit)}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(exposure)}</td>
-                        <td className={`px-5 py-3 text-right num ${utilTone}`}>{util.toFixed(0)}%</td>
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="h-1.5 w-24 overflow-hidden rounded-full bg-muted">
-                              <div className={`h-full ${d.risk_score >= 75 ? "bg-success" : d.risk_score >= 50 ? "bg-warning" : "bg-destructive"}`} style={{ width: `${d.risk_score}%` }} />
-                            </div>
-                            <span className={`num text-xs ${riskTone}`}>{d.risk_score}</span>
-                          </div>
-                        </td>
                         <td className="px-5 py-3 text-right text-muted-foreground">Net {d.payment_terms_days}</td>
+                        <td className="px-5 py-3 text-right whitespace-nowrap">
+                          <button onClick={() => setViewing(d)} className="rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary">View</button>
+                          {isAdmin && (
+                            <button onClick={() => setEditing(d)} className="ml-2 rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary">Edit</button>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -106,28 +99,29 @@ function DebtorsPage() {
         </Card>
       </div>
 
-      {open && <AddDebtorModal onClose={() => setOpen(false)} onCreated={() => qc.invalidateQueries({ queryKey: ["debtors-full"] })} />}
+      {open && <DebtorModal onClose={() => setOpen(false)} onSaved={() => qc.invalidateQueries({ queryKey: ["debtors-full"] })} />}
+      {editing && <DebtorModal debtor={editing} onClose={() => setEditing(null)} onSaved={() => qc.invalidateQueries({ queryKey: ["debtors-full"] })} />}
+      {viewing && <DebtorDetailModal debtor={viewing} exposure={exposureFor(viewing.id)} onClose={() => setViewing(null)} />}
     </div>
   );
 }
 
-function AddDebtorModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function DebtorModal({ debtor, onClose, onSaved }: { debtor?: any; onClose: () => void; onSaved: () => void }) {
+  const isEdit = !!debtor;
   const [form, setForm] = useState({
-    name: "", industry: "", credit_limit: "100000", risk_score: "70", payment_terms_days: "30",
-    address_line: "", city: "", country: "", postal_code: "", phone: "", website: "",
-    contact_name: "", contact_email: "", contact_designation: "", contact_phone: "",
+    name: debtor?.name ?? "", industry: debtor?.industry ?? "", payment_terms_days: String(debtor?.payment_terms_days ?? debtor?.paymentTermsDays ?? "30"),
+    address_line: debtor?.address_line ?? "", city: debtor?.city ?? "", country: debtor?.country ?? "", postal_code: debtor?.postal_code ?? "", phone: debtor?.phone ?? "", website: debtor?.website ?? "",
+    contact_name: debtor?.contact_name ?? "", contact_email: debtor?.contact_email ?? "", contact_designation: debtor?.contact_designation ?? "", contact_phone: debtor?.contact_phone ?? "",
   });
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [k]: e.target.value });
-  const create = useMutation({
+  const save = useMutation({
     mutationFn: async () => {
       if (!form.name.trim()) throw new Error("Name is required");
       if (form.contact_email && !/^\S+@\S+\.\S+$/.test(form.contact_email)) throw new Error("Invalid contact email");
       if (form.website && form.website.length > 255) throw new Error("Website too long");
-      await api.debtors.create({
+      const payload = {
         name: form.name.trim(),
         industry: form.industry || null,
-        credit_limit: Number(form.credit_limit),
-        risk_score: Number(form.risk_score),
         payment_terms_days: Number(form.payment_terms_days),
         address_line: form.address_line || null,
         city: form.city || null,
@@ -139,19 +133,24 @@ function AddDebtorModal({ onClose, onCreated }: { onClose: () => void; onCreated
         contact_email: form.contact_email || null,
         contact_designation: form.contact_designation || null,
         contact_phone: form.contact_phone || null,
-      });
+      };
+      if (isEdit && debtor) {
+        await api.debtors.update(debtor.id, payload);
+      } else {
+        await api.debtors.create(payload);
+      }
     },
-    onSuccess: () => { onCreated(); toast.success("Debtor added"); onClose(); },
+    onSuccess: () => { onSaved(); toast.success(isEdit ? "Debtor updated" : "Debtor added"); onClose(); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">Add debtor</h3>
+          <h3 className="font-display text-lg">{isEdit ? "Edit debtor" : "Add debtor"}</h3>
           <button onClick={onClose}><X className="h-4 w-4" /></button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-5 p-5">
+        <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-5 p-5">
           <Section title="Company">
             <div className="grid gap-3 md:grid-cols-2">
               <L label="Name *"><input required maxLength={200} className="inp" value={form.name} onChange={set("name")} /></L>
@@ -179,23 +178,61 @@ function AddDebtorModal({ onClose, onCreated }: { onClose: () => void; onCreated
             </div>
           </Section>
 
-          <Section title="Credit terms">
+          <Section title="Payment terms">
             <div className="grid gap-3 md:grid-cols-3">
-              <L label="Credit limit"><input required type="number" min="0" className="inp" value={form.credit_limit} onChange={set("credit_limit")} /></L>
-              <L label="Risk score (0–100)"><input required type="number" min="0" max="100" className="inp" value={form.risk_score} onChange={set("risk_score")} /></L>
               <L label="Payment terms (days)"><input required type="number" min="0" className="inp" value={form.payment_terms_days} onChange={set("payment_terms_days")} /></L>
             </div>
           </Section>
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
-            <button disabled={create.isPending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
-              {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Create
+            <button disabled={save.isPending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />} {isEdit ? "Save changes" : "Create"}
             </button>
           </div>
         </form>
         <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
       </div>
+    </div>
+  );
+}
+
+function DebtorDetailModal({ debtor, exposure, onClose }: { debtor: any; exposure: number; onClose: () => void }) {
+  const address = [debtor.address_line, debtor.city, debtor.country, debtor.postal_code].filter(Boolean).join(", ");
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h3 className="font-display text-lg">{debtor.name}</h3>
+          <button onClick={onClose}><X className="h-4 w-4" /></button>
+        </div>
+        <div className="space-y-4 p-5 text-sm">
+          <div className="grid grid-cols-2 gap-3">
+            <D label="Industry" value={debtor.industry ?? "—"} />
+            <D label="Payment terms" value={`Net ${debtor.payment_terms_days ?? debtor.paymentTermsDays ?? "—"}`} />
+            <D label="Open exposure" value={<span className="num">{fmtMoney(exposure)}</span>} />
+            <D label="Website" value={debtor.website ?? "—"} />
+            <D label="Phone" value={debtor.phone ?? "—"} />
+            <div className="col-span-2"><D label="Address" value={address || "—"} /></div>
+            <D label="Contact name" value={debtor.contact_name ?? "—"} />
+            <D label="Designation" value={debtor.contact_designation ?? "—"} />
+            <D label="Contact email" value={debtor.contact_email ?? "—"} />
+            <D label="Contact phone" value={debtor.contact_phone ?? "—"} />
+          </div>
+          <div className="flex justify-end border-t border-border pt-3">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function D({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="mt-0.5">{value}</div>
     </div>
   );
 }

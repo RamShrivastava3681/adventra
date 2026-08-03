@@ -5,7 +5,7 @@ export interface PurchaseOrder {
   pk: string; sk: string; gsi1pk: string; gsi1sk: string;
   entityType: "PurchaseOrder";
   id: string; clientId: string;
-  poNumber: string; amount: number;
+  poNumber: string; amount: number; poAmount: number | null;
   side: "sales" | "purchase";
   status: string; currency: string;
   debtorId: string | null; vendorId: string | null;
@@ -33,7 +33,7 @@ export async function create(data: Partial<PurchaseOrder> & { clientId: string; 
     pk: `PURCHASE_ORDER#${id}`, sk: `PURCHASE_ORDER#${id}`,
     gsi1pk: `CLIENT#${data.clientId}`, gsi1sk: `PurchaseOrder#${now}`,
     entityType: "PurchaseOrder", id, clientId: data.clientId,
-    poNumber: data.poNumber, amount: data.amount || 0,
+    poNumber: data.poNumber, amount: data.amount || 0, poAmount: data.poAmount ?? null,
     side: data.side, status: data.status || "draft", currency: data.currency || "USD",
     debtorId: data.debtorId || null, vendorId: data.vendorId || null,
     issueDate: data.issueDate || db.todayDate(), expectedDate: data.expectedDate || null,
@@ -52,7 +52,7 @@ export async function create(data: Partial<PurchaseOrder> & { clientId: string; 
 
 export async function update(id: string, updates: Partial<PurchaseOrder>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
-  const allowed = ["amount","status","side","poNumber","debtorId","vendorId","issueDate","expectedDate","currency","proformaNumber","proformaStatus","proformaDate","proformaFundedAmount","proformaFundedAt","proformaFundedBy","proformaFundingReference","proformaReviewedAt","proformaReviewedBy","proformaReviewComments","notes"];
+  const allowed = ["amount","poAmount","status","side","poNumber","debtorId","vendorId","issueDate","expectedDate","currency","proformaNumber","proformaStatus","proformaDate","proformaFundedAmount","proformaFundedAt","proformaFundedBy","proformaFundingReference","proformaReviewedAt","proformaReviewedBy","proformaReviewComments","notes"];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   return db.updateItem(`PURCHASE_ORDER#${id}`, `PURCHASE_ORDER#${id}`, patch);
 }

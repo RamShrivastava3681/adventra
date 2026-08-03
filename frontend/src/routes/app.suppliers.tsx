@@ -21,9 +21,10 @@ type Supplier = {
   contact_email: string | null;
   contact_phone: string | null;
   industry: string | null;
-  advance_rate: number;
-  fee_rate: number;
-  credit_limit: number;
+  address_line: string | null;
+  city: string | null;
+  country: string | null;
+  postal_code: string | null;
   status: SupplierStatus;
   notes: string | null;
   created_at: string;
@@ -35,9 +36,10 @@ const emptyForm = {
   contact_email: "",
   contact_phone: "",
   industry: "",
-  advance_rate: 0.8,
-  fee_rate: 0.025,
-  credit_limit: 0,
+  address_line: "",
+  city: "",
+  country: "",
+  postal_code: "",
   status: "prospect" as SupplierStatus,
   notes: "",
 };
@@ -47,6 +49,7 @@ function SuppliersPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
+  const [viewing, setViewing] = useState<Supplier | null>(null);
   const [form, setForm] = useState(emptyForm);
 
   const suppliersQ = useQuery({
@@ -80,9 +83,10 @@ function SuppliersPage() {
         contact_email: form.contact_email || null,
         contact_phone: form.contact_phone || null,
         industry: form.industry || null,
-        advance_rate: Number(form.advance_rate),
-        fee_rate: Number(form.fee_rate),
-        credit_limit: Number(form.credit_limit),
+        address_line: form.address_line || null,
+        city: form.city || null,
+        country: form.country || null,
+        postal_code: form.postal_code || null,
         status: form.status,
         notes: form.notes || null,
       };
@@ -127,9 +131,10 @@ function SuppliersPage() {
       contact_email: s.contact_email ?? "",
       contact_phone: s.contact_phone ?? "",
       industry: s.industry ?? "",
-      advance_rate: Number(s.advance_rate),
-      fee_rate: Number(s.fee_rate),
-      credit_limit: Number(s.credit_limit),
+      address_line: s.address_line ?? "",
+      city: s.city ?? "",
+      country: s.country ?? "",
+      postal_code: s.postal_code ?? "",
       status: s.status,
       notes: s.notes ?? "",
     });
@@ -145,7 +150,6 @@ function SuppliersPage() {
   }
 
   const suppliers = suppliersQ.data ?? [];
-  const totalLimit = suppliers.reduce((s, x) => s + Number(x.credit_limit), 0);
   const activeCount = suppliers.filter((s) => s.status === "active").length;
 
   return (
@@ -153,7 +157,7 @@ function SuppliersPage() {
       <PageHeader
         eyebrow="Onboarding"
         title="Suppliers"
-        description="The companies whose invoices you finance. Set terms, credit lines, and lifecycle status."
+        description="The companies whose invoices you finance. Track contacts and lifecycle status."
         actions={
           <button
             onClick={openNew}
@@ -164,13 +168,10 @@ function SuppliersPage() {
         }
       />
 
-      <div className="grid gap-4 p-6 md:grid-cols-3 md:p-10">
+      <div className="grid gap-4 p-6 md:grid-cols-2 md:p-10">
         <Card title="Total suppliers">
           <div className="num text-3xl">{suppliers.length}</div>
           <div className="mt-1 text-xs text-muted-foreground">{activeCount} active</div>
-        </Card>
-        <Card title="Aggregate credit line">
-          <div className="num text-3xl text-primary">{fmtMoney(totalLimit)}</div>
         </Card>
         <Card title="Open exposure">
           <div className="num text-3xl">
@@ -186,7 +187,7 @@ function SuppliersPage() {
       <div className="px-6 pb-10 md:px-10">
         <Card>
           {suppliersQ.isLoading ? (
-            <TableSkeleton rows={5} cols={8} />
+            <TableSkeleton rows={5} cols={5} />
           ) : suppliers.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
               No suppliers yet. Click <span className="text-foreground">Onboard supplier</span> to add the first one.
@@ -198,9 +199,6 @@ function SuppliersPage() {
                   <tr className="border-b border-border">
                     <th className="px-3 py-3 text-left">Company</th>
                     <th className="px-3 py-3 text-left">Contact</th>
-                    <th className="px-3 py-3 text-right">Advance</th>
-                    <th className="px-3 py-3 text-right">Fee</th>
-                    <th className="px-3 py-3 text-right">Credit limit</th>
                     <th className="px-3 py-3 text-right">Exposure</th>
                     <th className="px-3 py-3 text-left">Status</th>
                     <th className="px-3 py-3" />
@@ -209,33 +207,33 @@ function SuppliersPage() {
                 <tbody>
                   {suppliers.map((s) => {
                     const exposure = exposureBy(s.id);
-                    const util = Number(s.credit_limit) > 0 ? exposure / Number(s.credit_limit) : 0;
                     return (
                       <tr key={s.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-3 py-3">
                           <div className="font-medium">{s.company_name}</div>
                           <div className="text-xs text-muted-foreground">{s.industry ?? "—"}</div>
+                          {(s.city || s.country) && (
+                            <div className="text-xs text-muted-foreground/70">{[s.city, s.country].filter(Boolean).join(", ")}</div>
+                          )}
                         </td>
                         <td className="px-3 py-3">
                           <div>{s.contact_name ?? "—"}</div>
                           <div className="text-xs text-muted-foreground">{s.contact_email ?? ""}</div>
                         </td>
-                        <td className="px-3 py-3 text-right num">{(Number(s.advance_rate) * 100).toFixed(1)}%</td>
-                        <td className="px-3 py-3 text-right num">{(Number(s.fee_rate) * 100).toFixed(2)}%</td>
-                        <td className="px-3 py-3 text-right num">{fmtMoney(s.credit_limit)}</td>
-                        <td className="px-3 py-3 text-right num">
-                          <div className={util > 0.85 ? "text-destructive" : util > 0.6 ? "text-warning" : ""}>{fmtMoney(exposure)}</div>
-                          {Number(s.credit_limit) > 0 && (
-                            <div className="text-xs text-muted-foreground">{(util * 100).toFixed(0)}%</div>
-                          )}
-                        </td>
+                        <td className="px-3 py-3 text-right num">{fmtMoney(exposure)}</td>
                         <td className="px-3 py-3">
                           <StatusPill status={s.status} />
                         </td>
                         <td className="px-3 py-3 text-right">
                           <button
-                            onClick={() => openEdit(s)}
+                            onClick={() => setViewing(s)}
                             className="rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary"
+                          >
+                            View
+                          </button>
+                          <button
+                            onClick={() => openEdit(s)}
+                            className="ml-2 rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary"
                           >
                             Edit
                           </button>
@@ -259,6 +257,8 @@ function SuppliersPage() {
         </Card>
       </div>
 
+      {viewing && <SupplierDetailModal supplier={viewing} exposure={exposureBy(viewing.id)} onClose={() => setViewing(null)} />}
+
       {open && (
         <div className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm" onClick={() => setOpen(false)}>
           <div
@@ -278,6 +278,18 @@ function SuppliersPage() {
               <F label="Industry">
                 <input className="inp" value={form.industry} onChange={(e) => setForm({ ...form, industry: e.target.value })} />
               </F>
+              <F label="Address" full>
+                <input maxLength={300} className="inp" value={form.address_line} onChange={(e) => setForm({ ...form, address_line: e.target.value })} />
+              </F>
+              <F label="City">
+                <input maxLength={100} className="inp" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+              </F>
+              <F label="Country">
+                <input maxLength={100} className="inp" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} />
+              </F>
+              <F label="PIN / Postal code">
+                <input maxLength={20} className="inp" value={form.postal_code} onChange={(e) => setForm({ ...form, postal_code: e.target.value })} />
+              </F>
               <F label="Contact name">
                 <input className="inp" value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} />
               </F>
@@ -294,18 +306,6 @@ function SuppliersPage() {
                   <option value="suspended">Suspended</option>
                   <option value="offboarded">Offboarded</option>
                 </select>
-              </F>
-              <F label="Advance rate (0–1)">
-                <input type="number" step="0.01" min="0" max="1" className="inp" value={form.advance_rate}
-                  onChange={(e) => setForm({ ...form, advance_rate: Number(e.target.value) })} />
-              </F>
-              <F label="Fee rate (0–1)">
-                <input type="number" step="0.001" min="0" max="1" className="inp" value={form.fee_rate}
-                  onChange={(e) => setForm({ ...form, fee_rate: Number(e.target.value) })} />
-              </F>
-              <F label="Credit limit (USD)">
-                <input type="number" step="1000" min="0" className="inp" value={form.credit_limit}
-                  onChange={(e) => setForm({ ...form, credit_limit: Number(e.target.value) })} />
               </F>
               <F label="Notes" full>
                 <textarea rows={3} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
@@ -337,5 +337,43 @@ function F({ label, full, children }: { label: string; full?: boolean; children:
       <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>
       {children}
     </label>
+  );
+}
+
+function SupplierDetailModal({ supplier, exposure, onClose }: { supplier: Supplier; exposure: number; onClose: () => void }) {
+  const address = [supplier.address_line, supplier.city, supplier.country, supplier.postal_code].filter(Boolean).join(", ");
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h3 className="font-display text-lg">{supplier.company_name}</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground" aria-label="Close"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="space-y-4 p-5 text-sm">
+          <div className="grid grid-cols-2 gap-3">
+            <Detail label="Industry" value={supplier.industry ?? "—"} />
+            <Detail label="Status" value={<StatusPill status={supplier.status} />} />
+            <Detail label="Contact name" value={supplier.contact_name ?? "—"} />
+            <Detail label="Contact email" value={supplier.contact_email ?? "—"} />
+            <Detail label="Contact phone" value={supplier.contact_phone ?? "—"} />
+            <Detail label="Open exposure" value={<span className="num">{fmtMoney(exposure)}</span>} />
+            <div className="col-span-2"><Detail label="Address" value={address || "—"} /></div>
+            <div className="col-span-2"><Detail label="Notes" value={supplier.notes ?? "—"} /></div>
+          </div>
+          <div className="flex justify-end border-t border-border pt-3">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Detail({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="mt-0.5">{value}</div>
+    </div>
   );
 }

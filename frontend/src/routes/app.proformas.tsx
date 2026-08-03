@@ -22,6 +22,7 @@ type PF = {
   proforma_number: string | null;
   proforma_date: string | null;
   amount: number;
+  po_amount: number | null;
   currency: string;
   issue_date: string;
   status: "open" | "proforma" | "invoiced" | "cancelled";
@@ -40,6 +41,8 @@ function ProformasPage() {
   const [queue, setQueue] = useState<"all" | "pending_review" | "approved" | "funded" | "rejected">("all");
   const [reviewFor, setReviewFor] = useState<PF | null>(null);
   const [fundFor, setFundFor] = useState<PF | null>(null);
+  const [editingPf, setEditingPf] = useState<PF | null>(null);
+  const [viewingPf, setViewingPf] = useState<PF | null>(null);
 
   const listQ = useQuery({
     queryKey: ["proformas"],
@@ -169,6 +172,7 @@ function ProformasPage() {
                         <td className="px-5 py-3">
                           <div className="font-mono text-xs">{p.proforma_number ?? "—"}</div>
                           <div className="text-[10px] text-muted-foreground">{p.proforma_date ? fmtDate(p.proforma_date) : fmtDate(p.issue_date)}</div>
+                          {p.po_amount != null && p.po_amount > 0 && <div className="text-[10px] text-muted-foreground">PO {fmtMoney(p.po_amount)}</div>}
                           {p.proforma_review_comments && (
                             <div className="text-[10px] text-warning mt-0.5" title={p.proforma_review_comments}>“{p.proforma_review_comments}”</div>
                           )}
@@ -182,6 +186,10 @@ function ProformasPage() {
                         </td>
                         <td className="px-5 py-3 text-right">
                           <div className="inline-flex flex-wrap items-center justify-end gap-1">
+                            <button onClick={() => setViewingPf(p)} className="rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary">View</button>
+                            {canCreate && p.proforma_status !== "funded" && p.status !== "invoiced" && p.status !== "cancelled" && (
+                              <button onClick={() => setEditingPf(p)} className="rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary">Edit</button>
+                            )}
                             {(isChecker || isAdmin) && p.proforma_status === "pending_review" && (
                               <button onClick={() => setReviewFor(p)} className="rounded-md border border-warning/50 px-2 py-0.5 text-[10px] text-warning hover:bg-warning/10">Review</button>
                             )}
@@ -218,8 +226,10 @@ function ProformasPage() {
       </div>
 
       {open && user && <NewProformaModal side={open} userId={user.id} onClose={() => setOpen(null)} />}
+      {editingPf && user && <NewProformaModal side={editingPf.side} userId={user.id} pf={editingPf} onClose={() => setEditingPf(null)} />}
       {reviewFor && user && <ReviewModal pf={reviewFor} userId={user.id} onClose={() => setReviewFor(null)} />}
       {fundFor && user && <FundModal pf={fundFor} userId={user.id} onClose={() => setFundFor(null)} />}
+      {viewingPf && <ProformaDetailModal pf={viewingPf} onClose={() => setViewingPf(null)} />}
     </div>
   );
 }
@@ -234,16 +244,18 @@ function StatusPill({ status, pStatus }: { status: string; pStatus: string }) {
   return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${cls}`}>{label}</span>;
 }
 
-function NewProformaModal({ side, userId, onClose }: { side: "sales" | "purchase"; userId: string; onClose: () => void }) {
+function NewProformaModal({ side, userId, pf, onClose }: { side: "sales" | "purchase"; userId: string; pf?: PF; onClose: () => void }) {
   const qc = useQueryClient();
+  const isEdit = !!pf;
   const [form, setForm] = useState({
-    po_number: "",
-    proforma_number: "",
-    proforma_date: new Date().toISOString().slice(0, 10),
-    party_id: "",
-    amount: "",
-    currency: "USD",
-    notes: "",
+    po_number: pf?.po_number ?? "",
+    proforma_number: pf?.proforma_number ?? "",
+    proforma_date: (pf?.proforma_date ?? new Date().toISOString().slice(0, 10))?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+    party_id: (side === "sales" ? pf?.debtor_id : pf?.vendor_id) ?? "",
+    amount: pf ? String(pf.amount ?? "") : "",
+    po_amount: pf?.po_amount != null ? String(pf.po_amount) : "",
+    currency: pf?.currency ?? "USD",
+    notes: pf?.notes ?? "",
   });
 
   const partiesQ = useQuery({
@@ -264,36 +276,38 @@ function NewProformaModal({ side, userId, onClose }: { side: "sales" | "purchase
     },
   });
 
-  const create = useMutation({
+  const save = useMutation({
     mutationFn: async () => {
       if (!form.po_number.trim()) throw new Error("PO number is required");
       if (!form.proforma_number.trim()) throw new Error("Proforma number is required");
       if (!form.party_id) throw new Error(side === "sales" ? "Pick a debtor" : "Pick a supplier");
       const amt = Number(form.amount);
       if (!amt || amt <= 0) throw new Error("Advance amount must be > 0");
-      await api.purchaseOrders.create({
-        clientId: userId,
-        side,
+      const payload = {
         debtorId: side === "sales" ? form.party_id : null,
         vendorId: side === "purchase" ? form.party_id : null,
         poNumber: form.po_number.trim(),
         proformaNumber: form.proforma_number.trim(),
         proformaDate: form.proforma_date,
         amount: amt,
+        poAmount: form.po_amount ? Number(form.po_amount) : null,
         currency: form.currency,
         issueDate: form.proforma_date,
-        status: "proforma",
-        proformaStatus: "pending_review",
         notes: form.notes || null,
-      });
+      };
+      if (isEdit && pf) {
+        await api.purchaseOrders.update(pf.id, payload);
+      } else {
+        await api.purchaseOrders.create({ ...payload, clientId: userId, side, status: "proforma", proformaStatus: "pending_review" });
+      }
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["proformas"] }); toast.success("Proforma submitted for review"); onClose(); },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["proformas"] }); toast.success(isEdit ? "Proforma updated" : "Proforma submitted for review"); onClose(); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
   return (
-    <Modal title={`New ${side} proforma`} onClose={onClose}>
-      <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-4 p-5">
+    <Modal title={`${isEdit ? "Edit" : "New"} ${side} proforma`} onClose={onClose}>
+      <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-4 p-5">
         <L label="PO number *"><input required className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="PO-2026-001" /></L>
         <L label="Proforma number *"><input required className="inp" value={form.proforma_number} onChange={(e) => setForm({ ...form, proforma_number: e.target.value })} placeholder="PF-2026-001" /></L>
         <L label={side === "sales" ? "Debtor *" : "Supplier *"}>
@@ -308,9 +322,12 @@ function NewProformaModal({ side, userId, onClose }: { side: "sales" | "purchase
           </L>
           <L label="Proforma date *"><input required type="date" className="inp" value={form.proforma_date} onChange={(e) => setForm({ ...form, proforma_date: e.target.value })} /></L>
         </div>
+        <L label={`PO amount (${form.currency})`}>
+          <input type="number" step="0.01" min="0" className="inp" value={form.po_amount} onChange={(e) => setForm({ ...form, po_amount: e.target.value })} placeholder="Optional" />
+        </L>
         <L label="Notes"><textarea rows={2} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>
         <p className="text-[11px] text-muted-foreground">{side === "sales" ? "Once funded, this advance is recorded as money received from the debtor against this PO." : "Once funded, this advance is recorded as money paid to the supplier against this PO."}</p>
-        <Actions onClose={onClose} pending={create.isPending} label="Submit" />
+        <Actions onClose={onClose} pending={save.isPending} label={isEdit ? "Save changes" : "Submit"} />
       </form>
     </Modal>
   );
@@ -406,6 +423,38 @@ function FundModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: (
   );
 }
 
+function ProformaDetailModal({ pf, onClose }: { pf: PF; onClose: () => void }) {
+  const cp = pf.side === "sales" ? (pf as any).debtor?.name : (pf as any).vendor?.name;
+  return (
+    <Modal title={`Proforma · ${pf.proforma_number ?? pf.po_number}`} onClose={onClose}>
+      <div className="space-y-4 p-5 text-sm">
+        <Summary pf={pf} />
+        <div className="grid grid-cols-2 gap-3">
+          <D label="Counterparty" value={cp ?? "—"} />
+          <D label="Currency" value={pf.currency} />
+          <D label="Side" value={pf.side} />
+          <D label="Proforma date" value={pf.proforma_date ? fmtDate(pf.proforma_date) : "—"} />
+          <D label="Workflow" value={pf.proforma_status !== "none" ? pf.proforma_status : pf.status} />
+          <D label="Status" value={pf.status} />
+          <div className="col-span-2"><D label="Notes" value={pf.notes ?? "—"} /></div>
+        </div>
+        <div className="flex justify-end border-t border-border pt-3">
+          <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Close</button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function D({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="mt-0.5 capitalize">{value}</div>
+    </div>
+  );
+}
+
 function Summary({ pf }: { pf: PF }) {
   return (
     <div className="rounded-md border border-border/60 bg-muted/30 p-3 text-xs space-y-1">
@@ -413,6 +462,9 @@ function Summary({ pf }: { pf: PF }) {
       <div className="flex justify-between"><span className="text-muted-foreground">Proforma #</span><span className="font-mono">{pf.proforma_number ?? "—"}</span></div>
       <div className="flex justify-between"><span className="text-muted-foreground">Side</span><span>{pf.side}</span></div>
       <div className="flex justify-between"><span className="text-muted-foreground">Amount</span><span className="num">{fmtMoney(pf.amount)}</span></div>
+      {pf.po_amount != null && pf.po_amount > 0 && (
+        <div className="flex justify-between"><span className="text-muted-foreground">PO amount</span><span className="num">{fmtMoney(pf.po_amount)}</span></div>
+      )}
     </div>
   );
 }

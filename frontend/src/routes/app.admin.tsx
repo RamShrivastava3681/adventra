@@ -78,14 +78,6 @@ function AdminPage() {
     },
     enabled: isAdmin,
   });
-  const debtorsQ = useQuery({
-    queryKey: ["debtors-admin"],
-    queryFn: async () => {
-      const data = await api.debtors.list();
-      return data;
-    },
-    enabled: isAdmin,
-  });
 
   // Team & roles
   const profilesQ = useQuery({
@@ -158,7 +150,6 @@ function AdminPage() {
   const generateAlerts = useMutation({
     mutationFn: async () => {
       const invoices = invoicesQ.data ?? [];
-      const debtors = debtorsQ.data ?? [];
       const inserts: any[] = [];
 
       for (const i of invoices) {
@@ -177,25 +168,6 @@ function AdminPage() {
             client_id: i.client_id, invoice_id: i.id, debtor_id: i.debtor_id,
             type: "large_invoice", severity: "info",
             message: `Large invoice received: ${fmtMoney(i.amount)} from ${(i as any).debtor?.name ?? "debtor"}`,
-          });
-        }
-      }
-      for (const d of debtors) {
-        const exposure = invoices.filter((i) => i.debtor_id === d.id && i.status !== "paid" && i.status !== "rejected").reduce((s, i) => s + Number(i.amount), 0);
-        const util = Number(d.credit_limit) > 0 ? exposure / Number(d.credit_limit) : 0;
-        if (util > 0.85) {
-          inserts.push({
-            client_id: null, debtor_id: d.id,
-            type: "credit_limit",
-            severity: util > 1 ? "critical" : "warning",
-            message: `${d.name} at ${(util * 100).toFixed(0)}% of credit limit (${fmtMoney(exposure)} / ${fmtMoney(d.credit_limit)})`,
-          });
-        }
-        if (d.risk_score < 40) {
-          inserts.push({
-            client_id: null, debtor_id: d.id,
-            type: "risk_change", severity: "warning",
-            message: `${d.name} risk score is low (${d.risk_score})`,
           });
         }
       }

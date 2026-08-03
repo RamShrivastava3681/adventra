@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
@@ -19,6 +19,8 @@ function PurchasesPage() {
   const canReview = isAdmin || isChecker;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<any | null>(null);
+  const [viewing, setViewing] = useState<any | null>(null);
   const [filter, setFilter] = useState("all");
 
   const piQ = useQuery({
@@ -184,6 +186,10 @@ function PurchasesPage() {
                         </td>
                         <td className="px-5 py-3 text-right">
                           <div className="inline-flex gap-1">
+                            <button onClick={() => setViewing(p)} className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">View</button>
+                            {canCreate && p.status !== "paid" && p.status !== "approved" && p.status !== "disputed" && (
+                              <button onClick={() => setEditing(p)} className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">Edit</button>
+                            )}
                             {/* Send reminder button for unpaid purchase invoices */}
                             {isAdmin && p.status !== "paid" && p.status !== "rejected" && p.status !== "cancelled" && p.due_date && (
                               <button
@@ -232,6 +238,16 @@ function PurchasesPage() {
           onCreated={() => qc.invalidateQueries({ queryKey: ["purchase_invoices"] })}
         />
       )}
+      {editing && user && (
+        <NewPurchaseModal
+          invoice={editing}
+          userId={user.id}
+          vendors={vendorsQ.data ?? []}
+          onClose={() => setEditing(null)}
+          onCreated={() => qc.invalidateQueries({ queryKey: ["purchase_invoices"] })}
+        />
+      )}
+      {viewing && <PurchaseDetailModal invoice={viewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }
@@ -246,21 +262,31 @@ function ActionBtn({ children, onClick, tone = "default" }: { children: React.Re
   return <button onClick={onClick} className={`rounded-md border px-2.5 py-1 text-xs ${cls}`}>{children}</button>;
 }
 
-function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: string; vendors: any[]; onClose: () => void; onCreated: () => void }) {
+function NewPurchaseModal({ invoice, userId, vendors, onClose, onCreated }: { invoice?: any; userId: string; vendors: any[]; onClose: () => void; onCreated: () => void }) {
   const qc = useQueryClient();
+  const isEdit = !!invoice;
   const [form, setForm] = useState({
-    invoice_number: "",
-    vendor_id: vendors[0]?.id ?? "",
-    amount: "",
-    po_number: "",
-    po_date: "",
-    po_amount: "",
-    issue_date: new Date().toISOString().slice(0, 10),
-    due_date: "",
-    notes: "",
+    invoice_number: invoice?.invoice_number ?? "",
+    vendor_id: invoice?.vendor_id ?? vendors[0]?.id ?? "",
+    amount: invoice?.amount != null ? String(invoice.amount) : "",
+    po_number: invoice?.po_number ?? "",
+    po_date: (invoice?.po_date ?? "")?.slice(0, 10) ?? "",
+    po_amount: invoice?.po_amount != null ? String(invoice.po_amount) : "",
+    issue_date: (invoice?.issue_date ?? new Date().toISOString().slice(0, 10))?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+    due_date: (invoice?.due_date ?? "")?.slice(0, 10) ?? "",
+    notes: invoice?.notes ?? "",
   });
   const [docs, setDocs] = useState<DocMeta[]>([]);
-  const [inv, setInv] = useState({ enabled: false, item_name: "", sku: "", quantity: "", unit: "unit", unit_cost: "" });
+  const [inv, setInv] = useState({ enabled: false, product_id: "", quantity: "", unit: "unit", unit_cost: "" });
+
+  // Product catalogue — inventory items must link to an existing product
+  const productsQ = useQuery({
+    queryKey: ["products-for-purchase-inv"],
+    queryFn: async () => {
+      const data = await api.products.list();
+      return (data ?? []).filter((p: any) => p.status === "active");
+    },
+  });
 
   // Lookup proformas/advances by PO number (purchase side)
   const poLookupQ = useQuery({
@@ -286,6 +312,22 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
     .reduce((s, a) => s + Number(a.amount), 0);
   const balanceDue = Math.max(0, Number(form.amount || 0) - advancesTotal);
 
+  // Auto-fill the PO amount from the matched proforma once per PO number entry,
+  // so linking a proforma carries its PO amount onto the purchase invoice.
+  const lastFetchedPo = useRef<string>("");
+  useEffect(() => {
+    if (!form.po_number.trim()) {
+      lastFetchedPo.current = "";
+      return;
+    }
+    const pfs = (poLookupQ.data?.proformas ?? []) as any[];
+    const withAmount = pfs.find((p: any) => p.po_amount != null && Number(p.po_amount) > 0);
+    if (withAmount && form.po_number.trim() !== lastFetchedPo.current) {
+      lastFetchedPo.current = form.po_number.trim();
+      setForm((f) => ({ ...f, po_amount: String(withAmount.po_amount) }));
+    }
+  }, [poLookupQ.data, form.po_number]);
+
   const selectedVendor = vendors.find((v: any) => v.id === form.vendor_id);
   const termsDays = Number(selectedVendor?.payment_terms_days ?? 30) || 30;
   const computedDue = (() => {
@@ -297,13 +339,13 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
   const effectiveDue = form.due_date || computedDue;
 
 
-  const create = useMutation({
+  const save = useMutation({
     mutationFn: async () => {
       if (!form.vendor_id) throw new Error("Add a supplier first.");
       if (!form.invoice_number.trim()) throw new Error("Invoice number required");
       if (!form.amount || Number(form.amount) <= 0) throw new Error("Amount must be > 0");
-      const created = await api.purchaseInvoices.create({
-        clientId: userId,
+      if (inv.enabled && !inv.product_id) throw new Error("Select a product from the catalogue to track inventory");
+      const payload = {
         vendor_id: form.vendor_id,
         invoice_number: form.invoice_number.trim(),
         amount: Number(form.amount),
@@ -314,8 +356,11 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
         due_date: effectiveDue || null,
         notes: form.notes || null,
         documents: docs,
-        status: "pending",
-      });
+      };
+      const created = isEdit && invoice
+        ? await api.purchaseInvoices.update(invoice.id, payload)
+        : await api.purchaseInvoices.create({ ...payload, clientId: userId, status: "pending" });
+      if (isEdit) return;
       // Mark advances linked to matching proformas as applied (purchase side)
       const advs = (poLookupQ.data?.advances ?? []) as any[];
       if (form.po_number.trim() && advs.length) {
@@ -323,12 +368,14 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
           try { await api.advances.update(a.id, { status: "applied" }); } catch {}
         }
       }
-      if (inv.enabled && inv.item_name.trim() && Number(inv.quantity) > 0) {
+      if (inv.enabled && inv.product_id && Number(inv.quantity) > 0) {
+        const p = (productsQ.data ?? []).find((x: any) => x.id === inv.product_id);
         await api.stockMovements.create({
           clientId: userId,
           direction: "in",
-          itemName: inv.item_name.trim(),
-          sku: inv.sku || null,
+          productId: inv.product_id,
+          itemName: p?.name ?? "",
+          sku: p?.sku ?? null,
           quantity: Number(inv.quantity),
           unit: inv.unit || "unit",
           unitCost: inv.unit_cost ? Number(inv.unit_cost) : null,
@@ -340,7 +387,7 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
     onSuccess: () => {
       onCreated();
       qc.invalidateQueries({ queryKey: ["proformas"] });
-      toast.success("Purchase invoice recorded");
+      toast.success(isEdit ? "Purchase invoice updated" : "Purchase invoice recorded");
       onClose();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -350,10 +397,10 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">New purchase invoice</h3>
+          <h3 className="font-display text-lg">{isEdit ? "Edit purchase invoice" : "New purchase invoice"}</h3>
           <button onClick={onClose}><X className="h-4 w-4" /></button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-5 p-5">
+        <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-5 p-5">
           {vendors.length === 0 && (
             <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
               Add a supplier first in the Suppliers tab.
@@ -419,10 +466,25 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
               <input type="checkbox" checked={inv.enabled} onChange={(e) => setInv({ ...inv, enabled: e.target.checked })} />
               <span className="uppercase tracking-widest text-muted-foreground">Track inventory (stock-in / credit)</span>
             </label>
-            {inv.enabled && (
+            {inv.enabled && (productsQ.data ?? []).length === 0 && (
+              <div className="mt-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+                No products in the catalogue yet — create a product first in the{" "}
+                <Link to="/app/products" className="underline">Product catalogue</Link> before tracking inventory.
+              </div>
+            )}
+            {inv.enabled && (productsQ.data ?? []).length > 0 && (
               <div className="mt-3 grid gap-3 md:grid-cols-3">
-                <L label="Item *"><input className="inp" value={inv.item_name} onChange={(e) => setInv({ ...inv, item_name: e.target.value })} /></L>
-                <L label="SKU"><input className="inp" value={inv.sku} onChange={(e) => setInv({ ...inv, sku: e.target.value })} /></L>
+                <L label="Product *">
+                  <select className="inp" value={inv.product_id} onChange={(e) => {
+                    const p = (productsQ.data ?? []).find((x: any) => x.id === e.target.value);
+                    setInv({ ...inv, product_id: e.target.value, unit_cost: p ? String(p.unit_cost ?? "") : "" });
+                  }}>
+                    <option value="">Select product…</option>
+                    {(productsQ.data ?? []).map((p: any) => (
+                      <option key={p.id} value={p.id}>{p.name}{p.sku ? ` (${p.sku})` : ""}</option>
+                    ))}
+                  </select>
+                </L>
                 <L label="Quantity *"><input type="number" step="0.001" min="0" className="inp-qty" value={inv.quantity} onChange={(e) => setInv({ ...inv, quantity: e.target.value })} /></L>
                 <L label="Unit"><input className="inp" value={inv.unit} onChange={(e) => setInv({ ...inv, unit: e.target.value })} /></L>
                 <L label="Unit cost"><input type="number" step="0.01" min="0" className="inp" value={inv.unit_cost} onChange={(e) => setInv({ ...inv, unit_cost: e.target.value })} /></L>
@@ -432,8 +494,8 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
 
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
-            <button disabled={create.isPending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
-              {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Save
+            <button disabled={save.isPending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />} {isEdit ? "Save changes" : "Save"}
             </button>
           </div>
         </form>
@@ -445,4 +507,42 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
 
 function L({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
+}
+
+function PurchaseDetailModal({ invoice, onClose }: { invoice: any; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+          <h3 className="font-display text-lg">Purchase invoice {invoice.invoice_number}</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="space-y-4 p-5 text-sm">
+          <div className="grid grid-cols-2 gap-3">
+            <D label="Supplier" value={invoice.vendor?.name ?? "—"} />
+            <D label="Status" value={<StatusPill status={invoice.status} />} />
+            <D label="Amount" value={<span className="num">{fmtMoney(invoice.amount)}</span>} />
+            <D label="Issue date" value={invoice.issue_date ? fmtDate(invoice.issue_date) : "—"} />
+            <D label="Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "—"} />
+            {invoice.paid_date && <D label="Paid date" value={fmtDate(invoice.paid_date)} />}
+            {invoice.po_number && <D label="PO number" value={invoice.po_number} />}
+            {invoice.po_amount != null && invoice.po_amount > 0 && <D label="PO amount" value={<span className="num">{fmtMoney(invoice.po_amount)}</span>} />}
+            <div className="col-span-2"><D label="Notes" value={invoice.notes ?? "—"} /></div>
+          </div>
+          <div className="flex justify-end border-t border-border pt-3">
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Close</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function D({ label, value }: { label: string; value: React.ReactNode }) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
+      <div className="mt-0.5">{value}</div>
+    </div>
+  );
 }
