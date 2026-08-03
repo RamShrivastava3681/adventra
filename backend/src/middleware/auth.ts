@@ -27,6 +27,12 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
   const token = header.replace("Bearer ", "");
   try {
     const payload = jwt.verify(token, config.jwt.secret) as AuthPayload & { iat: number; exp: number };
+    // If the view-as middleware already impersonated a target user (it runs
+    // before this per-route middleware), keep that identity intact — we only
+    // validate the token here.
+    if (req.viewAsUserId && req.user) {
+      return next();
+    }
     req.user = {
       userId: payload.userId,
       email: payload.email,

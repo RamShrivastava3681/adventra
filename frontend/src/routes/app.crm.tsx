@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { useViewAsUserId } from "@/lib/view-as";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import { Plus, X, Loader2, Users, Target, PhoneCall, Mail, Calendar, CheckCircle2, Trash2 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
@@ -22,13 +23,18 @@ type Tab = "pipeline" | "leads" | "opportunities" | "activities";
 
 function CRMPage() {
   const { user, isSalesRep, isAdmin, isClient } = useAuth();
+  const readOnly = !!useViewAsUserId(); // reporting manager viewing a team member
   const [tab, setTab] = useState<Tab>("pipeline");
   const [newLead, setNewLead] = useState(false);
   const [newOpp, setNewOpp] = useState(false);
   const [newAct, setNewAct] = useState(false);
 
-  const canWrite = !!user;
-  const scopeLabel = isSalesRep && !isAdmin && !isClient ? "My records" : "Team records";
+  const canWrite = !!user && !readOnly;
+  const scopeLabel = readOnly
+    ? "Read-only view"
+    : isSalesRep && !isAdmin && !isClient
+      ? "My records"
+      : "Team records";
 
   return (
     <div>
@@ -62,9 +68,9 @@ function CRMPage() {
         </div>
 
         {tab === "pipeline" && <PipelineView />}
-        {tab === "leads" && <LeadsView />}
-        {tab === "opportunities" && <OpportunitiesView />}
-        {tab === "activities" && <ActivitiesView />}
+        {tab === "leads" && <LeadsView readOnly={readOnly} />}
+        {tab === "opportunities" && <OpportunitiesView readOnly={readOnly} />}
+        {tab === "activities" && <ActivitiesView readOnly={readOnly} />}
       </div>
 
       {newLead && user && <LeadModal userId={user.id} onClose={() => setNewLead(false)} />}
@@ -161,7 +167,7 @@ function PipelineView() {
   );
 }
 
-function LeadsView() {
+function LeadsView({ readOnly = false }: { readOnly?: boolean }) {
   const qc = useQueryClient();
   const leadsQ = useQuery({
     queryKey: ["leads"],
@@ -196,7 +202,7 @@ function LeadsView() {
                 <th className="px-5 py-2 text-left font-normal">Source</th>
                 <th className="px-5 py-2 text-right font-normal">Est. value</th>
                 <th className="px-5 py-2 text-left font-normal">Status</th>
-                <th className="px-5 py-2"></th>
+                {!readOnly && <th className="px-5 py-2"></th>}
               </tr>
             </thead>
             <tbody>
@@ -211,12 +217,20 @@ function LeadsView() {
                   <td className="px-5 py-3 text-muted-foreground capitalize">{l.source}</td>
                   <td className="px-5 py-3 text-right num">{fmtMoney(l.estimated_value)}</td>
                   <td className="px-5 py-3">
-                    <select value={l.status} onChange={(e) => updateStatus.mutate({ id: l.id, status: e.target.value })}
-                      className="rounded-md border border-border bg-input px-2 py-1 text-xs">
-                      {LEAD_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
-                    </select>
+                    {readOnly ? (
+                      <span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                        {l.status}
+                      </span>
+                    ) : (
+                      <select value={l.status} onChange={(e) => updateStatus.mutate({ id: l.id, status: e.target.value })}
+                        className="rounded-md border border-border bg-input px-2 py-1 text-xs">
+                        {LEAD_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+                      </select>
+                    )}
                   </td>
-                  <td className="px-5 py-3 text-right"><button onClick={() => del.mutate(l.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button></td>
+                  {!readOnly && (
+                    <td className="px-5 py-3 text-right"><button onClick={() => del.mutate(l.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button></td>
+                  )}
                 </tr>
               ))}
             </tbody>
@@ -227,7 +241,7 @@ function LeadsView() {
   );
 }
 
-function OpportunitiesView() {
+function OpportunitiesView({ readOnly = false }: { readOnly?: boolean }) {
   const qc = useQueryClient();
   const oppsQ = useQuery({
     queryKey: ["opportunities"],
@@ -272,10 +286,12 @@ function OpportunitiesView() {
                   <td className="px-5 py-3 font-medium">{o.name}</td>
                   <td className="px-5 py-3">{o.account_name ?? "—"}</td>
                   <td className="px-5 py-3">
-                    <select value={o.stage} onChange={(e) => updateStage.mutate({ id: o.id, stage: e.target.value })}
-                      className="rounded-md border border-border bg-input px-2 py-1 text-xs">
-                      {OPP_STAGES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
-                    </select>
+                    {readOnly ? <StagePill stage={o.stage} /> : (
+                      <select value={o.stage} onChange={(e) => updateStage.mutate({ id: o.id, stage: e.target.value })}
+                        className="rounded-md border border-border bg-input px-2 py-1 text-xs">
+                        {OPP_STAGES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}
+                      </select>
+                    )}
                   </td>
                   <td className="px-5 py-3 text-right num">{fmtMoney(o.amount)}</td>
                   <td className="px-5 py-3 text-right num text-muted-foreground">{o.probability}%</td>
@@ -291,7 +307,7 @@ function OpportunitiesView() {
   );
 }
 
-function ActivitiesView() {
+function ActivitiesView({ readOnly = false }: { readOnly?: boolean }) {
   const qc = useQueryClient();
   const actsQ = useQuery({
     queryKey: ["crm_activities"],
@@ -318,9 +334,15 @@ function ActivitiesView() {
         <div className="space-y-2">
           {(actsQ.data ?? []).map((a: any) => (
             <div key={a.id} className={`flex items-start gap-3 rounded-lg border border-border p-3 ${a.completed ? "opacity-60" : ""}`}>
-              <button onClick={() => toggle.mutate(a)} className={`mt-0.5 ${a.completed ? "text-success" : "text-muted-foreground hover:text-foreground"}`}>
-                <CheckCircle2 className="h-4 w-4" />
-              </button>
+              {readOnly ? (
+                <div className={`mt-0.5 ${a.completed ? "text-success" : "text-muted-foreground"}`}>
+                  <CheckCircle2 className="h-4 w-4" />
+                </div>
+              ) : (
+                <button onClick={() => toggle.mutate(a)} className={`mt-0.5 ${a.completed ? "text-success" : "text-muted-foreground hover:text-foreground"}`}>
+                  <CheckCircle2 className="h-4 w-4" />
+                </button>
+              )}
               <div className="flex-1">
                 <div className={`text-sm ${a.completed ? "line-through" : ""}`}>{a.subject}</div>
                 <div className="text-xs text-muted-foreground">

@@ -1,13 +1,16 @@
 import { createFileRoute, Outlet, useNavigate, Link, useRouterState } from "@tanstack/react-router";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
+import api from "@/lib/api-client";
+import { useViewAsUserId } from "@/lib/view-as";
+import { ViewAsBanner } from "@/components/view-as-banner";
 import {
   LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart,
   Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, FileMinus, Palette,
   Package, TrendingUp, Users, Search, Menu, Command, Mail, ChevronRight, ChevronDown,
   User, Briefcase, ClipboardList,
 } from "lucide-react";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
@@ -30,11 +33,161 @@ type NavSection =
   | { type: "single"; label: string; icon: any; to: string }
   | { type: "group"; label: string; icon: any; items: NavItem[] };
 
+// ─── Shared Transactions items (used by operations, treasury, checker, admin) ──
+const TRANSACTIONS_ITEMS: NavItem[] = [
+  { to: "/app/purchases", label: "Purchase invoices", icon: ShoppingCart },
+  { to: "/app/invoices", label: "Sales invoices", icon: FileText },
+  { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
+  { to: "/app/debtors", label: "Debtors", icon: Building2 },
+  { to: "/app/suppliers", label: "Suppliers", icon: Truck },
+  { to: "/app/notes", label: "Credit / Debit notes", icon: FileMinus },
+  { to: "/app/expenses", label: "Expenses", icon: Receipt },
+  { to: "/app/advances", label: "Advances", icon: Wallet },
+];
+
+// ─── Build navigation sections per role ──────────────────────
+// Priority: Checker → Treasury → Operations → Salesman → Admin → fallback
+function buildNavSections(roles: string[]): NavSection[] {
+  const isAdmin = roles.includes("factor_admin");
+  const isChecker = roles.includes("checker");
+  const isTreasury = roles.includes("treasury");
+  const isOperations = roles.includes("operations");
+  const isSalesRep = roles.includes("sales_rep");
+  const isReportingManager = roles.includes("reporting_manager");
+
+  // Checker — operations items + checker desk + Workspace
+  if (isChecker && !isAdmin) {
+    return [
+      { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+      { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
+      { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
+      {
+        type: "group", label: "Transactions", icon: Receipt,
+        items: TRANSACTIONS_ITEMS,
+      },
+    ];
+  }
+
+  // Treasury — operations items + funding queue + Workspace
+  if (isTreasury && !isAdmin && !isChecker) {
+    return [
+      { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+      { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
+      { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
+      {
+        type: "group", label: "Transactions", icon: Receipt,
+        items: TRANSACTIONS_ITEMS,
+      },
+    ];
+  }
+
+  // Operations — all transaction items + Workspace
+  if (isOperations && !isAdmin && !isChecker && !isTreasury) {
+    return [
+      { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+      { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
+      {
+        type: "group", label: "Transactions", icon: Receipt,
+        items: TRANSACTIONS_ITEMS,
+      },
+    ];
+  }
+
+  // Salesman — CRM / leads, debtors, suppliers + Workspace
+  if (isSalesRep && !isAdmin && !isChecker && !isTreasury && !isOperations) {
+    return [
+      { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+      { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
+      {
+        type: "group", label: "Sales", icon: Users,
+        items: [
+          { to: "/app/crm", label: "Leads", icon: Users },
+          { to: "/app/debtors", label: "Debtors", icon: Building2 },
+          { to: "/app/suppliers", label: "Suppliers", icon: Truck },
+        ],
+      },
+    ];
+  }
+
+  // Reporting Manager — My Reports + Requests + Dashboard + Settings
+  if (isReportingManager && !isAdmin && !isChecker && !isTreasury && !isOperations && !isSalesRep) {
+    return [
+      { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+      { type: "single", label: "My Reports", icon: Users, to: "/app/reports" },
+      { type: "single", label: "Requests", icon: ClipboardList, to: "/app/requests" },
+      {
+        type: "group", label: "System", icon: Settings,
+        items: [
+          { to: "/app/settings", label: "Settings", icon: Settings },
+        ],
+      },
+    ];
+  }
+
+  // ── Admin — full access ──
+  if (isAdmin) {
+    return [
+      { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+      { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
+      { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
+      {
+        type: "group", label: "Transactions", icon: Receipt,
+        items: TRANSACTIONS_ITEMS,
+      },
+      {
+        type: "group", label: "Catalog & Inventory", icon: Boxes,
+        items: [
+          { to: "/app/products", label: "Product catalog", icon: Package },
+          { to: "/app/forecast", label: "Demand forecasting", icon: TrendingUp },
+          { to: "/app/inventory", label: "Inventory", icon: Boxes },
+        ],
+      },
+      {
+        type: "group", label: "Sales", icon: Users,
+        items: [
+          { to: "/app/crm", label: "Leads", icon: Users },
+          { to: "/app/debtors", label: "Debtors", icon: Building2 },
+          { to: "/app/suppliers", label: "Suppliers", icon: Truck },
+        ],
+      },
+      {
+        type: "group", label: "System", icon: Settings,
+        items: [
+          { to: "/app/alerts", label: "Alerts", icon: BellRing },
+          { to: "/app/reminders", label: "Reminders", icon: Mail },
+          { to: "/app/admin", label: "Operations", icon: Shield },
+          { to: "/app/template", label: "Invoice template", icon: Palette },
+          { to: "/app/settings", label: "Settings", icon: Settings },
+        ],
+      },
+    ];
+  }
+
+  // ── Fallback for unknown / unreporting_manager roles ──
+  return [
+    { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+  ];
+}
+
 function AppLayout() {
   const { user, loading, signOut, isAdmin, isTreasury, isChecker, isSalesRep, isOperations, isReportingManager } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+
+  // ── View-as (reporting manager impersonation) ──
+  // When a viewAsUserId is in the URL, the sidebar mirrors the team member's
+  // own tabs and every data fetch is scoped to them via the api-client.
+  const viewAsUserId = useViewAsUserId();
+  const viewAsTargetQ = useQuery({
+    queryKey: ["view-as-target", viewAsUserId ?? "none"],
+    queryFn: () => api.admin.getUser(viewAsUserId as string),
+    enabled: !!viewAsUserId,
+    staleTime: 60_000,
+  });
+  const viewAsTarget = viewAsTargetQ.data;
+  const viewAsActive = !!viewAsUserId;
+  const effectiveRoles = viewAsActive ? (viewAsTarget?.roles ?? []) : (user?.roles ?? []);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [activeFlyout, setActiveFlyout] = useState<string | null>(null);
@@ -70,6 +223,10 @@ function AppLayout() {
   useEffect(() => {
     if (loading || !user) return;
 
+    // In view-as mode the manager is browsing the team member's workspace —
+    // the sidebar is already built from the team member's roles, so skip the wall.
+    if (viewAsUserId) return;
+
     // Allowed pages per role
     // Shared routes accessible to all logged-in users
     const SHARED_ROUTES = ["/app/profile", "/app/workspace", "/app/settings"];
@@ -89,7 +246,17 @@ function AppLayout() {
     } else if (isReportingManager && pathname.startsWith("/app/") && !["/app/dashboard", "/app/reports", "/app/requests", ...SHARED_ROUTES].some((p) => pathname === p || pathname.startsWith(p + "/"))) {
       navigate({ to: "/app/dashboard" });
     }
-  }, [loading, user, isTreasury, isChecker, isAdmin, isSalesRep, isOperations, isReportingManager, pathname, navigate]);
+  }, [loading, user, isTreasury, isChecker, isAdmin, isSalesRep, isOperations, isReportingManager, viewAsUserId, pathname, navigate]);
+
+  // When entering/exiting view-as, refetch cached queries so data reflects the
+  // right user (e.g. after switching between two team members).
+  const prevViewAs = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (prevViewAs.current !== viewAsUserId) {
+      prevViewAs.current = viewAsUserId;
+      qc.invalidateQueries();
+    }
+  }, [viewAsUserId, qc]);
 
   if (loading || !user) {
     return (
@@ -104,134 +271,11 @@ function AppLayout() {
     navigate({ to: "/auth", replace: true });
   };
 
-  // ─── Shared Transactions items (used by operations, treasury, checker, admin) ──
-  const TRANSACTIONS_ITEMS: NavItem[] = [
-    { to: "/app/purchases", label: "Purchase invoices", icon: ShoppingCart },
-    { to: "/app/invoices", label: "Sales invoices", icon: FileText },
-    { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
-    { to: "/app/debtors", label: "Debtors", icon: Building2 },
-    { to: "/app/suppliers", label: "Suppliers", icon: Truck },
-    { to: "/app/notes", label: "Credit / Debit notes", icon: FileMinus },
-    { to: "/app/expenses", label: "Expenses", icon: Receipt },
-    { to: "/app/advances", label: "Advances", icon: Wallet },
-  ];
-
   // ─── Build navigation sections per role ──────────────────────
-  // Priority: Checker → Treasury → Operations → Salesman → Admin → fallback
-  const navSections: NavSection[] = (() => {
-    // Checker — operations items + checker desk + Workspace
-    if (isChecker && !isAdmin) {
-      return [
-        { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
-        { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
-        { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
-        {
-          type: "group", label: "Transactions", icon: Receipt,
-          items: TRANSACTIONS_ITEMS,
-        },
-      ];
-    }
-
-    // Treasury — operations items + funding queue + Workspace
-    if (isTreasury && !isAdmin && !isChecker) {
-      return [
-        { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
-        { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
-        { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
-        {
-          type: "group", label: "Transactions", icon: Receipt,
-          items: TRANSACTIONS_ITEMS,
-        },
-      ];
-    }
-
-    // Operations — all transaction items + Workspace
-    if (isOperations && !isAdmin && !isChecker && !isTreasury) {
-      return [
-        { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
-        { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
-        {
-          type: "group", label: "Transactions", icon: Receipt,
-          items: TRANSACTIONS_ITEMS,
-        },
-      ];
-    }
-
-    // Salesman — CRM / leads, debtors, suppliers + Workspace
-    if (isSalesRep && !isAdmin && !isChecker && !isTreasury && !isOperations) {
-      return [
-        { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
-        { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
-        {
-          type: "group", label: "Sales", icon: Users,
-          items: [
-            { to: "/app/crm", label: "Leads", icon: Users },
-            { to: "/app/debtors", label: "Debtors", icon: Building2 },
-            { to: "/app/suppliers", label: "Suppliers", icon: Truck },
-          ],
-        },
-      ];
-    }
-
-    // Reporting Manager — My Reports + Requests + Dashboard + Settings
-    if (isReportingManager && !isAdmin && !isChecker && !isTreasury && !isOperations && !isSalesRep) {
-      return [
-        { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
-        { type: "single", label: "My Reports", icon: Users, to: "/app/reports" },
-        { type: "single", label: "Requests", icon: ClipboardList, to: "/app/requests" },
-        {
-          type: "group", label: "System", icon: Settings,
-          items: [
-            { to: "/app/settings", label: "Settings", icon: Settings },
-          ],
-        },
-      ];
-    }
-
-    // ── Admin — full access ──
-    if (isAdmin) {
-      return [
-        { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
-        { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
-        { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
-        {
-          type: "group", label: "Transactions", icon: Receipt,
-          items: TRANSACTIONS_ITEMS,
-        },
-        {
-          type: "group", label: "Catalog & Inventory", icon: Boxes,
-          items: [
-            { to: "/app/products", label: "Product catalog", icon: Package },
-            { to: "/app/forecast", label: "Demand forecasting", icon: TrendingUp },
-            { to: "/app/inventory", label: "Inventory", icon: Boxes },
-          ],
-        },
-        {
-          type: "group", label: "Sales", icon: Users,
-          items: [
-            { to: "/app/crm", label: "Leads", icon: Users },
-            { to: "/app/debtors", label: "Debtors", icon: Building2 },
-            { to: "/app/suppliers", label: "Suppliers", icon: Truck },
-          ],
-        },
-        {
-          type: "group", label: "System", icon: Settings,
-          items: [
-            { to: "/app/alerts", label: "Alerts", icon: BellRing },
-            { to: "/app/reminders", label: "Reminders", icon: Mail },
-            { to: "/app/admin", label: "Operations", icon: Shield },
-            { to: "/app/template", label: "Invoice template", icon: Palette },
-            { to: "/app/settings", label: "Settings", icon: Settings },
-          ],
-        },
-      ];
-    }
-
-    // ── Fallback for unknown / unreporting_manager roles ──
-    return [
-      { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
-    ];
-  })();
+  // In view-as mode the sidebar mirrors the team member's own tabs (e.g. a
+  // salesperson sees CRM / Leads, Debtors, Suppliers + their Workspace);
+  // otherwise it reflects the signed-in user's roles.
+  const navSections = buildNavSections(effectiveRoles);
 
   // Resolve the currently active flyout section data
   const activeFlyoutSection =
@@ -247,17 +291,21 @@ function AppLayout() {
     setMobileExpanded(null);
   };
 
-  const consoleLabel = isAdmin
+  // When in view-as mode every navigation keeps the viewAsUserId search param
+  // so the reporting manager keeps browsing the team member's data.
+  const viewSearch = viewAsActive ? { viewAsUserId } : {};
+
+  const consoleLabel = effectiveRoles.includes("factor_admin")
     ? "Factor console"
-    : isTreasury
+    : effectiveRoles.includes("treasury")
       ? "Treasury desk"
-      : isChecker
+      : effectiveRoles.includes("checker")
         ? "Checker desk"
-        : isOperations
+        : effectiveRoles.includes("operations")
           ? "Operations desk"
-          : isSalesRep
+          : effectiveRoles.includes("sales_rep")
             ? "Sales workspace"
-            : isReportingManager
+            : effectiveRoles.includes("reporting_manager")
               ? "Reporting console"
               : "Trader portal";
 
@@ -269,6 +317,7 @@ function AppLayout() {
       <Link
         key={n.to}
         to={n.to}
+        search={viewSearch}
         onClick={() => { closeSidebar(); closeAll(); }}
         className={`flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
           active
@@ -322,6 +371,7 @@ function AppLayout() {
               <Link
                 key={section.to}
                 to={section.to}
+                search={viewSearch}
                 onClick={() => { if (mobile) setMobileOpen(false); }}
                 className={`flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                   active
@@ -471,7 +521,7 @@ function AppLayout() {
                       key={n.to}
                       onClick={() => {
                         setActiveFlyout(null);
-                        navigate({ to: n.to });
+                        navigate({ to: n.to, search: viewSearch });
                       }}
                       className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                         active
@@ -493,6 +543,20 @@ function AppLayout() {
 
       {/* Main content area */}
       <main className="flex-1 min-w-0 bg-background pt-14 md:pt-0">
+        {/* View-as banner — shown on every page while impersonating a team member */}
+        {viewAsActive && (
+          <ViewAsBanner
+            userName={
+              viewAsTarget?.contact_name ||
+              viewAsTarget?.contactName ||
+              viewAsTarget?.company_name ||
+              viewAsTarget?.companyName ||
+              viewAsTarget?.email ||
+              "team member"
+            }
+            onExit={() => navigate({ to: "/app/reports", search: {} })}
+          />
+        )}
         {/* Top bar with profile */}
         <div className="hidden md:flex items-center justify-end gap-3 border-b border-border bg-background px-6 py-2.5">
           <DropdownMenu>
@@ -514,13 +578,13 @@ function AppLayout() {
                 {user?.email}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate({ to: "/app/profile" })} className="cursor-pointer">
+              <DropdownMenuItem onClick={() => navigate({ to: "/app/profile", search: viewSearch })} className="cursor-pointer">
                 <User className="mr-2 h-4 w-4" /> Profile
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate({ to: "/app/workspace" })} className="cursor-pointer">
+              <DropdownMenuItem onClick={() => navigate({ to: "/app/workspace", search: viewSearch })} className="cursor-pointer">
                 <Briefcase className="mr-2 h-4 w-4" /> My Workspace
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate({ to: "/app/settings" })} className="cursor-pointer">
+              <DropdownMenuItem onClick={() => navigate({ to: "/app/settings", search: viewSearch })} className="cursor-pointer">
                 <Settings className="mr-2 h-4 w-4" /> Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
@@ -547,7 +611,7 @@ function AppLayout() {
                     value={section.label}
                     onSelect={() => {
                       setCmdOpen(false);
-                      navigate({ to: section.to });
+                      navigate({ to: section.to, search: viewSearch });
                     }}
                     className="cursor-pointer"
                   >
@@ -570,7 +634,7 @@ function AppLayout() {
                       value={`${section.label} ${n.label}`}
                       onSelect={() => {
                         setCmdOpen(false);
-                        navigate({ to: n.to });
+                        navigate({ to: n.to, search: viewSearch });
                       }}
                       className="cursor-pointer"
                     >

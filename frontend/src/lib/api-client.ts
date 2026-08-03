@@ -287,6 +287,7 @@ const api = {
     assignManager: (userId: string, managerId: string | null) =>
       api.put(`/admin/users/${userId}/assign-manager`, { managerId }),
     getReports: (managerId: string) => api.get<any[]>(`/admin/users/${managerId}/reports`),
+    getUser: (id: string) => api.get<any>(`/users/${id}`),
   },
 };
 

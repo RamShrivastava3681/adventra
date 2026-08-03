@@ -1,11 +1,15 @@
 import { Router, Request, Response, NextFunction } from "express";
-import { authMiddleware } from "../middleware/auth.js";
+import jwt from "jsonwebtoken";
+import { config } from "../config.js";
+import { authMiddleware, AuthPayload } from "../middleware/auth.js";
 import { requireAdmin, requireChecker } from "../middleware/roles.js";
 import { requireRole } from "../middleware/roles.js";
 import * as User from "../models/user.js";
 import * as Submission from "../models/submission.js";
 
 // ─── View-As middleware (for reporting managers to see their reports' data) ──
+// NOTE: this runs via router.use() BEFORE the per-route authMiddleware, so it
+// decodes the JWT itself to learn who is making the request.
 const viewAsMiddleware = async (req: Request, res: Response, next: NextFunction) => {
   const viewAsUserId = req.query.viewAsUserId as string | undefined;
   if (!viewAsUserId) return next();
@@ -13,9 +17,27 @@ const viewAsMiddleware = async (req: Request, res: Response, next: NextFunction)
   // Only for GET requests (read-only view)
   if (req.method !== "GET") return next();
 
+  // Never impersonate auth endpoints — /auth/me must always return the real
+  // signed-in user (keeps the frontend auth context intact after a refresh).
+  if (req.path.startsWith("/auth/")) return next();
+
   try {
+    // Resolve the requester identity (authMiddleware hasn't run yet at this stage)
+    if (!req.user) {
+      const header = req.headers.authorization || "";
+      if (!header.startsWith("Bearer ")) {
+        return res.status(401).json({ error: "No token provided" });
+      }
+      try {
+        const payload = jwt.verify(header.replace("Bearer ", ""), config.jwt.secret) as AuthPayload;
+        req.user = { userId: payload.userId, email: payload.email, roles: payload.roles || [] };
+      } catch {
+        return res.status(401).json({ error: "Invalid or expired token" });
+      }
+    }
+
     // Verify the requester is a reporting_manager
-    if (!req.user?.roles?.includes("reporting_manager")) {
+    if (!req.user.roles?.includes("reporting_manager")) {
       return res.status(403).json({ error: "Only reporting managers can use view-as" });
     }
 
@@ -75,6 +97,34 @@ router.get("/admin/users/:managerId/reports", authMiddleware, (req, res, next) =
   }
   return res.status(403).json({ error: "Access denied. Only admins and the reporting manager themselves can view reports." });
 }, (req, res) => User.getReports(req, res));
+
+// ===================== USER PROFILES (view-as support) =====================
+// Public profile of a user — only the user themself, admins, or their reporting
+// manager may fetch it. Used by the frontend to render a team member's own
+// sidebar/tabs while a reporting manager is in view-as mode.
+router.get("/users/:id", authMiddleware, async (req, res) => {
+  try {
+    const targetId = req.params.id;
+    const requesterId = req.originalUserId ?? req.user!.userId;
+    const requesterRoles: string[] = req.user!.roles || [];
+
+    const isAdmin = requesterRoles.includes("factor_admin");
+    const isSelf = requesterId === targetId;
+    if (!isSelf && !isAdmin) {
+      const managed = await User.getViewAsTarget(requesterId, targetId);
+      if (!managed) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+    }
+
+    const item = await db.getItem(`USER#${targetId}`);
+    if (!item) return res.status(404).json({ error: "User not found" });
+    const { passwordHash, ...safe } = item as any;
+    return res.json(safe);
+  } catch (err: any) {
+    return res.status(500).json({ error: err.message });
+  }
+});
 
 // ===================== PRODUCTS =====================
 router.get("/products", authMiddleware, async (req, res) => {

@@ -27,11 +27,11 @@ import { Route as AppInventoryRouteImport } from './routes/app.inventory'
 import { Route as AppInvoicesRouteImport } from './routes/app.invoices'
 import { Route as AppNotesRouteImport } from './routes/app.notes'
 import { Route as AppProductsRouteImport } from './routes/app.products'
+import { Route as AppProfileRouteImport } from './routes/app.profile'
 import { Route as AppProformasRouteImport } from './routes/app.proformas'
 import { Route as AppPurchasesRouteImport } from './routes/app.purchases'
 import { Route as AppQueueRouteImport } from './routes/app.queue'
 import { Route as AppRemindersRouteImport } from './routes/app.reminders'
-import { Route as AppProfileRouteImport } from './routes/app.profile'
 import { Route as AppReportsRouteImport } from './routes/app.reports'
 import { Route as AppRequestsRouteImport } from './routes/app.requests'
 import { Route as AppSettingsRouteImport } from './routes/app.settings'
@@ -133,6 +133,11 @@ const AppProductsRoute = AppProductsRouteImport.update({
   path: '/products',
   getParentRoute: () => AppRoute,
 } as any)
+const AppProfileRoute = AppProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppProformasRoute = AppProformasRouteImport.update({
   id: '/proformas',
   path: '/proformas',
@@ -151,11 +156,6 @@ const AppQueueRoute = AppQueueRouteImport.update({
 const AppRemindersRoute = AppRemindersRouteImport.update({
   id: '/reminders',
   path: '/reminders',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppProfileRoute = AppProfileRouteImport.update({
-  id: '/profile',
-  path: '/profile',
   getParentRoute: () => AppRoute,
 } as any)
 const AppReportsRoute = AppReportsRouteImport.update({
@@ -186,6 +186,11 @@ const AppTemplateRoute = AppTemplateRouteImport.update({
 const AppVendorsRoute = AppVendorsRouteImport.update({
   id: '/vendors',
   path: '/vendors',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppWorkspaceRoute = AppWorkspaceRouteImport.update({
+  id: '/workspace',
+  path: '/workspace',
   getParentRoute: () => AppRoute,
 } as any)
 const NoaTokenRoute = NoaTokenRouteImport.update({
@@ -223,17 +228,18 @@ export interface FileRoutesByFullPath {
   '/app/invoices': typeof AppInvoicesRoute
   '/app/notes': typeof AppNotesRoute
   '/app/products': typeof AppProductsRoute
+  '/app/profile': typeof AppProfileRoute
   '/app/proformas': typeof AppProformasRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
   '/app/reminders': typeof AppRemindersRoute
-  '/app/profile': typeof AppProfileRoute
   '/app/reports': typeof AppReportsRoute
   '/app/requests': typeof AppRequestsRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/app/workspace': typeof AppWorkspaceRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/invoice-preview/$id': typeof AppInvoicePreviewIdRoute
   '/app/note-preview/$id': typeof AppNotePreviewIdRoute
@@ -257,17 +263,18 @@ export interface FileRoutesByTo {
   '/app/invoices': typeof AppInvoicesRoute
   '/app/notes': typeof AppNotesRoute
   '/app/products': typeof AppProductsRoute
+  '/app/profile': typeof AppProfileRoute
   '/app/proformas': typeof AppProformasRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
   '/app/reminders': typeof AppRemindersRoute
-  '/app/profile': typeof AppProfileRoute
   '/app/reports': typeof AppReportsRoute
   '/app/requests': typeof AppRequestsRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/app/workspace': typeof AppWorkspaceRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/invoice-preview/$id': typeof AppInvoicePreviewIdRoute
   '/app/note-preview/$id': typeof AppNotePreviewIdRoute
@@ -292,17 +299,18 @@ export interface FileRoutesById {
   '/app/invoices': typeof AppInvoicesRoute
   '/app/notes': typeof AppNotesRoute
   '/app/products': typeof AppProductsRoute
+  '/app/profile': typeof AppProfileRoute
   '/app/proformas': typeof AppProformasRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
   '/app/reminders': typeof AppRemindersRoute
-  '/app/profile': typeof AppProfileRoute
   '/app/reports': typeof AppReportsRoute
   '/app/requests': typeof AppRequestsRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/app/workspace': typeof AppWorkspaceRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/invoice-preview/$id': typeof AppInvoicePreviewIdRoute
   '/app/note-preview/$id': typeof AppNotePreviewIdRoute
@@ -328,17 +336,18 @@ export interface FileRouteTypes {
     | '/app/invoices'
     | '/app/notes'
     | '/app/products'
+    | '/app/profile'
     | '/app/proformas'
     | '/app/purchases'
     | '/app/queue'
     | '/app/reminders'
-    | '/app/profile'
     | '/app/reports'
     | '/app/requests'
     | '/app/settings'
     | '/app/suppliers'
     | '/app/template'
     | '/app/vendors'
+    | '/app/workspace'
     | '/noa/$token'
     | '/app/invoice-preview/$id'
     | '/app/note-preview/$id'
@@ -362,17 +371,18 @@ export interface FileRouteTypes {
     | '/app/invoices'
     | '/app/notes'
     | '/app/products'
+    | '/app/profile'
     | '/app/proformas'
     | '/app/purchases'
     | '/app/queue'
     | '/app/reminders'
-    | '/app/profile'
     | '/app/reports'
     | '/app/requests'
     | '/app/settings'
     | '/app/suppliers'
     | '/app/template'
     | '/app/vendors'
+    | '/app/workspace'
     | '/noa/$token'
     | '/app/invoice-preview/$id'
     | '/app/note-preview/$id'
@@ -396,17 +406,18 @@ export interface FileRouteTypes {
     | '/app/invoices'
     | '/app/notes'
     | '/app/products'
+    | '/app/profile'
     | '/app/proformas'
     | '/app/purchases'
     | '/app/queue'
     | '/app/reminders'
-    | '/app/profile'
     | '/app/reports'
     | '/app/requests'
     | '/app/settings'
     | '/app/suppliers'
     | '/app/template'
     | '/app/vendors'
+    | '/app/workspace'
     | '/noa/$token'
     | '/app/invoice-preview/$id'
     | '/app/note-preview/$id'
@@ -547,6 +558,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppProductsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/profile': {
+      id: '/app/profile'
+      path: '/profile'
+      fullPath: '/app/profile'
+      preLoaderRoute: typeof AppProfileRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/proformas': {
       id: '/app/proformas'
       path: '/proformas'
@@ -582,6 +600,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppReportsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/requests': {
+      id: '/app/requests'
+      path: '/requests'
+      fullPath: '/app/requests'
+      preLoaderRoute: typeof AppRequestsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/settings': {
       id: '/app/settings'
       path: '/settings'
@@ -610,6 +635,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppVendorsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/workspace': {
+      id: '/app/workspace'
+      path: '/workspace'
+      fullPath: '/app/workspace'
+      preLoaderRoute: typeof AppWorkspaceRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/noa/$token': {
       id: '/noa/$token'
       path: '/noa/$token'
@@ -631,27 +663,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppNotePreviewIdRouteImport
       parentRoute: typeof AppRoute
     }
-    '/app/profile': {
-      id: '/app/profile'
-      path: '/profile'
-      fullPath: '/app/profile'
-      preLoaderRoute: typeof AppProfileRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/app/requests': {
-      id: '/app/requests'
-      path: '/requests'
-      fullPath: '/app/requests'
-      preLoaderRoute: typeof AppRequestsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/app/workspace': {
-      id: '/app/workspace'
-      path: '/workspace'
-      fullPath: '/app/workspace'
-      preLoaderRoute: typeof AppWorkspaceRouteImport
-      parentRoute: typeof AppRoute
-    }
   }
 }
 
@@ -671,17 +682,18 @@ interface AppRouteChildren {
   AppInvoicesRoute: typeof AppInvoicesRoute
   AppNotesRoute: typeof AppNotesRoute
   AppProductsRoute: typeof AppProductsRoute
+  AppProfileRoute: typeof AppProfileRoute
   AppProformasRoute: typeof AppProformasRoute
   AppPurchasesRoute: typeof AppPurchasesRoute
   AppQueueRoute: typeof AppQueueRoute
   AppRemindersRoute: typeof AppRemindersRoute
-  AppProfileRoute: typeof AppProfileRoute
   AppReportsRoute: typeof AppReportsRoute
   AppRequestsRoute: typeof AppRequestsRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
   AppTemplateRoute: typeof AppTemplateRoute
   AppVendorsRoute: typeof AppVendorsRoute
+  AppWorkspaceRoute: typeof AppWorkspaceRoute
   AppInvoicePreviewIdRoute: typeof AppInvoicePreviewIdRoute
   AppNotePreviewIdRoute: typeof AppNotePreviewIdRoute
 }
@@ -702,17 +714,18 @@ const AppRouteChildren: AppRouteChildren = {
   AppInvoicesRoute: AppInvoicesRoute,
   AppNotesRoute: AppNotesRoute,
   AppProductsRoute: AppProductsRoute,
+  AppProfileRoute: AppProfileRoute,
   AppProformasRoute: AppProformasRoute,
   AppPurchasesRoute: AppPurchasesRoute,
   AppQueueRoute: AppQueueRoute,
   AppRemindersRoute: AppRemindersRoute,
-  AppProfileRoute: AppProfileRoute,
   AppReportsRoute: AppReportsRoute,
   AppRequestsRoute: AppRequestsRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppSuppliersRoute: AppSuppliersRoute,
   AppTemplateRoute: AppTemplateRoute,
   AppVendorsRoute: AppVendorsRoute,
+  AppWorkspaceRoute: AppWorkspaceRoute,
   AppInvoicePreviewIdRoute: AppInvoicePreviewIdRoute,
   AppNotePreviewIdRoute: AppNotePreviewIdRoute,
 }

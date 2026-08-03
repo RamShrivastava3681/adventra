@@ -151,8 +151,9 @@ function ReportsPage() {
             <div>
               <div className="text-xs font-medium text-foreground">View-as mode</div>
               <div className="mt-0.5 text-[11px] text-muted-foreground leading-relaxed">
-                Clicking "View workspace" on a team member will switch your view to show their interface
-                and data. A banner will appear at the top so you can always return to your own view.
+                Clicking "View workspace" opens the team member's own workspace — you'll see their tabs
+                (e.g. CRM / Leads for salespeople) in the sidebar along with the data they've entered,
+                in read-only mode. A banner at the top lets you exit anytime.
               </div>
             </div>
           </div>

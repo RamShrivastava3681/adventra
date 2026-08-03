@@ -1,13 +1,12 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api-client";
 import { PageHeader } from "@/components/ledger-ui";
-import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
 import {
   MapPin, Plane, Receipt, CalendarDays, Plus, Loader2, Trash2,
-  Eye, EyeOff, Users, UserCircle, TrendingUp, Target, Activity,
+  Users, UserCircle, TrendingUp, Target, Activity,
   FileText, ShoppingCart, ClipboardCheck, Banknote, Shield,
   AlertCircle, CheckCircle2, XCircle, Building2,
   Mail, Briefcase, DollarSign, BarChart3, Phone
@@ -79,27 +78,6 @@ const STATUS_ICONS: Record<string, any> = {
   won: CheckCircle2,
   lost: XCircle,
 };
-
-// ─── View-As Banner ────────────────────────────────────────────
-function ViewAsBanner({ userName, onExit }: { userName: string; onExit: () => void }) {
-  return (
-    <div className="sticky top-0 z-50 flex items-center justify-between gap-3 bg-primary/10 px-6 py-3 backdrop-blur-sm border-b border-primary/20">
-      <div className="flex items-center gap-2">
-        <Eye className="h-4 w-4 text-primary" />
-        <span className="text-xs font-medium text-primary">
-          Viewing as <strong>{userName}</strong>
-        </span>
-      </div>
-      <button
-        onClick={onExit}
-        className="inline-flex items-center gap-1.5 rounded-lg bg-primary/10 px-3 py-1.5 text-xs font-medium text-primary transition-all hover:bg-primary/20"
-      >
-        <EyeOff className="h-3.5 w-3.5" />
-        Exit view-as
-      </button>
-    </div>
-  );
-}
 
 // ─── Stat Card ──────────────────────────────────────────────────
 function StatCard({ icon: Icon, label, value, sub, color = "blue" }: {
@@ -197,7 +175,7 @@ function SectionCard({ title, icon: Icon, color = "blue", children }: {
 }
 
 // ─── User Progress View ────────────────────────────────────────
-function UserProgressView({ onExit }: { onExit: () => void }) {
+function UserProgressView({ onExit: _onExit }: { onExit?: () => void }) {
   const { data: progress, isLoading, error } = useQuery({
     queryKey: ["user-progress"],
     queryFn: () => api.userProgress(),
@@ -226,7 +204,7 @@ function UserProgressView({ onExit }: { onExit: () => void }) {
   const primaryRole = (user.roles ?? []).find((r: string) => r !== "client") || "client";
   const RoleIcon = ROLE_ICONS[primaryRole] || Users;
   const roleColor = ROLE_COLORS[primaryRole] || "bg-muted text-muted-foreground border-border";
-  const userName = user.contactName || user.companyName || user.email;
+  const userName = user.contact_name || user.contactName || user.company_name || user.companyName || user.email;
 
   const isSalesRep = user.roles.includes("sales_rep");
   const isOperations = user.roles.includes("operations");
@@ -269,9 +247,9 @@ function UserProgressView({ onExit }: { onExit: () => void }) {
               <span className="inline-flex items-center gap-1">
                 <Mail className="h-3 w-3" /> {user.email}
               </span>
-              {user.companyName && (
+              {(user.company_name || user.companyName) && (
                 <span className="inline-flex items-center gap-1">
-                  <Building2 className="h-3 w-3" /> {user.companyName}
+                  <Building2 className="h-3 w-3" /> {user.company_name || user.companyName}
                 </span>
               )}
             </div>
@@ -295,9 +273,9 @@ function UserProgressView({ onExit }: { onExit: () => void }) {
         {isSalesRep && (
           <>
             <StatCard icon={Target} label="Total Leads" value={stats.leads.total} color="blue"
-              sub={`$${(stats.leads.totalEstimatedValue || 0).toLocaleString()} estimated value`} />
+              sub={`$${((stats.leads.total_estimated_value ?? stats.leads.totalEstimatedValue) || 0).toLocaleString()} estimated value`} />
             <StatCard icon={TrendingUp} label="Opportunities" value={stats.opportunities.total} color="purple"
-              sub={`$${(stats.opportunities.totalAmount || 0).toLocaleString()} total pipeline`} />
+              sub={`$${((stats.opportunities.total_amount ?? stats.opportunities.totalAmount) || 0).toLocaleString()} total pipeline`} />
             <StatCard icon={Activity} label="Activities" value={stats.activities.total} color="emerald" />
           </>
         )}
@@ -306,7 +284,7 @@ function UserProgressView({ onExit }: { onExit: () => void }) {
         {isOperations && (
           <>
             <StatCard icon={FileText} label="Sales Invoices" value={stats.invoices.total} color="blue"
-              sub={`$${(stats.invoices.totalAmount || 0).toLocaleString()} total`} />
+              sub={`$${((stats.invoices.total_amount ?? stats.invoices.totalAmount) || 0).toLocaleString()} total`} />
             <StatCard icon={ShoppingCart} label="Purchase Invoices" value={stats.purchaseInvoices.total} color="purple" />
             <StatCard icon={ClipboardCheck} label="Purchase Orders" value={stats.purchaseOrders.total} color="amber" />
           </>
@@ -316,9 +294,9 @@ function UserProgressView({ onExit }: { onExit: () => void }) {
         {isChecker && (
           <>
             <StatCard icon={FileText} label="Invoices" value={stats.invoices.total} color="blue"
-              sub={`$${(stats.invoices.totalAmount || 0).toLocaleString()} total`} />
+              sub={`$${((stats.invoices.total_amount ?? stats.invoices.totalAmount) || 0).toLocaleString()} total`} />
             <StatCard icon={Banknote} label="Advances" value={stats.advances.total} color="emerald"
-              sub={`$${(stats.advances.totalAmount || 0).toLocaleString()}`} />
+              sub={`$${((stats.advances.total_amount ?? stats.advances.totalAmount) || 0).toLocaleString()}`} />
           </>
         )}
 
@@ -326,60 +304,60 @@ function UserProgressView({ onExit }: { onExit: () => void }) {
         {isTreasury && (
           <>
             <StatCard icon={Banknote} label="Advances" value={stats.advances.total} color="emerald"
-              sub={`$${(stats.advances.totalAmount || 0).toLocaleString()}`} />
+              sub={`$${((stats.advances.total_amount ?? stats.advances.totalAmount) || 0).toLocaleString()}`} />
             <StatCard icon={FileText} label="Invoices" value={stats.invoices.total} color="blue"
-              sub={`$${(stats.invoices.totalAmount || 0).toLocaleString()} total`} />
+              sub={`$${((stats.invoices.total_amount ?? stats.invoices.totalAmount) || 0).toLocaleString()} total`} />
           </>
         )}
 
         {/* Shared Metrics */}
         <StatCard icon={DollarSign} label="Expenses" value={stats.expenses.total} color="rose"
-          sub={`$${(stats.expenses.totalAmount || 0).toLocaleString()}`} />
+          sub={`$${((stats.expenses.total_amount ?? stats.expenses.totalAmount) || 0).toLocaleString()}`} />
         <StatCard icon={Briefcase} label="Submissions" value={stats.submissions.total} color="slate" />
       </div>
 
       {/* Detailed Sections */}
       <div className="grid gap-6 md:grid-cols-2">
         {/* Sales Rep: Leads by Status */}
-        {isSalesRep && stats.leads.byStatus && Object.keys(stats.leads.byStatus).length > 0 && (
+        {isSalesRep && (stats.leads.by_status ?? stats.leads.byStatus) && Object.keys(stats.leads.by_status ?? stats.leads.byStatus).length > 0 && (
           <SectionCard title="Leads by Status" icon={Target} color="blue">
-            <StatusDist data={stats.leads.byStatus} colorMap={statusColorMap} />
+            <StatusDist data={stats.leads.by_status ?? stats.leads.byStatus} colorMap={statusColorMap} />
           </SectionCard>
         )}
 
         {/* Sales Rep: Opportunities by Stage */}
-        {isSalesRep && stats.opportunities.byStage && Object.keys(stats.opportunities.byStage).length > 0 && (
+        {isSalesRep && (stats.opportunities.by_stage ?? stats.opportunities.byStage) && Object.keys(stats.opportunities.by_stage ?? stats.opportunities.byStage).length > 0 && (
           <SectionCard title="Opportunities by Stage" icon={TrendingUp} color="purple">
-            <StatusDist data={stats.opportunities.byStage} colorMap={statusColorMap} />
+            <StatusDist data={stats.opportunities.by_stage ?? stats.opportunities.byStage} colorMap={statusColorMap} />
           </SectionCard>
         )}
 
         {/* Operations / Checker: Invoices by Status */}
-        {(isOperations || isChecker) && stats.invoices.byStatus && Object.keys(stats.invoices.byStatus).length > 0 && (
+        {(isOperations || isChecker) && (stats.invoices.by_status ?? stats.invoices.byStatus) && Object.keys(stats.invoices.by_status ?? stats.invoices.byStatus).length > 0 && (
           <SectionCard title="Invoices by Status" icon={FileText} color="blue">
-            <StatusDist data={stats.invoices.byStatus} colorMap={statusColorMap} />
+            <StatusDist data={stats.invoices.by_status ?? stats.invoices.byStatus} colorMap={statusColorMap} />
           </SectionCard>
         )}
 
         {/* Operations: Purchase Invoices by Status */}
-        {isOperations && stats.purchaseInvoices.byStatus && Object.keys(stats.purchaseInvoices.byStatus).length > 0 && (
+        {isOperations && (stats.purchaseInvoices.by_status ?? stats.purchaseInvoices.byStatus) && Object.keys(stats.purchaseInvoices.by_status ?? stats.purchaseInvoices.byStatus).length > 0 && (
           <SectionCard title="Purchase Invoices by Status" icon={ShoppingCart} color="purple">
-            <StatusDist data={stats.purchaseInvoices.byStatus} colorMap={statusColorMap} />
+            <StatusDist data={stats.purchaseInvoices.by_status ?? stats.purchaseInvoices.byStatus} colorMap={statusColorMap} />
           </SectionCard>
         )}
 
         {/* Submissions by Status */}
-        {stats.submissions.byStatus && Object.keys(stats.submissions.byStatus).length > 0 && (
+        {(stats.submissions.by_status ?? stats.submissions.byStatus) && Object.keys(stats.submissions.by_status ?? stats.submissions.byStatus).length > 0 && (
           <SectionCard title="Submissions by Status" icon={Briefcase} color="slate">
-            <StatusDist data={stats.submissions.byStatus} colorMap={statusColorMap} />
+            <StatusDist data={stats.submissions.by_status ?? stats.submissions.byStatus} colorMap={statusColorMap} />
           </SectionCard>
         )}
 
         {/* Submissions by Type */}
-        {stats.submissions.byType && Object.keys(stats.submissions.byType).length > 0 && (
+        {(stats.submissions.by_type ?? stats.submissions.byType) && Object.keys(stats.submissions.by_type ?? stats.submissions.byType).length > 0 && (
           <SectionCard title="Submissions by Type" icon={BarChart3} color="amber">
             <div className="space-y-1.5">
-              {Object.entries(stats.submissions.byType).map(([key, count]) => (
+              {Object.entries(stats.submissions.by_type ?? stats.submissions.byType).map(([key, count]) => (
                 <div key={key} className="flex items-center justify-between">
                   <span className="text-xs font-medium capitalize text-muted-foreground">{key}</span>
                   <span className="text-sm font-bold">{count as number}</span>
@@ -401,7 +379,7 @@ function UserProgressView({ onExit }: { onExit: () => void }) {
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-medium truncate">{act.subject}</div>
                     <div className="text-[10px] text-muted-foreground">
-                      {act.activityType} {act.dueDate ? `· ${new Date(act.dueDate).toLocaleDateString()}` : ""}
+                      {act.activity_type || act.activityType}{act.due_date || act.dueDate ? ` · ${new Date(act.due_date || act.dueDate).toLocaleDateString()}` : ""}
                     </div>
                   </div>
                 </div>
@@ -415,7 +393,7 @@ function UserProgressView({ onExit }: { onExit: () => void }) {
 }
 
 // ─── Regular Workspace (Submissions) ───────────────────────────
-function WorkspaceSubmissions() {
+function WorkspaceSubmissions({ readOnly = false }: { readOnly?: boolean }) {
   const [activeTab, setActiveTab] = useState<TabKey>("visit");
   const qc = useQueryClient();
 
@@ -512,7 +490,7 @@ function WorkspaceSubmissions() {
       </div>
 
       {/* New submission form */}
-      {showForm && (
+      {!readOnly && showForm && (
         <div className="mt-4 rounded-xl border border-border bg-white p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
             <span className="text-sm font-medium">New {activeTab}</span>
@@ -527,7 +505,7 @@ function WorkspaceSubmissions() {
       )}
 
       {/* Action + list */}
-      {!showForm && (
+      {!readOnly && !showForm && (
         <button onClick={() => setShowForm(true)}
           className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground transition-colors hover:border-primary hover:text-primary">
           <Plus className="h-4 w-4" /> New {activeTab}
@@ -553,7 +531,7 @@ function WorkspaceSubmissions() {
                 </div>
                 {s.data?.amount && <div className="text-xs text-muted-foreground mt-0.5">Amount: ${Number(s.data.amount).toLocaleString()}</div>}
               </div>
-              {s.status === "pending" && (
+              {s.status === "pending" && !readOnly && (
                 <button onClick={() => deleteSub.mutate(s.id)} className="shrink-0 rounded-md p-2 text-muted-foreground hover:text-destructive">
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -566,29 +544,55 @@ function WorkspaceSubmissions() {
   );
 }
 
+// ─── Team Member View (view-as mode) ───────────────────────────
+function TeamMemberWorkspaceView() {
+  const [view, setView] = useState<"workspace" | "overview">("workspace");
+  return (
+    <div className="space-y-5">
+      <div className="flex gap-1 rounded-xl border border-border bg-muted/20 p-1">
+        <button
+          onClick={() => setView("workspace")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-medium transition-all ${
+            view === "workspace" ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <Briefcase className="h-3.5 w-3.5" /> Their workspace
+        </button>
+        <button
+          onClick={() => setView("overview")}
+          className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-medium transition-all ${
+            view === "overview" ? "bg-white text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+          }`}
+        >
+          <BarChart3 className="h-3.5 w-3.5" /> Activity overview
+        </button>
+      </div>
+
+      {view === "workspace" ? <WorkspaceSubmissions readOnly /> : <UserProgressView />}
+    </div>
+  );
+}
+
+const INP_STYLES = `.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem;outline:none}.inp:focus{border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}textarea.inp{resize:vertical}`;
+
 // ─── Main Page ─────────────────────────────────────────────────
 function WorkspacePage() {
   const { viewAsUserId } = Route.useSearch();
-  const navigate = useNavigate();
-  const { user } = useAuth();
 
-  // When view-as is active, show the user progress view
+  // When view-as is active, show the team member's own workspace + tabs
   if (viewAsUserId) {
     return (
       <div>
-        <ViewAsBanner
-          userName="Team Member"
-          onExit={() => navigate({ to: "/app/workspace", search: {}, replace: true })}
-        />
         <PageHeader
           eyebrow="Reporting Manager"
-          title="Team Member Progress"
-          description="Overview of work done and activity metrics"
+          title="Team Member Workspace"
+          description="Everything this team member has entered — use the sidebar tabs to browse their pages"
           backTo="/app/reports"
         />
         <div className="p-6 md:p-10">
-          <UserProgressView onExit={() => navigate({ to: "/app/workspace", search: {}, replace: true })} />
+          <TeamMemberWorkspaceView />
         </div>
+        <style>{INP_STYLES}</style>
       </div>
     );
   }
@@ -600,7 +604,7 @@ function WorkspacePage() {
       <div className="p-6 md:p-10">
         <WorkspaceSubmissions />
       </div>
-      <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem;outline:none}.inp:focus{border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}textarea.inp{resize:vertical}`}</style>
+      <style>{INP_STYLES}</style>
     </div>
   );
 }
