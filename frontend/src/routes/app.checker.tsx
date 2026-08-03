@@ -77,6 +77,48 @@ function CheckerPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  // Proforma advances awaiting checker approval
+  const proformasQ = useQuery({
+    queryKey: ["checker-proformas"],
+    queryFn: async () => {
+      const data = await api.purchaseOrders.list();
+      // Never surface cancelled proformas for review (cancel keeps the old proforma_status)
+      return data.filter((p: any) => p.status !== "cancelled" && (p.proforma_status === "pending_review" || (p.status === "proforma" && p.proforma_status === "draft")));
+    },
+  });
+
+  const reviewProforma = useMutation({
+    mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "rejected" }) => {
+      await api.purchaseOrders.update(id, {
+        proforma_status: decision,
+        proforma_reviewed_by: user!.id,
+        proforma_reviewed_at: new Date().toISOString(),
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["checker-proformas"] });
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      qc.invalidateQueries({ queryKey: ["queue-proformas"] });
+      toast.success("Proforma decision recorded");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  // Resolve counterparty names for proformas (debtor for sales, supplier/vendor for purchase)
+  const partiesQ = useQuery({
+    queryKey: ["checker-parties"],
+    queryFn: async () => {
+      const [debtors, suppliers, vendors] = await Promise.all([api.debtors.list(), api.suppliers.list(), api.vendors.list()]);
+      const map: Record<string, string> = {};
+      for (const d of debtors) map[d.id] = d.name;
+      for (const s of suppliers) map[s.id] = s.company_name ?? s.companyName ?? s.name;
+      for (const v of vendors) map[v.id] = v.name;
+      return map;
+    },
+  });
+  const partyMap = partiesQ.data ?? {};
+  const pfParty = (p: any) => (p.side === "sales" ? partyMap[p.debtor_id] : partyMap[p.vendor_id]) ?? "—";
+
   const notesQ = useQuery({
     queryKey: ["checker-notes"],
     queryFn: async () => {
@@ -178,7 +220,7 @@ function CheckerPage() {
       />
 
       <div className="space-y-6 p-6 md:p-10">
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-3">
           <Card title="Pending sales invoices">
             <div className="num text-3xl text-primary">{pendingSales}</div>
             <div className="mt-1 text-xs text-muted-foreground">Awaiting approval to enter AR queue</div>
@@ -186,6 +228,10 @@ function CheckerPage() {
           <Card title="Pending purchase invoices">
             <div className="num text-3xl text-warning">{pendingPurchases}</div>
             <div className="mt-1 text-xs text-muted-foreground">Awaiting approval to enter AP queue</div>
+          </Card>
+          <Card title="Pending proforma advances">
+            <div className="num text-3xl text-primary">{(proformasQ.data ?? []).length}</div>
+            <div className="mt-1 text-xs text-muted-foreground">Awaiting approval before funding</div>
           </Card>
         </div>
 
@@ -296,6 +342,73 @@ function CheckerPage() {
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        <Card title="Proforma advances awaiting approval">
+          {proformasQ.isLoading ? (
+            <TableSkeleton rows={3} cols={9} />
+          ) : (proformasQ.data ?? []).length === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">No proformas awaiting approval.</div>
+          ) : (
+            <div className="-mx-5 overflow-x-auto">
+              <table className="table-premium w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">Proforma</th>
+                    <th className="px-5 py-2 text-left font-normal">PO #</th>
+                    <th className="px-5 py-2 text-left font-normal">Side</th>
+                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
+                    <th className="px-5 py-2 text-right font-normal">Advance amount</th>
+                    <th className="px-5 py-2 text-left font-normal">Issued</th>
+                    <th className="px-5 py-2 text-right font-normal">Decision</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(proformasQ.data ?? []).map((p: any) => {
+                    const selfCreated = p.client_id === user?.id && !isAdmin;
+                    return (
+                      <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3 font-mono text-xs">{p.proforma_number ?? "—"}</td>
+                        <td className="px-5 py-3 font-mono text-xs">{p.po_number}</td>
+                        <td className="px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground">{p.side}</td>
+                        <td className="px-5 py-3">{pfParty(p)}</td>
+                        <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
+                        <td className="px-5 py-3 text-sm">{fmtDate(p.proforma_date ?? p.issue_date)}</td>
+                        <td className="px-5 py-3 text-right">
+                          {canReview ? (
+                            selfCreated ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground" title="Segregation of duties: you cannot review a proforma you created">
+                                <Lock className="h-3 w-3" /> Self-created
+                              </span>
+                            ) : (
+                              <div className="inline-flex gap-1">
+                                <button
+                                  onClick={() => reviewProforma.mutate({ id: p.id, decision: "approved" })}
+                                  className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10"
+                                >
+                                  <Check className="h-3 w-3" /> Approve
+                                </button>
+                                <button
+                                  onClick={() => reviewProforma.mutate({ id: p.id, decision: "rejected" })}
+                                  className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
+                                >
+                                  <X className="h-3 w-3" /> Reject
+                                </button>
+                              </div>
+                            )
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+                              <Lock className="h-3 w-3" /> Checker only
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

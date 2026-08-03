@@ -11,6 +11,7 @@ export interface PurchaseOrder {
   debtorId: string | null; vendorId: string | null;
   issueDate: string; expectedDate: string | null;
   proformaNumber: string | null; proformaStatus: string;
+  proformaDate: string | null;
   proformaFundedAmount: number | null; proformaFundedAt: string | null;
   proformaFundedBy: string | null; proformaFundingReference: string | null;
   proformaReviewedAt: string | null; proformaReviewedBy: string | null;
@@ -36,10 +37,13 @@ export async function create(data: Partial<PurchaseOrder> & { clientId: string; 
     side: data.side, status: data.status || "draft", currency: data.currency || "USD",
     debtorId: data.debtorId || null, vendorId: data.vendorId || null,
     issueDate: data.issueDate || db.todayDate(), expectedDate: data.expectedDate || null,
-    proformaNumber: null, proformaStatus: "draft",
-    proformaFundedAmount: null, proformaFundedAt: null,
-    proformaFundedBy: null, proformaFundingReference: null,
-    proformaReviewedAt: null, proformaReviewedBy: null, proformaReviewComments: null,
+    proformaNumber: data.proformaNumber || null,
+    proformaStatus: data.proformaStatus || "draft",
+    proformaDate: data.proformaDate || null,
+    proformaFundedAmount: data.proformaFundedAmount ?? null, proformaFundedAt: data.proformaFundedAt || null,
+    proformaFundedBy: data.proformaFundedBy || null, proformaFundingReference: data.proformaFundingReference || null,
+    proformaReviewedAt: data.proformaReviewedAt || null, proformaReviewedBy: data.proformaReviewedBy || null,
+    proformaReviewComments: data.proformaReviewComments || null,
     notes: data.notes || null, createdAt: now, updatedAt: now,
   };
   await db.putItem(item);
@@ -48,7 +52,7 @@ export async function create(data: Partial<PurchaseOrder> & { clientId: string; 
 
 export async function update(id: string, updates: Partial<PurchaseOrder>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
-  const allowed = ["amount","status","side","poNumber","debtorId","vendorId","issueDate","expectedDate","currency","proformaNumber","proformaStatus","proformaFundedAmount","proformaFundedAt","proformaFundedBy","proformaFundingReference","proformaReviewedAt","proformaReviewedBy","proformaReviewComments","notes"];
+  const allowed = ["amount","status","side","poNumber","debtorId","vendorId","issueDate","expectedDate","currency","proformaNumber","proformaStatus","proformaDate","proformaFundedAmount","proformaFundedAt","proformaFundedBy","proformaFundingReference","proformaReviewedAt","proformaReviewedBy","proformaReviewComments","notes"];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   return db.updateItem(`PURCHASE_ORDER#${id}`, `PURCHASE_ORDER#${id}`, patch);
 }

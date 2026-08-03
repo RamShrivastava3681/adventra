@@ -45,7 +45,12 @@ function ProformasPage() {
     queryKey: ["proformas"],
     queryFn: async () => {
       const data = await api.purchaseOrders.list();
-      return data.reverse();
+      return (data as any[]).reverse().map((p) => ({
+        ...p,
+        // Rescue proformas created before proformaStatus was persisted by the
+        // backend — they were stored as "draft" but are actually pending review.
+        proforma_status: p.proforma_status === "draft" && p.status === "proforma" ? "pending_review" : p.proforma_status,
+      }));
     },
   });
 
@@ -53,12 +58,14 @@ function ProformasPage() {
     .filter((p) => tab === "all" || p.side === tab)
     .filter((p) => {
       if (queue === "all") return true;
+      // Cancelled proformas are closed — never count them in a workflow stage
+      if (p.status === "cancelled") return false;
       if (queue === "approved") return p.proforma_status === "approved";
       return p.proforma_status === queue;
     });
 
   const counts = useMemo(() => {
-    const arr = (listQ.data ?? []) as PF[];
+    const arr = ((listQ.data ?? []) as PF[]).filter((p) => p.status !== "cancelled");
     return {
       pending_review: arr.filter((p) => p.proforma_status === "pending_review").length,
       approved: arr.filter((p) => p.proforma_status === "approved").length,

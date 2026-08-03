@@ -247,6 +247,7 @@ function ActionBtn({ children, onClick, tone = "default" }: { children: React.Re
 }
 
 function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: string; vendors: any[]; onClose: () => void; onCreated: () => void }) {
+  const qc = useQueryClient();
   const [form, setForm] = useState({
     invoice_number: "",
     vendor_id: vendors[0]?.id ?? "",
@@ -268,7 +269,8 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
     queryFn: async () => {
       const po = form.po_number.trim();
       const orders = await api.purchaseOrders.list();
-      const pfs = orders.filter((o: any) => o.side === "purchase" && o.po_number === po);
+      // Match by PO number OR proforma number — either can be typed into the field
+      const pfs = orders.filter((o: any) => o.side === "purchase" && (o.po_number === po || o.proforma_number === po));
       const pfIds = pfs.map((p: any) => p.id);
       let advances: any[] = [];
       if (pfIds.length) {
@@ -314,11 +316,11 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
         documents: docs,
         status: "pending",
       });
-      // Apply any open advances linked to proformas with matching PO number (purchase side)
-      const pfIds = (poLookupQ.data?.proformas ?? []).map((p: any) => p.id);
-      if (form.po_number.trim() && pfIds.length) {
-        for (const pfId of pfIds) {
-          try { await api.advances.update(pfId, { status: "applied" }); } catch {}
+      // Mark advances linked to matching proformas as applied (purchase side)
+      const advs = (poLookupQ.data?.advances ?? []) as any[];
+      if (form.po_number.trim() && advs.length) {
+        for (const a of advs) {
+          try { await api.advances.update(a.id, { status: "applied" }); } catch {}
         }
       }
       if (inv.enabled && inv.item_name.trim() && Number(inv.quantity) > 0) {
@@ -335,7 +337,12 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
         });
       }
     },
-    onSuccess: () => { onCreated(); toast.success("Purchase invoice recorded"); onClose(); },
+    onSuccess: () => {
+      onCreated();
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      toast.success("Purchase invoice recorded");
+      onClose();
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -360,7 +367,7 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
               <L label="PO date"><input type="date" className="inp" value={form.po_date} onChange={(e) => setForm({ ...form, po_date: e.target.value })} /></L>
               <L label="PO amount"><input type="number" step="0.01" min="0" className="inp" value={form.po_amount} onChange={(e) => setForm({ ...form, po_amount: e.target.value })} /></L>
             </div>
-            <p className="mt-1 text-[10px] text-muted-foreground">Enter the PO number to auto-deduct any advances paid against it.</p>
+            <p className="mt-1 text-[10px] text-muted-foreground">Enter the PO or proforma number to auto-deduct any advances paid against it.</p>
           </div>
 
           {form.po_number.trim() && (
@@ -416,7 +423,7 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
               <div className="mt-3 grid gap-3 md:grid-cols-3">
                 <L label="Item *"><input className="inp" value={inv.item_name} onChange={(e) => setInv({ ...inv, item_name: e.target.value })} /></L>
                 <L label="SKU"><input className="inp" value={inv.sku} onChange={(e) => setInv({ ...inv, sku: e.target.value })} /></L>
-                <L label="Quantity *"><input type="number" step="0.001" min="0" className="inp" value={inv.quantity} onChange={(e) => setInv({ ...inv, quantity: e.target.value })} /></L>
+                <L label="Quantity *"><input type="number" step="0.001" min="0" className="inp-qty" value={inv.quantity} onChange={(e) => setInv({ ...inv, quantity: e.target.value })} /></L>
                 <L label="Unit"><input className="inp" value={inv.unit} onChange={(e) => setInv({ ...inv, unit: e.target.value })} /></L>
                 <L label="Unit cost"><input type="number" step="0.01" min="0" className="inp" value={inv.unit_cost} onChange={(e) => setInv({ ...inv, unit_cost: e.target.value })} /></L>
               </div>
@@ -430,7 +437,7 @@ function NewPurchaseModal({ userId, vendors, onClose, onCreated }: { userId: str
             </button>
           </div>
         </form>
-        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}.inp-qty{width:100%;min-width:7rem;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.65rem .9rem;font-size:1.05rem;font-weight:600}.inp-qty:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
       </div>
     </div>
   );

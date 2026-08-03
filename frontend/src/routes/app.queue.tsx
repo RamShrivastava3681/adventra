@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useState } from "react";
 import api from "@/lib/api-client";
@@ -45,7 +45,7 @@ type Row = {
 };
 
 function QueuePage() {
-  const { isAdmin, isTreasury: isTreasuryRole } = useAuth();
+  const { isAdmin, isTreasury: isTreasuryRole, user } = useAuth();
   const isTreasury = isTreasuryRole || isAdmin;
   const qc = useQueryClient();
   const [side, setSide] = useState<"all" | "sale" | "purchase">("all");
@@ -134,6 +134,59 @@ function QueuePage() {
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
+
+  // Approved proforma advances awaiting funding (treasury marks paid/received → records advance)
+  const proformasQ = useQuery({
+    queryKey: ["queue-proformas"],
+    queryFn: async () => {
+      const data = await api.purchaseOrders.list();
+      // Never surface cancelled proformas for funding (cancel keeps the old proforma_status)
+      return data.filter((p: any) => p.status !== "cancelled" && p.proforma_status === "approved");
+    },
+  });
+
+  const fundProforma = useMutation({
+    mutationFn: async (p: any) => {
+      const today = new Date().toISOString().slice(0, 10);
+      await api.purchaseOrders.update(p.id, {
+        proforma_status: "funded",
+        proforma_funded_by: user!.id,
+        proforma_funded_at: new Date().toISOString(),
+        proforma_funded_amount: Number(p.amount),
+      });
+      await api.advances.create({
+        clientId: p.client_id,
+        side: p.side,
+        purchaseOrderId: p.id,
+        amount: Number(p.amount),
+        advanceDate: today,
+        reference: p.proforma_number ?? p.po_number,
+        status: "open",
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["queue-proformas"] });
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      qc.invalidateQueries({ queryKey: ["advances"] });
+      toast.success("Proforma funded — advance recorded");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  // Resolve counterparty names for proformas (debtor for sales, supplier/vendor for purchase)
+  const partiesQ = useQuery({
+    queryKey: ["queue-parties"],
+    queryFn: async () => {
+      const [debtors, suppliers, vendors] = await Promise.all([api.debtors.list(), api.suppliers.list(), api.vendors.list()]);
+      const map: Record<string, string> = {};
+      for (const d of debtors) map[d.id] = d.name;
+      for (const s of suppliers) map[s.id] = s.company_name ?? s.companyName ?? s.name;
+      for (const v of vendors) map[v.id] = v.name;
+      return map;
+    },
+  });
+  const partyMap = partiesQ.data ?? {};
+  const pfParty = (p: any) => (p.side === "sales" ? partyMap[p.debtor_id] : partyMap[p.vendor_id]) ?? "—";
 
   const notesQ = useQuery({
     queryKey: ["queue-notes"],
@@ -237,12 +290,6 @@ function QueuePage() {
       />
 
       <div className="space-y-6 p-6 md:p-10">
-        <Card>
-          <div className="flex flex-wrap items-center justify-between gap-3 text-xs">
-            <div className="text-muted-foreground">Proforma advances awaiting funding are on the <Link to="/app/proformas" className="text-primary underline">Proformas</Link> page (Funding queue tab).</div>
-          </div>
-        </Card>
-
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Card title="Supplier balance due">
             <div className="num text-3xl text-warning">{fmtMoney(balanceToPay)}</div>
@@ -337,6 +384,57 @@ function QueuePage() {
                       </Fragment>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        <Card title="Approved proforma advances — ready to fund">
+          {proformasQ.isLoading ? (
+            <TableSkeleton rows={3} cols={8} />
+          ) : (proformasQ.data ?? []).length === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">No approved proformas waiting to be funded.</div>
+          ) : (
+            <div className="-mx-5 overflow-x-auto">
+              <table className="table-premium w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">Proforma</th>
+                    <th className="px-5 py-2 text-left font-normal">PO #</th>
+                    <th className="px-5 py-2 text-left font-normal">Side</th>
+                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
+                    <th className="px-5 py-2 text-right font-normal">Advance amount</th>
+                    <th className="px-5 py-2 text-left font-normal">Issued</th>
+                    <th className="px-5 py-2 text-right font-normal">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(proformasQ.data ?? []).map((p: any) => (
+                    <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-5 py-3 font-mono text-xs">{p.proforma_number ?? "—"}</td>
+                      <td className="px-5 py-3 font-mono text-xs">{p.po_number}</td>
+                      <td className="px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground">{p.side}</td>
+                      <td className="px-5 py-3">{pfParty(p)}</td>
+                      <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
+                      <td className="px-5 py-3 text-sm">{fmtDate(p.proforma_date ?? p.issue_date)}</td>
+                      <td className="px-5 py-3 text-right">
+                        {isTreasury ? (
+                          <button
+                            onClick={() => fundProforma.mutate(p)}
+                            disabled={fundProforma.isPending}
+                            className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-warning/50 px-2.5 py-1 text-xs text-warning hover:bg-warning/10 disabled:opacity-60"
+                          >
+                            {p.side === "sales" ? "Mark received" : "Mark paid"}
+                          </button>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+                            <Lock className="h-3 w-3" /> Treasury only
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
