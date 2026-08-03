@@ -1,0 +1,13 @@
+{
+  "name": "adventra-ppt-generator",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Generates the Adventra platform walkthrough deck (.pptx) with pptxgenjs",
+  "main": "generate.cjs",
+  "scripts": {
+    "generate": "node generate.cjs"
+  },
+  "dependencies": {
+    "pptxgenjs": "^3.12.0"
+  }
+}
