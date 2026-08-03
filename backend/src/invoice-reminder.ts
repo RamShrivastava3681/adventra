@@ -2,6 +2,7 @@ import * as Invoice from "./models/invoice.js";
 import * as PurchaseInvoice from "./models/purchase-invoice.js";
 import * as Debtor from "./models/debtor.js";
 import * as Vendor from "./models/vendor.js";
+import * as Supplier from "./models/supplier.js";
 import * as db from "./dynamodb.js";
 import { sendInvoiceReminder, sendDebtorReminder, isEmailConfigured } from "./email.js";
 import * as ReminderLog from "./models/reminder-log.js";
@@ -48,6 +49,10 @@ async function resolveCounterparty(id: string, type: "debtor" | "vendor"): Promi
     } else {
       const v = await Vendor.get(id);
       if (v) return { name: v.name, email: v.contactEmail || null };
+      // Purchase invoices may reference the Supplier model (created via the
+      // visible "Suppliers" page) instead of the Vendor model.
+      const s = await Supplier.get(id);
+      if (s) return { name: s.companyName, email: s.contactEmail || null };
     }
   } catch {
     // fall through

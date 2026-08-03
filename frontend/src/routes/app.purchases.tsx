@@ -32,8 +32,14 @@ function PurchasesPage() {
   const vendorsQ = useQuery({
     queryKey: ["vendors-min"],
     queryFn: async () => {
-      const data = await api.vendors.list();
-      return data.map((v: any) => ({ id: v.id, name: v.name, payment_terms_days: v.paymentTermsDays ?? v.payment_terms_days })).sort((a: any, b: any) => a.name?.localeCompare(b.name ?? "") ?? 0);
+      // Suppliers live in two places: the visible "Suppliers" page (Supplier
+      // model) and legacy procurement vendors (Vendor model). Merge both so
+      // the supplier dropdown is never empty when suppliers exist in the platform.
+      const [suppliers, vendors] = await Promise.all([api.suppliers.list(), api.vendors.list()]);
+      return [
+        ...suppliers.map((s: any) => ({ id: s.id, name: s.company_name ?? s.companyName ?? s.name, payment_terms_days: s.paymentTermsDays ?? s.payment_terms_days ?? 30 })),
+        ...vendors.map((v: any) => ({ id: v.id, name: v.name, payment_terms_days: v.paymentTermsDays ?? v.payment_terms_days ?? 30 })),
+      ].sort((a: any, b: any) => a.name?.localeCompare(b.name ?? "") ?? 0);
     },
   });
 

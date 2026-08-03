@@ -246,8 +246,14 @@ function NewProformaModal({ side, userId, onClose }: { side: "sales" | "purchase
         const data = await api.debtors.list();
         return data.map((d: any) => ({ id: d.id, name: d.name })).sort((a: any, b: any) => a.name?.localeCompare(b.name ?? "") ?? 0);
       }
-      const data = await api.vendors.list();
-      return data.map((v: any) => ({ id: v.id, name: v.name })).sort((a: any, b: any) => a.name?.localeCompare(b.name ?? "") ?? 0);
+      // Purchase side — suppliers are created via the visible "Suppliers" page
+      // (/app/suppliers → Supplier model), so list those first and also merge
+      // any legacy procurement vendors so nothing is missed.
+      const [suppliers, vendors] = await Promise.all([api.suppliers.list(), api.vendors.list()]);
+      return [
+        ...suppliers.map((s: any) => ({ id: s.id, name: s.company_name ?? s.companyName ?? s.name })),
+        ...vendors.map((v: any) => ({ id: v.id, name: v.name })),
+      ].sort((a: any, b: any) => a.name?.localeCompare(b.name ?? "") ?? 0);
     },
   });
 
