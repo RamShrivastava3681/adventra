@@ -477,7 +477,7 @@ function NewPurchaseModal({ invoice, userId, vendors, onClose, onCreated }: { in
                 <L label="Product *">
                   <select className="inp" value={inv.product_id} onChange={(e) => {
                     const p = (productsQ.data ?? []).find((x: any) => x.id === e.target.value);
-                    setInv({ ...inv, product_id: e.target.value, unit_cost: p ? String(p.unit_cost ?? "") : "" });
+                    setInv({ ...inv, product_id: e.target.value, unit_cost: p ? String(p.unit_price ?? "") : "" });
                   }}>
                     <option value="">Select product…</option>
                     {(productsQ.data ?? []).map((p: any) => (
@@ -487,7 +487,7 @@ function NewPurchaseModal({ invoice, userId, vendors, onClose, onCreated }: { in
                 </L>
                 <L label="Quantity *"><input type="number" step="0.001" min="0" className="inp-qty" value={inv.quantity} onChange={(e) => setInv({ ...inv, quantity: e.target.value })} /></L>
                 <L label="Unit"><input className="inp" value={inv.unit} onChange={(e) => setInv({ ...inv, unit: e.target.value })} /></L>
-                <L label="Unit cost"><input type="number" step="0.01" min="0" className="inp" value={inv.unit_cost} onChange={(e) => setInv({ ...inv, unit_cost: e.target.value })} /></L>
+                <L label="Unit price"><input type="number" step="0.01" min="0" className="inp" value={inv.unit_cost} onChange={(e) => setInv({ ...inv, unit_cost: e.target.value })} /></L>
               </div>
             )}
           </div>
