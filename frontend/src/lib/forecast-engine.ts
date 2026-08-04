@@ -197,7 +197,8 @@ function weightedAverage(values: number[], weights: number[]): number {
 }
 
 // -----------------------------------------------------------------------------
-// Trend detection — ordinary least squares linear regression
+// Trend detection — textbook ordinary least squares slope (closed form)
+// slope = (n·Σ(x·y) − Σx·Σy) ÷ (n·Σ(x²) − (Σx)²), with x = month index 1..n.
 // Every month carries equal weight (no decay), giving the classic line of best fit.
 // -----------------------------------------------------------------------------
 
@@ -206,6 +207,10 @@ function enhancedTrendSlope(values: number[]): {
   strength: number; // 0..1 (weighted R²)
   direction: "up" | "down" | "stable";
   // extended for calculation breakdown
+  _sumX?: number;
+  _sumY?: number;
+  _sumXY?: number;
+  _sumX2?: number;
   _meanX?: number;
   _meanY?: number;
   _numerator?: number;
@@ -217,28 +222,26 @@ function enhancedTrendSlope(values: number[]): {
   const n = values.length;
   if (n < 2) return { slope: 0, strength: 0, direction: "stable" };
 
-  // Equal weights — plain linear regression
-  const weights = values.map(() => 1);
-  const wsum = weights.reduce((a, b) => a + b, 0);
+  // Textbook least-squares slope (x = month index 1..n, y = monthly demand):
+  //   slope = (n·Σ(x·y) − Σx·Σy) ÷ (n·Σ(x²) − (Σx)²)
+  const xs = Array.from({ length: n }, (_, i) => i + 1);
+  const sumX = xs.reduce((a, b) => a + b, 0);
+  const sumY = values.reduce((a, b) => a + b, 0);
+  const sumXY = values.reduce((a, y, i) => a + xs[i] * y, 0);
+  const sumX2 = xs.reduce((a, b) => a + b * b, 0);
 
-  const xs = Array.from({ length: n }, (_, i) => i);
-  const meanX = xs.reduce((a, b, i) => a + b * weights[i], 0) / wsum;
-  const meanY = values.reduce((a, b, i) => a + b * weights[i], 0) / wsum;
+  const numerator = n * sumXY - sumX * sumY;
+  const denominator = n * sumX2 - sumX * sumX;
+  const slope = denominator === 0 ? 0 : numerator / denominator;
 
-  let num = 0,
-    den = 0;
-  for (let i = 0; i < n; i++) {
-    num += weights[i] * (xs[i] - meanX) * (values[i] - meanY);
-    den += weights[i] * (xs[i] - meanX) ** 2;
-  }
-  const slope = den === 0 ? 0 : num / den;
-
-  // Weighted R² as trend strength
+  // R² as trend strength (same fitted line, computed through the means)
+  const meanX = sumX / n;
+  const meanY = sumY / n;
   const ssRes = values.reduce((a, v, i) => {
     const predicted = meanY + slope * (xs[i] - meanX);
-    return a + weights[i] * (v - predicted) ** 2;
+    return a + (v - predicted) ** 2;
   }, 0);
-  const ssTot = values.reduce((a, v, i) => a + weights[i] * (v - meanY) ** 2, 0);
+  const ssTot = values.reduce((a, v) => a + (v - meanY) ** 2, 0);
   const rSquared = ssTot === 0 ? 0 : Math.max(0, Math.min(1, 1 - ssRes / ssTot));
 
   const threshold = Math.abs(meanY) * 0.02 || 0.5; // at least 2% or 0.5 units
@@ -249,10 +252,14 @@ function enhancedTrendSlope(values: number[]): {
     slope: Math.round(slope * 100) / 100,
     strength: Math.round(rSquared * 100) / 100,
     direction,
+    _sumX: Math.round(sumX * 1000) / 1000,
+    _sumY: Math.round(sumY * 1000) / 1000,
+    _sumXY: Math.round(sumXY * 1000) / 1000,
+    _sumX2: Math.round(sumX2 * 1000) / 1000,
     _meanX: Math.round(meanX * 1000) / 1000,
     _meanY: Math.round(meanY * 1000) / 1000,
-    _numerator: Math.round(num * 1000) / 1000,
-    _denominator: Math.round(den * 1000) / 1000,
+    _numerator: Math.round(numerator * 1000) / 1000,
+    _denominator: Math.round(denominator * 1000) / 1000,
     _ssRes: Math.round(ssRes * 100) / 100,
     _ssTot: Math.round(ssTot * 100) / 100,
     _threshold: Math.round(threshold * 100) / 100,
@@ -541,6 +548,10 @@ export type CalculationBreakdown = {
   trendAnalysis: {
     description: string;
     formula: string;
+    sumX: number;
+    sumY: number;
+    sumXY: number;
+    sumX2: number;
     meanX: number;
     meanY: number;
     numerator: number;
@@ -1031,9 +1042,13 @@ export function forecastSKU(
     },
     trendAnalysis: {
       description:
-        "Ordinary least squares linear regression over the 12 months of history — the plain linear slope of best fit.",
+        "Textbook least-squares slope (closed form) over the 12 months of history — the plain line of best fit.",
       formula:
-        "slope = Σ((x_i - meanX) × (y_i - meanY)) ÷ Σ(x_i - meanX)²",
+        "slope = (n·Σ(x·y) − Σx·Σy) ÷ (n·Σ(x²) − (Σx)²)",
+      sumX: trendAnalysis._sumX ?? 0,
+      sumY: trendAnalysis._sumY ?? 0,
+      sumXY: trendAnalysis._sumXY ?? 0,
+      sumX2: trendAnalysis._sumX2 ?? 0,
       meanX: trendAnalysis._meanX ?? 0,
       meanY: trendAnalysis._meanY ?? 0,
       numerator: trendAnalysis._numerator ?? 0,

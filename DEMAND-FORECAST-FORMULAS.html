@@ -105,7 +105,7 @@ footer { margin-top: 70px; padding-top: 18px; border-top: 2px solid var(--line);
 <hr/>
 <div class="toc">
 <h2 id="table-of-contents">Table of contents</h2>
-<ol><li><a href="#1-the-big-picture">The big picture — what the page does</a></li><li><a href="#2-step-0--the-12-months-of-history">Step 0 — The 12 months of history</a></li><li><a href="#3-step-1--fixing-stockout-months-availability-correction">Step 1 — Fixing stockout months (availability correction)</a></li><li><a href="#4-step-2--the-baseline-weighted-average">Step 2 — The baseline (weighted average)</a></li><li><a href="#5-step-3--the-trend-weighted-line-of-best-fit">Step 3 — The trend (weighted line of best fit)</a></li><li><a href="#6-step-4--seasonality-the-month-personality">Step 4 — Seasonality (the "month personality")</a></li><li><a href="#7-step-5--business-factors-multipliers-from-you">Step 5 — Business factors (multipliers from you)</a></li><li><a href="#8-step-6--the-monthly-forecast-month-by-month">Step 6 — The monthly forecast, month by month</a></li><li><a href="#9-step-7--the-prediction-interval-the-probably-range">Step 7 — The prediction interval (the "probably" range)</a></li><li><a href="#10-step-8--days-of-cover-how-many-days-of-stock">Step 8 — Days of cover (how many days of stock)</a></li><li><a href="#11-step-9--the-reorder-recommendation-how-much-to-buy">Step 9 — The reorder recommendation (how much to buy)</a></li><li><a href="#12-step-10--momentum-is-demand-speeding-up-or-slowing-down">Step 10 — Momentum (is demand speeding up or slowing down?)</a></li><li><a href="#13-step-11--velocity-how-fast-this-product-sells-vs-its-category">Step 11 — Velocity (how fast this product sells vs its category)</a></li><li><a href="#14-step-12--risks-stockout--overstock">Step 12 — Risks (stockout & overstock)</a></li><li><a href="#15-step-13--the-timeline">Step 13 — The timeline (stockout date, reorder-by date, refill date)</a></li><li><a href="#16-step-14--pricing-strategy-what-to-do-with-the-price">Step 14 — Pricing strategy (what to do with the price)</a></li><li><a href="#appendix-a--all-formulas-in-one-place">Appendix A — All formulas in one place</a></li><li><a href="#appendix-b--constants-and-default-values">Appendix B — Constants and default values</a></li><li><a href="#appendix-c--how-to-reproduce-these-exact-numbers">Appendix C — How to reproduce these exact numbers</a></li><li><a href="#glossary--the-words-we-use">Glossary — the words we use</a></li></ol>
+<ol><li><a href="#1-the-big-picture">The big picture — what the page does</a></li><li><a href="#2-step-0--the-12-months-of-history">Step 0 — The 12 months of history</a></li><li><a href="#3-step-1--fixing-stockout-months-availability-correction">Step 1 — Fixing stockout months (availability correction)</a></li><li><a href="#4-step-2--the-baseline-weighted-average">Step 2 — The baseline (weighted average)</a></li><li><a href="#5-step-3--the-trend-line-of-best-fit">Step 3 — The trend (line of best fit)</a></li><li><a href="#6-step-4--seasonality-the-month-personality">Step 4 — Seasonality (the "month personality")</a></li><li><a href="#7-step-5--business-factors-multipliers-from-you">Step 5 — Business factors (multipliers from you)</a></li><li><a href="#8-step-6--the-monthly-forecast-month-by-month">Step 6 — The monthly forecast, month by month</a></li><li><a href="#9-step-7--the-prediction-interval-the-probably-range">Step 7 — The prediction interval (the "probably" range)</a></li><li><a href="#10-step-8--days-of-cover-how-many-days-of-stock">Step 8 — Days of cover (how many days of stock)</a></li><li><a href="#11-step-9--the-reorder-recommendation-how-much-to-buy">Step 9 — The reorder recommendation (how much to buy)</a></li><li><a href="#12-step-10--momentum-is-demand-speeding-up-or-slowing-down">Step 10 — Momentum (is demand speeding up or slowing down?)</a></li><li><a href="#13-step-11--velocity-how-fast-this-product-sells-vs-its-category">Step 11 — Velocity (how fast this product sells vs its category)</a></li><li><a href="#14-step-12--risks-stockout--overstock">Step 12 — Risks (stockout & overstock)</a></li><li><a href="#15-step-13--the-timeline">Step 13 — The timeline (stockout date, reorder-by date, refill date)</a></li><li><a href="#16-step-14--pricing-strategy-what-to-do-with-the-price">Step 14 — Pricing strategy (what to do with the price)</a></li><li><a href="#appendix-a--all-formulas-in-one-place">Appendix A — All formulas in one place</a></li><li><a href="#appendix-b--constants-and-default-values">Appendix B — Constants and default values</a></li><li><a href="#appendix-c--how-to-reproduce-these-exact-numbers">Appendix C — How to reproduce these exact numbers</a></li><li><a href="#glossary--the-words-we-use">Glossary — the words we use</a></li></ol>
 <hr/>
 </div>
 <h2 id="1-the-big-picture">1. The big picture</h2>
@@ -200,17 +200,19 @@ weightedAvg = 405.2 ÷ 21 = 19.30</code></pre>
 <h3 id="formula-5a--the-trend-weights">Formula 5a — The trend weights</h3>
 <p>Every month has the same weight:</p>
 <pre><code>wᵢ = 1   for every month</code></pre>
-<h3 id="formula-5b--centers-meanx-meany">Formula 5b — Centers (meanX, meanY)</h3>
-<p><code>x</code> is the month *number* (0 to 11). <code>y</code> is that month's demand.</p>
-<pre><code>meanX = Σxᵢ ÷ n = 66 ÷ 12 = 5.5
-meanY = Σyᵢ ÷ n = 208.2 ÷ 12 = 17.35</code></pre>
+<h3 id="formula-5b--the-sums-x-y-xy-x">Formula 5b — The sums (Σx, Σy, Σxy, Σx²)</h3>
+<p><code>x</code> is the month *number* (1 to 12). <code>y</code> is that month's demand.</p>
+<pre><code>Σx  = 1 + 2 + … + 12 = 78
+Σy  = 24 + 20 + … + 30 = 208.2
+Σxy = (1×24) + (2×20) + … + (12×30) = 1464.2
+Σx² = 1² + 2² + … + 12² = 650</code></pre>
 <h3 id="formula-5c--the-slope-the-trend-itself">Formula 5c — The slope (the trend itself)</h3>
-<pre><code>slope = Σ( (xᵢ − meanX) × (yᵢ − meanY) )  ÷  Σ( (xᵢ − meanX)² )
-        └─────────── numerator ───────────┘   └─── denominator ──┘</code></pre>
+<pre><code>slope = ( n·Σxy − Σx·Σy )  ÷  ( n·Σx² − (Σx)² )
+        └────── numerator ──────┘   └─────── denominator ────────┘</code></pre>
 <p><strong>Our actual numbers:</strong></p>
-<pre><code>numerator   = Σ (xᵢ − 5.5)(yᵢ − 17.35) = 110.90
-denominator = Σ (xᵢ − 5.5)²            = 143.00
-slope       = 110.90 ÷ 143.00 = 0.78</code></pre>
+<pre><code>numerator   = (12 × 1464.2) − (78 × 208.2) = 17570.4 − 16239.6 = 1330.80
+denominator = (12 × 650) − 78²             = 7800 − 6084     = 1716.00
+slope       = 1330.80 ÷ 1716.00 = 0.78</code></pre>
 <p>So demand is rising by about <strong>+0.78 units per month</strong>. The page shows this as <strong>Trend = +0.8/mo</strong>.</p>
 <h3 id="formula-5d--trend-strength-r">Formula 5d — Trend strength (R²)</h3>
 <p>A slope is only trustworthy if the data really does follow a line. The engine computes an <strong>R²</strong> ("R-squared") between 0 and 1:</p>
@@ -229,7 +231,7 @@ R²    = 1 − 492.16 ÷ 578.17 = 0.15</code></pre>
 <pre><code>threshold = 17.35 × 0.02 = 0.35</code></pre>
 <p>Then:</p>
 <div class="table-wrap"><table><thead><tr><th>Condition</th><th>Direction</th></tr></thead><tbody><tr><td>slope > +0.35</td><td><strong>up</strong></td></tr></tbody></table></div>
-<blockquote>💡 The parenthetical in the formula above says "0.5 if the average is zero": the code is <code>Math.abs(meanY) × 0.02 || 0.5</code>, meaning 0.5 is only a fallback when the average itself is 0 (no demand at all). It is not a minimum.</blockquote>
+<blockquote>💡 The parenthetical in the formula above says "0.5 if the average is zero": the code is <code>Math.abs(meanY) × 0.02 || 0.5</code>, meaning 0.5 is only a fallback when the average itself is 0 (no demand at all). It is not a minimum.  📐 <strong>Note on index bases:</strong> the trend above uses <code>x = 1…12</code> (the month number). The prediction interval in Step 7 uses a 0-based index (<code>meanX = (n−1)/2</code>) internally — both give the same fitted line, just different coordinate labels.</blockquote>
 <div class="table-wrap"><table><thead><tr><th>slope < −0.35</th><th><strong>down</strong></th></tr></thead><tbody></tbody></table></div>
 <p>Our slope is <strong>+0.78 > 0.35 → direction = "up"</strong> ✅</p>
 <blockquote>🍋 <strong>Lemonade stand:</strong> each month you sold a little more than the month before. The "slope" is how many extra cups per month. "Strength" is how consistent that growth was — 15% means the ups and downs are fairly noisy, but the line still points up. Direction says: the line is pointing up.</blockquote>
@@ -496,9 +498,8 @@ corrected        = min(actual ÷ max(availabilityRate, 0.70), actual × 1.4)</co
 <p><strong>Weighted average (baseline)</strong> — 3/2/1 step weights (newest 3 = 3, middle 3 = 2, oldest 6 = 1)</p>
 <pre><code>w = [1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3]
 weightedAvg = Σ(yᵢ·wᵢ) ÷ Σ(wᵢ)</code></pre>
-<p><strong>Trend</strong> — plain linear regression (every month weighted equally)</p>
-<pre><code>meanX = Σxᵢ ÷ n              meanY = Σyᵢ ÷ n
-slope = Σ((xᵢ−meanX)(yᵢ−meanY)) ÷ Σ((xᵢ−meanX)²)
+<p><strong>Trend</strong> — least-squares slope (textbook closed form; x = month index 1..12)</p>
+<pre><code>slope = (n·Σxy − Σx·Σy) ÷ (n·Σx² − (Σx)²)
 R²    = 1 − Σ(yᵢ−predᵢ)² ÷ Σ(yᵢ−meanY)²        predᵢ = meanY + slope(xᵢ−meanX)
 threshold = |meanY| × 0.02    direction: slope&gt;+t → up · slope&lt;−t → down · else stable</code></pre>
 <p><strong>Seasonality</strong></p>

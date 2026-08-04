@@ -96,15 +96,14 @@ const values = history.map((h) => h.qty);
 const n = values.length;
 const avg = values.reduce((a, b) => a + b, 0) / Math.max(n, 1);
 
-// slope recompute (ordinary least squares — equal weights)
-const xs = Array.from({ length: n }, (_, i) => i);
-const meanX = xs.reduce((a, b) => a + b, 0) / Math.max(n, 1);
-const meanY = avg;
-let num = 0, den = 0;
-for (let i = 0; i < n; i++) {
-  num += (xs[i] - meanX) * (values[i] - meanY);
-  den += (xs[i] - meanX) ** 2;
-}
+// slope recompute (textbook least-squares closed form — x = month index 1..n)
+const xs = Array.from({ length: n }, (_, i) => i + 1);
+const sumX = xs.reduce((a, b) => a + b, 0);
+const sumY = values.reduce((a, b) => a + b, 0);
+const sumXY = values.reduce((a, y, i) => a + xs[i] * y, 0);
+const sumX2 = xs.reduce((a, b) => a + b * b, 0);
+const num = n * sumXY - sumX * sumY;
+const den = n * sumX2 - sumX * sumX;
 const slope = den === 0 ? 0 : num / den;
 
 const forecastIndex = n - 1 + 1; // 12

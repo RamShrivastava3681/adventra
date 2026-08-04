@@ -30,7 +30,7 @@ against a fictional but realistic product, so every number you see here is the *
 2. [Step 0 — The 12 months of history](#2-step-0--the-12-months-of-history)
 3. [Step 1 — Fixing stockout months (availability correction)](#3-step-1--fixing-stockout-months-availability-correction)
 4. [Step 2 — The baseline (weighted average)](#4-step-2--the-baseline-weighted-average)
-5. [Step 3 — The trend (weighted line of best fit)](#5-step-3--the-trend-weighted-line-of-best-fit)
+5. [Step 3 — The trend (line of best fit)](#5-step-3--the-trend-line-of-best-fit)
 6. [Step 4 — Seasonality (the "month personality")](#6-step-4--seasonality-the-month-personality)
 7. [Step 5 — Business factors (multipliers from you)](#7-step-5--business-factors-multipliers-from-you)
 8. [Step 6 — The monthly forecast, month by month](#8-step-6--the-monthly-forecast-month-by-month)
@@ -275,27 +275,29 @@ Every month has the same weight:
 wᵢ = 1   for every month
 ```
 
-### Formula 5b — Centers (meanX, meanY)
+### Formula 5b — The sums (Σx, Σy, Σxy, Σx²)
 
-`x` is the month *number* (0 to 11). `y` is that month's demand.
+`x` is the month *number* (1 to 12). `y` is that month's demand.
 
 ```
-meanX = Σxᵢ ÷ n = 66 ÷ 12 = 5.5
-meanY = Σyᵢ ÷ n = 208.2 ÷ 12 = 17.35
+Σx  = 1 + 2 + … + 12 = 78
+Σy  = 24 + 20 + … + 30 = 208.2
+Σxy = (1×24) + (2×20) + … + (12×30) = 1464.2
+Σx² = 1² + 2² + … + 12² = 650
 ```
 
 ### Formula 5c — The slope (the trend itself)
 
 ```
-slope = Σ( (xᵢ − meanX) × (yᵢ − meanY) )  ÷  Σ( (xᵢ − meanX)² )
-        └─────────── numerator ───────────┘   └─── denominator ──┘
+slope = ( n·Σxy − Σx·Σy )  ÷  ( n·Σx² − (Σx)² )
+        └────── numerator ──────┘   └─────── denominator ────────┘
 ```
 
 **Our actual numbers:**
 ```
-numerator   = Σ (xᵢ − 5.5)(yᵢ − 17.35) = 110.90
-denominator = Σ (xᵢ − 5.5)²            = 143.00
-slope       = 110.90 ÷ 143.00 = 0.78
+numerator   = (12 × 1464.2) − (78 × 208.2) = 17570.4 − 16239.6 = 1330.80
+denominator = (12 × 650) − 78²             = 7800 − 6084     = 1716.00
+slope       = 1330.80 ÷ 1716.00 = 0.78
 ```
 
 So demand is rising by about **+0.78 units per month**. The page shows this as **Trend = +0.8/mo**.
@@ -342,6 +344,10 @@ Then:
 > 💡 The parenthetical in the formula above says "0.5 if the average is zero": the code is
 > `Math.abs(meanY) × 0.02 || 0.5`, meaning 0.5 is only a fallback when the average itself is 0
 > (no demand at all). It is not a minimum.
+>
+> 📐 **Note on index bases:** the trend above uses `x = 1…12` (the month number). The prediction
+> interval in Step 7 uses a 0-based index (`meanX = (n−1)/2`) internally — both give the same
+> fitted line, just different coordinate labels.
 | slope < −0.35 | **down** |
 | otherwise | **stable** |
 
@@ -1094,10 +1100,9 @@ w = [1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3]
 weightedAvg = Σ(yᵢ·wᵢ) ÷ Σ(wᵢ)
 ```
 
-**Trend** — plain linear regression (every month weighted equally)
+**Trend** — least-squares slope (textbook closed form; x = month index 1..12)
 ```
-meanX = Σxᵢ ÷ n              meanY = Σyᵢ ÷ n
-slope = Σ((xᵢ−meanX)(yᵢ−meanY)) ÷ Σ((xᵢ−meanX)²)
+slope = (n·Σxy − Σx·Σy) ÷ (n·Σx² − (Σx)²)
 R²    = 1 − Σ(yᵢ−predᵢ)² ÷ Σ(yᵢ−meanY)²        predᵢ = meanY + slope(xᵢ−meanX)
 threshold = |meanY| × 0.02    direction: slope>+t → up · slope<−t → down · else stable
 ```

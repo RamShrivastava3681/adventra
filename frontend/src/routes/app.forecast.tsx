@@ -1823,10 +1823,12 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
       >
         <Formula formula={breakdown.trendAnalysis.formula} />
         <div className="grid grid-cols-2 gap-2 mt-2">
-          <CalcVar name="Mean X" value={breakdown.trendAnalysis.meanX} />
-          <CalcVar name="Mean Y" value={breakdown.trendAnalysis.meanY} />
-          <CalcVar name="Numerator" value={breakdown.trendAnalysis.numerator} />
-          <CalcVar name="Denominator" value={breakdown.trendAnalysis.denominator} />
+          <CalcVar name="ΣX (month idx)" value={breakdown.trendAnalysis.sumX ?? 0} />
+          <CalcVar name="ΣY (sales)" value={breakdown.trendAnalysis.sumY ?? 0} />
+          <CalcVar name="ΣXY" value={breakdown.trendAnalysis.sumXY ?? 0} />
+          <CalcVar name="ΣX²" value={breakdown.trendAnalysis.sumX2 ?? 0} />
+          <CalcVar name="Numerator" value={breakdown.trendAnalysis.numerator ?? 0} />
+          <CalcVar name="Denominator" value={breakdown.trendAnalysis.denominator ?? 0} />
           <CalcVar
             name="Slope"
             value={breakdown.trendAnalysis.slope}
