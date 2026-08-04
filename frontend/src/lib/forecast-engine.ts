@@ -1391,8 +1391,10 @@ export function computePricingStrategy(params: {
   } = params;
 
   // 1. Calculate minimum permitted price (from the product's current unit cost)
+  //    Cost-plus: the margin is added ON TOP of the unit cost.
+  //    e.g. cost $10, 40% margin → floor $14.00.
   const minGrossMargin = Math.max(0.01, Math.min(0.99, grossMarginPct));
-  const minimumPrice = unitCost > 0 ? unitCost / (1 - minGrossMargin) : 0;
+  const minimumPrice = unitCost > 0 ? unitCost * (1 + minGrossMargin) : 0;
 
   // 2. Determine inventory position
   const inventoryPosition = determineInventoryPosition(
@@ -1403,8 +1405,8 @@ export function computePricingStrategy(params: {
   );
 
   // 2b. Recommended price — recommendation only, never auto-applied. The demo
-  // percentage is applied to the SKU's CURRENT unit price, floored at the
-  // minimum price derived from its CURRENT unit cost.
+  // percentage is applied to the SKU's CURRENT unit COST, floored at the
+  // minimum price derived from that same unit cost.
   const priceChange = resolvePriceChangePct({
     velocity,
     momentum,
@@ -1412,9 +1414,16 @@ export function computePricingStrategy(params: {
     rules: priceChangeRules,
   });
   const changePct = priceChange.changePct;
-  const recommendedRaw = unitPrice * (1 + changePct / 100);
+  const recommendedRaw = unitCost * (1 + changePct / 100);
   const recommendedPrice =
     Math.round(Math.max(recommendedRaw, minimumPrice) * 100) / 100;
+
+  // Human-readable price target. When the margin floor already wins the clamp,
+  // say so directly instead of repeating an identical "(min $X)".
+  const priceTarget =
+    recommendedPrice > minimumPrice
+      ? `recommended ~${formatMoney(recommendedPrice)} (min ${formatMoney(minimumPrice)})`
+      : `keep at least ${formatMoney(minimumPrice)} to hold the ${Math.round(minGrossMargin * 100)}% margin`;
 
   // 3. Apply pricing strategy rules
   const isClearance =
@@ -1446,20 +1455,20 @@ export function computePricingStrategy(params: {
   if (isClearance) {
     strategy = "Clearance";
     triggeredRule = `Velocity=${velocity === "dead" ? "Dead" : velocity}, Momentum=${momentum === "inactive" ? "Inactive" : momentum}, Stock=High`;
-    suggestedAction = `Reduce price by ${Math.abs(changePct)}% → recommended ~${formatMoney(recommendedPrice)} (min ${formatMoney(minimumPrice)})`;
+    suggestedAction = `Reduce price by ${Math.abs(changePct)}% → ${priceTarget}`;
     parts.push(getVelocityLabel(velocity));
     parts.push(getMomentumLabel(momentum));
     parts.push("stock is high");
   } else if (isMarkdown) {
     strategy = "Markdown / Promotion";
     triggeredRule = `Slow mover, Declining momentum, High stock`;
-    suggestedAction = `Reduce price by ${Math.abs(changePct)}% → recommended ~${formatMoney(recommendedPrice)} (min ${formatMoney(minimumPrice)})`;
+    suggestedAction = `Reduce price by ${Math.abs(changePct)}% → ${priceTarget}`;
     parts.push("slow-moving, declining demand");
     parts.push("stock cover is above the maximum target");
   } else if (isTargetedPromotion) {
     strategy = "Targeted promotion";
     triggeredRule = `Slow mover, Stable momentum`;
-    suggestedAction = `Reduce price by ${Math.abs(changePct)}% to ~${formatMoney(recommendedPrice)}, or bundle with a related product`;
+    suggestedAction = `Reduce price by ${Math.abs(changePct)}% → ${priceTarget}, or bundle with a related product`;
     parts.push("slow-moving with stable demand");
   } else if (isHoldPrice) {
     strategy = "Hold price";
@@ -1474,7 +1483,7 @@ export function computePricingStrategy(params: {
       ? `Fast mover, Accelerating momentum, Low stock (${daysOfCover}d cover)`
       : `Fast mover, Stable momentum, Low stock (${daysOfCover}d cover)`;
     if (recommendedPrice > unitPrice) {
-      suggestedAction = `Review a +${changePct}% price increase to ~${formatMoney(recommendedPrice)} (min ${formatMoney(minimumPrice)})`;
+      suggestedAction = `Review a +${changePct}% price increase → ${priceTarget}`;
     } else {
       suggestedAction = "Avoid discounts. Do not reduce price below current levels.";
     }

@@ -24,7 +24,7 @@ type Product = {
   reorder_level: number; max_stock: number; lead_time_days: number;
   safety_stock_days: number;
   unit_price: number; unit_cost: number;
-  minimum_gross_margin_percentage: number; status: string;
+  minimum_gross_margin_percentage: number | null; status: string;
 };
 
 type Analysis = { product: Product; stock: number; forecast: ForecastResult; velocityTag: VelocityTag; pricingStrategy: PricingStrategyResult | null };
@@ -70,12 +70,19 @@ function ForecastPage() {
         lead_time_days: p.leadTimeDays ?? p.lead_time_days, safety_stock_days: p.safetyStockDays ?? p.safety_stock_days ?? 30,
         unit_price: p.unitPrice ?? p.unit_price,
         unit_cost: p.unitCost ?? p.unit_cost,
-        minimum_gross_margin_percentage: p.minimumGrossMarginPercentage ?? p.minimum_gross_margin_percentage ?? 0.4,
+        minimum_gross_margin_percentage: p.minimumGrossMarginPercentage ?? p.minimum_gross_margin_percentage ?? null,
         status: p.status,
       })).sort((a: any, b: any) => a.sku?.localeCompare(b.sku ?? "") ?? 0);
     },
     refetchInterval: 60_000, // keep SKU data current (lead times, prices, …)
   });
+
+  // Catalogue-wide default minimum margin — used by products without their own.
+  const catalogueSettingsQ = useQuery({
+    queryKey: ["catalogue-settings"],
+    queryFn: async () => api.catalogueSettings.get(),
+  });
+  const defaultMargin = catalogueSettingsQ.data?.default_minimum_margin ?? 0.4;
 
   const movementsQ = useQuery({
     queryKey: ["movements-forecast"],
@@ -123,7 +130,7 @@ function ForecastPage() {
           safety_stock_days: p.safetyStockDays ?? p.safety_stock_days ?? 30,
           unit_price: p.unitPrice ?? p.unit_price ?? 0,
           unit_cost: p.unitCost ?? p.unit_cost ?? 0,
-          minimum_gross_margin_percentage: p.minimumGrossMarginPercentage ?? p.minimum_gross_margin_percentage ?? 0.4,
+          minimum_gross_margin_percentage: p.minimumGrossMarginPercentage ?? p.minimum_gross_margin_percentage ?? null,
           status: p.status ?? "active",
         });
       }
@@ -190,7 +197,7 @@ function ForecastPage() {
           daysOfCover: f.daysOfCover,
           unitCost: Number(p.unit_cost),
           unitPrice: Number(p.unit_price),
-          minimumGrossMarginPercentage: Number(p.minimum_gross_margin_percentage) || 0.4,
+          minimumGrossMarginPercentage: p.minimum_gross_margin_percentage ?? defaultMargin,
           supplierLeadTimeDays: p.lead_time_days,
           safetyStockDays: Number(p.safety_stock_days) || 30,
           maxCoverDays: 180,
@@ -247,7 +254,7 @@ function ForecastPage() {
         daysOfCover: f.daysOfCover,
         unitCost: Number(p.unit_cost),
         unitPrice: Number(p.unit_price),
-        minimumGrossMarginPercentage: Number(p.minimum_gross_margin_percentage) || 0.4,
+        minimumGrossMarginPercentage: p.minimum_gross_margin_percentage ?? defaultMargin,
         supplierLeadTimeDays: p.lead_time_days,
         safetyStockDays: Number(p.safety_stock_days) || 30,
         maxCoverDays: 180,
@@ -255,7 +262,7 @@ function ForecastPage() {
     }
 
     return rows;
-  }, [productsQ.data, movementsQ.data, forecastVarsQ.data, clockTick]);
+  }, [productsQ.data, movementsQ.data, forecastVarsQ.data, catalogueSettingsQ.data, clockTick]);
 
   const filtered = useMemo(() => {
     let r = analyses.filter((a) => {
@@ -434,6 +441,7 @@ function ForecastPage() {
                       f={a.forecast}
                       velocityTag={a.velocityTag}
                       pricingStrategy={a.pricingStrategy}
+                      defaultMargin={defaultMargin}
                       expanded={expanded === a.product.id}
                       onToggle={() => toggleExpand(a.product.id)}
                     />
@@ -556,8 +564,9 @@ function ForecastSparkline({ forecast }: { forecast: ForecastResult['forecast'] 
 
 // --------------- Main Row ---------------
 
-function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, expanded, onToggle }: {
+function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, defaultMargin, expanded, onToggle }: {
   product: Product; stock: number; f: ForecastResult; velocityTag: VelocityTag; pricingStrategy: PricingStrategyResult | null;
+  defaultMargin: number;
   expanded: boolean; onToggle: () => void;
 }) {
   const nextMonthQty = f.forecast[0]?.qty ?? 0;
@@ -780,7 +789,7 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, expanded
       {expanded && (
         <tr className="border-b border-border/30">
           <td colSpan={12} className="px-5 py-0">
-            <ExpandedForecastDetail product={product} stock={stock} f={f} velocityTag={velocityTag} pricingStrategy={pricingStrategy} />
+            <ExpandedForecastDetail product={product} stock={stock} f={f} velocityTag={velocityTag} pricingStrategy={pricingStrategy} defaultMargin={defaultMargin} />
           </td>
         </tr>
       )}
@@ -790,14 +799,23 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, expanded
 
 // --------------- Edit pricing (recommendation stays read-only) ---------------
 
-function EditPricingForm({ product, pricingStrategy }: {
+// Margin is stored as a decimal (0.4 = 40%) but edited as a percent (40).
+// Legacy records may hold a raw percent (e.g. 40) — normalize those too.
+function marginStoredToPercent(v: number | null | undefined): string {
+  const n = Number(v ?? 0.4) || 0.4;
+  const pct = n > 1 ? n : n * 100;
+  return String(Math.round(pct * 100) / 100);
+}
+
+function EditPricingForm({ product, pricingStrategy, defaultMargin }: {
   product: Product;
   pricingStrategy: PricingStrategyResult | null;
+  defaultMargin: number;
 }) {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [unitCost, setUnitCost] = useState(String(product.unit_cost ?? ""));
-  const [marginPct, setMarginPct] = useState(String(product.minimum_gross_margin_percentage ?? "0.4"));
+  const [marginPct, setMarginPct] = useState(marginStoredToPercent(product.minimum_gross_margin_percentage ?? defaultMargin));
   const [savedFlash, setSavedFlash] = useState(false);
   const dirtyRef = useRef(false);
 
@@ -806,21 +824,24 @@ function EditPricingForm({ product, pricingStrategy }: {
   useEffect(() => {
     if (dirtyRef.current) return;
     setUnitCost(String(product.unit_cost ?? ""));
-    setMarginPct(String(product.minimum_gross_margin_percentage ?? "0.4"));
-  }, [product.unit_cost, product.minimum_gross_margin_percentage]);
+    setMarginPct(marginStoredToPercent(product.minimum_gross_margin_percentage ?? defaultMargin));
+  }, [product.unit_cost, product.minimum_gross_margin_percentage, defaultMargin]);
 
   const changePct = pricingStrategy?.recommendedPriceChangePct ?? 0;
-  const margin = Math.min(0.99, Math.max(0.01, (Number(marginPct) || 0.4) / 100));
+  // Margin is entered as a percentage (e.g. 40 = 40%) and stored as a decimal (0.4).
+  const margin = Math.min(0.99, Math.max(0.01, (Number(marginPct) || 40) / 100));
   const cost = Number(unitCost) || 0;
-  const minPermitted = cost > 0 ? cost / (1 - margin) : 0;
-  // Live preview from the CURRENT unit price × demo % — exactly like the engine.
-  const recommended = Math.round(Math.max(Number(product.unit_price) * (1 + changePct / 100), minPermitted) * 100) / 100;
+  // Cost-plus floor: price = unit cost × (1 + margin).
+  const minPermitted = cost > 0 ? cost * (1 + margin) : 0;
+  // Live preview: the demo ±% is applied to the unit COST, floored at the
+  // margin minimum — exactly like the engine.
+  const recommended = Math.round(Math.max(cost * (1 + changePct / 100), minPermitted) * 100) / 100;
 
   const save = useMutation({
     mutationFn: async () => {
       await api.products.update(product.id, {
         unit_cost: Number(unitCost) || 0,
-        minimum_gross_margin_percentage: Number(marginPct) || 0.4,
+        minimum_gross_margin_percentage: Math.min(0.99, Math.max(0.01, (Number(marginPct) || 40) / 100)),
       });
     },
     onSuccess: () => {
@@ -930,9 +951,10 @@ function CoverGauge({ days, leadTime }: { days: number; leadTime: number }) {
 
 // --------------- Expanded Detail (the star of the show) ---------------
 
-function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrategy }: {
+function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrategy, defaultMargin }: {
   product: Product; stock: number; f: ForecastResult;
   velocityTag: VelocityTag; pricingStrategy: PricingStrategyResult | null;
+  defaultMargin: number;
 }) {
   // Build chart data: 12 history months + 6 forecast months
   const chartData = useMemo(() => {
@@ -1372,7 +1394,7 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
           })()}
 
           {/* Edit pricing — recommendation stays read-only; edits are manual */}
-          <EditPricingForm product={product} pricingStrategy={pricingStrategy} />
+          <EditPricingForm product={product} pricingStrategy={pricingStrategy} defaultMargin={defaultMargin} />
 
           {/* Risk indicators */}
           <div className="rounded-xl border border-border/50 bg-card p-4">

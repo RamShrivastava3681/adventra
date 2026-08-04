@@ -1037,19 +1037,24 @@ nextRefillDate = today + supplierLeadTimeDays
 Finally, the page suggests a pricing move based on **velocity**, **momentum**, **days of cover**,
 and your margins.
 
-### Formula 16a — Minimum permitted price (from your margin floor)
+### Formula 16a — Minimum permitted price (cost-plus margin floor)
+
+The margin is added **on top of the unit cost** (cost-plus): a 40% margin on a $10 cost gives a
+$14 floor — never below that. Each product can override this with its own margin; products
+without their own value inherit the catalogue-wide **default minimum margin** set on the Products
+page (default 40%).
 
 ```
 minimumGrossMargin = clamp(minimumGrossMarginPercentage, 0.01, 0.99)   (default 0.40)
-minimumPrice       = unitCost ÷ (1 − minimumGrossMargin)
+minimumPrice       = unitCost × (1 + minimumGrossMargin)
 ```
 
 **Our actual numbers:**
 ```
-minimumPrice = $25.00 ÷ (1 − 0.40) = $25.00 ÷ 0.60 = $41.67
+minimumPrice = $25.00 × (1 + 0.40) = $25.00 × 1.40 = $35.00
 ```
 
-So you must never price below **$41.67** if you want at least a 40% gross margin.
+So you must never price below **$35.00** if you want at least a 40% margin on top of cost.
 (Current price is $59.99, so you're comfortably above the floor.)
 
 ### Formula 16b — Inventory position
@@ -1082,8 +1087,8 @@ else                                          →  "normal"
 **Worked clearance example:** a dead product (velocity `dead`, momentum `inactive`) with 250 days
 of cover, cost $10:
 ```
-minimumPrice = $10 ÷ 0.60 = $16.67
-strategy     = Clearance → "Reduce price by 20% to 40% (min $16.67)"
+minimumPrice = $10 × 1.40 = $14.00
+strategy     = Clearance → "Reduce price by 20% to 40% (min $14.00)"
 ```
 
 > 🍋 **Lemonade stand:** if your lemonade is the fastest seller in town, don't discount it. If
@@ -1195,7 +1200,7 @@ critical if stock ≤ 0 or reorderByDate ≤ today · warning if reorderByDate �
 
 **Pricing**
 ```
-minimumPrice = unitCost ÷ (1 − minGrossMargin)
+minimumPrice = unitCost × (1 + minGrossMargin)
 low if cover < lead + safetyDays · high if cover > maxCoverDays · else normal
 + the 8 decision rules in Step 14
 ```

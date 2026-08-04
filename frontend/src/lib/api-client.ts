@@ -81,6 +81,12 @@ const api = {
     delete: (id: string) => api.delete(`/products/${id}`),
   },
 
+  // Catalogue settings (default minimum margin for products without their own)
+  catalogueSettings: {
+    get: () => api.get<any>("/catalogue-settings"),
+    update: (data: any) => api.put<any>("/catalogue-settings", data),
+  },
+
   // Stock Movements
   stockMovements: {
     list: (productId?: string) =>

@@ -57,6 +57,7 @@ const viewAsMiddleware = async (req: Request, res: Response, next: NextFunction)
   }
 };
 import * as Product from "../models/product.js";
+import * as CatalogueSettings from "../models/catalogue-settings.js";
 import * as StockMovement from "../models/stock-movement.js";
 import * as Debtor from "../models/debtor.js";
 import * as Vendor from "../models/vendor.js";
@@ -156,6 +157,39 @@ router.delete("/products/:id", authMiddleware, async (req, res) => {
   try {
     await Product.remove(req.params.id);
     res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ===================== CATALOGUE SETTINGS =====================
+router.get("/catalogue-settings", authMiddleware, async (req, res) => {
+  try {
+    const settings = await CatalogueSettings.get(req.user!.userId);
+    res.json(settings);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.put("/catalogue-settings", authMiddleware, async (req, res) => {
+  try {
+    const raw = req.body.defaultMinimumMargin;
+    const margin = Number(raw);
+    // Expect a decimal in (0.01, 0.99), e.g. 0.40 for 40%. Reject a raw percent
+    // like 40 (would silently clamp into a 99% margin floor if we allowed it).
+    if (!Number.isFinite(margin) || margin < 0.01 || margin > 0.99) {
+      return res.status(400).json({ error: "defaultMinimumMargin must be a decimal between 0.01 and 0.99 (e.g. 0.40 for 40%)" });
+    }
+    const settings = await CatalogueSettings.update(req.user!.userId, { defaultMinimumMargin: margin });
+
+    // Products created before the catalogue default existed carry the old
+    // hardcoded 0.4 (or null). Treat that as "not customized" and clear it so
+    // every item without its own margin now inherits the new catalogue default.
+    // Items with a genuinely different per-item margin keep their override.
+    const products = await Product.list(req.user!.userId);
+    for (const p of products) {
+      const m = (p as any).minimumGrossMarginPercentage;
+      if (m !== null && m !== undefined && m !== 0.4) continue;
+      await Product.update(p.id, { minimumGrossMarginPercentage: null });
+    }
+
+    res.json(settings);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 

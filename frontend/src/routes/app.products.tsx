@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
@@ -23,7 +23,7 @@ type Product = {
   season: string;
   unit_price: number;
   unit_cost: number;
-  minimum_gross_margin_percentage: number;
+  minimum_gross_margin_percentage: number | null;
   reorder_level: number;
   max_stock: number;
   lead_time_days: number;
@@ -51,6 +51,38 @@ function ProductsPage() {
       const data = await api.products.list();
       return (data ?? []).sort((a: any, b: any) => a.sku?.localeCompare(b.sku ?? "") ?? 0) as Product[];
     },
+  });
+
+  // Catalogue-wide default minimum margin — used by products without their own.
+  const catalogueSettingsQ = useQuery({
+    queryKey: ["catalogue-settings"],
+    queryFn: async () => api.catalogueSettings.get(),
+  });
+  const defaultMargin = catalogueSettingsQ.data?.default_minimum_margin ?? 0.4;
+
+  const [marginInput, setMarginInput] = useState("");
+  const marginDirtyRef = useRef(false);
+  useEffect(() => {
+    // Don't clobber what the user is typing while settings are still loading.
+    if (marginDirtyRef.current) return;
+    setMarginInput(String(Math.round(defaultMargin * 100)));
+  }, [defaultMargin]);
+
+  const saveMargin = useMutation({
+    mutationFn: async () => {
+      await api.catalogueSettings.update({
+        default_minimum_margin: (Number(marginInput) || 40) / 100,
+      });
+    },
+    onSuccess: () => {
+      // Margin affects every product's floor price — refresh the catalogue and
+      // the forecast page (which recomputes pricing strategy per SKU).
+      qc.invalidateQueries({ queryKey: ["catalogue-settings"] });
+      qc.invalidateQueries({ queryKey: ["products"] });
+      qc.invalidateQueries({ queryKey: ["products-forecast"] });
+      toast.success("Default margin saved");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to save default margin"),
   });
 
   // Stock lookup per product
@@ -140,6 +172,31 @@ function ProductsPage() {
               {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
             </select>
             <div className="text-xs text-muted-foreground">{rows.length} shown</div>
+            <div className="ml-auto flex items-end gap-2">
+              {canWrite ? (
+                <>
+                  <label className="block">
+                    <span className="mb-1 block text-[9px] uppercase tracking-widest text-muted-foreground">Default margin (%)</span>
+                    <input
+                      type="number" step="0.5" min="1" max="99"
+                      value={marginInput}
+                      onChange={(e) => { marginDirtyRef.current = true; setMarginInput(e.target.value); }}
+                      className="w-20 rounded-md border border-border bg-input px-2.5 py-2 text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10"
+                    />
+                  </label>
+                  <button
+                    onClick={() => saveMargin.mutate()}
+                    disabled={saveMargin.isPending}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-border/60 px-3 py-2 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:border-border hover:bg-muted/30 transition-all duration-200 disabled:opacity-50"
+                  >
+                    {saveMargin.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                    {saveMargin.isPending ? "Saving…" : "Save"}
+                  </button>
+                </>
+              ) : (
+                <span className="text-[11px] text-muted-foreground">Default margin: {Math.round(defaultMargin * 100)}%</span>
+              )}
+            </div>
           </div>
         </Card>
 
@@ -207,12 +264,20 @@ function ProductsPage() {
         </Card>
       </div>
 
-      {open && user && <ProductModal userId={user.id} product={editing} onClose={() => setOpen(false)} />}
+      {open && user && <ProductModal userId={user.id} product={editing} defaultMargin={defaultMargin} onClose={() => setOpen(false)} />}
     </div>
   );
 }
 
-function ProductModal({ userId, product, onClose }: { userId: string; product: Product | null; onClose: () => void }) {
+// Margin is stored as a decimal (0.4 = 40%) but edited as a percent (40).
+// Legacy records may hold a raw percent (e.g. 40) — normalize those too.
+function marginStoredToPercent(v: number | null | undefined): string {
+  const n = Number(v ?? 0.4) || 0.4;
+  const pct = n > 1 ? n : n * 100;
+  return String(Math.round(pct * 100) / 100);
+}
+
+function ProductModal({ userId, product, defaultMargin, onClose }: { userId: string; product: Product | null; defaultMargin: number; onClose: () => void }) {
   const qc = useQueryClient();
   const isEdit = !!product;
   const [f, setF] = useState({
@@ -227,7 +292,7 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
     season: product?.season ?? "all",
     unit_price: String(product?.unit_price ?? ""),
     unit_cost: String(product?.unit_cost ?? ""),
-    minimum_gross_margin_percentage: String(product?.minimum_gross_margin_percentage ?? "0.4"),
+    minimum_gross_margin_percentage: marginStoredToPercent(product?.minimum_gross_margin_percentage ?? defaultMargin),
     lead_time_days: String(product?.lead_time_days ?? "30"),
     safety_stock_days: String(product?.safety_stock_days ?? "30"),
     status: product?.status ?? "active",
@@ -249,7 +314,7 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
         season: f.season,
         unit_price: Number(f.unit_price) || 0,
         unit_cost: Number(f.unit_cost) || 0,
-        minimum_gross_margin_percentage: Number(f.minimum_gross_margin_percentage) || 0.4,
+        minimum_gross_margin_percentage: Math.min(0.99, Math.max(0.01, (Number(f.minimum_gross_margin_percentage) || 40) / 100)),
         // Fixed defaults (field hidden from the form) so low-stock indicators keep working.
         reorder_level: 10,
         lead_time_days: Number(f.lead_time_days) || 30,
@@ -331,8 +396,10 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
 
 function PricingPreview({ f }: { f: { unit_price: string; unit_cost: string; minimum_gross_margin_percentage: string } }) {
   const unitCost = Number(f.unit_cost) || 0;
-  const margin = Math.min(0.99, Math.max(0.01, Number(f.minimum_gross_margin_percentage) || 0.4) / 100);
-  const minPermitted = unitCost > 0 ? unitCost / (1 - margin) : 0;
+  // Margin is entered as a percentage (e.g. 40 = 40%) and stored as a decimal (0.4).
+  const margin = Math.min(0.99, Math.max(0.01, (Number(f.minimum_gross_margin_percentage) || 40) / 100));
+  // Cost-plus floor: price = unit cost × (1 + margin).
+  const minPermitted = unitCost > 0 ? unitCost * (1 + margin) : 0;
   const unitPrice = Number(f.unit_price) || 0;
   return (
     <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
