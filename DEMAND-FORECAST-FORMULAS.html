@@ -481,13 +481,13 @@ estimatedStockoutDate = 2026-07-31 + 30 days = 2026-08-30</code></pre>
 <hr/>
 <h2 id="16-step-14--pricing-strategy-what-to-do-with-the-price">16. Step 14 — Pricing strategy (what to do with the price)</h2>
 <p>Finally, the page suggests a pricing move based on <strong>velocity</strong>, <strong>momentum</strong>, <strong>days of cover</strong>, and your margins.</p>
-<h3 id="formula-16a--minimum-permitted-price-cost-plus-margin-floor">Formula 16a — Minimum permitted price (cost-plus margin floor)</h3>
-<p>The margin is added <strong>on top of the unit cost</strong> (cost-plus): a 40% margin on a $10 cost gives a $14 floor — never below that. Each product can override this with its own margin; products without their own value inherit the catalogue-wide <strong>default minimum margin</strong> set on the Products page (default 40%).</p>
+<h3 id="formula-16a--minimum-permitted-price-unit-price-margin-floor">Formula 16a — Minimum permitted price (unit-price margin floor)</h3>
+<p>The margin is added <strong>on top of the current unit price</strong> (a price-uplift floor): a 40% margin on a $100 price gives a $140 floor — never below that. The <strong>unit cost does not affect this number</strong>. Each product can override this with its own margin; products without their own value inherit the catalogue-wide <strong>default minimum margin</strong> set on the Products page (default 40%).</p>
 <pre><code>minimumGrossMargin = clamp(minimumGrossMarginPercentage, 0.01, 0.99)   (default 0.40)
-minimumPrice       = unitCost × (1 + minimumGrossMargin)</code></pre>
+minimumPrice       = unitPrice × (1 + minimumGrossMargin)</code></pre>
 <p><strong>Our actual numbers:</strong></p>
-<pre><code>minimumPrice = $25.00 × (1 + 0.40) = $25.00 × 1.40 = $35.00</code></pre>
-<p>So you must never price below <strong>$35.00</strong> if you want at least a 40% margin on top of cost. (Current price is $59.99, so you're comfortably above the floor.)</p>
+<pre><code>minimumPrice = $59.99 × (1 + 0.40) = $59.99 × 1.40 = $83.99</code></pre>
+<p>So you must never price below <strong>$83.99</strong> — your selling price plus the 40% margin floor. (Current price is $59.99, which is below that floor, so the page flags it "Below min permitted — margin at risk".)</p>
 <h3 id="formula-16b--inventory-position">Formula 16b — Inventory position</h3>
 <pre><code>if daysOfCover &lt; leadTime + safetyStockDays  →  "low"
 else if daysOfCover &gt; maxCoverDays           →  "high"
@@ -495,8 +495,8 @@ else                                          →  "normal"</code></pre>
 <p><strong>Our actual numbers:</strong> <code>30 &lt; 14 + 30 = 44</code> → <strong>low</strong> stock position.</p>
 <h3 id="formula-16c--the-decision-rules-checked-in-order">Formula 16c — The decision rules (checked in order)</h3>
 <div class="table-wrap"><table><thead><tr><th>Rule</th><th>Condition</th><th>Strategy → Action</th></tr></thead><tbody><tr><td>Clearance</td><td>dead/inactive AND stock high</td><td><strong>Clearance</strong> → cut price 20–40%</td></tr><tr><td>Markdown</td><td>slow mover + declining + high stock</td><td><strong>Markdown / Promotion</strong> → cut 10–20%</td></tr><tr><td>Targeted promo</td><td>slow mover + stable</td><td><strong>Targeted promotion</strong> → cut 5–10% or bundle</td></tr><tr><td>Hold price</td><td>medium mover + stable</td><td><strong>Hold price</strong> → no change</td></tr><tr><td>Protect margin</td><td>fast mover + accelerating + low stock</td><td><strong>Protect margin</strong> → maybe raise 3–5%</td></tr><tr><td>Hold availability</td><td>fast mover + stable</td><td><strong>Hold price / protect availability</strong> → no discount</td></tr><tr><td>Monitor</td><td>fast mover + declining</td><td><strong>Monitor</strong> → hold price, watch it</td></tr><tr><td>Default</td><td>anything else</td><td><strong>Hold price</strong></td></tr></tbody></table></div>
-<p><strong>Our actual result (medium mover + accelerating):</strong> no rule matches exactly → default → <strong>"Hold price — no price change recommended"</strong>. Reason shown on page: *"Medium-moving, accelerating demand."*</p>
-<p><strong>Worked clearance example:</strong> a dead product (velocity <code>dead</code>, momentum <code>inactive</code>) with 250 days of cover, cost $10:</p>
+<p><strong>Our actual result (medium mover + accelerating):</strong> no rule matches exactly → default → <strong>"Hold price"</strong>. Reason shown on page: *"Medium-moving, accelerating demand."* Because the current price ($59.99) sits below the $83.99 floor, the suggested action becomes *"No % change recommended — current price is below the margin floor; raise to at least $83.99 to protect margin"*.</p>
+<p><strong>Worked clearance example:</strong> a dead product (velocity <code>dead</code>, momentum <code>inactive</code>) with 250 days of cover, unit price $10:</p>
 <pre><code>minimumPrice = $10 × 1.40 = $14.00
 strategy     = Clearance → "Reduce price by 20% to 40% (min $14.00)"</code></pre>
 <blockquote>🍋 <strong>Lemonade stand:</strong> if your lemonade is the fastest seller in town, don't discount it. If it's gathering dust with tons of stock, slash the price to move it. The page just checks your situation against a list of rules and picks the right one.</blockquote>
@@ -563,7 +563,7 @@ reorderByDate     = stockoutDate − leadTime
 nextRefillDate    = today + leadTime
 critical if stock ≤ 0 or reorderByDate ≤ today · warning if reorderByDate ≤ today + lead · else safe</code></pre>
 <p><strong>Pricing</strong></p>
-<pre><code>minimumPrice = unitCost × (1 + minGrossMargin)
+<pre><code>minimumPrice = unitPrice × (1 + minGrossMargin)     (unit cost does not affect the floor)
 low if cover &lt; lead + safetyDays · high if cover &gt; maxCoverDays · else normal
 + the 8 decision rules in Step 14</code></pre>
 <hr/>

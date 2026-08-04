@@ -831,8 +831,9 @@ function EditPricingForm({ product, pricingStrategy, defaultMargin }: {
   // Margin is entered as a percentage (e.g. 40 = 40%) and stored as a decimal (0.4).
   const margin = Math.min(0.99, Math.max(0.01, (Number(marginPct) || 40) / 100));
   const cost = Number(unitCost) || 0;
-  // Cost-plus floor: price = unit cost × (1 + margin).
-  const minPermitted = cost > 0 ? cost * (1 + margin) : 0;
+  // Margin floor: min permitted = unit price × (1 + margin). Unit cost does NOT affect it.
+  const price = Number(product.unit_price) || 0;
+  const minPermitted = price > 0 ? price * (1 + margin) : 0;
   // Live preview: the demo ±% is applied to the unit COST, floored at the
   // margin minimum — exactly like the engine.
   const recommended = Math.round(Math.max(cost * (1 + changePct / 100), minPermitted) * 100) / 100;

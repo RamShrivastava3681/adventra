@@ -1037,25 +1037,26 @@ nextRefillDate = today + supplierLeadTimeDays
 Finally, the page suggests a pricing move based on **velocity**, **momentum**, **days of cover**,
 and your margins.
 
-### Formula 16a — Minimum permitted price (cost-plus margin floor)
+### Formula 16a — Minimum permitted price (unit-price margin floor)
 
-The margin is added **on top of the unit cost** (cost-plus): a 40% margin on a $10 cost gives a
-$14 floor — never below that. Each product can override this with its own margin; products
-without their own value inherit the catalogue-wide **default minimum margin** set on the Products
-page (default 40%).
+The margin is added **on top of the current unit price** (a price-uplift floor): a 40% margin on
+a $100 price gives a $140 floor — never below that. The **unit cost does not affect this number**.
+Each product can override this with its own margin; products without their own value inherit the
+catalogue-wide **default minimum margin** set on the Products page (default 40%).
 
 ```
 minimumGrossMargin = clamp(minimumGrossMarginPercentage, 0.01, 0.99)   (default 0.40)
-minimumPrice       = unitCost × (1 + minimumGrossMargin)
+minimumPrice       = unitPrice × (1 + minimumGrossMargin)
 ```
 
 **Our actual numbers:**
 ```
-minimumPrice = $25.00 × (1 + 0.40) = $25.00 × 1.40 = $35.00
+minimumPrice = $59.99 × (1 + 0.40) = $59.99 × 1.40 = $83.99
 ```
 
-So you must never price below **$35.00** if you want at least a 40% margin on top of cost.
-(Current price is $59.99, so you're comfortably above the floor.)
+So you must never price below **$83.99** — your selling price plus the 40% margin floor.
+(Current price is $59.99, which is below that floor, so the page flags it
+"Below min permitted — margin at risk".)
 
 ### Formula 16b — Inventory position
 
@@ -1081,11 +1082,13 @@ else                                          →  "normal"
 | Default | anything else | **Hold price** |
 
 **Our actual result (medium mover + accelerating):** no rule matches exactly → default →
-**"Hold price — no price change recommended"**. Reason shown on page:
-*"Medium-moving, accelerating demand."*
+**"Hold price"**. Reason shown on page: *"Medium-moving, accelerating demand."* Because the
+current price ($59.99) sits below the $83.99 floor, the suggested action becomes *"No % change
+recommended — current price is below the margin floor; raise to at least $83.99 to protect
+margin"*.
 
 **Worked clearance example:** a dead product (velocity `dead`, momentum `inactive`) with 250 days
-of cover, cost $10:
+of cover, unit price $10:
 ```
 minimumPrice = $10 × 1.40 = $14.00
 strategy     = Clearance → "Reduce price by 20% to 40% (min $14.00)"
@@ -1200,7 +1203,7 @@ critical if stock ≤ 0 or reorderByDate ≤ today · warning if reorderByDate �
 
 **Pricing**
 ```
-minimumPrice = unitCost × (1 + minGrossMargin)
+minimumPrice = unitPrice × (1 + minGrossMargin)     (unit cost does not affect the floor)
 low if cover < lead + safetyDays · high if cover > maxCoverDays · else normal
 + the 8 decision rules in Step 14
 ```

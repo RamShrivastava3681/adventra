@@ -1362,7 +1362,7 @@ export function resolvePriceChangePct(params: {
  * - Velocity (category-based relative sales speed)
  * - Momentum (sales trend vs historical average)
  * - Days of cover
- * - Unit cost and minimum gross margin
+ * - Unit price and minimum gross margin (the floor = unit price × (1 + margin))
  */
 export function computePricingStrategy(params: {
   velocity: VelocityTag;
@@ -1390,11 +1390,12 @@ export function computePricingStrategy(params: {
     priceChangeRules,
   } = params;
 
-  // 1. Calculate minimum permitted price (from the product's current unit cost)
-  //    Cost-plus: the margin is added ON TOP of the unit cost.
-  //    e.g. cost $10, 40% margin → floor $14.00.
+  // 1. Calculate minimum permitted price (from the product's current unit PRICE).
+  //    The margin is added ON TOP of the unit price (a price-uplift floor).
+  //    Unit cost does NOT affect this number.
+  //    e.g. price $100, 40% margin → floor $140.00.
   const minGrossMargin = Math.max(0.01, Math.min(0.99, grossMarginPct));
-  const minimumPrice = unitCost > 0 ? unitCost * (1 + minGrossMargin) : 0;
+  const minimumPrice = unitPrice > 0 ? unitPrice * (1 + minGrossMargin) : 0;
 
   // 2. Determine inventory position
   const inventoryPosition = determineInventoryPosition(
@@ -1406,7 +1407,7 @@ export function computePricingStrategy(params: {
 
   // 2b. Recommended price — recommendation only, never auto-applied. The demo
   // percentage is applied to the SKU's CURRENT unit COST, floored at the
-  // minimum price derived from that same unit cost.
+  // minimum price (which is derived from the unit price, not the unit cost).
   const priceChange = resolvePriceChangePct({
     velocity,
     momentum,

@@ -456,7 +456,8 @@ test("recomputeTimeline refreshes reorder against live stock & backfills new fie
 });
 
 console.log("\nrecommended price — demo price-change table (configurable, recommendation only)");
-// Helper defaults: unitCost $10, unitPrice $25, 40% margin → cost-plus floor = $14.
+// Helper defaults: unitCost $10, unitPrice $25, 40% margin → unit-price floor = $35.
+// (The floor is unitPrice × 1.4 — unit cost does NOT affect it.)
 function pricing(over: Record<string, unknown> = {}) {
   return computePricingStrategy({
     velocity: "medium_mover",
@@ -477,8 +478,8 @@ test("clearance: dead + high stock → −25%", () => {
   eq(r.recommendedPriceChangePct, -25);
   eq(r.strategy, "Clearance");
   eq(r.priceChangeRule, "clearance-dead");
-  // −25% on unit cost = $7.50, floored at the cost-plus minimum ($14).
-  close(r.recommendedPrice, 14, 0.01);
+  // −25% on unit cost = $7.50, floored at the unit-price minimum ($35).
+  close(r.recommendedPrice, 35, 0.01);
 });
 
 test("clearance: inactive momentum + high stock → −25%", () => {
@@ -492,7 +493,7 @@ test("markdown: slow + declining + high → −15%", () => {
   eq(r.recommendedPriceChangePct, -15);
   eq(r.strategy, "Markdown / Promotion");
   eq(r.priceChangeRule, "markdown");
-  close(r.recommendedPrice, 14, 0.01);
+  close(r.recommendedPrice, 35, 0.01);
 });
 
 test("protect margin: fast + accelerating + low → +5%", () => {
@@ -500,7 +501,7 @@ test("protect margin: fast + accelerating + low → +5%", () => {
   eq(r.recommendedPriceChangePct, 5);
   eq(r.strategy, "Protect margin");
   eq(r.priceChangeRule, "protect-accelerating");
-  close(r.recommendedPrice, 14, 0.01);
+  close(r.recommendedPrice, 35, 0.01);
 });
 
 test("protect margin: fast + stable + low → +3% (new branch)", () => {
@@ -508,14 +509,14 @@ test("protect margin: fast + stable + low → +3% (new branch)", () => {
   eq(r.recommendedPriceChangePct, 3);
   eq(r.strategy, "Protect margin");
   eq(r.priceChangeRule, "protect-stable");
-  close(r.recommendedPrice, 14, 0.01);
+  close(r.recommendedPrice, 35, 0.01);
 });
 
 test("targeted promotion: slow + stable (any stock) → −10%", () => {
   const normal = pricing({ velocity: "slow_mover", momentum: "stable", daysOfCover: 120 });
   eq(normal.recommendedPriceChangePct, -10);
   eq(normal.strategy, "Targeted promotion");
-  close(normal.recommendedPrice, 14, 0.01);
+  close(normal.recommendedPrice, 35, 0.01);
   const high = pricing({ velocity: "slow_mover", momentum: "stable", daysOfCover: 300 });
   eq(high.recommendedPriceChangePct, -10, "applies at high stock too");
 });
@@ -523,13 +524,13 @@ test("targeted promotion: slow + stable (any stock) → −10%", () => {
 test("hold price: medium + stable → 0%", () => {
   const r = pricing({ velocity: "medium_mover", momentum: "stable", daysOfCover: 120 });
   eq(r.recommendedPriceChangePct, 0);
-  // 0% on unit cost = $10, floored at the cost-plus minimum ($14).
-  eq(r.recommendedPrice, 14);
+  // 0% on unit cost = $10, floored at the unit-price minimum ($35).
+  eq(r.recommendedPrice, 35);
 });
 
-test("recommended price is anchored to unit cost, not the current unit price", () => {
-  // +5% on unit cost = $10.50. With only a 1% margin the floor ($10.10)
-  // doesn't mask it — so this distinguishes a cost anchor from a price anchor.
+test("minimum price is based on unit price, not unit cost", () => {
+  // With a tiny 1% margin the floor is unitPrice × 1.01 = $25.25 — even though
+  // unitCost is only $10, the floor ignores cost entirely.
   const r = pricing({
     velocity: "fast_mover",
     momentum: "accelerating",
@@ -539,7 +540,15 @@ test("recommended price is anchored to unit cost, not the current unit price", (
     minimumGrossMarginPercentage: 0.01,
   });
   eq(r.recommendedPriceChangePct, 5);
-  close(r.recommendedPrice, 10.5, 0.01);
+  close(r.minimumPrice, 25.25, 0.01);
+  close(r.recommendedPrice, 25.25, 0.01);
+});
+
+test("unit cost does not affect the minimum permitted price", () => {
+  const a = pricing({ unitCost: 10 });
+  const b = pricing({ unitCost: 999 });
+  eq(a.minimumPrice, b.minimumPrice, "changing unit cost must not move the floor");
+  close(a.minimumPrice, 25 * 1.4, 0.001); // unit price × 1.4 = $35.00
 });
 
 test("any other combination → 0% and no rule id", () => {
@@ -550,7 +559,7 @@ test("any other combination → 0% and no rule id", () => {
 
 test("recommended price never goes below the minimumPrice floor", () => {
   const r = pricing({ unitPrice: 12, unitCost: 10 }); // price below margin floor
-  const min = 10 * (1 + 0.4); // cost-plus: $14.00
+  const min = 12 * (1 + 0.4); // unit-price floor: $16.80
   close(r.recommendedPrice, min, 0.01);
   truthy(r.recommendedPrice >= min - 0.001, "floored at minimum price");
 });
@@ -597,7 +606,7 @@ test("custom price-change rules override the defaults", () => {
 
 test("per-product min gross margin drives the floor", () => {
   const r = pricing({ unitPrice: 12, unitCost: 10, minimumGrossMarginPercentage: 0.7 });
-  const min = 10 * (1 + 0.7); // $17.00 with a 70% cost-plus margin requirement
+  const min = 12 * (1 + 0.7); // $20.40 with a 70% unit-price margin requirement
   close(r.recommendedPrice, min, 0.01);
   close(r.conditions.minGrossMarginPct, 0.7, 0.0001);
 });
