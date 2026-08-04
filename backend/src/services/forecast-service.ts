@@ -99,7 +99,13 @@ export async function recomputeAll(clientId: string): Promise<{
   // Apply velocity tags
   for (const s of snapshots) {
     const vt = velocityMap.get(s.productId);
-    if (vt) s.velocityTag = vt;
+    if (vt) {
+      s.velocityTag = vt;
+      // Also persist the real tag inside forecastJson — the engine hardcodes
+      // velocityTag to "dead" and the page reads it from there, so without this
+      // every product would show as dead no matter how much it sells.
+      s.forecast.velocityTag = vt;
+    }
   }
 
   // 3. Persist each forecast to DynamoDB
@@ -131,6 +137,7 @@ export async function recomputeAll(clientId: string): Promise<{
         inventoryPosition: safeNumber(f.inventoryPosition),
         trendDirection: f.trendDirection,
         momentumTag: f.momentumTag,
+        velocityTag: s.velocityTag,
         stockoutRisk: f.stockoutRisk,
         estimatedStockoutDate: f.estimatedStockoutDate,
         reorderByDate: f.reorderByDate,

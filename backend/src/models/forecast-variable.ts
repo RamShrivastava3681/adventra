@@ -29,6 +29,7 @@ export interface ForecastVariable {
   inventoryPosition: number | null;
   trendDirection: string;
   momentumTag: string;
+  velocityTag: string;
   stockoutRisk: string;
   estimatedStockoutDate: string | null;
   reorderByDate: string | null;
@@ -86,6 +87,7 @@ export async function upsert(
     inventoryPosition: data.inventoryPosition,
     trendDirection: data.trendDirection,
     momentumTag: data.momentumTag,
+    velocityTag: data.velocityTag,
     stockoutRisk: data.stockoutRisk,
     estimatedStockoutDate: data.estimatedStockoutDate ?? null,
     reorderByDate: data.reorderByDate ?? null,

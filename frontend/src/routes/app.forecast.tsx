@@ -144,9 +144,27 @@ function ForecastPage() {
           product,
           stock,
           forecast: f,
-          velocityTag: f.velocityTag ?? "dead",
+          velocityTag: snapshot.velocityTag ?? f.velocityTag ?? "dead",
           pricingStrategy: null as PricingStrategyResult | null,
         });
+      }
+
+      // Recompute category-based velocity for every SKU (same pass as the
+      // client-side fallback below). Defensive: persisted snapshots may carry
+      // the engine's hardcoded "dead" placeholder if they were computed before
+      // the backend started persisting the real velocity tag.
+      const velInputs: CategoryVelocityInput[] = rows.map((r) => ({
+        productId: r.product.id,
+        category: r.product.category,
+        recent3MonthAvg: r.forecast.calculationBreakdown?.momentum?.recent3MonthAvg ?? 0,
+      }));
+      const velocityMap = computeVelocityByCategory(velInputs);
+      for (const row of rows) {
+        const vt = velocityMap.get(row.product.id);
+        if (vt) {
+          row.velocityTag = vt;
+          row.forecast.velocityTag = vt;
+        }
       }
 
       // Compute pricing strategy for each SKU (needs local data)
