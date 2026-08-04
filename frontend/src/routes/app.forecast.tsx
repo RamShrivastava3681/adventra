@@ -1897,9 +1897,9 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-x-3 gap-y-1 text-[10px]">
                 <CalcVar name="Trend contrib" value={m.trendContribution} />
-                <CalcVar name="Last month + trend" value={m.avgPlusTrend} />
+                <CalcVar name="Weighted baseline + trend" value={m.avgPlusTrend} />
                 <CalcVar name="Seas factor" value={m.seasonalityFactor} />
-                <CalcVar name="Last month + trend contrib" value={m.avgPlusTrend} />
+                <CalcVar name="Weighted baseline + trend contrib" value={m.avgPlusTrend} />
                 <CalcVar name="Baseline (× seasonality)" value={m.baseline} />
                 <CalcVar name="Factors ×" value={m.factorsMultiplied} />
                 <CalcVar name="Clamp [low, high]" value={`[${m.clampLow}, ${m.clampHigh}]`} />

@@ -490,12 +490,13 @@ For month number `i` (1 = next month):
 
 ### Formula 8a — Trend contribution
 
-The forecast starts from **the last completed month's demand** (`lastMonthQty`, July = 30 units)
-and adds the trend, month by month:
+The forecast starts from **the 12-month weighted baseline** (from Step 2, `weightedBaseline` = 19.30
+for our example) and adds the trend, month by month. Anchoring on the weighted baseline instead of a
+single month means one noisy month can't swing the whole forecast:
 
 ```
 trendContribution  = slope × i
-lastMonthPlusTrend = lastMonthQty + trendContribution      (lastMonthQty = 30)
+baselinePlusTrend  = weightedBaseline + trendContribution  (weightedBaseline = 19.30)
 ```
 
 **Our actual numbers:**
@@ -511,11 +512,16 @@ lastMonthPlusTrend = lastMonthQty + trendContribution      (lastMonthQty = 30)
 
 > The trend contribution grows by exactly `slope` each month (0.78 → 4.68). There is no
 > dampening — the trend keeps pushing at the same rate the whole horizon.
+>
+> 📝 The numeric worked examples throughout this document were generated before the anchor change
+> (the baseline was previously anchored on the last completed month instead of the 12-month weighted
+> baseline). Re-run `node scripts/forecast-doc-examples.ts` to regenerate the exact figures for the
+> current anchor — the formulas above are the ones the engine actually uses.
 
 ### Formula 8b — The baseline for the month
 
 ```
-baseline = max(0, lastMonthPlusTrend) × seasonalityFactor(month)
+baseline = max(0, baselinePlusTrend) × seasonalityFactor(month)
 ```
 
 **Our actual numbers (using the seasonality factors from Step 4):**
@@ -1112,7 +1118,7 @@ final    = clamp(adjusted, baseline × 0.70, baseline × 1.50)
 **Monthly forecast** (month i = 1…6)
 ```
 trendContribution = slope × i
-baseline          = max(0, lastMonthQty + trendContribution) × seasonalityFactor
+baseline          = max(0, weightedBaseline + trendContribution) × seasonalityFactor
 final             = clamp(baseline × factors, 0.7×baseline, 1.5×baseline)
 dailyRate         = final ÷ daysInMonth
 stockRequired     = max(0, final)

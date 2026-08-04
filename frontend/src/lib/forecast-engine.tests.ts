@@ -137,17 +137,19 @@ test("weights and baseline stay valid for histories longer than 12 months", () =
   truthy(Number.isFinite(bd.result), "baseline must not be NaN");
   truthy(Number.isFinite(r.finalForecast), "forecast must not be NaN");
 });
-test("forecast anchors on last month qty + trend (not the average)", () => {
-  // Perfectly linear history 1..12 → slope exactly 1, last month qty = 12
+test("forecast anchors on the 12-month weighted baseline + trend", () => {
+  // Perfectly linear history 1..12 → slope exactly 1, weighted baseline = 8
+  // (Σ(w·y)=168 ÷ Σ(w)=21). The baseline (not last month) is the anchor.
   const h = mkHistory([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
   const r = forecastSKU(h, 100, 14, 6, { factors: {} });
   close(r.calculationBreakdown.trendAnalysis.slope, 1, 0.001);
+  eq(r.weightedBaseline, 8, "weighted baseline is the anchor");
   const m0 = r.calculationBreakdown.monthlyDetail[0];
-  close(m0.avgPlusTrend, 12 + 1, 0.001); // lastMonthQty(12) + slope×1
+  close(m0.avgPlusTrend, 8 + 1, 0.001); // weightedBaseline(8) + slope×1
   const seas = r.forecast[0].seasonalityFactor;
   close(
     r.forecast[0].baseline,
-    (12 + 1) * seas,
+    (8 + 1) * seas,
     0.5 // baseline is rounded to an integer in the result
   );
 });

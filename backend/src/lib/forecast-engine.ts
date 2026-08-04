@@ -759,10 +759,9 @@ export function forecastSKU(
   });
   const avg = weightedAverage(values, weights);
 
-  // Forecast anchor — the most recent completed month's corrected demand
-  const lastMonthQty = n > 0 ? values[n - 1] : 0;
-
-  // Enhanced trend detection
+  // Enhanced trend detection — with the forecast anchored on the 12-month
+  // weighted baseline (recent months weigh more), a single noisy month cannot
+  // swing the whole forecast.
   const trendAnalysis = enhancedTrendSlope(values);
   const slope = trendAnalysis.slope;
 
@@ -783,7 +782,7 @@ export function forecastSKU(
     const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const seas = rawSeasonalityFactor(history, d.getMonth());
     const trendContribution = slope * i;
-    const baseline = Math.max(0, lastMonthQty + trendContribution) * seas;
+    const baseline = Math.max(0, avg + trendContribution) * seas;
     const final = applyFactors(baseline, factors);
 
     // Per-month daily rate
@@ -854,7 +853,7 @@ export function forecastSKU(
   // point in the month, and nudge NEXT month's forecast by a clamped factor.
   // The adjustment is display-only: it never alters the base forecast months.
   const curSeas = rawSeasonalityFactor(history, now.getMonth());
-  const curBaseline = Math.max(0, lastMonthQty) * curSeas;
+  const curBaseline = Math.max(0, avg) * curSeas;
   const currentMonthBaseForecast = applyFactors(curBaseline, factors);
   const nextMonthBaseForecast = forecast[0]?.qty ?? 0;
   const actualSalesToDate =
@@ -1056,8 +1055,8 @@ export function forecastSKU(
     },
     monthlyDetail: forecast.map((mf, i) => {
       const trendContribution = slope * (i + 1);
-      // Forecast anchor: most recent completed month + the trend contribution
-      const avgPlusTrend = lastMonthQty + trendContribution;
+      // Forecast anchor: the 12-month weighted baseline + the trend contribution
+      const avgPlusTrend = avg + trendContribution;
       const baselineBeforeSeas = Math.max(0, avgPlusTrend);
       const baseline = baselineBeforeSeas * mf.seasonalityFactor;
       const factorsMultiplied =

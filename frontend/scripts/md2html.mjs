@@ -2,7 +2,10 @@
 // Run with: node scripts/md2html.mjs   (from the frontend/ folder)
 import { readFileSync, writeFileSync } from "node:fs";
 
-const md = readFileSync(new URL("../../DEMAND-FORECAST-FORMULAS.md", import.meta.url), "utf8");
+// Normalize CRLF → LF: the heading regex /^(#{1,6})\s+(.*)$/ fails on a trailing
+// \r (`.` does not cross line terminators), which previously caused an infinite
+// loop on Windows-checked-out files.
+const md = readFileSync(new URL("../../DEMAND-FORECAST-FORMULAS.md", import.meta.url), "utf8").replace(/\r\n?/g, "\n");
 
 // GitHub-style slug so anchors match the markdown TOC
 function slugify(s) {
