@@ -750,9 +750,17 @@ export function forecastSKU(
 
   const values = history.map((h) => h.qty);
   const n = values.length;
-  // Simple average of the 12 months of history — every month has equal weight
-  const weights = values.map(() => 1);
+  // Weighted baseline over the 12 months of history: the most recent 3 months
+  // count 3×, the middle 3 count 2×, and the oldest 6 count 1×. For shorter
+  // histories the same 3/2/1 ladder is taken from the newest month backwards.
+  const weights = Array.from({ length: n }, (_, i) => {
+    const age = n - 1 - i; // 0 = newest month
+    return age < 3 ? 3 : age < 6 ? 2 : 1;
+  });
   const avg = weightedAverage(values, weights);
+
+  // Forecast anchor — the most recent completed month's corrected demand
+  const lastMonthQty = n > 0 ? values[n - 1] : 0;
 
   // Enhanced trend detection
   const trendAnalysis = enhancedTrendSlope(values);
@@ -775,7 +783,7 @@ export function forecastSKU(
     const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const seas = rawSeasonalityFactor(history, d.getMonth());
     const trendContribution = slope * i;
-    const baseline = Math.max(0, avg + trendContribution) * seas;
+    const baseline = Math.max(0, lastMonthQty + trendContribution) * seas;
     const final = applyFactors(baseline, factors);
 
     // Per-month daily rate
@@ -846,7 +854,7 @@ export function forecastSKU(
   // point in the month, and nudge NEXT month's forecast by a clamped factor.
   // The adjustment is display-only: it never alters the base forecast months.
   const curSeas = rawSeasonalityFactor(history, now.getMonth());
-  const curBaseline = Math.max(0, avg) * curSeas;
+  const curBaseline = Math.max(0, lastMonthQty) * curSeas;
   const currentMonthBaseForecast = applyFactors(curBaseline, factors);
   const nextMonthBaseForecast = forecast[0]?.qty ?? 0;
   const actualSalesToDate =
@@ -1011,9 +1019,9 @@ export function forecastSKU(
     },
     weightedAverage: {
       description:
-        "Simple average of the 12 months of demand history — every month carries equal weight.",
+        "Weighted average of the 12 months of demand history — the most recent 3 months weigh 3×, the middle 3 weigh 2×, and the oldest 6 weigh 1×.",
       formula:
-        "average = Σ(value_i) ÷ n",
+        "weightedAvg = Σ(value_i × weight_i) ÷ Σ(weight_i)",
       values: [...values],
       weights: [...weights],
       weightedSum: Math.round(
@@ -1024,7 +1032,7 @@ export function forecastSKU(
     },
     trendAnalysis: {
       description:
-        "Ordinary least squares linear regression over the 12 months of history (every month weighted equally).",
+        "Ordinary least squares linear regression over the 12 months of history — the plain linear slope of best fit.",
       formula:
         "slope = Σ((x_i - meanX) × (y_i - meanY)) ÷ Σ(x_i - meanX)²",
       meanX: trendAnalysis._meanX ?? 0,
@@ -1048,7 +1056,8 @@ export function forecastSKU(
     },
     monthlyDetail: forecast.map((mf, i) => {
       const trendContribution = slope * (i + 1);
-      const avgPlusTrend = avg + trendContribution;
+      // Forecast anchor: most recent completed month + the trend contribution
+      const avgPlusTrend = lastMonthQty + trendContribution;
       const baselineBeforeSeas = Math.max(0, avgPlusTrend);
       const baseline = baselineBeforeSeas * mf.seasonalityFactor;
       const factorsMultiplied =
@@ -1362,7 +1371,7 @@ export function resolvePriceChangePct(params: {
  * - Velocity (category-based relative sales speed)
  * - Momentum (sales trend vs historical average)
  * - Days of cover
- * - Unit price and minimum gross margin (the floor = unit price × (1 + margin))
+ * - Unit price and minimum gross margin (the floor = unit price ÷ (1 − margin))
  */
 export function computePricingStrategy(params: {
   velocity: VelocityTag;
@@ -1391,11 +1400,12 @@ export function computePricingStrategy(params: {
   } = params;
 
   // 1. Calculate minimum permitted price (from the product's current unit PRICE).
-  //    The margin is added ON TOP of the unit price (a price-uplift floor).
-  //    Unit cost does NOT affect this number.
-  //    e.g. price $100, 40% margin → floor $140.00.
+  //    floor = unitPrice ÷ (1 − minGrossMargin) — the price that preserves the
+  //    configured gross margin on each sale. Unit cost does NOT affect this number.
+  //    e.g. price $100, 40% margin → floor $166.67.
   const minGrossMargin = Math.max(0.01, Math.min(0.99, grossMarginPct));
-  const minimumPrice = unitPrice > 0 ? unitPrice * (1 + minGrossMargin) : 0;
+  const minimumPrice =
+    unitPrice > 0 ? unitPrice / (1 - minGrossMargin) : 0;
 
   // 2. Determine inventory position
   const inventoryPosition = determineInventoryPosition(

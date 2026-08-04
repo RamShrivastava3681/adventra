@@ -1784,7 +1784,7 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
       {/* 2. Average (simple) */}
       <CalcSection
         id="wavg"
-        label="② Average (simple — 12 months)"
+        label="② Weighted average (12 months · 3/2/1 weights)"
         open={openSection}
         onToggle={toggle}
       >
@@ -1798,15 +1798,15 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
         />
         <div className="mt-2 space-y-1 text-[11px]">
           <CalcLine
-            label="Total demand"
+            label="Σ (demand × weight)"
             value={String(breakdown.weightedAverage.weightedSum)}
           />
           <CalcLine
-            label="Months"
+            label="Σ weights"
             value={String(breakdown.weightedAverage.weightSum)}
           />
           <CalcLine
-            label="Average"
+            label="Weighted avg"
             value={String(breakdown.weightedAverage.result)}
             highlight
             formula={`${breakdown.weightedAverage.weightedSum} ÷ ${breakdown.weightedAverage.weightSum} = ${breakdown.weightedAverage.result}`}
@@ -1897,9 +1897,9 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-x-3 gap-y-1 text-[10px]">
                 <CalcVar name="Trend contrib" value={m.trendContribution} />
-                <CalcVar name="Avg + trend" value={m.avgPlusTrend} />
+                <CalcVar name="Last month + trend" value={m.avgPlusTrend} />
                 <CalcVar name="Seas factor" value={m.seasonalityFactor} />
-                <CalcVar name="Avg + trend contrib" value={m.avgPlusTrend} />
+                <CalcVar name="Last month + trend contrib" value={m.avgPlusTrend} />
                 <CalcVar name="Baseline (× seasonality)" value={m.baseline} />
                 <CalcVar name="Factors ×" value={m.factorsMultiplied} />
                 <CalcVar name="Clamp [low, high]" value={`[${m.clampLow}, ${m.clampHigh}]`} />

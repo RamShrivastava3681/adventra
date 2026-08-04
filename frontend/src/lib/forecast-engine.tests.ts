@@ -108,6 +108,50 @@ test("factors cap at 150% of baseline", () => {
   truthy(boosted.forecast[0].qty >= base.forecast[0].qty, "should be >= baseline");
 });
 
+console.log("\nweighted baseline & forecast anchor (3/2/1 step weights)");
+test("weights are 1×6, 2×3, 3×3 and the weighted baseline is Σ(w·y) ÷ Σ(w)", () => {
+  const h = mkHistory([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  const r = forecastSKU(h, 100, 14);
+  const bd = r.calculationBreakdown.weightedAverage;
+  eq(bd.weights.join(","), "1,1,1,1,1,1,2,2,2,3,3,3", "3/2/1 ladder over 12 months");
+  eq(bd.weightSum, 21, "Σ weights = 6×1 + 3×2 + 3×3");
+  // Σ(w·y) = (1+2+3+4+5+6)×1 + (7+8+9)×2 + (10+11+12)×3 = 21 + 48 + 99 = 168
+  eq(bd.weightedSum, 168, "Σ(w·y)");
+  close(bd.result, 168 / 21, 0.0001); // = 8
+  eq(r.weightedBaseline, 8, "weightedBaseline reflects the weighted average");
+});
+test("weights adapt to shorter histories (newest 3 → 3, next 3 → 2, rest → 1)", () => {
+  const h3 = forecastSKU(mkHistory([10, 20, 30]), 100, 14);
+  eq(h3.calculationBreakdown.weightedAverage.weights.join(","), "3,3,3");
+  close(h3.calculationBreakdown.weightedAverage.result, 20, 0.001);
+  const h6 = forecastSKU(mkHistory([1, 2, 3, 4, 5, 6]), 100, 14);
+  eq(h6.calculationBreakdown.weightedAverage.weights.join(","), "2,2,2,3,3,3");
+});
+test("weights and baseline stay valid for histories longer than 12 months", () => {
+  // 14 months of history — the 3/2/1 ladder must extend, not overflow
+  const h = mkHistory(Array.from({ length: 14 }, (_, i) => i + 1));
+  const r = forecastSKU(h, 100, 14);
+  const bd = r.calculationBreakdown.weightedAverage;
+  eq(bd.weights.length, 14, "one weight per history month");
+  eq(bd.weights.slice(-3).join(","), "3,3,3", "newest 3 months weigh 3");
+  truthy(Number.isFinite(bd.result), "baseline must not be NaN");
+  truthy(Number.isFinite(r.finalForecast), "forecast must not be NaN");
+});
+test("forecast anchors on last month qty + trend (not the average)", () => {
+  // Perfectly linear history 1..12 → slope exactly 1, last month qty = 12
+  const h = mkHistory([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+  const r = forecastSKU(h, 100, 14, 6, { factors: {} });
+  close(r.calculationBreakdown.trendAnalysis.slope, 1, 0.001);
+  const m0 = r.calculationBreakdown.monthlyDetail[0];
+  close(m0.avgPlusTrend, 12 + 1, 0.001); // lastMonthQty(12) + slope×1
+  const seas = r.forecast[0].seasonalityFactor;
+  close(
+    r.forecast[0].baseline,
+    (12 + 1) * seas,
+    0.5 // baseline is rounded to an integer in the result
+  );
+});
+
 console.log("\nbucketMovementsByMonth — completed months only + currentMonthBucket");
 test("buckets only completed months (current month excluded) and corrects stockouts", () => {
   const now = new Date();
@@ -456,8 +500,8 @@ test("recomputeTimeline refreshes reorder against live stock & backfills new fie
 });
 
 console.log("\nrecommended price — demo price-change table (configurable, recommendation only)");
-// Helper defaults: unitCost $10, unitPrice $25, 40% margin → unit-price floor = $35.
-// (The floor is unitPrice × 1.4 — unit cost does NOT affect it.)
+// Helper defaults: unitCost $10, unitPrice $25, 40% margin → unit-price floor = $41.67.
+// (The floor is unitPrice ÷ (1 − 0.4) — unit cost does NOT affect it.)
 function pricing(over: Record<string, unknown> = {}) {
   return computePricingStrategy({
     velocity: "medium_mover",
@@ -478,8 +522,8 @@ test("clearance: dead + high stock → −25%", () => {
   eq(r.recommendedPriceChangePct, -25);
   eq(r.strategy, "Clearance");
   eq(r.priceChangeRule, "clearance-dead");
-  // −25% on unit cost = $7.50, floored at the unit-price minimum ($35).
-  close(r.recommendedPrice, 35, 0.01);
+  // −25% on unit cost = $7.50, floored at the unit-price minimum ($41.67).
+  close(r.recommendedPrice, 41.67, 0.01);
 });
 
 test("clearance: inactive momentum + high stock → −25%", () => {
@@ -493,7 +537,7 @@ test("markdown: slow + declining + high → −15%", () => {
   eq(r.recommendedPriceChangePct, -15);
   eq(r.strategy, "Markdown / Promotion");
   eq(r.priceChangeRule, "markdown");
-  close(r.recommendedPrice, 35, 0.01);
+  close(r.recommendedPrice, 41.67, 0.01);
 });
 
 test("protect margin: fast + accelerating + low → +5%", () => {
@@ -501,7 +545,7 @@ test("protect margin: fast + accelerating + low → +5%", () => {
   eq(r.recommendedPriceChangePct, 5);
   eq(r.strategy, "Protect margin");
   eq(r.priceChangeRule, "protect-accelerating");
-  close(r.recommendedPrice, 35, 0.01);
+  close(r.recommendedPrice, 41.67, 0.01);
 });
 
 test("protect margin: fast + stable + low → +3% (new branch)", () => {
@@ -509,14 +553,14 @@ test("protect margin: fast + stable + low → +3% (new branch)", () => {
   eq(r.recommendedPriceChangePct, 3);
   eq(r.strategy, "Protect margin");
   eq(r.priceChangeRule, "protect-stable");
-  close(r.recommendedPrice, 35, 0.01);
+  close(r.recommendedPrice, 41.67, 0.01);
 });
 
 test("targeted promotion: slow + stable (any stock) → −10%", () => {
   const normal = pricing({ velocity: "slow_mover", momentum: "stable", daysOfCover: 120 });
   eq(normal.recommendedPriceChangePct, -10);
   eq(normal.strategy, "Targeted promotion");
-  close(normal.recommendedPrice, 35, 0.01);
+  close(normal.recommendedPrice, 41.67, 0.01);
   const high = pricing({ velocity: "slow_mover", momentum: "stable", daysOfCover: 300 });
   eq(high.recommendedPriceChangePct, -10, "applies at high stock too");
 });
@@ -524,12 +568,12 @@ test("targeted promotion: slow + stable (any stock) → −10%", () => {
 test("hold price: medium + stable → 0%", () => {
   const r = pricing({ velocity: "medium_mover", momentum: "stable", daysOfCover: 120 });
   eq(r.recommendedPriceChangePct, 0);
-  // 0% on unit cost = $10, floored at the unit-price minimum ($35).
-  eq(r.recommendedPrice, 35);
+  // 0% on unit cost = $10, floored at the unit-price minimum ($41.67).
+  eq(r.recommendedPrice, 41.67);
 });
 
 test("minimum price is based on unit price, not unit cost", () => {
-  // With a tiny 1% margin the floor is unitPrice × 1.01 = $25.25 — even though
+  // With a tiny 1% margin the floor is unitPrice ÷ (1 − 0.01) = $25.25 — even though
   // unitCost is only $10, the floor ignores cost entirely.
   const r = pricing({
     velocity: "fast_mover",
@@ -548,7 +592,7 @@ test("unit cost does not affect the minimum permitted price", () => {
   const a = pricing({ unitCost: 10 });
   const b = pricing({ unitCost: 999 });
   eq(a.minimumPrice, b.minimumPrice, "changing unit cost must not move the floor");
-  close(a.minimumPrice, 25 * 1.4, 0.001); // unit price × 1.4 = $35.00
+  close(a.minimumPrice, 41.67, 0.001); // unit price ÷ 0.6 = $41.67 (rounded to cents)
 });
 
 test("any other combination → 0% and no rule id", () => {
@@ -559,7 +603,7 @@ test("any other combination → 0% and no rule id", () => {
 
 test("recommended price never goes below the minimumPrice floor", () => {
   const r = pricing({ unitPrice: 12, unitCost: 10 }); // price below margin floor
-  const min = 12 * (1 + 0.4); // unit-price floor: $16.80
+  const min = 12 / (1 - 0.4); // unit-price floor: 12 ÷ 0.6 = $20.00
   close(r.recommendedPrice, min, 0.01);
   truthy(r.recommendedPrice >= min - 0.001, "floored at minimum price");
 });
@@ -606,7 +650,7 @@ test("custom price-change rules override the defaults", () => {
 
 test("per-product min gross margin drives the floor", () => {
   const r = pricing({ unitPrice: 12, unitCost: 10, minimumGrossMarginPercentage: 0.7 });
-  const min = 12 * (1 + 0.7); // $20.40 with a 70% unit-price margin requirement
+  const min = 12 / (1 - 0.7); // 12 ÷ 0.3 = $40.00 with a 70% unit-price margin requirement
   close(r.recommendedPrice, min, 0.01);
   close(r.conditions.minGrossMarginPct, 0.7, 0.0001);
 });

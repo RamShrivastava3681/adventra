@@ -15,7 +15,7 @@ against a fictional but realistic product, so every number you see here is the *
 | Unit price | $59.99 |
 | Supplier lead time | 14 days |
 | Stock on hand today | 30 units |
-| Today's date | 2026-07-31 |
+| Today's date | 2026-08-04 |
 
 > 🧒 **A promise to the reader:** this document explains *every* formula, one tiny step at a time,
 > with the actual numbers plugged in, and a plain-language story for each one.
@@ -69,7 +69,7 @@ Weighted average  ──►  Baseline (the typical month)
         ▼
 Trend (slope + strength)  ──►  "Sales are going up by X/month"
         │
-        ▼        Seasonality  ──►  "August is 1.38× a normal month"
+        ▼        Seasonality  ──►  "September is 1.15× a normal month"
         │
         ▼
 Business factors  ──►  "Trekking season +10%, hot weather +5%"
@@ -206,36 +206,33 @@ months that had data (only January did, so 0.48 is just January's rate).
 
 **The idea:** what is a "normal" month for this product? The obvious answer is the plain average
 (208.2 ÷ 12 = 17.35). But recent months matter *more* than old months — the past is a better guide
-than the distant past. So the engine computes an **exponentially weighted average**: recent months
-count more, old months count less, smoothly.
+than the distant past. So the engine uses a **3/2/1 weighted average**: the most recent 3 months
+count 3×, the middle 3 months count 2×, and the oldest 6 months count 1×.
 
 ### Formula 4a — The weights
 
-For month number `i` (counting 0 = oldest, 11 = newest), with decay `d = 0.3`:
+For the 12 months (0 = oldest, 11 = newest):
 
 ```
-weight_i = e^(d × (i − n + 1))          where n = 12 months
+w = [1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3]
 ```
-
-`e` is Euler's number ≈ 2.71828. For the newest month: `e^0 = 1` (full weight).
-For the oldest month: `e^(0.3 × (0 − 12 + 1)) = e^(−3.3) ≈ 0.0369`.
 
 **Our actual weights:**
 
 | i | Month | Value (yᵢ) | Weight (wᵢ) |
 |---|---|---|---|
-| 0 | Aug 2025 | 24 | 0.0369 |
-| 1 | Sep 2025 | 20 | 0.0498 |
-| 2 | Oct 2025 | 14 | 0.0672 |
-| 3 | Nov 2025 | 10 | 0.0907 |
-| 4 | Dec 2025 | 12 | 0.1225 |
-| 5 | Jan 2026 | 11.2 | 0.1653 |
-| 6 | Feb 2026 | 9 | 0.2231 |
-| 7 | Mar 2026 | 12 | 0.3012 |
-| 8 | Apr 2026 | 16 | 0.4066 |
-| 9 | May 2026 | 22 | 0.5488 |
-| 10 | Jun 2026 | 28 | 0.7408 |
-| 11 | Jul 2026 | 30 | **1.0000** |
+| 0 | Aug 2025 | 24 | 1 |
+| 1 | Sep 2025 | 20 | 1 |
+| 2 | Oct 2025 | 14 | 1 |
+| 3 | Nov 2025 | 10 | 1 |
+| 4 | Dec 2025 | 12 | 1 |
+| 5 | Jan 2026 | 11.2 | 1 |
+| 6 | Feb 2026 | 9 | 2 |
+| 7 | Mar 2026 | 12 | 2 |
+| 8 | Apr 2026 | 16 | 2 |
+| 9 | May 2026 | 22 | 3 |
+| 10 | Jun 2026 | 28 | 3 |
+| 11 | Jul 2026 | 30 | **3** |
 
 ### Formula 4b — The weighted average itself
 
@@ -246,92 +243,82 @@ weightedAvg = (y₀·w₀ + y₁·w₁ + … + y₁₁·w₁₁) ÷ (w₀ + w₁
 
 **Our actual numbers:**
 ```
-Σ(yᵢ·wᵢ) = 24×0.0369 + 20×0.0498 + 14×0.0672 + 10×0.0907 + 12×0.1225
-         + 11.2×0.1653 + 9×0.2231 + 12×0.3012 + 16×0.4066 + 22×0.5488
-         + 28×0.7408 + 30×1.0
-         = 81.99
+Σ(yᵢ·wᵢ) = (24 + 20 + 14 + 10 + 12 + 11.2) × 1  =  91.2
+         + (9 + 12 + 16) × 2                      =  74.0
+         + (22 + 28 + 30) × 3                     = 240.0
+         = 405.2
 
-Σ(wᵢ)  = 3.7529
+Σ(wᵢ)  = 6×1 + 3×2 + 3×3 = 21
 
-weightedAvg = 81.99 ÷ 3.7529 = 21.85
+weightedAvg = 405.2 ÷ 21 = 19.30
 ```
 
-The page shows this as **Monthly avg = 22** (rounded).
+The page shows this as **Monthly avg = 19** (rounded).
 
-> 🍋 **Lemonade stand:** instead of adding all 12 months equally, you say "last month counts fully,
-> the month before counts 74%, the month before that 55%…" — older months get smaller and smaller
-> votes. July (30 cups) matters much more than last August (24 cups).
+> 🍋 **Lemonade stand:** instead of adding all 12 months equally, you give the last 3 months a
+> triple vote, the 3 before that a double vote, and the oldest 6 a single vote. July (30 cups)
+> matters 3× as much as last August (24 cups).
 
 ---
 
-## 5. Step 3 — The trend (weighted line of best fit)
+## 5. Step 3 — The trend (line of best fit)
 
 **The idea:** is demand going up, down, or flat? The engine draws a straight line through the 12
-months and measures its **slope**. But like the average, it lets recent months vote more strongly
-(exponential decay `d = 0.25`). This is called an *exponentially weighted linear regression*.
+months and measures its **slope** — a plain *linear regression* (every month votes equally). This
+is the classic "line of best fit":
 
 ### Formula 5a — The trend weights
 
-```
-weight_i = e^(0.25 × (i − n + 1))
-```
-
-**Our actual trend weights** (newest = 1.000, oldest = 0.064):
+Every month has the same weight:
 
 ```
-[0.064, 0.082, 0.105, 0.135, 0.174, 0.223, 0.287, 0.368, 0.472, 0.607, 0.779, 1.000]
+wᵢ = 1   for every month
 ```
 
-### Formula 5b — Weighted centers (meanX, meanY)
+### Formula 5b — Centers (meanX, meanY)
 
 `x` is the month *number* (0 to 11). `y` is that month's demand.
 
 ```
-meanX = Σ(xᵢ·wᵢ) ÷ Σ(wᵢ)        (weighted "middle" of the month numbers)
-meanY = Σ(yᵢ·wᵢ) ÷ Σ(wᵢ)        (weighted "middle" of the demands — same as our baseline!)
-```
-
-**Our actual numbers:**
-```
-meanX = 8.108
-meanY = 21.019
+meanX = Σxᵢ ÷ n = 66 ÷ 12 = 5.5
+meanY = Σyᵢ ÷ n = 208.2 ÷ 12 = 17.35
 ```
 
 ### Formula 5c — The slope (the trend itself)
 
 ```
-slope = Σ( wᵢ × (xᵢ − meanX) × (yᵢ − meanY) )  ÷  Σ( wᵢ × (xᵢ − meanX)² )
-        └────────────── numerator ──────────────┘   └── denominator ──┘
+slope = Σ( (xᵢ − meanX) × (yᵢ − meanY) )  ÷  Σ( (xᵢ − meanX)² )
+        └─────────── numerator ───────────┘   └─── denominator ──┘
 ```
 
 **Our actual numbers:**
 ```
-numerator   = Σ wᵢ(xᵢ − meanX)(yᵢ − meanY) = 72.415
-denominator = Σ wᵢ(xᵢ − meanX)²            = 34.265
-slope       = 72.415 ÷ 34.265 = 2.11
+numerator   = Σ (xᵢ − 5.5)(yᵢ − 17.35) = 110.90
+denominator = Σ (xᵢ − 5.5)²            = 143.00
+slope       = 110.90 ÷ 143.00 = 0.78
 ```
 
-So demand is rising by about **+2.11 units per month**. The page shows this as **Trend = +2.1/mo**.
+So demand is rising by about **+0.78 units per month**. The page shows this as **Trend = +0.8/mo**.
 
-### Formula 5d — Trend strength (weighted R²)
+### Formula 5d — Trend strength (R²)
 
-A slope is only trustworthy if the data really does follow a line. The engine computes a weighted
+A slope is only trustworthy if the data really does follow a line. The engine computes an
 **R²** ("R-squared") between 0 and 1:
 
 ```
-ssRes = Σ wᵢ × (yᵢ − predictedᵢ)²        predictedᵢ = meanY + slope × (xᵢ − meanX)
-ssTot = Σ wᵢ × (yᵢ − meanY)²
+ssRes = Σ (yᵢ − predictedᵢ)²        predictedᵢ = meanY + slope × (xᵢ − meanX)
+ssTot = Σ (yᵢ − meanY)²
 R²    = 1 − ssRes ÷ ssTot
 ```
 
 **Our actual numbers:**
 ```
-ssRes = 107.30
-ssTot = 260.33
-R²    = 1 − 107.30 ÷ 260.33 = 0.59
+ssRes = 492.16
+ssTot = 578.17
+R²    = 1 − 492.16 ÷ 578.17 = 0.15
 ```
 
-The page shows this as **Trend strength = 59%**. (0.59 = 59%.)
+The page shows this as **Trend strength = 15%**. (0.15 = 15%.)
 
 ### Formula 5e — Deciding the direction (up / down / stable)
 
@@ -343,26 +330,26 @@ threshold = |meanY| × 0.02      (2% of the average; falls back to 0.5 only if t
 
 **Our actual numbers:**
 ```
-threshold = 21.019 × 0.02 = 0.42
+threshold = 17.35 × 0.02 = 0.35
 ```
 
 Then:
 
 | Condition | Direction |
 |---|---|
-| slope > +0.42 | **up** |
+| slope > +0.35 | **up** |
 
 > 💡 The parenthetical in the formula above says "0.5 if the average is zero": the code is
 > `Math.abs(meanY) × 0.02 || 0.5`, meaning 0.5 is only a fallback when the average itself is 0
 > (no demand at all). It is not a minimum.
-| slope < −0.42 | **down** |
+| slope < −0.35 | **down** |
 | otherwise | **stable** |
 
-Our slope is **+2.11 > 0.42 → direction = "up"** ✅
+Our slope is **+0.78 > 0.35 → direction = "up"** ✅
 
 > 🍋 **Lemonade stand:** each month you sold a little more than the month before. The "slope" is
-> how many extra cups per month. "Strength" is how consistent that growth was — 59% means it's a
-> real pattern, not random noise. Direction says: the line is pointing up.
+> how many extra cups per month. "Strength" is how consistent that growth was — 15% means the ups
+> and downs are fairly noisy, but the line still points up. Direction says: the line is pointing up.
 
 ---
 
@@ -413,9 +400,9 @@ the raw factor from Formula 6b is used directly. Each calendar month stands on i
 factor = rawTarget
 ```
 
-**Our actual number for August (the next forecast month):**
+**Our actual number for September (the next forecast month):**
 ```
-factor = 24 ÷ 17.35 = 1.383
+factor = 20 ÷ 17.35 = 1.153
 ```
 
 ### Formula 6d — Clamping (never let seasonality go crazy)
@@ -424,7 +411,7 @@ factor = 24 ÷ 17.35 = 1.383
 seasonalityFactor = clamp(rawFactor, 0.5, 2.0)
 ```
 
-August: `clamp(1.383, 0.5, 2.0) = 1.383` — no change. The page shows **Seasonality = ×1.38**.
+September: `clamp(1.153, 0.5, 2.0) = 1.153` — no change. The page shows **Seasonality = ×1.15**.
 (If a factor computed to 2.3 it would be cut to 2.0; if 0.3 it would be raised to 0.5.)
 
 **All 12 raw + clamped factors** (these are what the engine actually uses):
@@ -438,8 +425,8 @@ August: `clamp(1.383, 0.5, 2.0) = 1.383` — no change. The page shows **Seasona
 | May | 1.268 | 1.268 |
 | Jun | 1.614 | 1.614 |
 | Jul | 1.729 | 1.729 |
-| Aug | 1.383 | **1.383** |
-| Sep | 1.153 | 1.153 |
+| Aug | 1.383 | 1.383 |
+| Sep | 1.153 | **1.153** |
 | Oct | 0.807 | 0.807 |
 | Nov | 0.576 | 0.576 |
 | Dec | 0.692 | 0.692 |
@@ -478,13 +465,13 @@ final    = clamp(adjusted, baseline × 0.70, baseline × 1.50)
 The clamp means factors can only move the forecast **between 70% and 150%** of the baseline,
 no matter what you type.
 
-**Worked example (August 2026):** suppose you set trekking season = 1.10 and weather = 1.05:
+**Worked example (September 2026):** suppose you set trekking season = 1.10 and weather = 1.05:
 ```
 factorsMultiplied = 1.10 × 1.05 × 1.0 × 1.0 × 1.0 = 1.155
-baseline          = 33.14          (computed in Step 6 below)
-adjusted          = 33.14 × 1.155 = 38.28
-clamp range       = 33.14×0.70 = 23.20  …  33.14×1.50 = 49.71
-final             = 38.28  (inside the range, so unchanged)  → page shows 38
+baseline          = 35.48          (computed in Step 6 below)
+adjusted          = 35.48 × 1.155 = 40.98
+clamp range       = 35.48×0.70 = 24.84  …  35.48×1.50 = 53.22
+final             = 40.98  (inside the range, so unchanged)  → page shows 41
 ```
 
 In the main example for this document we set **no factors**, so `factorsMultiplied = 1`
@@ -498,50 +485,49 @@ and the forecast stays at baseline.
 
 ## 8. Step 6 — The monthly forecast, month by month
 
-Now the engine builds a forecast for each of the next 6 months (Aug 2026 … Jan 2027).
+Now the engine builds a forecast for each of the next 6 months (Sep 2026 … Feb 2027).
 For month number `i` (1 = next month):
 
-### Formula 8a — Dampened trend contribution
+### Formula 8a — Trend contribution
 
-Trends shouldn't run forever — the further out you forecast, the less the trend pushes.
-Dampening factor `λ = 0.9`:
+The forecast starts from **the last completed month's demand** (`lastMonthQty`, July = 30 units)
+and adds the trend, month by month:
 
 ```
-dampening          = 0.9^(i−1)
-trendContribution  = slope × i × dampening
-avgPlusTrend       = weightedAvg + trendContribution
+trendContribution  = slope × i
+lastMonthPlusTrend = lastMonthQty + trendContribution      (lastMonthQty = 30)
 ```
 
 **Our actual numbers:**
 
-| Month | i | dampening (0.9^(i−1)) | trendContribution (2.11 × i × damp) | avgPlusTrend (21.85 + contrib) |
-|---|---|---|---|---|
-| Aug 2026 | 1 | 1.000 | 2.11 | 23.96 |
-| Sep 2026 | 2 | 0.900 | 3.80 | 25.65 |
-| Oct 2026 | 3 | 0.810 | 5.13 | 26.98 |
-| Nov 2026 | 4 | 0.729 | 6.15 | 28.00 |
-| Dec 2026 | 5 | 0.656 | 6.92 | 28.77 |
-| Jan 2027 | 6 | 0.590 | 7.48 | 29.32 |
+| Month | i | trendContribution (0.78 × i) | lastMonthPlusTrend (30 + contrib) |
+|---|---|---|---|
+| Sep 2026 | 1 | 0.78 | 30.78 |
+| Oct 2026 | 2 | 1.56 | 31.56 |
+| Nov 2026 | 3 | 2.34 | 32.34 |
+| Dec 2026 | 4 | 3.12 | 33.12 |
+| Jan 2027 | 5 | 3.90 | 33.90 |
+| Feb 2027 | 6 | 4.68 | 34.68 |
 
-> Notice the trend contribution grows each month (2.11 → 7.48) but more slowly, because dampening
-> multiplies it down. Trend influence fades the further you look.
+> The trend contribution grows by exactly `slope` each month (0.78 → 4.68). There is no
+> dampening — the trend keeps pushing at the same rate the whole horizon.
 
 ### Formula 8b — The baseline for the month
 
 ```
-baseline = max(0, avgPlusTrend) × seasonalityFactor(month)
+baseline = max(0, lastMonthPlusTrend) × seasonalityFactor(month)
 ```
 
 **Our actual numbers (using the seasonality factors from Step 4):**
 
-| Month | avgPlusTrend | × seasonality | = **baseline** |
+| Month | lastMonthPlusTrend | × seasonality | = **baseline** |
 |---|---|---|---|
-| Aug 2026 | 23.96 | × 1.383 | **33.14** → 33 |
-| Sep 2026 | 25.65 | × 1.153 | **29.57** → 30 |
-| Oct 2026 | 26.98 | × 0.807 | **21.77** → 22 |
-| Nov 2026 | 28.00 | × 0.576 | **16.13** → 16 |
-| Dec 2026 | 28.77 | × 0.692 | **19.91** → 20 |
-| Jan 2027 | 29.32 | × 0.646 | **18.94** → 19 |
+| Sep 2026 | 30.78 | × 1.153 | **35.48** → 35 |
+| Oct 2026 | 31.56 | × 0.807 | **25.47** → 25 |
+| Nov 2026 | 32.34 | × 0.576 | **18.64** → 19 |
+| Dec 2026 | 33.12 | × 0.692 | **22.91** → 23 |
+| Jan 2027 | 33.90 | × 0.646 | **21.88** → 22 |
+| Feb 2027 | 34.68 | × 0.519 | **17.99** → 18 |
 
 ### Formula 8c — Final forecast (with factors)
 
@@ -557,12 +543,12 @@ dailyRate = finalForecast ÷ daysInMonth(month)
 
 | Month | final | days | **dailyRate** |
 |---|---|---|---|
-| Aug 2026 | 33 | 31 | **1.1/day** |
-| Sep 2026 | 30 | 30 | **1.0/day** |
-| Oct 2026 | 22 | 31 | **0.7/day** |
-| Nov 2026 | 16 | 30 | **0.5/day** |
-| Dec 2026 | 20 | 31 | **0.6/day** |
-| Jan 2027 | 19 | 31 | **0.6/day** |
+| Sep 2026 | 35 | 30 | **1.2/day** |
+| Oct 2026 | 25 | 31 | **0.8/day** |
+| Nov 2026 | 19 | 30 | **0.6/day** |
+| Dec 2026 | 23 | 31 | **0.7/day** |
+| Jan 2027 | 22 | 31 | **0.7/day** |
+| Feb 2027 | 18 | 28 | **0.6/day** |
 
 ### Formula 8e — Stock required (to cover the month)
 
@@ -601,21 +587,21 @@ else:
 
 | Month | final | daily | stock req | safety | running before | shortfall | **suggested order** | projected after |
 |---|---|---|---|---|---|---|---|---|
-| Aug 2026 | 33 | 1.1 | 33 | 32 | 30 | 35 | **36** | 0 |
-| Sep 2026 | 30 | 1.0 | 30 | 30 | 0 | 60 | **60** | 0 |
-| Oct 2026 | 22 | 0.7 | 22 | 21 | 0 | 43 | **43** | 0 |
-| Nov 2026 | 16 | 0.5 | 16 | 16 | 0 | 32 | **33** | 0 |
-| Dec 2026 | 20 | 0.6 | 20 | 19 | 0 | 39 | **40** | 0 |
-| Jan 2027 | 19 | 0.6 | 19 | 18 | 0 | 37 | **38** | 0 |
+| Sep 2026 | 35 | 1.2 | 35 | 36 | 30 | 41 | **41** | 0 |
+| Oct 2026 | 25 | 0.8 | 25 | 24 | 0 | 49 | **51** | 0 |
+| Nov 2026 | 19 | 0.6 | 19 | 18 | 0 | 37 | **38** | 0 |
+| Dec 2026 | 23 | 0.7 | 23 | 21 | 0 | 44 | **46** | 0 |
+| Jan 2027 | 22 | 0.7 | 22 | 21 | 0 | 43 | **44** | 0 |
+| Feb 2027 | 18 | 0.6 | 18 | 18 | 0 | 36 | **38** | 0 |
 
-> 💡 **Why November shows "shortfall 32" but "suggested order 33"?** The shortfall column is computed
-> from the *displayed* (rounded) values (16 + 16 = 32), but the suggested order is computed from the
-> *unrounded* forecast (true demand 16.13, true daily rate 0.538/day → 16.13 + 16.13 − 0 = 32.26 →
-> rounded up to 33). The engine always uses the unrounded numbers internally and only rounds for display.
+> 💡 **Why October shows "shortfall 49" but "suggested order 51"?** The shortfall column is computed
+> from the *displayed* (rounded) values (25 + 24 = 49), but the suggested order is computed from the
+> *unrounded* forecast (true demand 25.47, true daily rate 0.82/day → 25.47 + 24.60 − 0 = 50.07 →
+> rounded up to 51). The engine always uses the unrounded numbers internally and only rounds for display.
 
-> 🍋 **Lemonade stand:** August needs 33 cups, plus 32 cups of spare lemons just in case = 65 cups
-> needed. You have 30 → you need 35 more, rounded up to 36. September needs even more because last
-> month you already used everything up.
+> 🍋 **Lemonade stand:** September needs 35 cups, plus 36 cups of spare lemons just in case = 71 cups
+> needed. You have 30 → you need 41 more. October needs even more because last month you already used
+> everything up.
 
 ---
 
@@ -632,7 +618,7 @@ The engine uses a simple (unweighted) line `fittedᵢ = avg + slope × i` for th
 residualᵢ = yᵢ − fittedᵢ
 ```
 
-**Our actual residuals:** `[2.15, −3.96, −12.08, −18.19, −18.30, −21.22, −25.53, −24.64, −22.76, −18.87, −14.98, −15.10]`
+**Our actual residuals:** `[4.70, −0.08, −6.86, −11.64, −10.42, −12.00, −14.98, −12.76, −9.54, −4.32, 0.90, 2.12]`
 
 ### Formula 9b — Standard error of the estimate (se)
 
@@ -643,8 +629,8 @@ se  = √mse
 
 **Our actual numbers:**
 ```
-mse = 386.70
-se  = √386.70 = 19.66
+mse = 95.94
+se  = √95.94 = 9.79
 ```
 
 ### Formula 9c — Standard error of prediction (sePred)
@@ -656,12 +642,12 @@ The further into the future you forecast, the wider the range. With `z = 1.28` (
 sePred = se × √( 1 + 1/n + (forecastIndex − meanX)² ÷ ssx )
 ```
 
-**Our actual numbers for August 2026 (`forecastIndex = 12`, one month ahead of the data):**
+**Our actual numbers for September 2026 (`forecastIndex = 12`, one month ahead of the data):**
 ```
-sePred = 19.66 × √( 1 + 1/12 + (12 − 5.5)² ÷ 143 )
-       = 19.66 × √(1.0833 + 0.2955)
-       = 19.66 × 1.1742
-       = 23.09
+sePred = 9.79 × √( 1 + 1/12 + (12 − 5.5)² ÷ 143 )
+       = 9.79 × √(1.0833 + 0.2955)
+       = 9.79 × 1.1742
+       = 11.50
 ```
 
 ### Formula 9d — The interval, centered on the forecast
@@ -672,13 +658,13 @@ low  = max(0, center − halfWidth)
 high = center + halfWidth
 ```
 
-`center` is the (unrounded) forecast for that month — for August: **33.14**.
+`center` is the (unrounded) forecast for that month — for September: **35.48**.
 
 **Our actual numbers:**
 ```
-halfWidth = round(1.28 × 23.09) = round(29.56) = 30
-low       = max(0, 33.14 − 30)  = 3.14    (shown rounded as 3.1)
-high      = 33.14 + 30          = 63.14   (shown rounded as 63.1)
+halfWidth = round(1.28 × 11.50) = round(14.72) = 15
+low       = max(0, 35.48 − 15)  = 20.48
+high      = 35.48 + 15          = 50.48
 ```
 
 > 💡 The page renders the raw interval values (e.g. 3.14 – 63.14); the numbers in the table below
@@ -688,12 +674,12 @@ high      = 33.14 + 30          = 63.14   (shown rounded as 63.1)
 
 | Month | Forecast | 80% low | 80% high |
 |---|---|---|---|
-| Aug 2026 | 33 | 3.1 | 63.1 |
-| Sep 2026 | 30 | 0 | 60.6 |
-| Oct 2026 | 22 | 0 | 53.8 |
-| Nov 2026 | 16 | 0 | 49.1 |
-| Dec 2026 | 20 | 0 | 53.9 |
-| Jan 2027 | 19 | 0 | 54.9 |
+| Sep 2026 | 35 | 20.5 | 50.5 |
+| Oct 2026 | 25 | 10.5 | 40.5 |
+| Nov 2026 | 19 | 2.6 | 34.6 |
+| Dec 2026 | 23 | 6.9 | 38.9 |
+| Jan 2027 | 22 | 4.9 | 38.9 |
+| Feb 2027 | 18 | 0 | 36.0 |
 
 > Notice the intervals get **wider** over time (the `(forecastIndex − meanX)²` term grows).
 > That's the engine being honest: the further away, the less certain.
@@ -720,11 +706,11 @@ forecast months' daily rates, giving more weight to the **nearer** months (weigh
 coverDailyRate = (r₁×3 + r₂×2 + r₃×1) ÷ (3 + 2 + 1)
 ```
 
-**Our actual numbers (Aug 1.1, Sep 1.0, Oct 0.7):**
+**Our actual numbers (Sep 1.2, Oct 0.8, Nov 0.6):**
 ```
-coverDailyRate = (1.1×3 + 1.0×2 + 0.7×1) ÷ 6
-               = (3.3 + 2.0 + 0.7) ÷ 6
-               = 6.0 ÷ 6 = 1.0/day
+coverDailyRate = (1.2×3 + 0.8×2 + 0.6×1) ÷ 6
+               = (3.6 + 1.6 + 0.6) ÷ 6
+               = 5.8 ÷ 6 = 0.97/day
 ```
 
 *(Fallback: if no positive forecast rate exists, the engine uses the recent 3-month history average
@@ -740,10 +726,10 @@ daysOfCover = round(inventoryPosition ÷ coverDailyRate)
 ```
 inventoryPosition = stock on hand + confirmed inbound − committed customer orders
                   = 30 + 0 − 0 = 30
-daysOfCover       = round(30 ÷ 1.0) = 30 days
+daysOfCover       = round(30 ÷ 0.97) = 31 days
 ```
 
-The page shows **Days cover = 30d**.
+The page shows **Days cover = 31d**.
 
 > 🍋 **Lemonade stand:** you have 30 cups of lemonade and you sell ~1 cup a day → you'll last
 > about 30 days. (If a big order was already promised to a customer, we'd subtract it; if a
@@ -755,63 +741,48 @@ The page shows **Days cover = 30d**.
 
 **The question:** "How many units should I order right now?" The answer must cover:
 
-1. **Lead time demand** — how many you'll sell while waiting for the order to arrive (14 days).
-2. **Safety stock** — a buffer against demand surprises.
-3. **Minus what you already have.**
+1. **Lead time demand + safety stock** — what you'll sell while waiting for the order (14 days),
+   plus a buffer against demand surprises.
+2. **Minus what you already have.**
 
-### Formula 11a — Lead time demand (day-by-day, month-by-month)
+### Formula 11a — The daily average demand
 
-The lead time demand counts down from **today**: the current month contributes only its
-**remaining days** (today is 2026-07-31, so July has 1 day left), then each following forecast
-month contributes full days until the lead time is covered:
-
-```
-remainingLeadDays = supplierLeadTimeDays (14)
-currentMonthDays  = daysInMonth − today + 1        (this month: remaining days only)
-daysToTake        = min(remainingLeadDays, currentMonthDays)
-leadTimeDemand   += currentMonthDailyRate × daysToTake
-for each forecast month:
-    daysToTake     = min(remainingLeadDays, daysInMonth)
-    leadTimeDemand += dailyRate × daysToTake
-    remainingLeadDays −= daysToTake
-```
-
-**Our actual numbers (1 day left in July + 13 days of August):**
-```
-July   = 1.2/day × 1 day  = 1.23 units
-August = 1.1/day × 13 days = 14.30 units
-leadTimeDemand = 1.23 + 14.30 = 15.53 units
-```
-
-### Formula 11b — Safety stock units
-
-Safety stock is simply **daily average demand × safety stock days** — the daily rate of the
-next forecast month times how many days of buffer the product is configured to hold
-(`safetyStockDays` in the product catalogue, default 30):
+The engine uses the **last 3 completed calendar months** of corrected demand (the current partial
+month is excluded so a half-finished month can't skew the rate):
 
 ```
-safetyStock = round(dailyForecast × safetyStockDays)
+dailyAverage = (May + Jun + Jul demand) ÷ (their calendar days)
+             = (22 + 28 + 30) ÷ (31 + 30 + 31)
+             = 80 ÷ 92 = 0.87/day
+```
+
+### Formula 11b — Required stock & safety stock
+
+```
+requiredStock = dailyAverage × (supplierLeadTimeDays + safetyStockDays)
+safetyStock   = round(dailyAverage × safetyStockDays)
 ```
 
 **Our actual numbers:**
 ```
-safetyStock = round(1.1 × 30) = 33 units
+requiredStock = 0.87 × (14 + 30) = 38.26 units
+safetyStock   = round(0.87 × 30) = 26 units
 ```
 
 ### Formula 11c — The recommendation, step by step
 
 ```
-recommended = max(0, leadTimeDemand + safetyStock − inventoryPosition)
+recommended = max(0, requiredStock − inventoryPosition)
 ```
 
 **Main example (stock = 30):**
 ```
-recommended = max(0, 15.53 + 33 − 30) = 18.53  → page rounds up to 19
+recommended = max(0, 38.26 − 30) = 8.26  → page rounds up to 9
 ```
 
 **Low-stock example (stock = 5):**
 ```
-recommended = max(0, 15.53 + 33 − 5) = 43.53  → page rounds up to 44
+recommended = max(0, 38.26 − 5) = 33.26  → page rounds up to 34
 ```
 
 ### Formula 11d — The "caps and rules" pass (in order)
@@ -827,8 +798,8 @@ recommended = max(0, 15.53 + 33 − 5) = 43.53  → page rounds up to 44
 
    **Example (stock = 400, maxCoverDays = 180):**
    ```
-   maxStock = 1.1 × 180 = 198
-   headroom = max(0, 198 − 400) = 0
+   maxStock = 1.2 × 180 = 216
+   headroom = max(0, 216 − 400) = 0
    recommended = min(big, 0) = 0  → and overstock risk = high
    ```
 
@@ -845,15 +816,15 @@ recommended = max(0, 15.53 + 33 − 5) = 43.53  → page rounds up to 44
 
 **Low-stock example with MOQ 50 and multiple 25:**
 ```
-43.4 → MOQ → max(43.4, 50) = 50 → multiple → ceil(50÷25)×25 = 50
+33.3 → MOQ → max(33.3, 50) = 50 → multiple → ceil(50÷25)×25 = 50
 ```
 
 The page shows **Reorder now = 50** for that scenario, and the reorder value is
 `50 × unit cost = 50 × $25 = $1,250`.
 
 > 🍋 **Lemonade stand:** to reorder lemons you need: enough for the 14 days while the delivery
-> comes (15 cups) + a spare cup in case of surprise (1) = 16, minus what you have. If you have 5,
-> buy 11… but the lemon guy only sells boxes of 25 and minimum 50, so you buy 50. And if you
+> comes plus a spare buffer (26 cups), minus what you have. If you have 30, buy 9. If you have 5,
+> buy 34… but the lemon guy only sells boxes of 25 and minimum 50, so you buy 50. And if you
 > already have 400 cups, don't buy anything at all!
 
 ---
@@ -873,9 +844,9 @@ recent3MonthAvg = (May + Jun + Jul demand) ÷ 3
 ### Formula 12b — Thresholds vs the baseline
 
 ```
-overallAvg (the weighted baseline) = 21.85
-threshold120pct = 21.85 × 1.2 = 26.22
-threshold60pct  = 21.85 × 0.6 = 13.11
+overallAvg (the weighted baseline) = 19.30
+threshold120pct = 19.30 × 1.2 = 23.15
+threshold60pct  = 19.30 × 0.6 = 11.58
 ```
 
 ### Formula 12c — The tag
@@ -883,13 +854,13 @@ threshold60pct  = 21.85 × 0.6 = 13.11
 | Condition | Momentum tag |
 |---|---|
 | recent3MonthAvg = 0 | `inactive` |
-| recent3MonthAvg ≥ 26.22 (120%) | `accelerating` |
-| recent3MonthAvg ≥ 13.11 (60%) | `stable` |
+| recent3MonthAvg ≥ 23.15 (120%) | `accelerating` |
+| recent3MonthAvg ≥ 11.58 (60%) | `stable` |
 | otherwise | `declining` |
 
-**Our actual result:** `26.67 ≥ 26.22` → **`accelerating`** ✅ (page shows "Accelerating")
+**Our actual result:** `26.67 ≥ 23.15` → **`accelerating`** ✅ (page shows "Accelerating")
 
-> 🍋 **Lemonade stand:** the last 3 months you sold 26.7 cups/month but your usual is 21.9.
+> 🍋 **Lemonade stand:** the last 3 months you sold 26.7 cups/month but your usual is 19.3.
 > That's more than 20% above normal → demand is "accelerating" — people suddenly want more.
 
 ---
@@ -945,7 +916,7 @@ HP-2001 is rank 1 of 2 → 0.50 → `medium_mover`; HP-2002 → rank 2 of 2 → 
 coverVsLead = daysOfCover ÷ max(supplierLeadTimeDays, 1)
 ```
 
-**Our actual numbers:** `coverVsLead = 30 ÷ 14 = 2.14`
+**Our actual numbers:** `coverVsLead = 31 ÷ 14 = 2.21`
 
 | Condition | Stockout risk |
 |---|---|
@@ -953,7 +924,7 @@ coverVsLead = daysOfCover ÷ max(supplierLeadTimeDays, 1)
 | coverVsLead < 1.5 | **medium** |
 | otherwise | **low** |
 
-Our 2.14 → **low** ✅
+Our 2.21 → **low** ✅
 
 ### Formula 14b — Overstock risk
 
@@ -968,10 +939,10 @@ maxCoverDays (default 180)
 | daysOfCover > 180 × 0.75 = 135 | **medium** |
 | otherwise | **low** |
 
-Our daysOfCover = 30 → **low** ✅
+Our daysOfCover = 31 → **low** ✅
 (The 400-unit example from Step 11: 400 > 180 → **high**.)
 
-> 🍋 **Lemonade stand:** 30 days of stock vs a 14-day delivery = you're safe (2.14× covered).
+> 🍋 **Lemonade stand:** 31 days of stock vs a 14-day delivery = you're safe (2.21× covered).
 > If you only had 10 days of stock, that's less than 14 → high risk of running out.
 
 ---
@@ -992,8 +963,8 @@ estimatedStockoutDate = today + daysOfCover days
 
 **Our actual numbers:**
 ```
-daysOfCover           = 30 days          (from Step 8)
-estimatedStockoutDate = 2026-07-31 + 30 days = 2026-08-30
+daysOfCover           = 31 days          (from Step 8)
+estimatedStockoutDate = 2026-08-04 + 31 days = 2026-09-04
 ```
 
 *(If stock is already 0, the stockout date is today. If there is no forecast demand at all
@@ -1005,7 +976,7 @@ estimatedStockoutDate = 2026-07-31 + 30 days = 2026-08-30
 reorderByDate = estimatedStockoutDate − supplierLeadTimeDays
 ```
 
-**Our actual numbers:** `2026-08-30 − 14 days = 2026-08-16`
+**Our actual numbers:** `2026-09-04 − 14 days = 2026-08-21`
 
 ### Formula 15c — Next refill date (if you ordered today)
 
@@ -1013,7 +984,7 @@ reorderByDate = estimatedStockoutDate − supplierLeadTimeDays
 nextRefillDate = today + supplierLeadTimeDays
 ```
 
-**Our actual numbers:** `2026-07-31 + 14 days = 2026-08-14`
+**Our actual numbers:** `2026-08-04 + 14 days = 2026-08-18`
 
 ### Formula 15d — Stockout urgency
 
@@ -1023,12 +994,12 @@ nextRefillDate = today + supplierLeadTimeDays
 | reorderByDate ≤ today + supplierLeadTimeDays | `warning` |
 | otherwise | `safe` |
 
-**Our actual numbers:** reorderByDate (Aug 16) > today + 14 days (Aug 14) → **`safe`** ✅
+**Our actual numbers:** reorderByDate (Aug 21) > today + 14 days (Aug 18) → **`safe`** ✅
 
-> 🍋 **Lemonade stand:** you have 30 days of stock, so you'll run out on Aug 30. The lemon man
-> takes 14 days, so you must order by Aug 16 at the very latest. Since that's comfortably in the
+> 🍋 **Lemonade stand:** you have 31 days of stock, so you'll run out on Sep 4. The lemon man
+> takes 14 days, so you must order by Aug 21 at the very latest. Since that's comfortably in the
 > future, the page rates you "safe". If the date ever slips inside the 14-day delivery window the
-> page would warn, and past Aug 16 it would scream "CRITICAL".
+> page would warn, and past Aug 21 it would scream "CRITICAL".
 
 ---
 
@@ -1039,22 +1010,25 @@ and your margins.
 
 ### Formula 16a — Minimum permitted price (unit-price margin floor)
 
-The margin is added **on top of the current unit price** (a price-uplift floor): a 40% margin on
-a $100 price gives a $140 floor — never below that. The **unit cost does not affect this number**.
+The floor is the price that **preserves the configured gross margin** on each sale. Treating the
+current unit price as the base you must recover, the margin is measured against the selling
+price: `m = (floor − unitPrice) ÷ floor`. Solving for the floor gives **minimum price =
+unit price ÷ (1 − margin)**. A 40% margin on a $100 price gives a $166.67 floor — never below
+that. The **unit cost does not affect this number**.
 Each product can override this with its own margin; products without their own value inherit the
 catalogue-wide **default minimum margin** set on the Products page (default 40%).
 
 ```
 minimumGrossMargin = clamp(minimumGrossMarginPercentage, 0.01, 0.99)   (default 0.40)
-minimumPrice       = unitPrice × (1 + minimumGrossMargin)
+minimumPrice       = unitPrice ÷ (1 − minimumGrossMargin)
 ```
 
 **Our actual numbers:**
 ```
-minimumPrice = $59.99 × (1 + 0.40) = $59.99 × 1.40 = $83.99
+minimumPrice = $59.99 ÷ (1 − 0.40) = $59.99 ÷ 0.60 = $99.98
 ```
 
-So you must never price below **$83.99** — your selling price plus the 40% margin floor.
+So you must never price below **$99.98** — the price that keeps the 40% margin intact.
 (Current price is $59.99, which is below that floor, so the page flags it
 "Below min permitted — margin at risk".)
 
@@ -1066,7 +1040,7 @@ else if daysOfCover > maxCoverDays           →  "high"
 else                                          →  "normal"
 ```
 
-**Our actual numbers:** `30 < 14 + 30 = 44` → **low** stock position.
+**Our actual numbers:** `31 < 14 + 30 = 44` → **low** stock position.
 
 ### Formula 16c — The decision rules (checked in order)
 
@@ -1083,15 +1057,15 @@ else                                          →  "normal"
 
 **Our actual result (medium mover + accelerating):** no rule matches exactly → default →
 **"Hold price"**. Reason shown on page: *"Medium-moving, accelerating demand."* Because the
-current price ($59.99) sits below the $83.99 floor, the suggested action becomes *"No % change
-recommended — current price is below the margin floor; raise to at least $83.99 to protect
+current price ($59.99) sits below the $99.98 floor, the suggested action becomes *"No % change
+recommended — current price is below the margin floor; raise to at least $99.98 to protect
 margin"*.
 
 **Worked clearance example:** a dead product (velocity `dead`, momentum `inactive`) with 250 days
 of cover, unit price $10:
 ```
-minimumPrice = $10 × 1.40 = $14.00
-strategy     = Clearance → "Reduce price by 20% to 40% (min $14.00)"
+minimumPrice = $10 ÷ (1 − 0.40) = $10 ÷ 0.60 = $16.67
+strategy     = Clearance → "Reduce price by 20% to 40% (min $16.67)"
 ```
 
 > 🍋 **Lemonade stand:** if your lemonade is the fastest seller in town, don't discount it. If
@@ -1108,17 +1082,17 @@ availabilityRate = clamp(inStockDays ÷ daysInMonth, 0, 1)
 corrected        = min(actual ÷ max(availabilityRate, 0.70), actual × 1.4)
 ```
 
-**Weighted average (baseline)** — decay `d = 0.3`, newest month = index 11
+**Weighted average (baseline)** — 3/2/1 step weights (newest 3 = 3, middle 3 = 2, oldest 6 = 1)
 ```
-wᵢ = e^(d × (i − n + 1))
+w = [1, 1, 1, 1, 1, 1, 2, 2, 2, 3, 3, 3]
 weightedAvg = Σ(yᵢ·wᵢ) ÷ Σ(wᵢ)
 ```
 
-**Trend** — decay `d = 0.25`
+**Trend** — plain linear regression (every month weighted equally)
 ```
-meanX = Σ(xᵢ·wᵢ) ÷ Σ(wᵢ)      meanY = Σ(yᵢ·wᵢ) ÷ Σ(wᵢ)
-slope = Σ(wᵢ(xᵢ−meanX)(yᵢ−meanY)) ÷ Σ(wᵢ(xᵢ−meanX)²)
-R²    = 1 − Σwᵢ(yᵢ−predᵢ)² ÷ Σwᵢ(yᵢ−meanY)²        predᵢ = meanY + slope(xᵢ−meanX)
+meanX = Σxᵢ ÷ n              meanY = Σyᵢ ÷ n
+slope = Σ((xᵢ−meanX)(yᵢ−meanY)) ÷ Σ((xᵢ−meanX)²)
+R²    = 1 − Σ(yᵢ−predᵢ)² ÷ Σ(yᵢ−meanY)²        predᵢ = meanY + slope(xᵢ−meanX)
 threshold = |meanY| × 0.02    direction: slope>+t → up · slope<−t → down · else stable
 ```
 
@@ -1137,9 +1111,8 @@ final    = clamp(adjusted, baseline × 0.70, baseline × 1.50)
 
 **Monthly forecast** (month i = 1…6)
 ```
-dampening         = 0.9^(i−1)
-trendContribution = slope × i × dampening
-baseline          = max(0, weightedAvg + trendContribution) × seasonalityFactor
+trendContribution = slope × i
+baseline          = max(0, lastMonthQty + trendContribution) × seasonalityFactor
 final             = clamp(baseline × factors, 0.7×baseline, 1.5×baseline)
 dailyRate         = final ÷ daysInMonth
 stockRequired     = max(0, final)
@@ -1165,11 +1138,10 @@ inventoryPosition = stock + confirmedInbound − committedOrders
 
 **Reorder**
 ```
-leadTimeDemand = Σ (dailyRate × days) over the lead time, starting with the current
-                month's remaining days (this month: daysInMonth − today + 1), then
-                each following month in full
-safetyStock    = round(dailyForecast × safetyStockDays)     (safetyStockDays from product)
-recommended    = max(0, leadTimeDemand + safetyStock − inventoryPosition)
+dailyAverage   = Σ(last 3 completed months' demand) ÷ Σ(their calendar days)
+requiredStock  = dailyAverage × (supplierLeadTimeDays + safetyStockDays)
+safetyStock    = round(dailyAverage × safetyStockDays)     (safetyStockDays from product)
+recommended    = max(0, requiredStock − inventoryPosition)
 recommended    = min(recommended, max(0, dailyForecast×maxCoverDays − inventoryPosition))   [unless protected]
 recommended    = max(recommended, minimumOrderQty)                                          [if > 0]
 recommended    = ceil(recommended ÷ orderMultiple) × orderMultiple                          [round up]
@@ -1203,7 +1175,7 @@ critical if stock ≤ 0 or reorderByDate ≤ today · warning if reorderByDate �
 
 **Pricing**
 ```
-minimumPrice = unitPrice × (1 + minGrossMargin)     (unit cost does not affect the floor)
+minimumPrice = unitPrice ÷ (1 − minGrossMargin)     (unit cost does not affect the floor)
 low if cover < lead + safetyDays · high if cover > maxCoverDays · else normal
 + the 8 decision rules in Step 14
 ```
@@ -1214,9 +1186,9 @@ low if cover < lead + safetyDays · high if cover > maxCoverDays · else normal
 
 | Constant | Value | Where used |
 |---|---|---|
-| Baseline decay `d` | 0.3 | weighted average |
-| Trend decay `d` | 0.25 | trend regression |
-| Dampening lambda `λ` | 0.9 | trend contribution per month |
+| Baseline weights | 3 / 2 / 1 (newest 3 / middle 3 / oldest 6) | weighted average |
+| Trend weights | equal — plain linear regression | trend slope |
+| Trend dampening | none (`slope × i`) | trend contribution per month |
 | Seasonality mode | raw per-month factor (no neighbor smoothing) | seasonal factors |
 | Seasonality clamp | 0.5 – 2.0 | seasonal factors |
 | Factor clamp | 0.7× – 1.5× baseline | business factors |
@@ -1300,4 +1272,4 @@ Key source files:
 
 ---
 
-*Generated from the real output of `forecastSKU()` in `frontend/src/lib/forecast-engine.ts` on 2026-07-31.*
+*Generated from the real output of `forecastSKU()` in `frontend/src/lib/forecast-engine.ts` on 2026-08-04.*

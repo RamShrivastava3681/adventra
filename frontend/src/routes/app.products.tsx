@@ -399,9 +399,10 @@ function PricingPreview({ f }: { f: { unit_price: string; unit_cost: string; min
   const unitPrice = Number(f.unit_price) || 0;
   // Margin is entered as a percentage (e.g. 40 = 40%) and stored as a decimal (0.4).
   const margin = Math.min(0.99, Math.max(0.01, (Number(f.minimum_gross_margin_percentage) || 40) / 100));
-  // Margin floor: min permitted = unit price × (1 + margin). Unit cost does NOT affect it.
-  // e.g. price $100, 40% margin → min permitted $140.
-  const minPermitted = unitPrice > 0 ? unitPrice * (1 + margin) : 0;
+  // Margin floor: min permitted = unit price ÷ (1 − margin) — the price that
+  // preserves the configured gross margin. Unit cost does NOT affect it.
+  // e.g. price $100, 40% margin → min permitted $166.67.
+  const minPermitted = unitPrice > 0 ? unitPrice / (1 - margin) : 0;
   return (
     <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
       <div className="mb-1 text-[9px] uppercase tracking-widest text-muted-foreground">Pricing preview</div>
@@ -419,7 +420,7 @@ function PricingPreview({ f }: { f: { unit_price: string; unit_cost: string; min
       </div>
       {unitPrice > 0 && unitPrice < minPermitted && (
         <div className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
-          Selling below the minimum permitted price (your unit price plus the configured gross margin) erodes margin.
+          Selling below the minimum permitted price (your unit price divided by 1 − the configured gross margin) erodes margin.
         </div>
       )}
     </div>
