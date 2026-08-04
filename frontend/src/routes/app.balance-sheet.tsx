@@ -162,11 +162,14 @@ function computeBS(asOf: string, data: Awaited<ReturnType<typeof fetchBalanceShe
     const cur = invByKey.get(key) ?? { item: m.item_name || key, qty: 0, totalCost: 0, unitAvg: 0 };
     const q = Number(m.quantity || 0);
     const uc = Number(m.unit_cost || 0);
+    // Inventory value = Σ(in qty × unit cost) − Σ(out qty × unit cost).
+    // Both directions use the movement's own unit cost (the sale price is irrelevant).
     if (m.direction === "in") {
-      cur.qty += q; cur.totalCost += q * uc; cur.unitAvg = cur.qty > 0 ? cur.totalCost / cur.qty : 0;
+      cur.qty += q; cur.totalCost += q * uc;
     } else {
-      cur.qty -= q; cur.totalCost = Math.max(0, cur.totalCost - cur.unitAvg * q);
+      cur.qty -= q; cur.totalCost = Math.max(0, cur.totalCost - uc * q);
     }
+    cur.unitAvg = cur.qty > 0 ? cur.totalCost / cur.qty : 0;
     invByKey.set(key, cur);
   }
   const invRows: DrillRow[] = [];

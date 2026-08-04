@@ -173,7 +173,7 @@ Subtitle: "Demand forecast & reorder (/app/forecast) — a seasonal weighted-tre
 12 months of real sales history, recomputed live."
 Bullets:
 • 12-month seasonal weighted-trend model per SKU: stockout-corrected demand →
-  exponentially weighted baseline → weighted trend line → smoothed seasonality →
+  exponentially weighted baseline → weighted trend line → raw seasonal factors →
   business factors (trekking season, weather, promotions, regional demand, events) →
   monthly forecast with 80% confidence intervals
 • Reorder math done right: lead-time demand + safety stock (95% service level) − stock on

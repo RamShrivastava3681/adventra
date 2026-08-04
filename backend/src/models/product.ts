@@ -25,6 +25,8 @@ export interface Product {
   reorderLevel: number;
   maxStock: number;
   leadTimeDays: number;
+  /** Days of demand to hold as a buffer (drives reorder safety stock) */
+  safetyStockDays: number;
   supplierId: string | null;
   barcode: string | null;
   imageUrl: string | null;
@@ -73,6 +75,7 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
     reorderLevel: data.reorderLevel || 0,
     maxStock: data.maxStock || 0,
     leadTimeDays: data.leadTimeDays || 30,
+    safetyStockDays: data.safetyStockDays || 30,
     supplierId: data.supplierId || null,
     barcode: data.barcode || null,
     imageUrl: data.imageUrl || null,
@@ -85,7 +88,7 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
 }
 
 export async function update(id: string, updates: Partial<Product>) {
-  const allowed = ["name","description","category","subcategory","gender","size","color","season","unitPrice","unitCost","reorderLevel","maxStock","leadTimeDays","supplierId","barcode","imageUrl","status","sku"];
+  const allowed = ["name","description","category","subcategory","gender","size","color","season","unitPrice","unitCost","reorderLevel","maxStock","leadTimeDays","safetyStockDays","supplierId","barcode","imageUrl","status","sku"];
   const patch: Record<string, any> = {};
   for (const key of allowed) {
     if ((updates as any)[key] !== undefined) patch[key] = (updates as any)[key];

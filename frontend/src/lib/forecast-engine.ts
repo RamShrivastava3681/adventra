@@ -1,7 +1,7 @@
 // KEEP IN SYNC: this file must stay identical to its copy in the other project
 // (frontend/src/lib vs backend/src/lib) — the server runs the same logic.
 // Enhanced forecast engine with exponentially weighted trend detection,
-// smoothed seasonality, confidence intervals, and availability-aware corrections.
+// raw seasonal factors, confidence intervals, and availability-aware corrections.
 // Designed for accurate, AI-like demand forecasting across all product categories.
 
 export type MonthlyBucket = {
@@ -231,12 +231,13 @@ function enhancedTrendSlope(values: number[]): {
 }
 
 // -----------------------------------------------------------------------------
-// Enhanced seasonality — neighbor-smoothed seasonal factors
-// Uses triangular smoothing (70% target month + 15% each neighbor) to reduce
-// noise while preserving genuine seasonal patterns.
+// Seasonality — raw per-month seasonal factors
+// Each calendar month's average demand is compared to the overall average.
+// The raw factor is used directly (no neighbor smoothing), then clamped so a
+// single noisy month cannot push seasonality to extremes.
 // -----------------------------------------------------------------------------
 
-function smoothSeasonalityFactor(
+function rawSeasonalityFactor(
   history: MonthlyBucket[],
   targetMonthIdx: number
 ): number {
@@ -253,17 +254,11 @@ function smoothSeasonalityFactor(
     grouped[idx].reduce((a, b) => a + b, 0) /
     Math.max(grouped[idx].length, 1);
 
-  const rawTarget = getAvg(targetMonthIdx) / overallAvg;
-  const prevIdx = (targetMonthIdx + 11) % 12;
-  const nextIdx = (targetMonthIdx + 1) % 12;
-  const rawPrev = getAvg(prevIdx) / overallAvg;
-  const rawNext = getAvg(nextIdx) / overallAvg;
-
-  // Triangular smoothing: 70% target, 15% each neighbor
-  const smoothed = rawTarget * 0.7 + (rawPrev + rawNext) * 0.15;
+  // Raw seasonal factor — used directly, without blending with neighbors
+  const rawFactor = getAvg(targetMonthIdx) / overallAvg;
 
   // Clamp to prevent extreme seasonality
-  return Math.max(0.5, Math.min(2.0, smoothed));
+  return Math.max(0.5, Math.min(2.0, rawFactor));
 }
 
 // -----------------------------------------------------------------------------
@@ -503,11 +498,8 @@ export type CalculationBreakdown = {
       contribution: number;
     }>;
     totalLeadTimeDemand: number;
-    demandMean: number;
-    demandVariance: number;
-    demandStdDev: number;
-    serviceLevelTarget: number | null;
-    serviceLevelZ: number;
+    dailyForecast: number;
+    safetyStockDays: number;
     safetyStockFormula: string;
     safetyStockUnits: number;
     inventoryPosition: number;
@@ -599,7 +591,8 @@ function computeSeasonalityBreakdown(
     const rawTarget = overallAvg > 0 ? monthAvg / overallAvg : 1;
     const rawPrev = overallAvg > 0 ? getAvg(prevIdx) / overallAvg : 1;
     const rawNext = overallAvg > 0 ? getAvg(nextIdx) / overallAvg : 1;
-    const smoothed = rawTarget * 0.7 + (rawPrev + rawNext) * 0.15;
+    // No neighbor smoothing — the raw factor is used as-is
+    const smoothed = rawTarget;
     const clamped = Math.max(0.5, Math.min(2.0, smoothed));
     return {
       monthIndex: mi,
@@ -662,7 +655,7 @@ export function forecastSKU(
   for (let i = 1; i <= horizonMonths; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
     const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    const seas = smoothSeasonalityFactor(history, d.getMonth());
+    const seas = rawSeasonalityFactor(history, d.getMonth());
     // Apply dampened trend: trend influence decreases further out
     const dampening = Math.pow(dampeningLambda, i - 1);
     const trendContribution = slope * i * dampening;
@@ -756,54 +749,53 @@ export function forecastSKU(
       : Infinity;
 
   // ---- Improved reorder calculation using month-by-month demand ----
+  // Reorder demand covers the lead-time window month by month: the CURRENT
+  // month contributes its remaining days, then each following month in full.
+  // Reorder = (daily avg × lead time days) + (daily avg × safety stock days) − stock.
   const supplierLead = cfg.supplierLeadTimeDays ?? leadTimeDays;
   const safetyDays = cfg.safetyStockDays ?? 30;
 
-  // Calculate lead time demand by summing daily rates across the
-  // months that the lead time spans, for better accuracy
+  // Current month's daily rate — same seasonal/baseline math as the forecast
+  // months but with zero trend contribution (i=0).
+  const curMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const curSeas = rawSeasonalityFactor(history, now.getMonth());
+  const curBaseline = Math.max(0, avg) * curSeas;
+  const curFinal = applyFactors(curBaseline, factors);
+  const curDm = daysInMonthFor(curMonthKey);
+  const currentDailyRate = curDm > 0 ? curFinal / curDm : curFinal / 30;
+  // Days left in the current month (including today; floors at 0)
+  const remainingDaysThisMonth = Math.max(0, curDm - now.getDate() + 1);
+
+  // Lead time demand: current month's remaining days first, then the
+  // following months in full until the lead time is covered.
   let leadTimeDemand = 0;
   let remainingLeadDays = supplierLead;
+  const leadTimeDemandBreakdown: CalculationBreakdown["reorder"]["leadTimeDemandBreakdown"] = [];
+  const addLeadMonth = (monthName: string, dailyRate: number, daysToTake: number) => {
+    if (daysToTake <= 0) return;
+    leadTimeDemand += dailyRate * daysToTake;
+    leadTimeDemandBreakdown.push({
+      monthName,
+      dailyRate: Math.round(dailyRate * 10) / 10,
+      daysUsed: daysToTake,
+      contribution: Math.round(dailyRate * daysToTake * 100) / 100,
+    });
+  };
+  {
+    const daysToTake = Math.min(remainingLeadDays, remainingDaysThisMonth);
+    addLeadMonth(monthNameFromKey(curMonthKey), currentDailyRate, daysToTake);
+    remainingLeadDays -= daysToTake;
+  }
   for (const mf of forecast) {
     if (remainingLeadDays <= 0) break;
     const dm = daysInMonthFor(mf.month);
     const daysToTake = Math.min(remainingLeadDays, dm);
-    leadTimeDemand += mf.dailyRate * daysToTake;
+    addLeadMonth(mf.monthName, mf.dailyRate, daysToTake);
     remainingLeadDays -= daysToTake;
   }
 
-  // Safety stock based on de-seasonalized demand variability
-  // Removing seasonality from variance prevents inflated safety stock for seasonal SKUs
-  // e.g. a product with 2x December peak would have ~2x raw stddev → using de-seasonalized values fixes this
-  const mean = values.length > 0 ? values.reduce((a, b) => a + b, 0) / values.length : 0;
-  
-  // De-seasonalize values for more accurate variance estimation
-  let deSeasonalizedValues: number[];
-  if (n >= 12) {
-    deSeasonalizedValues = values.map((v, i) => {
-      const monthIdx = parseInt(history[i].month.split("-")[1], 10) - 1;
-      const sf = smoothSeasonalityFactor(history, monthIdx);
-      return sf > 0 ? v / sf : v;
-    });
-  } else {
-    deSeasonalizedValues = [...values];
-  }
-  const desMean = deSeasonalizedValues.reduce((a, b) => a + b, 0) / Math.max(n, 1);
-  const desVariance =
-    n > 1
-      ? deSeasonalizedValues.reduce((a, v) => a + (v - desMean) ** 2, 0) / (n - 1)
-      : 0;
-  const demandStdDev = Math.sqrt(desVariance);
-  // Safety stock = z-score (95% service level ≈ 1.65) * std dev * sqrt(lead time / 30)
-  const serviceLevelZ = cfg.serviceLevelTarget
-    ? cfg.serviceLevelTarget >= 0.99 ? 2.33
-      : cfg.serviceLevelTarget >= 0.95 ? 1.65
-      : cfg.serviceLevelTarget >= 0.90 ? 1.28
-      : 1.04
-    : 1.65;
-  const safetyStockUnits =
-    demandStdDev > 0
-      ? Math.round(serviceLevelZ * demandStdDev * Math.sqrt(supplierLead / 30))
-      : Math.round(dailyForecast * safetyDays);
+  // Safety stock = daily average demand × safety stock days (from the product catalogue)
+  const safetyStockUnits = Math.round(dailyForecast * safetyDays);
 
   let recommended = Math.max(0, leadTimeDemand + safetyStockUnits - inventoryPosition);
 
@@ -927,9 +919,9 @@ export function forecastSKU(
     },
     seasonality: {
       description:
-        "For each calendar month, the average historical demand is divided by the overall average to get a seasonal factor. Triangular smoothing (70% target + 15% each neighbor) reduces noise.",
+        "For each calendar month, the average historical demand is divided by the overall average to get a seasonal factor. The raw factor is used directly (no neighbor smoothing), then clamped to a safe range.",
       formula:
-        "factor = clamp(targetAvg/overall × 0.7 + prevAvg/overall × 0.15 + nextAvg/overall × 0.15, 0.5, 2.0)",
+        "factor = clamp(targetAvg / overallAvg, 0.5, 2.0)",
       overallAvg: seasonalityBreakdown.overallAvg,
       perMonthBreakdown: seasonalityBreakdown.perMonthBreakdown,
     },
@@ -981,40 +973,13 @@ export function forecastSKU(
     }),
     reorder: {
       description:
-        "Lead time demand is calculated by summing daily demand rates across the months the lead time spans. Safety stock uses demand variability (standard deviation) × service level z-score × √(lead time / 30).",
+        "Reorder = (daily avg × lead time days) + (daily avg × safety stock days) − stock on hand. Lead-time demand is counted month by month: the current month contributes its remaining days, then each following month in full. Safety stock = daily average demand × safety stock days from the product catalogue.",
       supplierLeadDays: supplierLead,
-      leadTimeDemandBreakdown: (() => {
-        const breakdown: CalculationBreakdown["reorder"]["leadTimeDemandBreakdown"] = [];
-        let remaining = supplierLead;
-        for (const mf of forecast) {
-          if (remaining <= 0) break;
-          const dm = daysInMonthFor(mf.month);
-          const daysToTake = Math.min(remaining, dm);
-          breakdown.push({
-            monthName: mf.monthName,
-            dailyRate: mf.dailyRate,
-            daysUsed: daysToTake,
-            contribution: Math.round(mf.dailyRate * daysToTake * 100) / 100,
-          });
-          remaining -= daysToTake;
-        }
-        return breakdown;
-      })(),
+      leadTimeDemandBreakdown,
       totalLeadTimeDemand: Math.round(leadTimeDemand * 100) / 100,
-      demandMean: Math.round(mean * 100) / 100,
-      demandVariance: Math.round(desVariance * 100) / 100,
-      demandStdDev: Math.round(demandStdDev * 100) / 100,
-      serviceLevelTarget: cfg.serviceLevelTarget ?? null,
-      serviceLevelZ: Math.round(serviceLevelZ * 100) / 100,
-      safetyStockFormula:
-        demandStdDev > 0
-          ? serviceLevelZ +
-            " × " +
-            Math.round(demandStdDev * 100) / 100 +
-            " × √(" +
-            supplierLead +
-            "/30)"
-          : dailyForecast + " × " + safetyDays + " (fallback)",
+      dailyForecast,
+      safetyStockDays: safetyDays,
+      safetyStockFormula: dailyForecast + " × " + safetyDays,
       safetyStockUnits,
       inventoryPosition,
       recommendedBeforeCaps: Math.max(
@@ -1402,7 +1367,12 @@ export function recomputeTimeline(
   leadTimeDays: number
 ): ForecastResult {
   const today = new Date();
-  const supplierLead = Math.max(leadTimeDays, 1);
+  const rbd = f.calculationBreakdown?.reorder;
+  // Safety stock days come from the product catalogue (default 30). Old
+  // persisted snapshots may not carry it — fall back to 30.
+  const safetyDays = rbd?.safetyStockDays ?? 30;
+  // Persisted snapshots may have a per-product lead time; prefer it.
+  const supplierLead = Math.max(rbd?.supplierLeadDays ?? leadTimeDays, 1);
 
   // Use the first forecast month's daily rate (or the top-level dailyForecast)
   const dailyForecast = f.dailyForecast > 0
@@ -1458,6 +1428,57 @@ export function recomputeTimeline(
       ? "warning"
       : "safe";
 
+  // --- Reorder quantity (also date-sensitive: the current month's remaining
+  // days shrink every day, so recompute against the live clock). Uses the same
+  // formula as forecastSKU: lead-time demand from the current month's remaining
+  // days + following forecast months, plus safety stock = dailyForecast × safetyDays.
+  const curDm = daysInMonthFor(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`);
+  const remainingDaysThisMonth = Math.max(0, curDm - today.getDate() + 1);
+  // Current month rate: use the next forecast month's rate as the closest proxy.
+  const currentMonthRate = f.forecast[0]?.dailyRate ?? dailyForecast;
+  let leadTimeDemand = 0;
+  let remainingLeadDays = supplierLead;
+  const leadTimeDemandBreakdown: CalculationBreakdown["reorder"]["leadTimeDemandBreakdown"] = [];
+  const addLeadMonth = (monthName: string, dailyRate: number, daysToTake: number) => {
+    if (daysToTake <= 0) return;
+    leadTimeDemand += dailyRate * daysToTake;
+    leadTimeDemandBreakdown.push({
+      monthName,
+      dailyRate: Math.round(dailyRate * 10) / 10,
+      daysUsed: daysToTake,
+      contribution: Math.round(dailyRate * daysToTake * 100) / 100,
+    });
+  };
+  {
+    const daysToTake = Math.min(remainingLeadDays, remainingDaysThisMonth);
+    addLeadMonth(MONTH_NAMES[today.getMonth()], currentMonthRate, daysToTake);
+    remainingLeadDays -= daysToTake;
+  }
+  for (const mf of f.forecast) {
+    if (remainingLeadDays <= 0) break;
+    const dm = daysInMonthFor(mf.month);
+    const daysToTake = Math.min(remainingLeadDays, dm);
+    addLeadMonth(mf.monthName, mf.dailyRate, daysToTake);
+    remainingLeadDays -= daysToTake;
+  }
+
+  const safetyStockUnits = Math.round(dailyForecast * safetyDays);
+  let recommended = Math.max(0, leadTimeDemand + safetyStockUnits - inventoryPosition);
+
+  // Re-apply the persisted caps so the recomputed number matches the page rules.
+  const maxCoverDays = rbd?.maxCoverDays ?? null;
+  const hasCap = maxCoverDays != null && rbd?.headroom != null && dailyForecast > 0;
+  if (hasCap) {
+    const maxStock = dailyForecast * maxCoverDays!;
+    const headroom = Math.max(0, maxStock - inventoryPosition);
+    recommended = Math.min(recommended, headroom);
+  }
+  if (recommended > 0 && rbd?.minimumOrderQty) {
+    recommended = Math.max(recommended, rbd.minimumOrderQty);
+  }
+  const mult = rbd?.orderMultiple && rbd.orderMultiple > 1 ? rbd.orderMultiple : 1;
+  recommended = mult > 1 ? Math.ceil(recommended / mult) * mult : Math.ceil(recommended);
+
   // --- Risks ---
   const coverVsLead = daysOfCover === Infinity ? 999 : daysOfCover / supplierLead;
   const stockoutRisk: ForecastResult["stockoutRisk"] =
@@ -1476,6 +1497,7 @@ export function recomputeTimeline(
     ...f,
     inventoryPosition,
     daysOfCover,
+    recommendedReorder: recommended,
     estimatedStockoutDate,
     reorderByDate,
     nextRefillDate,
@@ -1484,6 +1506,53 @@ export function recomputeTimeline(
     overstockRisk,
     calculationBreakdown: {
       ...f.calculationBreakdown,
+      reorder: {
+        ...(f.calculationBreakdown?.reorder ?? {}),
+        description:
+          "Reorder = (daily avg × lead time days) + (daily avg × safety stock days) − stock on hand. Lead-time demand is counted month by month: the current month contributes its remaining days, then each following month in full. Safety stock = daily average demand × safety stock days from the product catalogue.",
+        supplierLeadDays: supplierLead,
+        leadTimeDemandBreakdown,
+        totalLeadTimeDemand: Math.round(leadTimeDemand * 100) / 100,
+        dailyForecast,
+        safetyStockDays: safetyDays,
+        safetyStockFormula: `${dailyForecast} × ${safetyDays}`,
+        safetyStockUnits,
+        inventoryPosition,
+        recommendedBeforeCaps: Math.max(
+          0,
+          leadTimeDemand + safetyStockUnits - inventoryPosition
+        ),
+        maxCoverDays,
+        maxStock:
+          maxCoverDays && dailyForecast > 0
+            ? Math.round(dailyForecast * maxCoverDays)
+            : null,
+        headroom: hasCap
+          ? Math.max(0, Math.round(dailyForecast * maxCoverDays!) - inventoryPosition)
+          : null,
+        afterCap: (() => {
+          let r = Math.max(0, leadTimeDemand + safetyStockUnits - inventoryPosition);
+          if (hasCap) {
+            const maxStock = dailyForecast * maxCoverDays!;
+            r = Math.min(r, Math.max(0, maxStock - inventoryPosition));
+          }
+          return Math.round(r);
+        })(),
+        minimumOrderQty: rbd?.minimumOrderQty ?? null,
+        afterMOQ: (() => {
+          let r = Math.max(0, leadTimeDemand + safetyStockUnits - inventoryPosition);
+          if (hasCap) {
+            const maxStock = dailyForecast * maxCoverDays!;
+            r = Math.min(r, Math.max(0, maxStock - inventoryPosition));
+          }
+          if (r > 0 && rbd?.minimumOrderQty) r = Math.max(r, rbd.minimumOrderQty);
+          return Math.round(r);
+        })(),
+        orderMultiple:
+          rbd?.orderMultiple && rbd.orderMultiple > 1 ? rbd.orderMultiple : null,
+        afterMultiple: recommended,
+        finalRecommended: recommended,
+      },
       daysOfCover: {
         ...f.calculationBreakdown.daysOfCover,
         dailyForecast,

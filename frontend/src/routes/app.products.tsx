@@ -26,6 +26,7 @@ type Product = {
   reorder_level: number;
   max_stock: number;
   lead_time_days: number;
+  safety_stock_days: number;
   status: string;
   supplier_id: string | null;
 };
@@ -226,6 +227,7 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
     unit_price: String(product?.unit_price ?? ""),
     unit_cost: String(product?.unit_cost ?? ""),
     lead_time_days: String(product?.lead_time_days ?? "30"),
+    safety_stock_days: String(product?.safety_stock_days ?? "30"),
     status: product?.status ?? "active",
   });
 
@@ -248,6 +250,7 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
         // Fixed defaults (field hidden from the form) so low-stock indicators keep working.
         reorder_level: 10,
         lead_time_days: Number(f.lead_time_days) || 30,
+        safety_stock_days: Number(f.safety_stock_days) || 30,
         status: f.status,
       };
       if (isEdit && product) {
@@ -293,6 +296,7 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
             <L label="Unit price"><input type="number" step="0.01" className="inp" value={f.unit_price} onChange={(e) => setF({ ...f, unit_price: e.target.value })} /></L>
             <L label="Unit cost"><input type="number" step="0.01" className="inp" value={f.unit_cost} onChange={(e) => setF({ ...f, unit_cost: e.target.value })} /></L>
             <L label="Lead time (days)"><input type="number" className="inp" value={f.lead_time_days} onChange={(e) => setF({ ...f, lead_time_days: e.target.value })} /></L>
+            <L label="Safety stock (days)"><input type="number" className="inp" value={f.safety_stock_days} onChange={(e) => setF({ ...f, safety_stock_days: e.target.value })} /></L>
             <L label="Status">
               <select className="inp" value={f.status} onChange={(e) => setF({ ...f, status: e.target.value })}>
                 <option value="active">Active</option>

@@ -793,7 +793,7 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
   });
   line(s, { x: 0.85, y: y0 + 2.78, w: 5.9, h: 0, line: { color: C.red, width: 1.2, dashType: "dash" } });
   tx(s, "reorder trigger", { x: 4.6, y: y0 + 2.54, w: 1.6, h: 0.2, fontSize: 7.5, color: C.red, align: "right" });
-  tx(s, "Model pipeline: stockout-corrected demand → exponentially weighted baseline → weighted trend → smoothed seasonality → business factors → 80% confidence intervals.", {
+  tx(s, "Model pipeline: stockout-corrected demand → exponentially weighted baseline → weighted trend → raw seasonal factors → business factors → 80% confidence intervals.", {
     x: 0.75, y: y0 + 3.45, w: 6.1, h: 0.8, fontSize: 8.5, color: C.muted, lineSpacingMultiple: 1.1,
   });
   // Right: SKU insight card
@@ -818,7 +818,7 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
   tx(s, "Every number auditable: expand any SKU to see the full calculation breakdown — weights, trend R², seasonal factors, safety stock, lead-time demand.", {
     x: 7.5, y: y0 + 4.28, w: 5.1, h: 0.22, fontSize: 8, color: C.muted,
   });
-  s.addNotes("Showcase 3 — Demand forecast & reorder. Seasonal weighted-trend model over 12 months: availability-corrected demand, exponentially weighted baseline, weighted trend, smoothed seasonality, business factors (trekking season, weather, promotion lift, regional, events), 80% confidence intervals. Reorder = lead-time demand + safety stock (95% service level) − stock, capped by max stock & MOQ. Timelines: stockout date, reorder-by, refill, urgency. Velocity (fast/medium/slow/dead by category), momentum, stockout/overstock risk, pricing strategy recommendations, full calculation breakdown. Live 60s refresh, daily snapshots, one-click recompute.");
+  s.addNotes("Showcase 3 — Demand forecast & reorder. Seasonal weighted-trend model over 12 months: availability-corrected demand, exponentially weighted baseline, weighted trend, raw seasonal factors, business factors (trekking season, weather, promotion lift, regional, events), 80% confidence intervals. Reorder = lead-time demand + safety stock (95% service level) − stock, capped by max stock & MOQ. Timelines: stockout date, reorder-by, refill, urgency. Velocity (fast/medium/slow/dead by category), momentum, stockout/overstock risk, pricing strategy recommendations, full calculation breakdown. Live 60s refresh, daily snapshots, one-click recompute.");
 }
 
 // ════════════════════════════════════════════════════════════════

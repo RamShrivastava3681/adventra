@@ -67,7 +67,9 @@ export async function recomputeAll(clientId: string): Promise<{
 
     const history = bucketMovementsByMonth(formattedMoves, 12);
     const leadTimeDays = p.leadTimeDays ?? 14;
-    const f = forecastSKU(history, stock, leadTimeDays, 6);
+    const f = forecastSKU(history, stock, leadTimeDays, 6, {
+      config: { safetyStockDays: p.safetyStockDays ?? 30 },
+    });
 
     snapshots.push({
       productId,

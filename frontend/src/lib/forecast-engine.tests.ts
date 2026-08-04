@@ -6,6 +6,7 @@ import {
   correctForAvailability,
   bucketMovementsByMonth,
   forecastSKU,
+  recomputeTimeline,
   type MonthlyBucket,
   type ForecastResult,
 } from "./forecast-engine";
@@ -276,6 +277,98 @@ test("later months have less trend influence", () => {
     // (not strictly enforced but should not grow)
   }
   truthy(diffs.length > 0, "should produce multiple forecast months");
+});
+
+console.log("\nseasonality (no neighbor smoothing)");
+test("seasonality factor is the raw month factor, not neighbor-blended", () => {
+  const now = new Date();
+  const curIdx = now.getMonth();
+  // Current calendar month = 60 units, every other month = 100.
+  // overallAvg = (11×100 + 60) ÷ 12 = 96.67 → raw factor = 60 ÷ 96.67 = 0.6207.
+  // Old 70/15/15 blending would have given ~0.7448.
+  const h: MonthlyBucket[] = Array.from({ length: 12 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
+    const q = d.getMonth() === curIdx ? 60 : 100;
+    return {
+      month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
+      qty: q,
+      rawQty: q,
+    };
+  });
+  const r = forecastSKU(h, 1000, 14);
+  const bd = r.calculationBreakdown.seasonality.perMonthBreakdown[curIdx];
+  close(bd.rawFactor, 0.6207, 0.001);
+  close(bd.smoothedFactor, bd.rawFactor, 0.001);
+  close(bd.clampedFactor, bd.rawFactor, 0.001);
+});
+test("safety stock = dailyForecast × safetyStockDays from config", () => {
+  // Safety stock is always daily avg demand × product safety stock days.
+  const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
+  const a = forecastSKU(h, 0, 30, 6, { config: { supplierLeadTimeDays: 30, safetyStockDays: 30 } });
+  const expected = Math.round(a.dailyForecast * 30);
+  eq(a.calculationBreakdown.reorder.safetyStockUnits, expected, "safety = dailyForecast × 30");
+  eq(a.calculationBreakdown.reorder.safetyStockDays, 30);
+  // A different safety stock days value must change the result proportionally
+  const c = forecastSKU(h, 0, 30, 6, { config: { supplierLeadTimeDays: 30, safetyStockDays: 15 } });
+  eq(c.calculationBreakdown.reorder.safetyStockUnits, Math.round(a.dailyForecast * 15), "safety scales with safetyStockDays");
+});
+test("reorder = lead time demand + safety stock − stock on hand", () => {
+  const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
+  const r = forecastSKU(h, 0, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
+  const bd = r.calculationBreakdown.reorder;
+  const expected = Math.max(0, Math.round(bd.totalLeadTimeDemand + bd.safetyStockUnits - bd.inventoryPosition));
+  close(r.recommendedReorder, expected, 1);
+  // With stock on hand, reorder shrinks by exactly that stock
+  const r2 = forecastSKU(h, 100, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
+  close(r2.recommendedReorder, Math.max(0, expected - 100), 1);
+});
+test("lead time demand starts with the current month's remaining days", () => {
+  const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
+  const r = forecastSKU(h, 0, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
+  const bd = r.calculationBreakdown.reorder.leadTimeDemandBreakdown;
+  truthy(bd.length >= 1, "lead time demand should have at least one month");
+  // First row is the current (partial) month; daysUsed must be > 0 and < full month days
+  const now = new Date();
+  const curName = "January February March April May June July August September October November December".split(" ")[now.getMonth()];
+  eq(bd[0].monthName, curName, "first month is the current month");
+  const daysInCurMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const remaining = daysInCurMonth - now.getDate() + 1;
+  truthy(bd[0].daysUsed > 0 && bd[0].daysUsed <= remaining, `days used ${bd[0].daysUsed} should be ≤ remaining ${remaining}`);
+  // Sum of daysUsed across all rows should equal the lead time
+  const totalDays = bd.reduce((s, m) => s + m.daysUsed, 0);
+  eq(totalDays, 14, "lead time days fully covered");
+});
+test("recomputeTimeline refreshes reorder against live stock & backfills new fields", () => {
+  const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
+  const r = forecastSKU(h, 50, 14, 6, {
+    config: { supplierLeadTimeDays: 14, safetyStockDays: 30 },
+  });
+  // Simulate an OLD persisted snapshot that lacks the new reorder fields
+  const oldSnapshot: ForecastResult = JSON.parse(
+    JSON.stringify({
+      ...r,
+      recommendedReorder: 999,
+      calculationBreakdown: {
+        ...r.calculationBreakdown,
+        reorder: {
+          supplierLeadDays: 14,
+          totalLeadTimeDemand: 100,
+          inventoryPosition: 50,
+          finalRecommended: 999,
+        },
+      },
+    })
+  );
+  const fresh = recomputeTimeline(oldSnapshot, 50, 14);
+  // Reorder was recomputed (not 999), and matches the fresh engine result
+  eq(fresh.recommendedReorder, r.recommendedReorder, "reorder recomputed live");
+  const rb = fresh.calculationBreakdown.reorder;
+  eq(rb.safetyStockDays, 30, "safety days backfilled with default");
+  truthy(typeof rb.safetyStockUnits === "number" && rb.safetyStockUnits > 0, "safety units backfilled");
+  truthy(typeof rb.dailyForecast === "number", "dailyForecast backfilled");
+  // Lead time window starts with the current month (partial)
+  const now = new Date();
+  eq(rb.leadTimeDemandBreakdown[0].monthName, "January February March April May June July August September October November December".split(" ")[now.getMonth()]);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

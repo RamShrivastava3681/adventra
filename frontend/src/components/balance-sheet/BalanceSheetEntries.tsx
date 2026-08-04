@@ -126,8 +126,10 @@ function computeAuto(d: Awaited<ReturnType<typeof fetchAuto>>): Partial<Record<S
     const k = m.sku || m.item_name || m.id;
     const cur = map.get(k) ?? { qty: 0, totalCost: 0, unitAvg: 0 };
     const q = Number(m.quantity || 0), uc = Number(m.unit_cost || 0);
-    if (m.direction === "in") { cur.qty += q; cur.totalCost += q * uc; cur.unitAvg = cur.qty > 0 ? cur.totalCost / cur.qty : 0; }
-    else { cur.qty -= q; cur.totalCost = Math.max(0, cur.totalCost - cur.unitAvg * q); }
+    // Inventory value = Σ(in qty × unit cost) − Σ(out qty × unit cost)
+    if (m.direction === "in") { cur.qty += q; cur.totalCost += q * uc; }
+    else { cur.qty -= q; cur.totalCost = Math.max(0, cur.totalCost - uc * q); }
+    cur.unitAvg = cur.qty > 0 ? cur.totalCost / cur.qty : 0;
     map.set(k, cur);
   }
   let inv = 0;

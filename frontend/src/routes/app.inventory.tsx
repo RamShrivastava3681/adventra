@@ -100,7 +100,7 @@ function InventoryPage() {
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Item</th>
-                    <th className="px-5 py-2 text-right font-normal">On hand</th>
+                    <th className="px-5 py-2 text-right font-normal">In stock</th>
                     <th className="px-5 py-2 text-left font-normal">Unit</th>
                     <th className="px-5 py-2 text-right font-normal">Inventory value</th>
                   </tr>
@@ -234,24 +234,25 @@ function NewMovementModal({ userId, onClose, initialMode = "single" }: { userId:
     },
   });
 
-  // Stock-in (credit) is valued at the product's unit PRICE; stock-out (debit) at unit COST.
-  const unitValueFor = (pid: string, direction: "in" | "out") => {
+  // Inventory value is cost-based: stock-in is valued at the product's unit COST
+  // and stock-out subtracts quantity × unit cost (the sale price is irrelevant).
+  const unitValueFor = (pid: string) => {
     const p = (productsQ.data ?? []).find((x: any) => x.id === pid) as any;
     if (!p) return "";
-    return String(direction === "in" ? p.unit_price ?? "" : p.unit_cost ?? "");
+    return String(p.unit_cost ?? "");
   };
 
-  // When a product is picked, auto-fill item_name, sku and the direction-appropriate unit value
+  // When a product is picked, auto-fill item_name, sku and unit cost
   const pickProduct = (pid: string) => {
     const p = (productsQ.data ?? []).find((x: any) => x.id === pid) as any;
-    if (p) setForm((f) => ({ ...f, product_id: pid, item_name: p.name, sku: p.sku, unit_cost: f.unit_cost || unitValueFor(pid, f.direction) }));
+    if (p) setForm((f) => ({ ...f, product_id: pid, item_name: p.name, sku: p.sku, unit_cost: f.unit_cost || unitValueFor(pid) }));
     else setForm((f) => ({ ...f, product_id: "" }));
   };
 
-  // Changing direction re-applies the correct value for the selected product
+  // Changing direction keeps the cost basis (unit cost applies to both directions)
   const setDirection = (direction: "in" | "out") => {
     setForm((f) => {
-      const unit_cost = f.product_id ? unitValueFor(f.product_id, direction) : f.unit_cost;
+      const unit_cost = f.product_id ? unitValueFor(f.product_id) : f.unit_cost;
       return { ...f, direction, unit_cost };
     });
   };
@@ -352,7 +353,7 @@ function NewMovementModal({ userId, onClose, initialMode = "single" }: { userId:
             <L label="Item name *"><input required className="inp" value={form.item_name} onChange={(e) => setForm({ ...form, item_name: e.target.value })} /></L>
             <L label="SKU"><input className="inp" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} /></L>
             <L label="Unit"><input className="inp" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder="kg / box / unit" /></L>
-            <L label={form.direction === "in" ? "Unit price" : "Unit cost"}><input type="number" step="0.01" min="0" className="inp" value={form.unit_cost} onChange={(e) => setForm({ ...form, unit_cost: e.target.value })} /></L>
+            <L label="Unit cost"><input type="number" step="0.01" min="0" className="inp" value={form.unit_cost} onChange={(e) => setForm({ ...form, unit_cost: e.target.value })} /></L>
           </div>
           {form.direction === "in" ? (
             <L label="Link to purchase invoice (optional)">

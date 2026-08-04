@@ -20,6 +20,7 @@ export const Route = createFileRoute("/app/forecast")({
 type Product = {
   id: string; sku: string; name: string; category: string | null;
   reorder_level: number; max_stock: number; lead_time_days: number;
+  safety_stock_days: number;
   unit_price: number; unit_cost: number; status: string;
 };
 
@@ -63,7 +64,8 @@ function ForecastPage() {
       return data.filter((p: any) => p.status === "active").map((p: any) => ({
         id: p.id, sku: p.sku, name: p.name, category: p.category,
         reorder_level: p.reorderLevel ?? p.reorder_level, max_stock: p.maxStock ?? p.max_stock,
-        lead_time_days: p.leadTimeDays ?? p.lead_time_days, unit_price: p.unitPrice ?? p.unit_price,
+        lead_time_days: p.leadTimeDays ?? p.lead_time_days, safety_stock_days: p.safetyStockDays ?? p.safety_stock_days ?? 30,
+        unit_price: p.unitPrice ?? p.unit_price,
         unit_cost: p.unitCost ?? p.unit_cost, status: p.status,
       })).sort((a: any, b: any) => a.sku?.localeCompare(b.sku ?? "") ?? 0);
     },
@@ -113,6 +115,7 @@ function ForecastPage() {
           reorder_level: p.reorderLevel ?? p.reorder_level ?? 0,
           max_stock: p.maxStock ?? p.max_stock ?? 0,
           lead_time_days: p.leadTimeDays ?? p.lead_time_days ?? 14,
+          safety_stock_days: p.safetyStockDays ?? p.safety_stock_days ?? 30,
           unit_price: p.unitPrice ?? p.unit_price ?? 0,
           unit_cost: p.unitCost ?? p.unit_cost ?? 0,
           status: p.status ?? "active",
@@ -158,7 +161,7 @@ function ForecastPage() {
           unitPrice: Number(p.unit_price),
           minimumGrossMarginPercentage: 0.40,
           supplierLeadTimeDays: p.lead_time_days,
-          safetyStockDays: 30,
+          safetyStockDays: Number(p.safety_stock_days) || 30,
           maxCoverDays: 180,
         });
       }
@@ -179,7 +182,9 @@ function ForecastPage() {
       let stock = 0;
       for (const m of moves) stock += (m.direction === "in" ? 1 : -1) * Number(m.quantity);
       const history = bucketMovementsByMonth(moves, 12);
-      const f = forecastSKU(history, stock, p.lead_time_days, 6);
+      const f = forecastSKU(history, stock, p.lead_time_days, 6, {
+        config: { safetyStockDays: Number(p.safety_stock_days) || 30 },
+      });
       return { product: p, stock, forecast: f, velocityTag: "dead" as VelocityTag, pricingStrategy: null as PricingStrategyResult | null };
     });
 
@@ -211,7 +216,7 @@ function ForecastPage() {
         unitPrice: Number(p.unit_price),
         minimumGrossMarginPercentage: 0.40,
         supplierLeadTimeDays: p.lead_time_days,
-        safetyStockDays: 30,
+        safetyStockDays: Number(p.safety_stock_days) || 30,
         maxCoverDays: 180,
       });
     }
@@ -376,7 +381,7 @@ function ForecastPage() {
                     <th className="px-5 py-3 text-left font-medium">SKU / Name</th>
                     <th className="px-5 py-3 text-left font-medium">Velocity</th>
                     <th className="px-5 py-3 text-left font-medium">Momentum</th>
-                    <th className="px-5 py-3 text-right font-medium">On hand</th>
+                    <th className="px-5 py-3 text-right font-medium">In stock</th>
                     <th className="px-5 py-3 text-right font-medium">Days cover</th>
                     <th className="px-5 py-3 text-right font-medium">Trend</th>
                     <th className="px-5 py-3 text-right font-medium">Monthly forecast</th>
@@ -601,7 +606,7 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, expanded
           </div>
         </td>
 
-        {/* On hand */}
+        {/* In stock */}
         <td className="px-5 py-3.5 text-right">
           <div className={`font-mono text-sm font-semibold tabular-nums ${
             stock <= 0 ? "text-rose-600" : stock <= product.reorder_level ? "text-amber-600" : "text-foreground"
@@ -1220,7 +1225,7 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
               <KpiSquare label="Recommended qty" value={f.recommendedReorder.toLocaleString()} tone="primary" />
               <KpiSquare label="Reorder value" value={fmtMoney(f.recommendedReorder * Number(product.unit_cost))} />
               <KpiSquare label="Next month" value={f.finalForecast.toLocaleString()} />
-              <KpiSquare label="On hand value" value={fmtMoney(stock * Number(product.unit_cost))} />
+              <KpiSquare label="In stock value" value={fmtMoney(stock * Number(product.unit_cost))} />
             </div>
           </div>
         </div>
@@ -1629,7 +1634,7 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
       {/* 4. Seasonality Factors */}
       <CalcSection
         id="seas"
-        label="④ Seasonality factors (triangular smoothing)"
+        label="④ Seasonality factors (raw, no smoothing)"
         open={openSection}
         onToggle={toggle}
       >
@@ -1638,7 +1643,7 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
           Overall average: <span className="font-mono font-semibold">{breakdown.seasonality.overallAvg}</span>
         </div>
         <CalcTable
-          headers={["Month", "Avg", "Raw", "Prev", "Next", "Smoothed", "Final"]}
+          headers={["Month", "Avg", "Raw", "Prev", "Next", "Factor", "Clamped"]}
           rows={breakdown.seasonality.perMonthBreakdown.map((m) => [
             m.monthName.slice(0, 3),
             String(m.monthAvg),
@@ -1650,7 +1655,7 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
           ])}
         />
         <div className="mt-1 text-[9px] text-muted-foreground/60">
-          Formula: clamp(target×0.7 + prev×0.15 + next×0.15, 0.4, 2.5)
+          Formula: clamp(targetAvg ÷ overallAvg, 0.5, 2.0) — raw factor, no neighbor smoothing
         </div>
       </CalcSection>
 
@@ -1744,12 +1749,10 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
               .join(" + ")}
           />
 
-          <div className="font-medium text-xs mt-3 mb-1">Safety stock (demand variability)</div>
+          <div className="font-medium text-xs mt-3 mb-1">Safety stock (daily avg × safety days)</div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-            <CalcVar name="Demand mean" value={breakdown.reorder.demandMean} />
-            <CalcVar name="Variance" value={breakdown.reorder.demandVariance} />
-            <CalcVar name="Std deviation" value={breakdown.reorder.demandStdDev} />
-            <CalcVar name="Service level Z" value={breakdown.reorder.serviceLevelZ} />
+            <CalcVar name="Daily avg demand" value={breakdown.reorder.dailyForecast} />
+            <CalcVar name="Safety stock days" value={breakdown.reorder.safetyStockDays} />
             <CalcVar
               name="Safety stock"
               value={breakdown.reorder.safetyStockUnits}
