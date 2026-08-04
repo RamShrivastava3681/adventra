@@ -447,7 +447,7 @@ test("reorder = requiredStock − stock on hand (last-3-months daily average)", 
   eq(r2.recommendedReorder, Math.ceil(bd2.recommendedBeforeCaps));
   close(r2.recommendedReorder, Math.max(0, expected - 100), 1);
 });
-test("daily average uses only the last 3 completed months (current month excluded)", () => {
+test("daily average uses the last 3 completed months when no live current-month data", () => {
   const now = new Date();
   const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const h = mkHistory([10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]);
@@ -464,6 +464,25 @@ test("daily average uses only the last 3 completed months (current month exclude
   eq(bd.totalDays, realDays, "calendar days match the actual months");
   // dailyAverage = totalDemand ÷ totalDays
   close(bd.dailyAverage, bd.totalDemand / bd.totalDays, 0.0001);
+});
+test("reorder daily average includes the current (in-progress) month when live data is passed", () => {
+  const now = new Date();
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const curDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const h = mkHistory([10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]);
+  const r = forecastSKU(h, 0, 14, 6, {
+    config: { supplierLeadTimeDays: 14, safetyStockDays: 30 },
+    currentMonth: { month: curKey, qty: 5, rawQty: 5 },
+  });
+  const bd = r.calculationBreakdown.reorder;
+  eq(bd.lastThreeMonths.length, 3, "window is still 3 months");
+  const last = bd.lastThreeMonths[2];
+  eq(last.monthKey, curKey, "the in-progress month is the newest entry");
+  eq(last.demand, 5, "current-month outbound to date");
+  eq(last.days, curDays, "counted with its full calendar days");
+  eq(bd.totalDemand, 25, "2 completed months × 10 + current to-date 5");
+  // dailyAverage is rounded to 3 decimals in the breakdown → allow 0.001
+  close(bd.dailyAverage, bd.totalDemand / bd.totalDays, 0.001);
 });
 test("recomputeTimeline refreshes reorder against live stock & backfills new fields", () => {
   const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
@@ -493,12 +512,25 @@ test("recomputeTimeline refreshes reorder against live stock & backfills new fie
   eq(rb.safetyStockDays, 30, "safety days backfilled with default");
   truthy(typeof rb.safetyStockUnits === "number" && rb.safetyStockUnits > 0, "safety units backfilled");
   truthy(typeof rb.dailyForecast === "number", "dailyForecast backfilled");
-  // Daily average uses the last 3 completed months (current month excluded)
+  // Daily average uses the last 3 completed months when no live data is passed
   const now = new Date();
   const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   eq(rb.lastThreeMonths.length, 3, "exactly 3 completed months");
   truthy(rb.lastThreeMonths.every((m) => m.monthKey < curKey), "current month excluded");
   truthy(typeof rb.dailyAverage === "number" && rb.dailyAverage > 0, "daily average backfilled");
+});
+test("recomputeTimeline includes the current month in the reorder window when live outbound is passed", () => {
+  const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
+  const r = forecastSKU(h, 50, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
+  const fresh = recomputeTimeline(r, 50, 14, 5);
+  const rb = fresh.calculationBreakdown.reorder;
+  const now = new Date();
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  eq(rb.lastThreeMonths.length, 3, "window is still 3 months");
+  const last = rb.lastThreeMonths[2];
+  eq(last.monthKey, curKey, "current month included when live outbound is passed");
+  eq(last.demand, 5, "live outbound to date");
+  eq(rb.totalDemand, 65, "2 completed months × 30 + current to-date 5");
 });
 
 console.log("\nrecommended price — demo price-change table (configurable, recommendation only)");

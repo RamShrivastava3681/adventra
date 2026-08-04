@@ -605,15 +605,14 @@ export type CalculationBreakdown = {
   reorder: {
     description: string;
     supplierLeadDays: number;
-    /** The last 3 completed calendar months used for the daily average */
     lastThreeMonths: Array<{
       monthName: string;
       monthKey: string;
       demand: number; // corrected outbound demand
       days: number; // calendar days in that month
     }>;
-    totalDemand: number; // Σ corrected demand over the last 3 completed months
-    totalDays: number; // Σ calendar days over the last 3 completed months
+    totalDemand: number; // Σ corrected demand over the last 3 calendar months
+    totalDays: number; // Σ calendar days over the last 3 calendar months
     dailyAverage: number; // totalDemand / totalDays
     requiredStock: number; // dailyAverage × (supplierLeadDays + safetyStockDays)
     dailyForecast: number;
@@ -911,15 +910,16 @@ export function forecastSKU(
       : Infinity;
 
   // ---- Reorder recommendation (simple rule) ----
-  // Daily average = corrected demand over the last 3 COMPLETED calendar months
-  // divided by their actual calendar days. The current (partial) month is
-  // excluded so the rate is never skewed by a half-finished month.
+  // Daily average = corrected demand over the last 3 calendar months divided by
+  // their actual calendar days. When live current-month data is available the
+  // in-progress month is included (counted with its full calendar days);
+  // otherwise the 3 most recent completed months are used.
   //   requiredStock = dailyAverage × (supplierLeadTimeDays + safetyStockDays)
   //   rawReorder    = max(0, requiredStock − inventoryPosition)
   const supplierLead = cfg.supplierLeadTimeDays ?? leadTimeDays;
   const safetyDays = cfg.safetyStockDays ?? 30;
 
-  const lastThreeMonths = history
+  const completedMonths = history
     .filter((h) => h.month < curMonthKey) // completed calendar months only
     .slice(-3)
     .map((h) => ({
@@ -928,6 +928,20 @@ export function forecastSKU(
       demand: h.qty, // corrected outbound demand
       days: daysInMonthFor(h.month), // calendar days in that month
     }));
+  // Window = the 2 most recent completed months + the current (in-progress)
+  // month when live data exists, so the daily average always reflects the most
+  // recent 3 months of selling.
+  const lastThreeMonths = options.currentMonth
+    ? [
+        ...completedMonths.slice(-2),
+        {
+          monthKey: options.currentMonth.month,
+          monthName: monthNameFromKey(options.currentMonth.month),
+          demand: options.currentMonth.rawQty ?? options.currentMonth.qty ?? 0, // outbound to date
+          days: daysInMonthFor(options.currentMonth.month), // full calendar days
+        },
+      ]
+    : completedMonths;
   const totalDemand = lastThreeMonths.reduce((a, m) => a + m.demand, 0);
   const totalDays = lastThreeMonths.reduce((a, m) => a + m.days, 0);
   const dailyAverage = totalDays > 0 ? totalDemand / totalDays : 0;
@@ -1114,7 +1128,7 @@ export function forecastSKU(
     }),
     reorder: {
       description:
-        "Reorder = max(0, requiredStock − inventoryPosition), where requiredStock = dailyAverage × (supplierLeadTimeDays + safetyStockDays). Daily average = corrected demand over the last 3 completed calendar months ÷ their actual calendar days. The current (partial) month is excluded.",
+        "Reorder = max(0, requiredStock − inventoryPosition), where requiredStock = dailyAverage × (supplierLeadTimeDays + safetyStockDays). Daily average = corrected demand over the last 3 calendar months ÷ their actual calendar days (the current month is included when live data is available).",
       supplierLeadDays: supplierLead,
       lastThreeMonths,
       totalDemand: Math.round(totalDemand * 100) / 100,
@@ -1717,10 +1731,13 @@ export function recomputeTimeline(
       : "safe";
 
   // --- Reorder quantity (simple rule, same as forecastSKU): daily average from
-  // the last 3 COMPLETED calendar months of corrected history ÷ their actual
-  // calendar days, requiredStock = dailyAverage × (lead + safety), then
-  // rawReorder = max(0, requiredStock − inventoryPosition).
-  const lastThreeMonths = (f.history ?? [])
+  // the last 3 calendar months of corrected history ÷ their actual calendar
+  // days. When live current-month outbound sales are supplied the in-progress
+  // month is included (counted with its full calendar days); otherwise the 3
+  // most recent completed months are used.
+  //   requiredStock = dailyAverage × (lead + safety)
+  //   rawReorder    = max(0, requiredStock − inventoryPosition)
+  const completedMonths = (f.history ?? [])
     .filter((h) => h.month < curMonthKey) // completed calendar months only
     .slice(-3)
     .map((h) => ({
@@ -1729,6 +1746,20 @@ export function recomputeTimeline(
       demand: h.qty, // corrected outbound demand
       days: daysInMonthFor(h.month), // calendar days in that month
     }));
+  // Window = the 2 most recent completed months + the current (in-progress)
+  // month when live data exists, so the daily average always reflects the most
+  // recent 3 months of selling.
+  const lastThreeMonths = currentMonthOutbound !== undefined
+    ? [
+        ...completedMonths.slice(-2),
+        {
+          monthKey: curMonthKey,
+          monthName: monthNameFromKey(curMonthKey),
+          demand: currentMonthOutbound, // outbound to date
+          days: daysInMonthFor(curMonthKey), // full calendar days
+        },
+      ]
+    : completedMonths;
   const totalDemand = lastThreeMonths.reduce((a, m) => a + m.demand, 0);
   const totalDays = lastThreeMonths.reduce((a, m) => a + m.days, 0);
   const dailyAverage = totalDays > 0 ? totalDemand / totalDays : 0;
@@ -1787,7 +1818,7 @@ export function recomputeTimeline(
       reorder: {
         ...(f.calculationBreakdown?.reorder ?? {}),
         description:
-          "Reorder = max(0, requiredStock − inventoryPosition), where requiredStock = dailyAverage × (supplierLeadTimeDays + safetyStockDays). Daily average = corrected demand over the last 3 completed calendar months ÷ their actual calendar days.",
+          "Reorder = max(0, requiredStock − inventoryPosition), where requiredStock = dailyAverage × (supplierLeadTimeDays + safetyStockDays). Daily average = corrected demand over the last 3 calendar months ÷ their actual calendar days (the current month is included when live data is available).",
         supplierLeadDays: supplierLead,
         lastThreeMonths,
         totalDemand: Math.round(totalDemand * 100) / 100,
