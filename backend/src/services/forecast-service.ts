@@ -3,6 +3,7 @@ import * as StockMovement from "../models/stock-movement.js";
 import * as ForecastVariable from "../models/forecast-variable.js";
 import {
   bucketMovementsByMonth,
+  currentMonthBucket,
   forecastSKU,
   computeVelocityByCategory,
   type CategoryVelocityInput,
@@ -66,9 +67,11 @@ export async function recomputeAll(clientId: string): Promise<{
     }));
 
     const history = bucketMovementsByMonth(formattedMoves, 12);
+    const currentMonth = currentMonthBucket(formattedMoves);
     const leadTimeDays = p.leadTimeDays ?? 14;
     const f = forecastSKU(history, stock, leadTimeDays, 6, {
       config: { safetyStockDays: p.safetyStockDays ?? 30 },
+      currentMonth,
     });
 
     snapshots.push({
@@ -144,6 +147,11 @@ export async function recomputeAll(clientId: string): Promise<{
         nextRefillDate: f.nextRefillDate,
         stockoutUrgency: f.stockoutUrgency,
         avgMonthly: safeNumber(f.avgMonthly),
+        currentMonthBaseForecast: safeNumber(f.currentMonthBaseForecast),
+        nextMonthBaseForecast: safeNumber(f.nextMonthBaseForecast),
+        adjustedNextForecast: safeNumber(f.adjustedNextForecast),
+        adjustmentFactor: safeNumber(f.adjustmentFactor),
+        adjustmentReason: f.adjustmentReason ?? null,
       });
       persisted += 1;
     } catch (err: any) {

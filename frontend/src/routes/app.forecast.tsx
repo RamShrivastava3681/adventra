@@ -1,17 +1,19 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
-import { bucketMovementsByMonth, forecastSKU, MONTH_NAMES, computeVelocityByCategory, computePricingStrategy, recomputeTimeline, type ForecastResult, type CalculationBreakdown, type MomentumTag, type VelocityTag, type PricingStrategyResult, type CategoryVelocityInput } from "@/lib/forecast-engine";
+import { bucketMovementsByMonth, currentMonthBucket, forecastSKU, MONTH_NAMES, computeVelocityByCategory, computePricingStrategy, recomputeTimeline, type ForecastResult, type CalculationBreakdown, type MomentumTag, type VelocityTag, type PricingStrategyResult, type CategoryVelocityInput } from "@/lib/forecast-engine";
 import {
   TrendingUp, TrendingDown, AlertTriangle, Package, Search, BarChart3, RefreshCw,
   CalendarClock, Clock, Truck, ArrowUpDown, ArrowRight, Zap, ArrowUp, ArrowDown, Minus,
+  Loader2, Save, Pencil,
 } from "lucide-react";
 import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   Area, AreaChart, BarChart, Bar,
 } from "recharts";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/forecast")({
   component: ForecastPage,
@@ -21,7 +23,8 @@ type Product = {
   id: string; sku: string; name: string; category: string | null;
   reorder_level: number; max_stock: number; lead_time_days: number;
   safety_stock_days: number;
-  unit_price: number; unit_cost: number; status: string;
+  unit_price: number; unit_cost: number;
+  minimum_gross_margin_percentage: number; status: string;
 };
 
 type Analysis = { product: Product; stock: number; forecast: ForecastResult; velocityTag: VelocityTag; pricingStrategy: PricingStrategyResult | null };
@@ -66,7 +69,9 @@ function ForecastPage() {
         reorder_level: p.reorderLevel ?? p.reorder_level, max_stock: p.maxStock ?? p.max_stock,
         lead_time_days: p.leadTimeDays ?? p.lead_time_days, safety_stock_days: p.safetyStockDays ?? p.safety_stock_days ?? 30,
         unit_price: p.unitPrice ?? p.unit_price,
-        unit_cost: p.unitCost ?? p.unit_cost, status: p.status,
+        unit_cost: p.unitCost ?? p.unit_cost,
+        minimum_gross_margin_percentage: p.minimumGrossMarginPercentage ?? p.minimum_gross_margin_percentage ?? 0.4,
+        status: p.status,
       })).sort((a: any, b: any) => a.sku?.localeCompare(b.sku ?? "") ?? 0);
     },
     refetchInterval: 60_000, // keep SKU data current (lead times, prices, …)
@@ -118,6 +123,7 @@ function ForecastPage() {
           safety_stock_days: p.safetyStockDays ?? p.safety_stock_days ?? 30,
           unit_price: p.unitPrice ?? p.unit_price ?? 0,
           unit_cost: p.unitCost ?? p.unit_cost ?? 0,
+          minimum_gross_margin_percentage: p.minimumGrossMarginPercentage ?? p.minimum_gross_margin_percentage ?? 0.4,
           status: p.status ?? "active",
         });
       }
@@ -138,7 +144,14 @@ function ForecastPage() {
         let stock = 0;
         for (const m of moves) stock += (m.direction === "in" ? 1 : -1) * Number(m.quantity);
 
-        const f = recomputeTimeline(snapshot.forecast as ForecastResult, stock, product.lead_time_days);
+        // Live current-month outbound sales — drives the pace adjustment factor
+        const curMonthKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+        let currentMonthOutbound = 0;
+        for (const m of moves) {
+          if (m.direction === "out" && (m.movement_date ?? "").slice(0, 7) === curMonthKey) currentMonthOutbound += Number(m.quantity);
+        }
+
+        const f = recomputeTimeline(snapshot.forecast as ForecastResult, stock, product.lead_time_days, currentMonthOutbound);
 
         rows.push({
           product,
@@ -177,7 +190,7 @@ function ForecastPage() {
           daysOfCover: f.daysOfCover,
           unitCost: Number(p.unit_cost),
           unitPrice: Number(p.unit_price),
-          minimumGrossMarginPercentage: 0.40,
+          minimumGrossMarginPercentage: Number(p.minimum_gross_margin_percentage) || 0.4,
           supplierLeadTimeDays: p.lead_time_days,
           safetyStockDays: Number(p.safety_stock_days) || 30,
           maxCoverDays: 180,
@@ -200,8 +213,10 @@ function ForecastPage() {
       let stock = 0;
       for (const m of moves) stock += (m.direction === "in" ? 1 : -1) * Number(m.quantity);
       const history = bucketMovementsByMonth(moves, 12);
+      const currentMonth = currentMonthBucket(moves);
       const f = forecastSKU(history, stock, p.lead_time_days, 6, {
         config: { safetyStockDays: Number(p.safety_stock_days) || 30 },
+        currentMonth,
       });
       return { product: p, stock, forecast: f, velocityTag: "dead" as VelocityTag, pricingStrategy: null as PricingStrategyResult | null };
     });
@@ -232,7 +247,7 @@ function ForecastPage() {
         daysOfCover: f.daysOfCover,
         unitCost: Number(p.unit_cost),
         unitPrice: Number(p.unit_price),
-        minimumGrossMarginPercentage: 0.40,
+        minimumGrossMarginPercentage: Number(p.minimum_gross_margin_percentage) || 0.4,
         supplierLeadTimeDays: p.lead_time_days,
         safetyStockDays: Number(p.safety_stock_days) || 30,
         maxCoverDays: 180,
@@ -289,7 +304,7 @@ function ForecastPage() {
       <PageHeader
         eyebrow="Intelligence"
         title="Demand forecast & reorder"
-        description="Seasonal weighted-trend model over 12 months of sales. Shows monthly breakdowns, estimated stockout dates, and reorder timelines for every SKU."
+        description="Seasonal trend model over 12 months of sales. Shows monthly breakdowns, estimated stockout dates, and reorder timelines for every SKU."
         breadcrumbs={[
           { label: "Dashboard", href: "/app/dashboard" },
           { label: "Forecast" },
@@ -653,7 +668,21 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, expanded
 
         {/* Monthly forecast */}
         <td className="px-5 py-3.5 text-right">
-          <div className="font-mono text-sm font-semibold tabular-nums">{nextMonthQty.toLocaleString()}</div>
+          <div className="font-mono text-sm font-semibold tabular-nums">
+            {nextMonthQty.toLocaleString()}
+            {f.adjustmentFactor !== 1 && (
+              <>
+                <span className="text-muted-foreground/40"> → </span>
+                <span className="text-primary">{f.adjustedNextForecast.toLocaleString()}</span>
+              </>
+            )}
+          </div>
+          {f.adjustmentFactor !== 1 && (
+            <div className="text-[9px] font-semibold text-amber-600 dark:text-amber-400 flex items-center justify-end gap-0.5">
+              {f.adjustmentFactor > 1 ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+              live {Math.round((f.adjustmentFactor - 1) * 100) > 0 ? "+" : ""}{Math.round((f.adjustmentFactor - 1) * 100)}%
+            </div>
+          )}
           <div className="text-[9px] text-muted-foreground/60">next 6mo: {next6Total.toLocaleString()}</div>
           <div className="mt-1">
             <ForecastSparkline forecast={f.forecast} />
@@ -756,6 +785,119 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, expanded
         </tr>
       )}
     </>
+  );
+}
+
+// --------------- Edit pricing (recommendation stays read-only) ---------------
+
+function EditPricingForm({ product, pricingStrategy }: {
+  product: Product;
+  pricingStrategy: PricingStrategyResult | null;
+}) {
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [unitCost, setUnitCost] = useState(String(product.unit_cost ?? ""));
+  const [marginPct, setMarginPct] = useState(String(product.minimum_gross_margin_percentage ?? "0.4"));
+  const [savedFlash, setSavedFlash] = useState(false);
+  const dirtyRef = useRef(false);
+
+  // If the product record changes underneath us (60s refetch, another tab),
+  // resync the form — unless the user has started typing.
+  useEffect(() => {
+    if (dirtyRef.current) return;
+    setUnitCost(String(product.unit_cost ?? ""));
+    setMarginPct(String(product.minimum_gross_margin_percentage ?? "0.4"));
+  }, [product.unit_cost, product.minimum_gross_margin_percentage]);
+
+  const changePct = pricingStrategy?.recommendedPriceChangePct ?? 0;
+  const margin = Math.min(0.99, Math.max(0.01, (Number(marginPct) || 0.4) / 100));
+  const cost = Number(unitCost) || 0;
+  const minPermitted = cost > 0 ? cost / (1 - margin) : 0;
+  // Live preview from the CURRENT unit price × demo % — exactly like the engine.
+  const recommended = Math.round(Math.max(Number(product.unit_price) * (1 + changePct / 100), minPermitted) * 100) / 100;
+
+  const save = useMutation({
+    mutationFn: async () => {
+      await api.products.update(product.id, {
+        unit_cost: Number(unitCost) || 0,
+        minimum_gross_margin_percentage: Number(marginPct) || 0.4,
+      });
+    },
+    onSuccess: () => {
+      // Invalidate both keys so the forecast page AND the products page
+      // (which shares the same underlying product data) pick up the change.
+      qc.invalidateQueries({ queryKey: ["products-forecast"] });
+      qc.invalidateQueries({ queryKey: ["products"] });
+      setOpen(false);
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 2500);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to update pricing"),
+  });
+
+  return (
+    <div className="rounded-xl border border-border/50 bg-card p-4">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs uppercase tracking-widest text-muted-foreground">Edit pricing</h4>
+        <button
+          onClick={() => setOpen(!open)}
+          className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline transition-colors"
+        >
+          <Pencil className="h-2.5 w-2.5" />
+          {open ? "Close" : "Update unit cost / margin"}
+        </button>
+      </div>
+      {savedFlash && (
+        <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+          ✓ Pricing saved — strategy refresh queued.
+        </div>
+      )}
+      {open && (
+        <div className="mt-3 space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <label className="block">
+              <span className="mb-1 block text-[9px] uppercase tracking-widest text-muted-foreground">Unit cost ($)</span>
+              <input
+                type="number" step="0.01" value={unitCost}
+                onChange={(e) => { dirtyRef.current = true; setUnitCost(e.target.value); }}
+                className="w-full rounded-lg border border-border bg-input px-2.5 py-1.5 text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-[9px] uppercase tracking-widest text-muted-foreground">Min gross margin (%)</span>
+              <input
+                type="number" step="0.5" min="1" max="99" value={marginPct}
+                onChange={(e) => { dirtyRef.current = true; setMarginPct(e.target.value); }}
+                className="w-full rounded-lg border border-border bg-input px-2.5 py-1.5 text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10"
+              />
+            </label>
+          </div>
+          <div className="space-y-1 rounded-lg border border-border/30 bg-muted/30 px-3 py-2 text-[10px]">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Min permitted price</span>
+              <span className="font-mono font-semibold tabular-nums">${minPermitted.toFixed(2)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Recommended {changePct !== 0 && `(applies ${changePct > 0 ? "+" : ""}${changePct}%)`}</span>
+              <span className="font-mono font-semibold tabular-nums text-primary">${recommended.toFixed(2)}</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => save.mutate()}
+              disabled={save.isPending}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-[11px] font-medium text-primary-foreground transition-all duration-200 hover:opacity-90 disabled:opacity-60"
+            >
+              {save.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+              Save pricing
+            </button>
+            <span className="text-[9px] text-muted-foreground/60">
+              Only unit cost & margin are saved — unit price is never auto-changed.
+            </span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1113,9 +1255,9 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
                     <div className="text-[8px] uppercase tracking-widest text-muted-foreground">Price analysis</div>
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex-1 min-w-0">
-                        <div className="text-[9px] text-muted-foreground">Current</div>
-                        <div className="font-mono text-sm font-bold tabular-nums">
-                          ${Number(pricingStrategy.conditions.unitPrice).toFixed(2)}
+                        <div className="text-[9px] text-muted-foreground">Unit cost</div>
+                        <div className="font-mono text-sm tabular-nums text-muted-foreground">
+                          ${Number(pricingStrategy.conditions.unitCost).toFixed(2)}
                         </div>
                       </div>
                       <div className="flex items-center justify-center text-muted-foreground/40">
@@ -1128,15 +1270,40 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
                         </div>
                       </div>
                     </div>
+                    <div className="flex items-center justify-between gap-2 border-t border-border/30 pt-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[9px] text-muted-foreground">Current</div>
+                        <div className="font-mono text-sm tabular-nums">
+                          ${Number(pricingStrategy.conditions.unitPrice).toFixed(2)}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-center text-muted-foreground/40">
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </div>
+                      <div className="flex-1 min-w-0 text-right">
+                        <div className="text-[9px] text-muted-foreground flex items-center justify-end gap-1">
+                          Recommended
+                          <span className={`inline-flex items-center rounded-full px-1.5 py-px text-[8px] font-bold ${pricingStrategy.recommendedPriceChangePct > 0 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : pricingStrategy.recommendedPriceChangePct < 0 ? "bg-rose-500/15 text-rose-600 dark:text-rose-400" : "bg-muted/40 text-muted-foreground"}`}>
+                            {pricingStrategy.recommendedPriceChangePct > 0 ? "+" : ""}{pricingStrategy.recommendedPriceChangePct}%
+                          </span>
+                        </div>
+                        <div className="font-mono text-sm font-bold tabular-nums text-primary">
+                          ${pricingStrategy.recommendedPrice.toFixed(2)}
+                        </div>
+                      </div>
+                    </div>
                     {/* Price range bar */}
                     <div className="h-2 rounded-full bg-muted overflow-hidden relative">
                       {(() => {
                         const minP = pricingStrategy.minimumPrice;
                         const curP = Number(pricingStrategy.conditions.unitPrice);
+                        const recP = pricingStrategy.recommendedPrice;
                         const maxP = curP * 1.5;
                         const range = maxP - minP;
-                        const minPos = range > 0 ? ((minP - minP) / range) * 100 : 0;
-                        const curPos = range > 0 ? ((curP - minP) / range) * 100 : 50;
+                        const pos = (v: number) => (range > 0 ? ((v - minP) / range) * 100 : 50);
+                        const minPos = pos(minP);
+                        const curPos = pos(curP);
+                        const recPos = pos(recP);
                         return (
                           <>
                             <div className="absolute inset-0 bg-gradient-to-r from-rose-400/30 via-amber-400/30 to-emerald-400/30" />
@@ -1147,6 +1314,10 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
                             <div
                               className="absolute top-0 bottom-0 w-0.5 bg-destructive rounded-full transition-all"
                               style={{ left: `${Math.min(Math.max(minPos, 2), 98)}%` }}
+                            />
+                            <div
+                              className="absolute top-0 bottom-0 w-0.5 bg-primary rounded-full transition-all"
+                              style={{ left: `${Math.min(Math.max(recPos, 2), 98)}%` }}
                             />
                           </>
                         );
@@ -1200,6 +1371,9 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
             );
           })()}
 
+          {/* Edit pricing — recommendation stays read-only; edits are manual */}
+          <EditPricingForm product={product} pricingStrategy={pricingStrategy} />
+
           {/* Risk indicators */}
           <div className="rounded-xl border border-border/50 bg-card p-4">
             <h4 className="text-xs uppercase tracking-widest text-muted-foreground mb-3">
@@ -1243,6 +1417,11 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
               <KpiSquare label="Recommended qty" value={f.recommendedReorder.toLocaleString()} tone="primary" />
               <KpiSquare label="Reorder value" value={fmtMoney(f.recommendedReorder * Number(product.unit_cost))} />
               <KpiSquare label="Next month" value={f.finalForecast.toLocaleString()} />
+              <KpiSquare
+                label="Adjusted next mo"
+                value={f.adjustmentFactor !== 1 ? f.adjustedNextForecast.toLocaleString() : "—"}
+                tone={f.adjustmentFactor !== 1 ? "primary" : undefined}
+              />
               <KpiSquare label="In stock value" value={fmtMoney(stock * Number(product.unit_cost))} />
             </div>
           </div>
@@ -1579,34 +1758,32 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
         </div>
       </CalcSection>
 
-      {/* 2. Weighted Average */}
+      {/* 2. Average (simple) */}
       <CalcSection
         id="wavg"
-        label="② Weighted average"
+        label="② Average (simple — 12 months)"
         open={openSection}
         onToggle={toggle}
       >
         <Formula formula={breakdown.weightedAverage.formula} />
         <CalcTable
-          headers={["Month", "Value", "Weight", "Value × Weight"]}
+          headers={["Month", "Demand"]}
           rows={breakdown.weightedAverage.values.map((v, i) => [
             breakdown.inputData.monthLabels[i] ?? `M${i}`,
             String(v),
-            String(breakdown.weightedAverage.weights[i]),
-            String(Math.round(v * breakdown.weightedAverage.weights[i])),
           ])}
         />
         <div className="mt-2 space-y-1 text-[11px]">
           <CalcLine
-            label="Sum of weights"
-            value={String(breakdown.weightedAverage.weightSum)}
-          />
-          <CalcLine
-            label="Weighted sum"
+            label="Total demand"
             value={String(breakdown.weightedAverage.weightedSum)}
           />
           <CalcLine
-            label="Weighted avg"
+            label="Months"
+            value={String(breakdown.weightedAverage.weightSum)}
+          />
+          <CalcLine
+            label="Average"
             value={String(breakdown.weightedAverage.result)}
             highlight
             formula={`${breakdown.weightedAverage.weightedSum} ÷ ${breakdown.weightedAverage.weightSum} = ${breakdown.weightedAverage.result}`}
@@ -1617,15 +1794,14 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
       {/* 3. Trend Analysis */}
       <CalcSection
         id="trend"
-        label="③ Trend analysis (exponentially weighted regression)"
+        label="③ Trend analysis (linear regression)"
         open={openSection}
         onToggle={toggle}
       >
         <Formula formula={breakdown.trendAnalysis.formula} />
         <div className="grid grid-cols-2 gap-2 mt-2">
-          <CalcVar name="Decay factor" value={breakdown.trendAnalysis.decay} />
-          <CalcVar name="Weighted mean X" value={breakdown.trendAnalysis.meanX} />
-          <CalcVar name="Weighted mean Y" value={breakdown.trendAnalysis.meanY} />
+          <CalcVar name="Mean X" value={breakdown.trendAnalysis.meanX} />
+          <CalcVar name="Mean Y" value={breakdown.trendAnalysis.meanY} />
           <CalcVar name="Numerator" value={breakdown.trendAnalysis.numerator} />
           <CalcVar name="Denominator" value={breakdown.trendAnalysis.denominator} />
           <CalcVar
@@ -1638,14 +1814,6 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
           <CalcVar name="R² (strength)" value={breakdown.trendAnalysis.rSquared} highlight />
           <CalcVar name="Direction threshold" value={breakdown.trendAnalysis.threshold} />
           <CalcVar name="Direction" value={breakdown.trendAnalysis.direction} />
-        </div>
-        <div className="mt-2 text-[10px] text-muted-foreground">
-          Trend weights (exponential decay, most recent → last): [
-          {breakdown.trendAnalysis.weights
-            .slice(-5)
-            .map((w) => w.toFixed(3))
-            .join(", ")}
-          , …]
         </div>
       </CalcSection>
 
@@ -1705,8 +1873,6 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
                 )}
               </div>
               <div className="grid grid-cols-2 md:grid-cols-3 gap-x-3 gap-y-1 text-[10px]">
-                <CalcVar name="Dampening λ" value={m.dampeningLambda} />
-                <CalcVar name="Dampening" value={m.dampening} />
                 <CalcVar name="Trend contrib" value={m.trendContribution} />
                 <CalcVar name="Avg + trend" value={m.avgPlusTrend} />
                 <CalcVar name="Seas factor" value={m.seasonalityFactor} />
@@ -1749,37 +1915,44 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
         onToggle={toggle}
       >
         <div className="space-y-2 text-[11px]">
-          <div className="font-medium text-xs mb-1">Lead time demand</div>
+          <div className="font-medium text-xs mb-1">Daily average — last 3 completed months</div>
           <CalcTable
-            headers={["Month", "Daily rate", "Days used", "Demand"]}
-            rows={breakdown.reorder.leadTimeDemandBreakdown.map((m) => [
+            headers={["Month", "Corrected demand", "Days"]}
+            rows={breakdown.reorder.lastThreeMonths.map((m) => [
               m.monthName,
-              String(m.dailyRate),
-              String(m.daysUsed),
-              String(m.contribution),
+              String(m.demand),
+              String(m.days),
             ])}
           />
-          <CalcLine
-            label="Total lead time demand"
-            value={String(breakdown.reorder.totalLeadTimeDemand)}
-            formula={breakdown.reorder.leadTimeDemandBreakdown
-              .map((m) => `${m.dailyRate}×${m.daysUsed}`)
-              .join(" + ")}
-          />
-
-          <div className="font-medium text-xs mt-3 mb-1">Safety stock (daily avg × safety days)</div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-            <CalcVar name="Daily avg demand" value={breakdown.reorder.dailyForecast} />
+            <CalcVar name="Total demand" value={String(breakdown.reorder.totalDemand)} />
+            <CalcVar name="Calendar days" value={String(breakdown.reorder.totalDays)} />
+            <CalcVar
+              name="Daily avg demand"
+              value={breakdown.reorder.dailyAverage}
+              highlight
+              formula={`${breakdown.reorder.totalDemand} ÷ ${breakdown.reorder.totalDays} = ${breakdown.reorder.dailyAverage}`}
+            />
+          </div>
+
+          <div className="font-medium text-xs mt-3 mb-1">Required stock (daily avg × (lead + safety))</div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+            <CalcVar name="Supplier lead days" value={breakdown.reorder.supplierLeadDays} />
             <CalcVar name="Safety stock days" value={breakdown.reorder.safetyStockDays} />
             <CalcVar
               name="Safety stock"
               value={breakdown.reorder.safetyStockUnits}
+            />
+            <CalcVar
+              name="Required stock"
+              value={breakdown.reorder.requiredStock}
               highlight
+              formula={`${breakdown.reorder.dailyAverage} × (${breakdown.reorder.supplierLeadDays} + ${breakdown.reorder.safetyStockDays}) = ${breakdown.reorder.requiredStock}`}
             />
           </div>
           {breakdown.reorder.safetyStockFormula && (
             <div className="text-[9px] text-muted-foreground/60 font-mono">
-              = {breakdown.reorder.safetyStockFormula} = {breakdown.reorder.safetyStockUnits}
+              safety stock = {breakdown.reorder.safetyStockFormula} = {breakdown.reorder.safetyStockUnits}
             </div>
           )}
 
@@ -1789,7 +1962,7 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
             <CalcVar
               name="Before caps"
               value={breakdown.reorder.recommendedBeforeCaps}
-              formula={`${breakdown.reorder.totalLeadTimeDemand} + ${breakdown.reorder.safetyStockUnits} - ${breakdown.reorder.inventoryPosition}`}
+              formula={`max(0, ${breakdown.reorder.requiredStock} - ${breakdown.reorder.inventoryPosition})`}
             />
             {breakdown.reorder.maxCoverDays && (
               <>
@@ -1819,10 +1992,69 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
         </div>
       </CalcSection>
 
-      {/* 7. Days of Cover & Velocity */}
+      {/* 7. Live Pace Adjustment */}
+      <CalcSection
+        id="pace"
+        label="⑦ Live pace adjustment (next month)"
+        open={openSection}
+        onToggle={toggle}
+      >
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
+          <CalcVar
+            name="Current mo. base forecast"
+            value={breakdown.paceAdjustment.currentMonthBaseForecast}
+          />
+          <CalcVar
+            name="Next mo. base forecast"
+            value={breakdown.paceAdjustment.nextMonthBaseForecast}
+          />
+          <CalcVar name="Days elapsed" value={breakdown.paceAdjustment.daysElapsed} />
+          <CalcVar name="Days in month" value={breakdown.paceAdjustment.daysInMonth} />
+          <CalcVar
+            name="Expected sales to date"
+            value={breakdown.paceAdjustment.expectedSalesToDate}
+            formula={`${breakdown.paceAdjustment.currentMonthBaseForecast} × ${breakdown.paceAdjustment.daysElapsed} ÷ ${breakdown.paceAdjustment.daysInMonth} = ${breakdown.paceAdjustment.expectedSalesToDate}`}
+          />
+          <CalcVar
+            name="Actual sales to date"
+            value={breakdown.paceAdjustment.actualSalesToDate}
+          />
+          <CalcVar
+            name="Sales pace ratio"
+            value={breakdown.paceAdjustment.salesPaceRatio ?? "—"}
+            formula={
+              breakdown.paceAdjustment.salesPaceRatio != null
+                ? `${breakdown.paceAdjustment.actualSalesToDate} ÷ ${breakdown.paceAdjustment.expectedSalesToDate} = ${breakdown.paceAdjustment.salesPaceRatio}`
+                : undefined
+            }
+          />
+          <CalcVar
+            name="Adjustment factor"
+            value={breakdown.paceAdjustment.adjustmentFactor}
+            highlight
+            formula={
+              breakdown.paceAdjustment.salesPaceRatio != null
+                ? `1 + 0.30 × (${breakdown.paceAdjustment.salesPaceRatio} − 1), clamped to [0.80, 1.20]`
+                : "no adjustment applies"
+            }
+          />
+          <CalcVar
+            name="Adjusted next month"
+            value={breakdown.paceAdjustment.adjustedNextForecast}
+            highlight
+            formula={`${breakdown.paceAdjustment.nextMonthBaseForecast} × ${breakdown.paceAdjustment.adjustmentFactor} = ${breakdown.paceAdjustment.adjustedNextForecast}`}
+          />
+        </div>
+        <div className="mt-2 rounded-lg bg-muted/30 border border-border/30 px-3 py-2 text-[10px] text-muted-foreground">
+          <span className="text-muted-foreground/60">Reason: </span>
+          {breakdown.paceAdjustment.reason}
+        </div>
+      </CalcSection>
+
+      {/* 8. Days of Cover & Velocity */}
       <CalcSection
         id="cover"
-        label="⑦ Days of cover & velocity"
+        label="⑧ Days of cover & velocity"
         open={openSection}
         onToggle={toggle}
       >
@@ -1871,10 +2103,10 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
         </div>
       </CalcSection>
 
-      {/* 8. Risk & Timeline */}
+      {/* 9. Risk & Timeline */}
       <CalcSection
         id="risk"
-        label="⑧ Risk assessment & timeline"
+        label="⑨ Risk assessment & timeline"
         open={openSection}
         onToggle={toggle}
       >

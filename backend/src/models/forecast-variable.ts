@@ -37,6 +37,13 @@ export interface ForecastVariable {
   stockoutUrgency: string;
   avgMonthly: number | null;
 
+  /** Live pace adjustment (current-month sales vs forecast) */
+  currentMonthBaseForecast: number | null;
+  nextMonthBaseForecast: number | null;
+  adjustedNextForecast: number | null;
+  adjustmentFactor: number | null;
+  adjustmentReason: string | null;
+
   createdAt: string;
   updatedAt: string;
 }
@@ -94,6 +101,11 @@ export async function upsert(
     nextRefillDate: data.nextRefillDate,
     stockoutUrgency: data.stockoutUrgency,
     avgMonthly: data.avgMonthly,
+    currentMonthBaseForecast: data.currentMonthBaseForecast ?? null,
+    nextMonthBaseForecast: data.nextMonthBaseForecast ?? null,
+    adjustedNextForecast: data.adjustedNextForecast ?? null,
+    adjustmentFactor: data.adjustmentFactor ?? null,
+    adjustmentReason: data.adjustmentReason ?? null,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };

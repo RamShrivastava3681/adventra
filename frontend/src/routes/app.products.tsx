@@ -23,6 +23,7 @@ type Product = {
   season: string;
   unit_price: number;
   unit_cost: number;
+  minimum_gross_margin_percentage: number;
   reorder_level: number;
   max_stock: number;
   lead_time_days: number;
@@ -226,6 +227,7 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
     season: product?.season ?? "all",
     unit_price: String(product?.unit_price ?? ""),
     unit_cost: String(product?.unit_cost ?? ""),
+    minimum_gross_margin_percentage: String(product?.minimum_gross_margin_percentage ?? "0.4"),
     lead_time_days: String(product?.lead_time_days ?? "30"),
     safety_stock_days: String(product?.safety_stock_days ?? "30"),
     status: product?.status ?? "active",
@@ -247,6 +249,7 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
         season: f.season,
         unit_price: Number(f.unit_price) || 0,
         unit_cost: Number(f.unit_cost) || 0,
+        minimum_gross_margin_percentage: Number(f.minimum_gross_margin_percentage) || 0.4,
         // Fixed defaults (field hidden from the form) so low-stock indicators keep working.
         reorder_level: 10,
         lead_time_days: Number(f.lead_time_days) || 30,
@@ -259,7 +262,14 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
         await api.products.create(payload);
       }
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["products"] }); toast.success(isEdit ? "Updated" : "Created"); onClose(); },
+    onSuccess: () => {
+      // Invalidate both keys so the Products page AND the forecast page
+      // (which recomputes pricing strategy from unit cost / margin) stay in sync.
+      qc.invalidateQueries({ queryKey: ["products"] });
+      qc.invalidateQueries({ queryKey: ["products-forecast"] });
+      toast.success(isEdit ? "Updated" : "Created");
+      onClose();
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -295,6 +305,7 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
             <L label="Color"><input className="inp" value={f.color} onChange={(e) => setF({ ...f, color: e.target.value })} /></L>
             <L label="Unit price"><input type="number" step="0.01" className="inp" value={f.unit_price} onChange={(e) => setF({ ...f, unit_price: e.target.value })} /></L>
             <L label="Unit cost"><input type="number" step="0.01" className="inp" value={f.unit_cost} onChange={(e) => setF({ ...f, unit_cost: e.target.value })} /></L>
+            <L label="Min gross margin (%)"><input type="number" step="0.01" min="1" max="99" className="inp" value={f.minimum_gross_margin_percentage} onChange={(e) => setF({ ...f, minimum_gross_margin_percentage: e.target.value })} /></L>
             <L label="Lead time (days)"><input type="number" className="inp" value={f.lead_time_days} onChange={(e) => setF({ ...f, lead_time_days: e.target.value })} /></L>
             <L label="Safety stock (days)"><input type="number" className="inp" value={f.safety_stock_days} onChange={(e) => setF({ ...f, safety_stock_days: e.target.value })} /></L>
             <L label="Status">
@@ -304,6 +315,7 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
               </select>
             </L>
           </div>
+          <PricingPreview f={f} />
           <div className="flex justify-end gap-2 pt-2">
             <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
             <button disabled={save.isPending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
@@ -313,6 +325,35 @@ function ProductModal({ userId, product, onClose }: { userId: string; product: P
         </form>
         <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
       </div>
+    </div>
+  );
+}
+
+function PricingPreview({ f }: { f: { unit_price: string; unit_cost: string; minimum_gross_margin_percentage: string } }) {
+  const unitCost = Number(f.unit_cost) || 0;
+  const margin = Math.min(0.99, Math.max(0.01, Number(f.minimum_gross_margin_percentage) || 0.4) / 100);
+  const minPermitted = unitCost > 0 ? unitCost / (1 - margin) : 0;
+  const unitPrice = Number(f.unit_price) || 0;
+  return (
+    <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs">
+      <div className="mb-1 text-[9px] uppercase tracking-widest text-muted-foreground">Pricing preview</div>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+        <span className="text-muted-foreground">Unit cost</span>
+        <span className="text-right font-mono tabular-nums">${unitCost.toFixed(2)}</span>
+        <span className="text-muted-foreground">Min permitted price ({Math.round(margin * 100)}% margin)</span>
+        <span className="text-right font-mono tabular-nums font-semibold">${minPermitted.toFixed(2)}</span>
+        <span className="text-muted-foreground">Current price</span>
+        <span className="text-right font-mono tabular-nums">${unitPrice.toFixed(2)}</span>
+        <span className="text-muted-foreground">Status</span>
+        <span className={`text-right font-medium ${unitPrice > 0 && unitPrice < minPermitted ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}>
+          {unitPrice > 0 && unitPrice < minPermitted ? "Below min permitted — margin at risk" : "Within margin"}
+        </span>
+      </div>
+      {unitPrice > 0 && unitPrice < minPermitted && (
+        <div className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
+          Selling below the minimum price derived from your unit cost erodes the configured gross margin.
+        </div>
+      )}
     </div>
   );
 }

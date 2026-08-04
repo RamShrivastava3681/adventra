@@ -43,7 +43,8 @@ const low = forecastSKU(history, 5, 14, 6, {
 });
 log(JSON.stringify({
   recommendedReorder: low.recommendedReorder,
-  leadTimeDemand: low.calculationBreakdown.reorder.totalLeadTimeDemand,
+  dailyAverage: low.calculationBreakdown.reorder.dailyAverage,
+  requiredStock: low.calculationBreakdown.reorder.requiredStock,
   safetyStockUnits: low.calculationBreakdown.reorder.safetyStockUnits,
   inventoryPosition: low.calculationBreakdown.reorder.inventoryPosition,
   recommendedBeforeCaps: low.calculationBreakdown.reorder.recommendedBeforeCaps,
@@ -56,7 +57,8 @@ log("=== REORDER, LOW STOCK, NO CONFIG (stock=5) ===");
 const low2 = forecastSKU(history, 5, 14, 6);
 log(JSON.stringify({
   recommendedReorder: low2.recommendedReorder,
-  leadTimeDemand: low2.calculationBreakdown.reorder.totalLeadTimeDemand,
+  dailyAverage: low2.calculationBreakdown.reorder.dailyAverage,
+  requiredStock: low2.calculationBreakdown.reorder.requiredStock,
   safetyStockUnits: low2.calculationBreakdown.reorder.safetyStockUnits,
   recommendedBeforeCaps: low2.calculationBreakdown.reorder.recommendedBeforeCaps,
 }, null, 2));
@@ -92,24 +94,18 @@ log("=== PREDICTION INTERVAL INTERNALS ===");
 // Recompute exactly like the engine does (forecastIndex = n-1+1 = 12, center = unrounded forecast)
 const values = history.map((h) => h.qty);
 const n = values.length;
-const expDecay = 0.3;
-const weights = values.map((_, i) => Math.exp(expDecay * (i - n + 1)));
-const wsum = weights.reduce((a, b) => a + b, 0);
-const avg = values.reduce((a, v, i) => a + v * weights[i], 0) / wsum;
+const avg = values.reduce((a, b) => a + b, 0) / Math.max(n, 1);
 
-// slope recompute (decay 0.25)
-const decay = 0.25;
-const tWeights = values.map((_, i) => Math.exp(decay * (i - n + 1)));
-const twsum = tWeights.reduce((a, b) => a + b, 0);
+// slope recompute (ordinary least squares — equal weights)
 const xs = Array.from({ length: n }, (_, i) => i);
-const meanX = xs.reduce((a, b, i) => a + b * tWeights[i], 0) / twsum;
-const meanY = values.reduce((a, b, i) => a + b * tWeights[i], 0) / twsum;
+const meanX = xs.reduce((a, b) => a + b, 0) / Math.max(n, 1);
+const meanY = avg;
 let num = 0, den = 0;
 for (let i = 0; i < n; i++) {
-  num += tWeights[i] * (xs[i] - meanX) * (values[i] - meanY);
-  den += tWeights[i] * (xs[i] - meanX) ** 2;
+  num += (xs[i] - meanX) * (values[i] - meanY);
+  den += (xs[i] - meanX) ** 2;
 }
-const slope = num / den;
+const slope = den === 0 ? 0 : num / den;
 
 const forecastIndex = n - 1 + 1; // 12
 const residuals = values.map((v, i) => v - (avg + slope * i));

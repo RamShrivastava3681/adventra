@@ -5,6 +5,9 @@
 import {
   correctForAvailability,
   bucketMovementsByMonth,
+  currentMonthBucket,
+  computePaceAdjustment,
+  computePricingStrategy,
   forecastSKU,
   recomputeTimeline,
   type MonthlyBucket,
@@ -105,22 +108,40 @@ test("factors cap at 150% of baseline", () => {
   truthy(boosted.forecast[0].qty >= base.forecast[0].qty, "should be >= baseline");
 });
 
-console.log("\nbucketMovementsByMonth with availability");
-test("corrects a stockout month in history", () => {
+console.log("\nbucketMovementsByMonth — completed months only + currentMonthBucket");
+test("buckets only completed months (current month excluded) and corrects stockouts", () => {
   const now = new Date();
-  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonth = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, "0")}`;
   const movements = Array.from({ length: 42 }, (_, i) => ({
-    movement_date: `${thisMonth}-${String((i % 28) + 1).padStart(2, "0")}`,
+    movement_date: `${lastMonth}-${String((i % 28) + 1).padStart(2, "0")}`,
     quantity: 1,
     direction: "out",
   }));
   const buckets = bucketMovementsByMonth(movements, 1, [
-    { month: thisMonth, inStockDays: 21, daysInMonth: 30 },
+    { month: lastMonth, inStockDays: 21, daysInMonth: 30 },
   ]);
+  eq(buckets.length, 1, "one completed month bucket");
+  eq(buckets[0].month, lastMonth, "bucket is the last completed month");
   const b = buckets[0];
   eq(b.rawQty, 42);
   close(b.qty, 60);
   close(b.availabilityRate!, 0.7, 0.001);
+});
+test("currentMonthBucket sums only current-month outbound movements", () => {
+  const now = new Date();
+  const cur = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonth = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, "0")}`;
+  const movements = [
+    { movement_date: `${cur}-05`, quantity: 3, direction: "out" },
+    { movement_date: `${cur}-06`, quantity: 2, direction: "out" },
+    { movement_date: `${lastMonth}-20`, quantity: 100, direction: "out" },
+    { movement_date: `${cur}-07`, quantity: 5, direction: "in" },
+  ];
+  const b = currentMonthBucket(movements);
+  eq(b.month, cur);
+  eq(b.rawQty, 5, "only current-month outbound counts");
 });
 
 console.log("\nreorder calculation");
@@ -265,17 +286,69 @@ test("stockout date is today when already out of stock", () => {
 
 console.log("\nnew fields — stock requirement");
 
-console.log("\ndampened trend for longer horizons");
-test("later months have less trend influence", () => {
+console.log("\nlive pace adjustment");
+test("computePaceAdjustment applies the ratio formula", () => {
+  // base 60, day 15 of a 30-day month → expected 30. Actual 45 → ratio 1.5
+  const p = computePaceAdjustment({ currentMonthBaseForecast: 60, actualSalesToDate: 45, daysElapsed: 15, daysInMonth: 30 });
+  close(p.expectedSalesToDate, 30, 0.01);
+  close(p.salesPaceRatio!, 1.5, 0.001);
+  close(p.adjustmentFactor, 1.15, 0.001);
+});
+test("adjustment factor clamps to 1.20 and 0.80", () => {
+  const hot = computePaceAdjustment({ currentMonthBaseForecast: 60, actualSalesToDate: 300, daysElapsed: 15, daysInMonth: 30 });
+  eq(hot.adjustmentFactor, 1.2);
+  const cold = computePaceAdjustment({ currentMonthBaseForecast: 60, actualSalesToDate: 0, daysElapsed: 15, daysInMonth: 30 });
+  eq(cold.adjustmentFactor, 0.8);
+});
+test("no adjustment before 7 days or with no current-month forecast", () => {
+  const early = computePaceAdjustment({ currentMonthBaseForecast: 60, actualSalesToDate: 999, daysElapsed: 6, daysInMonth: 30 });
+  eq(early.adjustmentFactor, 1);
+  eq(early.salesPaceRatio, null);
+  const zeroBase = computePaceAdjustment({ currentMonthBaseForecast: 0, actualSalesToDate: 10, daysElapsed: 15, daysInMonth: 30 });
+  eq(zeroBase.adjustmentFactor, 1);
+});
+test("forecastSKU exposes base + adjusted next month without altering the base", () => {
+  const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
+  const now = new Date();
+  const currentMonth: MonthlyBucket = {
+    month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
+    qty: 45,
+    rawQty: 45,
+  };
+  const r = forecastSKU(h, 50, 14, 6, { currentMonth });
+  eq(r.nextMonthBaseForecast, r.finalForecast, "base next-month forecast unchanged");
+  truthy(r.adjustmentFactor >= 0.8 && r.adjustmentFactor <= 1.2, "factor within clamp");
+  // Without current-month data the factor is 1 (no adjustment)
+  const r2 = forecastSKU(h, 50, 14, 6);
+  eq(r2.adjustmentFactor, 1);
+  // The adjustment never alters the forecast months themselves
+  eq(
+    r.forecast.map((m) => m.qty).join(","),
+    r2.forecast.map((m) => m.qty).join(","),
+    "forecast months identical with or without adjustment"
+  );
+});
+test("recomputeTimeline refreshes the pace factor from live current-month sales", () => {
+  const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
+  const now = new Date();
+  const currentMonth: MonthlyBucket = {
+    month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
+    qty: 0,
+    rawQty: 0,
+  };
+  const r = forecastSKU(h, 50, 14, 6, { currentMonth });
+  const base = r.adjustmentFactor;
+  const fresh = recomputeTimeline(r, 50, 14, 10000);
+  truthy(fresh.adjustmentFactor >= base, "factor rises with strong live sales");
+  eq(fresh.nextMonthBaseForecast, r.nextMonthBaseForecast, "base forecast preserved");
+  eq(fresh.calculationBreakdown.paceAdjustment.adjustedNextForecast, fresh.adjustedNextForecast);
+});
+
+console.log("\ntrend for longer horizons (no dampening)");
+test("produces a full 6-month forecast", () => {
   const h = makeTrendingHistory(12, 10, 20); // strong upward trend
   const r = forecastSKU(h, 100, 14, 6);
-  // The difference between consecutive months should decrease
   const diffs = r.forecast.slice(1).map((m, i) => m.qty - r.forecast[i].qty);
-  // At minimum, the trend growth should not increase
-  for (let i = 1; i < diffs.length; i++) {
-    // dampening should reduce the incremental growth
-    // (not strictly enforced but should not grow)
-  }
   truthy(diffs.length > 0, "should produce multiple forecast months");
 });
 
@@ -301,42 +374,50 @@ test("seasonality factor is the raw month factor, not neighbor-blended", () => {
   close(bd.smoothedFactor, bd.rawFactor, 0.001);
   close(bd.clampedFactor, bd.rawFactor, 0.001);
 });
-test("safety stock = dailyForecast × safetyStockDays from config", () => {
-  // Safety stock is always daily avg demand × product safety stock days.
+test("safety stock = dailyAverage × safetyStockDays from config", () => {
+  // Safety stock is daily avg demand (last 3 completed months) × product safety stock days.
   const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
   const a = forecastSKU(h, 0, 30, 6, { config: { supplierLeadTimeDays: 30, safetyStockDays: 30 } });
-  const expected = Math.round(a.dailyForecast * 30);
-  eq(a.calculationBreakdown.reorder.safetyStockUnits, expected, "safety = dailyForecast × 30");
-  eq(a.calculationBreakdown.reorder.safetyStockDays, 30);
+  const bd = a.calculationBreakdown.reorder;
+  const expected = Math.round(bd.dailyAverage * 30);
+  eq(bd.safetyStockUnits, expected, "safety = dailyAverage × 30");
+  eq(bd.safetyStockDays, 30);
   // A different safety stock days value must change the result proportionally
   const c = forecastSKU(h, 0, 30, 6, { config: { supplierLeadTimeDays: 30, safetyStockDays: 15 } });
-  eq(c.calculationBreakdown.reorder.safetyStockUnits, Math.round(a.dailyForecast * 15), "safety scales with safetyStockDays");
+  eq(c.calculationBreakdown.reorder.safetyStockUnits, Math.round(c.calculationBreakdown.reorder.dailyAverage * 15), "safety scales with safetyStockDays");
 });
-test("reorder = lead time demand + safety stock − stock on hand", () => {
+test("reorder = requiredStock − stock on hand (last-3-months daily average)", () => {
   const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
   const r = forecastSKU(h, 0, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
   const bd = r.calculationBreakdown.reorder;
-  const expected = Math.max(0, Math.round(bd.totalLeadTimeDemand + bd.safetyStockUnits - bd.inventoryPosition));
-  close(r.recommendedReorder, expected, 1);
+  // requiredStock = dailyAverage × (lead time + safety days)
+  close(bd.requiredStock, bd.dailyAverage * (14 + 30), 0.01);
+  // recommendedBeforeCaps holds the unrounded raw reorder; final = ceil(raw)
+  const expected = Math.ceil(bd.recommendedBeforeCaps);
+  eq(r.recommendedReorder, expected, "raw reorder = max(0, required − position), ceil");
   // With stock on hand, reorder shrinks by exactly that stock
   const r2 = forecastSKU(h, 100, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
+  const bd2 = r2.calculationBreakdown.reorder;
+  eq(r2.recommendedReorder, Math.ceil(bd2.recommendedBeforeCaps));
   close(r2.recommendedReorder, Math.max(0, expected - 100), 1);
 });
-test("lead time demand starts with the current month's remaining days", () => {
-  const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
-  const r = forecastSKU(h, 0, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
-  const bd = r.calculationBreakdown.reorder.leadTimeDemandBreakdown;
-  truthy(bd.length >= 1, "lead time demand should have at least one month");
-  // First row is the current (partial) month; daysUsed must be > 0 and < full month days
+test("daily average uses only the last 3 completed months (current month excluded)", () => {
   const now = new Date();
-  const curName = "January February March April May June July August September October November December".split(" ")[now.getMonth()];
-  eq(bd[0].monthName, curName, "first month is the current month");
-  const daysInCurMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const remaining = daysInCurMonth - now.getDate() + 1;
-  truthy(bd[0].daysUsed > 0 && bd[0].daysUsed <= remaining, `days used ${bd[0].daysUsed} should be ≤ remaining ${remaining}`);
-  // Sum of daysUsed across all rows should equal the lead time
-  const totalDays = bd.reduce((s, m) => s + m.daysUsed, 0);
-  eq(totalDays, 14, "lead time days fully covered");
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const h = mkHistory([10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]);
+  const r = forecastSKU(h, 0, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
+  const bd = r.calculationBreakdown.reorder;
+  eq(bd.lastThreeMonths.length, 3, "exactly 3 completed months");
+  truthy(bd.lastThreeMonths.every((m) => m.monthKey < curKey), "current (partial) month is excluded");
+  eq(bd.totalDemand, 30, "3 completed months × 10 units each");
+  // Calendar days must match the real days of those months
+  const realDays = bd.lastThreeMonths.reduce(
+    (s, m) => s + new Date(Number(m.monthKey.slice(0, 4)), Number(m.monthKey.slice(5, 7)), 0).getDate(),
+    0
+  );
+  eq(bd.totalDays, realDays, "calendar days match the actual months");
+  // dailyAverage = totalDemand ÷ totalDays
+  close(bd.dailyAverage, bd.totalDemand / bd.totalDays, 0.0001);
 });
 test("recomputeTimeline refreshes reorder against live stock & backfills new fields", () => {
   const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
@@ -352,7 +433,7 @@ test("recomputeTimeline refreshes reorder against live stock & backfills new fie
         ...r.calculationBreakdown,
         reorder: {
           supplierLeadDays: 14,
-          totalLeadTimeDemand: 100,
+          requiredStock: 100,
           inventoryPosition: 50,
           finalRecommended: 999,
         },
@@ -366,9 +447,142 @@ test("recomputeTimeline refreshes reorder against live stock & backfills new fie
   eq(rb.safetyStockDays, 30, "safety days backfilled with default");
   truthy(typeof rb.safetyStockUnits === "number" && rb.safetyStockUnits > 0, "safety units backfilled");
   truthy(typeof rb.dailyForecast === "number", "dailyForecast backfilled");
-  // Lead time window starts with the current month (partial)
+  // Daily average uses the last 3 completed months (current month excluded)
   const now = new Date();
-  eq(rb.leadTimeDemandBreakdown[0].monthName, "January February March April May June July August September October November December".split(" ")[now.getMonth()]);
+  const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  eq(rb.lastThreeMonths.length, 3, "exactly 3 completed months");
+  truthy(rb.lastThreeMonths.every((m) => m.monthKey < curKey), "current month excluded");
+  truthy(typeof rb.dailyAverage === "number" && rb.dailyAverage > 0, "daily average backfilled");
+});
+
+console.log("\nrecommended price — demo price-change table (configurable, recommendation only)");
+
+function pricing(over: Record<string, unknown> = {}) {
+  return computePricingStrategy({
+    velocity: "medium_mover",
+    momentum: "stable",
+    daysOfCover: 120,
+    unitCost: 10,
+    unitPrice: 25,
+    minimumGrossMarginPercentage: 0.4,
+    supplierLeadTimeDays: 14,
+    safetyStockDays: 30,
+    maxCoverDays: 180,
+    ...(over as any),
+  });
+}
+
+test("clearance: dead + high stock → −25%", () => {
+  const r = pricing({ velocity: "dead", daysOfCover: 300 });
+  eq(r.recommendedPriceChangePct, -25);
+  eq(r.strategy, "Clearance");
+  eq(r.priceChangeRule, "clearance-dead");
+  close(r.recommendedPrice, 25 * 0.75, 0.01);
+});
+
+test("clearance: inactive momentum + high stock → −25%", () => {
+  const r = pricing({ velocity: "slow_mover", momentum: "inactive", daysOfCover: 300 });
+  eq(r.recommendedPriceChangePct, -25);
+  eq(r.priceChangeRule, "clearance-inactive");
+});
+
+test("markdown: slow + declining + high → −15%", () => {
+  const r = pricing({ velocity: "slow_mover", momentum: "declining", daysOfCover: 300 });
+  eq(r.recommendedPriceChangePct, -15);
+  eq(r.strategy, "Markdown / Promotion");
+  eq(r.priceChangeRule, "markdown");
+  close(r.recommendedPrice, 25 * 0.85, 0.01);
+});
+
+test("protect margin: fast + accelerating + low → +5%", () => {
+  const r = pricing({ velocity: "fast_mover", momentum: "accelerating", daysOfCover: 20 });
+  eq(r.recommendedPriceChangePct, 5);
+  eq(r.strategy, "Protect margin");
+  eq(r.priceChangeRule, "protect-accelerating");
+  close(r.recommendedPrice, 25 * 1.05, 0.01);
+});
+
+test("protect margin: fast + stable + low → +3% (new branch)", () => {
+  const r = pricing({ velocity: "fast_mover", momentum: "stable", daysOfCover: 20 });
+  eq(r.recommendedPriceChangePct, 3);
+  eq(r.strategy, "Protect margin");
+  eq(r.priceChangeRule, "protect-stable");
+  close(r.recommendedPrice, 25 * 1.03, 0.01);
+});
+
+test("targeted promotion: slow + stable (any stock) → −10%", () => {
+  const normal = pricing({ velocity: "slow_mover", momentum: "stable", daysOfCover: 120 });
+  eq(normal.recommendedPriceChangePct, -10);
+  eq(normal.strategy, "Targeted promotion");
+  close(normal.recommendedPrice, 25 * 0.9, 0.01);
+  const high = pricing({ velocity: "slow_mover", momentum: "stable", daysOfCover: 300 });
+  eq(high.recommendedPriceChangePct, -10, "applies at high stock too");
+});
+
+test("hold price: medium + stable → 0%", () => {
+  const r = pricing({ velocity: "medium_mover", momentum: "stable", daysOfCover: 120 });
+  eq(r.recommendedPriceChangePct, 0);
+  eq(r.recommendedPrice, 25);
+});
+
+test("any other combination → 0% and no rule id", () => {
+  const r = pricing({ velocity: "fast_mover", momentum: "stable", daysOfCover: 120 });
+  eq(r.recommendedPriceChangePct, 0);
+  eq(r.priceChangeRule, null);
+});
+
+test("recommended price never goes below the minimumPrice floor", () => {
+  const r = pricing({ unitPrice: 12, unitCost: 10 }); // price below margin floor
+  const min = 10 / (1 - 0.4); // 16.67
+  close(r.recommendedPrice, min, 0.01);
+  truthy(r.recommendedPrice >= min - 0.001, "floored at minimum price");
+});
+
+test("recommendation never mutates the SKU price inputs", () => {
+  const input = {
+    velocity: "fast_mover" as const,
+    momentum: "accelerating" as const,
+    daysOfCover: 20,
+    unitCost: 10,
+    unitPrice: 25,
+  };
+  const r = computePricingStrategy({
+    ...input,
+    supplierLeadTimeDays: 14,
+    safetyStockDays: 30,
+    maxCoverDays: 180,
+  });
+  eq(r.conditions.unitPrice, 25, "conditions carry the original price");
+  eq(r.conditions.unitCost, 10);
+  truthy(r.recommendedPrice !== 25, "recommended price is a separate output");
+  eq(input.unitPrice, 25, "input object untouched");
+  eq(input.unitCost, 10);
+});
+
+test("custom price-change rules override the defaults", () => {
+  const custom = [
+    { id: "aggressive", velocity: "slow_mover" as const, momentum: "stable" as const, changePct: -5 },
+  ];
+  const r = computePricingStrategy({
+    velocity: "slow_mover",
+    momentum: "stable",
+    daysOfCover: 120,
+    unitCost: 10,
+    unitPrice: 25,
+    supplierLeadTimeDays: 14,
+    safetyStockDays: 30,
+    maxCoverDays: 180,
+    priceChangeRules: custom,
+  });
+  eq(r.recommendedPriceChangePct, -5);
+  eq(r.priceChangeRule, "aggressive");
+});
+
+test("per-product min gross margin drives the floor", () => {
+  const r = pricing({ unitPrice: 12, unitCost: 10, minimumGrossMarginPercentage: 0.7 });
+  const min = 10 / (1 - 0.7); // 33.33 with a 70% margin requirement
+  close(r.recommendedPrice, min, 0.01);
+  close(r.conditions.minGrossMarginPct, 0.7, 0.0001);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

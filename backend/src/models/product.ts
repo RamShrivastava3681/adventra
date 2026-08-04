@@ -22,6 +22,8 @@ export interface Product {
   season: string;
   unitPrice: number;
   unitCost: number;
+  /** Minimum gross margin (0.01–0.99) used to derive the floor for recommended prices. Default 0.40. */
+  minimumGrossMarginPercentage: number;
   reorderLevel: number;
   maxStock: number;
   leadTimeDays: number;
@@ -72,6 +74,7 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
     season: data.season || "all",
     unitPrice: data.unitPrice || 0,
     unitCost: data.unitCost || 0,
+    minimumGrossMarginPercentage: data.minimumGrossMarginPercentage ?? 0.4,
     reorderLevel: data.reorderLevel || 0,
     maxStock: data.maxStock || 0,
     leadTimeDays: data.leadTimeDays || 30,
@@ -88,7 +91,7 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
 }
 
 export async function update(id: string, updates: Partial<Product>) {
-  const allowed = ["name","description","category","subcategory","gender","size","color","season","unitPrice","unitCost","reorderLevel","maxStock","leadTimeDays","safetyStockDays","supplierId","barcode","imageUrl","status","sku"];
+  const allowed = ["name","description","category","subcategory","gender","size","color","season","unitPrice","unitCost","minimumGrossMarginPercentage","reorderLevel","maxStock","leadTimeDays","safetyStockDays","supplierId","barcode","imageUrl","status","sku"];
   const patch: Record<string, any> = {};
   for (const key of allowed) {
     if ((updates as any)[key] !== undefined) patch[key] = (updates as any)[key];

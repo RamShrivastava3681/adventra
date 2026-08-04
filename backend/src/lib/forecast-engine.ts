@@ -1,6 +1,6 @@
 // KEEP IN SYNC: this file must stay identical to its copy in the other project
 // (frontend/src/lib vs backend/src/lib) — the server runs the same logic.
-// Enhanced forecast engine with exponentially weighted trend detection,
+// Enhanced forecast engine with linear trend detection,
 // raw seasonal factors, confidence intervals, and availability-aware corrections.
 // Designed for accurate, AI-like demand forecasting across all product categories.
 
@@ -66,6 +66,12 @@ export type PricingStrategyResult = {
   inventoryPosition: InventoryPosition;
   /** The specific pricing rule that was triggered */
   triggeredRule: string;
+  /** Calculated recommended price (recommendation only — never auto-applied) */
+  recommendedPrice: number;
+  /** Demo price-change percentage that produced the recommended price */
+  recommendedPriceChangePct: number;
+  /** Matched rule id from the price-change table, or null when 0% */
+  priceChangeRule: string | null;
   /** Input conditions that led to this recommendation */
   conditions: {
     velocity: VelocityTag;
@@ -120,9 +126,12 @@ export function bucketMovementsByMonth(
   months: number = 12,
   availability?: AvailabilityInput[]
 ): MonthlyBucket[] {
+  // Last `months` COMPLETED calendar months only — the current (partial) month
+  // is never part of the model history. Current-month data is available
+  // separately via currentMonthBucket() for the live pace adjustment.
   const now = new Date();
   const buckets: MonthlyBucket[] = [];
-  for (let i = months - 1; i >= 0; i--) {
+  for (let i = months; i >= 1; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     buckets.push({
       month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
@@ -153,6 +162,30 @@ export function bucketMovementsByMonth(
   return buckets;
 }
 
+/**
+ * Buckets the current (partial) calendar month's outbound movements. Used by
+ * the live pace adjustment: `rawQty` is the actual outbound sales to date.
+ */
+export function currentMonthBucket(
+  movements: MovementInput[],
+  availability?: AvailabilityInput[]
+): MonthlyBucket {
+  const now = new Date();
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  let rawQty = 0;
+  for (const m of movements) {
+    if (m.direction !== "out") continue;
+    if (m.movement_date.slice(0, 7) === month) rawQty += Number(m.quantity);
+  }
+  const avail = (availability ?? []).find((a) => a.month === month);
+  const { correctedDemand, availabilityRate } = correctForAvailability(
+    rawQty,
+    month,
+    avail
+  );
+  return { month, qty: correctedDemand, rawQty, availabilityRate };
+}
+
 // -----------------------------------------------------------------------------
 // Baseline math (unchanged)
 // -----------------------------------------------------------------------------
@@ -164,9 +197,8 @@ function weightedAverage(values: number[], weights: number[]): number {
 }
 
 // -----------------------------------------------------------------------------
-// Enhanced trend detection — exponentially weighted linear regression
-// Recent months get exponentially more weight, making the trend more responsive
-// to the latest demand signals while still being robust to noise.
+// Trend detection — ordinary least squares linear regression
+// Every month carries equal weight (no decay), giving the classic line of best fit.
 // -----------------------------------------------------------------------------
 
 function enhancedTrendSlope(values: number[]): {
@@ -174,7 +206,6 @@ function enhancedTrendSlope(values: number[]): {
   strength: number; // 0..1 (weighted R²)
   direction: "up" | "down" | "stable";
   // extended for calculation breakdown
-  _weights?: number[];
   _meanX?: number;
   _meanY?: number;
   _numerator?: number;
@@ -186,9 +217,8 @@ function enhancedTrendSlope(values: number[]): {
   const n = values.length;
   if (n < 2) return { slope: 0, strength: 0, direction: "stable" };
 
-  // Exponentially decaying weights: most recent = highest weight
-  const decay = 0.25;
-  const weights = values.map((_, i) => Math.exp(decay * (i - n + 1)));
+  // Equal weights — plain linear regression
+  const weights = values.map(() => 1);
   const wsum = weights.reduce((a, b) => a + b, 0);
 
   const xs = Array.from({ length: n }, (_, i) => i);
@@ -219,7 +249,6 @@ function enhancedTrendSlope(values: number[]): {
     slope: Math.round(slope * 100) / 100,
     strength: Math.round(rSquared * 100) / 100,
     direction,
-    _weights: weights.map((w) => Math.round(w * 1000) / 1000),
     _meanX: Math.round(meanX * 1000) / 1000,
     _meanY: Math.round(meanY * 1000) / 1000,
     _numerator: Math.round(num * 1000) / 1000,
@@ -294,7 +323,7 @@ function predictionInterval(
       1 + 1 / n + (forecastIndex - meanX) ** 2 / Math.max(ssx, 1)
     );
 
-  // Center the interval on the actual forecast point (which includes seasonality, dampening, factors)
+  // Center the interval on the actual forecast point (which includes seasonality and factors)
   const halfWidth = Math.round(z * sePred);
   return {
     low: Math.max(0, center - halfWidth),
@@ -334,6 +363,74 @@ function applyFactors(
     factors.regionalDemandIndex *
     factors.eventLift;
   return clamp(combined, baseline * 0.7, baseline * 1.5);
+}
+
+// -----------------------------------------------------------------------------
+// Live pace adjustment (next-month forecast)
+// -----------------------------------------------------------------------------
+
+export type PaceAdjustmentResult = {
+  /** actual ÷ expected sales to date, or null when no adjustment applies */
+  salesPaceRatio: number | null;
+  /** currentMonthBaseForecast × daysElapsed ÷ daysInMonth */
+  expectedSalesToDate: number;
+  /** 0.80..1.20 (1 = no adjustment) */
+  adjustmentFactor: number;
+  reason: string;
+};
+
+/**
+ * Live pace adjustment for the next-month forecast. Compares actual
+ * current-month sales to date against what the base forecast expected by this
+ * point in the month:
+ *   expectedSalesToDate = currentMonthBaseForecast × daysElapsed ÷ daysInMonth
+ *   salesPaceRatio      = actualSalesToDate ÷ expectedSalesToDate
+ *   rawAdjustment       = 1 + 0.30 × (salesPaceRatio − 1)
+ *   adjustmentFactor    = clamp(rawAdjustment, 0.80, 1.20)
+ * The factor is forced to 1 (no adjustment) when fewer than 7 days have
+ * elapsed or expectedSalesToDate is zero (covers "no current-month forecast").
+ */
+export function computePaceAdjustment(params: {
+  currentMonthBaseForecast: number;
+  actualSalesToDate: number;
+  daysElapsed: number;
+  daysInMonth: number;
+}): PaceAdjustmentResult {
+  const { currentMonthBaseForecast, actualSalesToDate, daysElapsed, daysInMonth } = params;
+
+  const expectedSalesToDate =
+    (currentMonthBaseForecast * daysElapsed) / Math.max(daysInMonth, 1);
+
+  if (daysElapsed < 7) {
+    return {
+      salesPaceRatio: null,
+      expectedSalesToDate: Math.round(expectedSalesToDate * 100) / 100,
+      adjustmentFactor: 1,
+      reason: "Too early in the month (<7 days elapsed) — no adjustment",
+    };
+  }
+  if (expectedSalesToDate <= 0) {
+    return {
+      salesPaceRatio: null,
+      expectedSalesToDate: 0,
+      adjustmentFactor: 1,
+      reason: "No current-month forecast — no adjustment",
+    };
+  }
+  const salesPaceRatio = actualSalesToDate / expectedSalesToDate;
+  const rawAdjustment = 1 + 0.3 * (salesPaceRatio - 1);
+  const adjustmentFactor = clamp(rawAdjustment, 0.8, 1.2);
+  const deltaPct = Math.round((adjustmentFactor - 1) * 100);
+  const reason =
+    adjustmentFactor === 1
+      ? "Sales pace matches the forecast — no adjustment"
+      : `Live pace ${Math.round(salesPaceRatio * 100)}% of expected → next-month forecast ${deltaPct > 0 ? "+" : ""}${deltaPct}%`;
+  return {
+    salesPaceRatio: Math.round(salesPaceRatio * 1000) / 1000,
+    expectedSalesToDate: Math.round(expectedSalesToDate * 100) / 100,
+    adjustmentFactor: Math.round(adjustmentFactor * 1000) / 1000,
+    reason,
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -384,8 +481,18 @@ export type ForecastResult = {
   promotionLift: number;
   regionalDemandIndex: number;
   eventLift: number;
-  finalForecast: number; // next-month final forecast
+  finalForecast: number; // next-month final forecast (base)
   dailyForecast: number; // daily demand rate (next month forecast / actual days)
+  // --- Live pace adjustment fields ---
+  /** Model forecast for the current calendar month (i=0 math) */
+  currentMonthBaseForecast: number;
+  /** Base next-month forecast (same as finalForecast) */
+  nextMonthBaseForecast: number;
+  /** nextMonthBaseForecast × adjustmentFactor */
+  adjustedNextForecast: number;
+  /** 0.80..1.20 (1 = no adjustment) */
+  adjustmentFactor: number;
+  adjustmentReason: string;
   inventoryPosition: number;
   daysOfCover: number;
   recommendedReorder: number;
@@ -434,8 +541,6 @@ export type CalculationBreakdown = {
   trendAnalysis: {
     description: string;
     formula: string;
-    decay: number;
-    weights: number[];
     meanX: number;
     meanY: number;
     numerator: number;
@@ -466,8 +571,6 @@ export type CalculationBreakdown = {
   monthlyDetail: Array<{
     monthName: string;
     monthKey: string;
-    dampeningLambda: number;
-    dampening: number;
     trendContribution: number;
     avgPlusTrend: number;
     seasonalityFactor: number;
@@ -491,13 +594,17 @@ export type CalculationBreakdown = {
   reorder: {
     description: string;
     supplierLeadDays: number;
-    leadTimeDemandBreakdown: Array<{
+    /** The last 3 completed calendar months used for the daily average */
+    lastThreeMonths: Array<{
       monthName: string;
-      dailyRate: number;
-      daysUsed: number;
-      contribution: number;
+      monthKey: string;
+      demand: number; // corrected outbound demand
+      days: number; // calendar days in that month
     }>;
-    totalLeadTimeDemand: number;
+    totalDemand: number; // Σ corrected demand over the last 3 completed months
+    totalDays: number; // Σ calendar days over the last 3 completed months
+    dailyAverage: number; // totalDemand / totalDays
+    requiredStock: number; // dailyAverage × (supplierLeadDays + safetyStockDays)
     dailyForecast: number;
     safetyStockDays: number;
     safetyStockFormula: string;
@@ -513,6 +620,18 @@ export type CalculationBreakdown = {
     orderMultiple: number | null;
     afterMultiple: number;
     finalRecommended: number;
+  };
+  paceAdjustment: {
+    currentMonthBaseForecast: number;
+    nextMonthBaseForecast: number;
+    adjustedNextForecast: number;
+    actualSalesToDate: number;
+    expectedSalesToDate: number;
+    daysElapsed: number;
+    daysInMonth: number;
+    salesPaceRatio: number | null;
+    adjustmentFactor: number;
+    reason: string;
   };
   daysOfCover: {
     dailyForecast: number;
@@ -549,6 +668,8 @@ export type CalculationBreakdown = {
 export type ForecastOptions = {
   factors?: ForecastFactors;
   config?: SKUConfig;
+  /** Current (partial) month bucket — used for the live pace adjustment. */
+  currentMonth?: MonthlyBucket;
 };
 
 // -----------------------------------------------------------------------------
@@ -629,19 +750,13 @@ export function forecastSKU(
 
   const values = history.map((h) => h.qty);
   const n = values.length;
-  // Exponential weighting for a smooth, accurate baseline
-  // Weight decays exponentially from most recent (weight=1.0) to oldest (weight≈0.04 for 12mo)
-  const expDecay = 0.3;
-  const weights = values.map((_, i) => Math.exp(expDecay * (i - n + 1)));
+  // Simple average of the 12 months of history — every month has equal weight
+  const weights = values.map(() => 1);
   const avg = weightedAverage(values, weights);
 
   // Enhanced trend detection
   const trendAnalysis = enhancedTrendSlope(values);
   const slope = trendAnalysis.slope;
-
-  // Calculate dampening factor for longer horizons
-  // Trend influence decreases as we forecast further out
-  const dampeningLambda = 0.9;
 
   // Inventory position
   const inbound = cfg.confirmedInboundStock ?? 0;
@@ -650,15 +765,16 @@ export function forecastSKU(
 
   const forecast: MonthForecast[] = [];
   const now = new Date();
+  const curMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const curDaysInMonth = daysInMonthFor(curMonthKey);
+  const daysElapsed = now.getDate();
   let runningStock = inventoryPosition;
 
   for (let i = 1; i <= horizonMonths; i++) {
     const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
     const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const seas = rawSeasonalityFactor(history, d.getMonth());
-    // Apply dampened trend: trend influence decreases further out
-    const dampening = Math.pow(dampeningLambda, i - 1);
-    const trendContribution = slope * i * dampening;
+    const trendContribution = slope * i;
     const baseline = Math.max(0, avg + trendContribution) * seas;
     const final = applyFactors(baseline, factors);
 
@@ -724,6 +840,34 @@ export function forecastSKU(
   // Daily forecast: next month's actual daily rate (used for reorder & cover fallback)
   const dailyForecast = forecast[0]?.dailyRate ?? 0;
 
+  // ---- Live pace adjustment for the next-month forecast ----
+  // The base forecast comes from the 12 completed months only. We then compare
+  // actual current-month sales to date against what the model expected by this
+  // point in the month, and nudge NEXT month's forecast by a clamped factor.
+  // The adjustment is display-only: it never alters the base forecast months.
+  const curSeas = rawSeasonalityFactor(history, now.getMonth());
+  const curBaseline = Math.max(0, avg) * curSeas;
+  const currentMonthBaseForecast = applyFactors(curBaseline, factors);
+  const nextMonthBaseForecast = forecast[0]?.qty ?? 0;
+  const actualSalesToDate =
+    options.currentMonth?.rawQty ?? options.currentMonth?.qty ?? 0;
+  const pace = options.currentMonth
+    ? computePaceAdjustment({
+        currentMonthBaseForecast,
+        actualSalesToDate,
+        daysElapsed,
+        daysInMonth: curDaysInMonth,
+      })
+    : {
+        salesPaceRatio: null,
+        expectedSalesToDate: 0,
+        adjustmentFactor: 1,
+        reason: "No current-month sales data — no adjustment",
+      };
+  const adjustedNextForecast = Math.round(
+    nextMonthBaseForecast * pace.adjustmentFactor
+  );
+
   // Recent daily rate for fallback cover calculation
   const recentAvg =
     values.slice(-3).reduce((a, b) => a + b, 0) / Math.max(Math.min(3, n), 1);
@@ -748,60 +892,39 @@ export function forecastSKU(
       ? Math.round(inventoryPosition / recentDaily)
       : Infinity;
 
-  // ---- Improved reorder calculation using month-by-month demand ----
-  // Reorder demand covers the lead-time window month by month: the CURRENT
-  // month contributes its remaining days, then each following month in full.
-  // Reorder = (daily avg × lead time days) + (daily avg × safety stock days) − stock.
+  // ---- Reorder recommendation (simple rule) ----
+  // Daily average = corrected demand over the last 3 COMPLETED calendar months
+  // divided by their actual calendar days. The current (partial) month is
+  // excluded so the rate is never skewed by a half-finished month.
+  //   requiredStock = dailyAverage × (supplierLeadTimeDays + safetyStockDays)
+  //   rawReorder    = max(0, requiredStock − inventoryPosition)
   const supplierLead = cfg.supplierLeadTimeDays ?? leadTimeDays;
   const safetyDays = cfg.safetyStockDays ?? 30;
 
-  // Current month's daily rate — same seasonal/baseline math as the forecast
-  // months but with zero trend contribution (i=0).
-  const curMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const curSeas = rawSeasonalityFactor(history, now.getMonth());
-  const curBaseline = Math.max(0, avg) * curSeas;
-  const curFinal = applyFactors(curBaseline, factors);
-  const curDm = daysInMonthFor(curMonthKey);
-  const currentDailyRate = curDm > 0 ? curFinal / curDm : curFinal / 30;
-  // Days left in the current month (including today; floors at 0)
-  const remainingDaysThisMonth = Math.max(0, curDm - now.getDate() + 1);
+  const lastThreeMonths = history
+    .filter((h) => h.month < curMonthKey) // completed calendar months only
+    .slice(-3)
+    .map((h) => ({
+      monthKey: h.month,
+      monthName: monthNameFromKey(h.month),
+      demand: h.qty, // corrected outbound demand
+      days: daysInMonthFor(h.month), // calendar days in that month
+    }));
+  const totalDemand = lastThreeMonths.reduce((a, m) => a + m.demand, 0);
+  const totalDays = lastThreeMonths.reduce((a, m) => a + m.days, 0);
+  const dailyAverage = totalDays > 0 ? totalDemand / totalDays : 0;
 
-  // Lead time demand: current month's remaining days first, then the
-  // following months in full until the lead time is covered.
-  let leadTimeDemand = 0;
-  let remainingLeadDays = supplierLead;
-  const leadTimeDemandBreakdown: CalculationBreakdown["reorder"]["leadTimeDemandBreakdown"] = [];
-  const addLeadMonth = (monthName: string, dailyRate: number, daysToTake: number) => {
-    if (daysToTake <= 0) return;
-    leadTimeDemand += dailyRate * daysToTake;
-    leadTimeDemandBreakdown.push({
-      monthName,
-      dailyRate: Math.round(dailyRate * 10) / 10,
-      daysUsed: daysToTake,
-      contribution: Math.round(dailyRate * daysToTake * 100) / 100,
-    });
-  };
-  {
-    const daysToTake = Math.min(remainingLeadDays, remainingDaysThisMonth);
-    addLeadMonth(monthNameFromKey(curMonthKey), currentDailyRate, daysToTake);
-    remainingLeadDays -= daysToTake;
-  }
-  for (const mf of forecast) {
-    if (remainingLeadDays <= 0) break;
-    const dm = daysInMonthFor(mf.month);
-    const daysToTake = Math.min(remainingLeadDays, dm);
-    addLeadMonth(mf.monthName, mf.dailyRate, daysToTake);
-    remainingLeadDays -= daysToTake;
-  }
+  const requiredStock = dailyAverage * (supplierLead + safetyDays);
+  const rawReorder = Math.max(0, requiredStock - inventoryPosition);
 
   // Safety stock = daily average demand × safety stock days (from the product catalogue)
-  const safetyStockUnits = Math.round(dailyForecast * safetyDays);
+  const safetyStockUnits = Math.round(dailyAverage * safetyDays);
 
-  let recommended = Math.max(0, leadTimeDemand + safetyStockUnits - inventoryPosition);
+  let recommended = rawReorder;
 
   // Cap by maxCoverDays unless protected
-  if (cfg.maxCoverDays && !cfg.isProtectedCore && dailyForecast > 0) {
-    const maxStock = dailyForecast * cfg.maxCoverDays;
+  if (cfg.maxCoverDays && !cfg.isProtectedCore && dailyAverage > 0) {
+    const maxStock = dailyAverage * cfg.maxCoverDays;
     const headroom = Math.max(0, maxStock - inventoryPosition);
     recommended = Math.min(recommended, headroom);
   }
@@ -888,9 +1011,9 @@ export function forecastSKU(
     },
     weightedAverage: {
       description:
-        "Exponentially weighted average with decay=0.3 — most recent month gets highest weight. Smooth continuous weighting avoids the artificial jumps of step-function weights.",
+        "Simple average of the 12 months of demand history — every month carries equal weight.",
       formula:
-        "weightedAvg = Σ(value_i × weight_i) ÷ Σ(weight_i)",
+        "average = Σ(value_i) ÷ n",
       values: [...values],
       weights: [...weights],
       weightedSum: Math.round(
@@ -901,11 +1024,9 @@ export function forecastSKU(
     },
     trendAnalysis: {
       description:
-        "Exponentially weighted linear regression. Recent months get exponentially more weight (decay=" + trendAnalysis._weights?.[0]?.toFixed(3) + " → " + "1.000) to detect trends faster.",
+        "Ordinary least squares linear regression over the 12 months of history (every month weighted equally).",
       formula:
-        "slope = Σ(w_i × (x_i - meanX) × (y_i - meanY)) ÷ Σ(w_i × (x_i - meanX)²)",
-      decay: 0.25,
-      weights: trendAnalysis._weights ?? [],
+        "slope = Σ((x_i - meanX) × (y_i - meanY)) ÷ Σ(x_i - meanX)²",
       meanX: trendAnalysis._meanX ?? 0,
       meanY: trendAnalysis._meanY ?? 0,
       numerator: trendAnalysis._numerator ?? 0,
@@ -926,8 +1047,7 @@ export function forecastSKU(
       perMonthBreakdown: seasonalityBreakdown.perMonthBreakdown,
     },
     monthlyDetail: forecast.map((mf, i) => {
-      const dampening = Math.pow(dampeningLambda, i);
-      const trendContribution = slope * (i + 1) * dampening;
+      const trendContribution = slope * (i + 1);
       const avgPlusTrend = avg + trendContribution;
       const baselineBeforeSeas = Math.max(0, avgPlusTrend);
       const baseline = baselineBeforeSeas * mf.seasonalityFactor;
@@ -948,8 +1068,6 @@ export function forecastSKU(
       return {
         monthName: mf.monthName,
         monthKey: mf.month,
-        dampeningLambda,
-        dampening: Math.round(dampening * 1000) / 1000,
         trendContribution: Math.round(trendContribution * 100) / 100,
         avgPlusTrend: Math.round(avgPlusTrend * 100) / 100,
         seasonalityFactor: mf.seasonalityFactor,
@@ -973,35 +1091,36 @@ export function forecastSKU(
     }),
     reorder: {
       description:
-        "Reorder = (daily avg × lead time days) + (daily avg × safety stock days) − stock on hand. Lead-time demand is counted month by month: the current month contributes its remaining days, then each following month in full. Safety stock = daily average demand × safety stock days from the product catalogue.",
+        "Reorder = max(0, requiredStock − inventoryPosition), where requiredStock = dailyAverage × (supplierLeadTimeDays + safetyStockDays). Daily average = corrected demand over the last 3 completed calendar months ÷ their actual calendar days. The current (partial) month is excluded.",
       supplierLeadDays: supplierLead,
-      leadTimeDemandBreakdown,
-      totalLeadTimeDemand: Math.round(leadTimeDemand * 100) / 100,
+      lastThreeMonths,
+      totalDemand: Math.round(totalDemand * 100) / 100,
+      totalDays,
+      dailyAverage: Math.round(dailyAverage * 1000) / 1000,
+      requiredStock: Math.round(requiredStock * 100) / 100,
       dailyForecast,
       safetyStockDays: safetyDays,
-      safetyStockFormula: dailyForecast + " × " + safetyDays,
+      safetyStockFormula:
+        Math.round(dailyAverage * 1000) / 1000 + " × " + safetyDays,
       safetyStockUnits,
       inventoryPosition,
-      recommendedBeforeCaps: Math.max(
-        0,
-        leadTimeDemand + safetyStockUnits - inventoryPosition
-      ),
+      recommendedBeforeCaps: rawReorder,
       maxCoverDays: cfg.maxCoverDays ?? null,
       maxStock:
-        cfg.maxCoverDays && dailyForecast > 0
-          ? Math.round(dailyForecast * cfg.maxCoverDays)
+        cfg.maxCoverDays && dailyAverage > 0
+          ? Math.round(dailyAverage * cfg.maxCoverDays)
           : null,
       headroom:
-        cfg.maxCoverDays && !cfg.isProtectedCore && dailyForecast > 0
+        cfg.maxCoverDays && !cfg.isProtectedCore && dailyAverage > 0
           ? Math.max(
               0,
-              Math.round(dailyForecast * cfg.maxCoverDays) - inventoryPosition
+              Math.round(dailyAverage * cfg.maxCoverDays) - inventoryPosition
             )
           : null,
       afterCap: (() => {
-        let r = Math.max(0, leadTimeDemand + safetyStockUnits - inventoryPosition);
-        if (cfg.maxCoverDays && !cfg.isProtectedCore && dailyForecast > 0) {
-          const maxStock = dailyForecast * cfg.maxCoverDays;
+        let r = rawReorder;
+        if (cfg.maxCoverDays && !cfg.isProtectedCore && dailyAverage > 0) {
+          const maxStock = dailyAverage * cfg.maxCoverDays;
           const headroom = Math.max(0, maxStock - inventoryPosition);
           r = Math.min(r, headroom);
         }
@@ -1009,9 +1128,9 @@ export function forecastSKU(
       })(),
       minimumOrderQty: cfg.minimumOrderQty ?? null,
       afterMOQ: (() => {
-        let r = Math.max(0, leadTimeDemand + safetyStockUnits - inventoryPosition);
-        if (cfg.maxCoverDays && !cfg.isProtectedCore && dailyForecast > 0) {
-          const maxStock = dailyForecast * cfg.maxCoverDays;
+        let r = rawReorder;
+        if (cfg.maxCoverDays && !cfg.isProtectedCore && dailyAverage > 0) {
+          const maxStock = dailyAverage * cfg.maxCoverDays;
           const headroom = Math.max(0, maxStock - inventoryPosition);
           r = Math.min(r, headroom);
         }
@@ -1021,6 +1140,18 @@ export function forecastSKU(
       orderMultiple: (cfg.orderMultiple && cfg.orderMultiple > 1) ? cfg.orderMultiple : null,
       afterMultiple: recommended,
       finalRecommended: recommended,
+    },
+    paceAdjustment: {
+      currentMonthBaseForecast: Math.round(currentMonthBaseForecast * 100) / 100,
+      nextMonthBaseForecast,
+      adjustedNextForecast,
+      actualSalesToDate: Math.round(actualSalesToDate * 100) / 100,
+      expectedSalesToDate: Math.round(pace.expectedSalesToDate * 100) / 100,
+      daysElapsed,
+      daysInMonth: curDaysInMonth,
+      salesPaceRatio: pace.salesPaceRatio,
+      adjustmentFactor: pace.adjustmentFactor,
+      reason: pace.reason,
     },
     daysOfCover: {
       dailyForecast,
@@ -1073,6 +1204,11 @@ export function forecastSKU(
     eventLift: factors.eventLift,
     finalForecast: Math.round(nextMonthFinal),
     dailyForecast: Math.round(dailyForecast * 10) / 10,
+    currentMonthBaseForecast: Math.round(currentMonthBaseForecast * 100) / 100,
+    nextMonthBaseForecast,
+    adjustedNextForecast,
+    adjustmentFactor: pace.adjustmentFactor,
+    adjustmentReason: pace.reason,
     inventoryPosition,
     daysOfCover,
     recommendedReorder: recommended,
@@ -1173,6 +1309,54 @@ export function determineInventoryPosition(
   return "normal";
 }
 
+// -----------------------------------------------------------------------------
+// Recommended price — demo price-change table (all values configurable)
+// -----------------------------------------------------------------------------
+
+export type PriceChangeRule = {
+  id: string;
+  velocity: VelocityTag | "any";
+  momentum: MomentumTag | "any";
+  /** Omit for any stock position */
+  stockPosition?: InventoryPosition;
+  /** Demo price-change percentage (e.g. 5 = +5%, -15 = -15%) */
+  changePct: number;
+};
+
+/**
+ * Default demo price-change percentages. First matching rule wins.
+ * Override by passing a custom `priceChangeRules` array to computePricingStrategy.
+ */
+export const DEFAULT_PRICE_CHANGE_RULES: PriceChangeRule[] = [
+  { id: "clearance-dead", velocity: "dead", momentum: "any", stockPosition: "high", changePct: -25 },
+  { id: "clearance-inactive", velocity: "any", momentum: "inactive", stockPosition: "high", changePct: -25 },
+  { id: "markdown", velocity: "slow_mover", momentum: "declining", stockPosition: "high", changePct: -15 },
+  { id: "protect-accelerating", velocity: "fast_mover", momentum: "accelerating", stockPosition: "low", changePct: 5 },
+  { id: "protect-stable", velocity: "fast_mover", momentum: "stable", stockPosition: "low", changePct: 3 },
+  { id: "targeted-promotion", velocity: "slow_mover", momentum: "stable", changePct: -10 },
+  { id: "hold-price", velocity: "medium_mover", momentum: "stable", changePct: 0 },
+];
+
+/**
+ * Looks up the demo price-change percentage for a SKU's conditions.
+ * Returns 0% when no rule matches ("any other" case).
+ */
+export function resolvePriceChangePct(params: {
+  velocity: VelocityTag;
+  momentum: MomentumTag;
+  stockPosition: InventoryPosition;
+  rules?: PriceChangeRule[];
+}): { changePct: number; ruleId: string | null } {
+  const rules = params.rules ?? DEFAULT_PRICE_CHANGE_RULES;
+  for (const rule of rules) {
+    if (rule.velocity !== "any" && rule.velocity !== params.velocity) continue;
+    if (rule.momentum !== "any" && rule.momentum !== params.momentum) continue;
+    if (rule.stockPosition && rule.stockPosition !== params.stockPosition) continue;
+    return { changePct: rule.changePct, ruleId: rule.id };
+  }
+  return { changePct: 0, ruleId: null };
+}
+
 /**
  * Computes a recommended pricing strategy for a single SKU based on:
  * - Velocity (category-based relative sales speed)
@@ -1190,6 +1374,8 @@ export function computePricingStrategy(params: {
   supplierLeadTimeDays: number;
   safetyStockDays: number;
   maxCoverDays: number;
+  /** Optional override of the demo price-change table */
+  priceChangeRules?: PriceChangeRule[];
 }): PricingStrategyResult {
   const {
     velocity,
@@ -1201,9 +1387,10 @@ export function computePricingStrategy(params: {
     supplierLeadTimeDays,
     safetyStockDays,
     maxCoverDays,
+    priceChangeRules,
   } = params;
 
-  // 1. Calculate minimum permitted price
+  // 1. Calculate minimum permitted price (from the product's current unit cost)
   const minGrossMargin = Math.max(0.01, Math.min(0.99, grossMarginPct));
   const minimumPrice = unitCost > 0 ? unitCost / (1 - minGrossMargin) : 0;
 
@@ -1214,6 +1401,20 @@ export function computePricingStrategy(params: {
     safetyStockDays,
     maxCoverDays
   );
+
+  // 2b. Recommended price — recommendation only, never auto-applied. The demo
+  // percentage is applied to the SKU's CURRENT unit price, floored at the
+  // minimum price derived from its CURRENT unit cost.
+  const priceChange = resolvePriceChangePct({
+    velocity,
+    momentum,
+    stockPosition: inventoryPosition,
+    rules: priceChangeRules,
+  });
+  const changePct = priceChange.changePct;
+  const recommendedRaw = unitPrice * (1 + changePct / 100);
+  const recommendedPrice =
+    Math.round(Math.max(recommendedRaw, minimumPrice) * 100) / 100;
 
   // 3. Apply pricing strategy rules
   const isClearance =
@@ -1226,6 +1427,10 @@ export function computePricingStrategy(params: {
     velocity === "medium_mover" && momentum === "stable";
   const isProtectMargin =
     velocity === "fast_mover" && momentum === "accelerating" && inventoryPosition === "low";
+  // Fast mover + stable momentum + low stock also protects margin (per the
+  // price-change table) — checked before the generic fast+stable rule.
+  const isProtectMarginStable =
+    velocity === "fast_mover" && momentum === "stable" && inventoryPosition === "low";
   const isHoldAvailability =
     velocity === "fast_mover" && momentum === "stable";
   const isMonitor =
@@ -1241,38 +1446,39 @@ export function computePricingStrategy(params: {
   if (isClearance) {
     strategy = "Clearance";
     triggeredRule = `Velocity=${velocity === "dead" ? "Dead" : velocity}, Momentum=${momentum === "inactive" ? "Inactive" : momentum}, Stock=High`;
-    suggestedAction = `Reduce price by 20% to 40% (min ${formatMoney(minimumPrice)})`;
+    suggestedAction = `Reduce price by ${Math.abs(changePct)}% → recommended ~${formatMoney(recommendedPrice)} (min ${formatMoney(minimumPrice)})`;
     parts.push(getVelocityLabel(velocity));
     parts.push(getMomentumLabel(momentum));
     parts.push("stock is high");
   } else if (isMarkdown) {
     strategy = "Markdown / Promotion";
     triggeredRule = `Slow mover, Declining momentum, High stock`;
-    suggestedAction = `Reduce price by 10% to 20% (min ${formatMoney(minimumPrice)})`;
+    suggestedAction = `Reduce price by ${Math.abs(changePct)}% → recommended ~${formatMoney(recommendedPrice)} (min ${formatMoney(minimumPrice)})`;
     parts.push("slow-moving, declining demand");
     parts.push("stock cover is above the maximum target");
   } else if (isTargetedPromotion) {
     strategy = "Targeted promotion";
     triggeredRule = `Slow mover, Stable momentum`;
-    suggestedAction = `Reduce price by 5% to 10%, or bundle with a related product (min ${formatMoney(minimumPrice)})`;
+    suggestedAction = `Reduce price by ${Math.abs(changePct)}% to ~${formatMoney(recommendedPrice)}, or bundle with a related product`;
     parts.push("slow-moving with stable demand");
   } else if (isHoldPrice) {
     strategy = "Hold price";
     triggeredRule = `Medium mover, Stable momentum`;
-    suggestedAction = "No price change recommended";
+    suggestedAction = recommendedPrice > unitPrice
+      ? `No % change recommended — current price is below the margin floor; raise to at least ${formatMoney(recommendedPrice)} to protect margin`
+      : "No price change recommended";
     parts.push("medium-moving with stable demand");
-  } else if (isProtectMargin) {
+  } else if (isProtectMargin || isProtectMarginStable) {
     strategy = "Protect margin";
-    triggeredRule = `Fast mover, Accelerating momentum, Low stock (${daysOfCover}d cover)`;
-    const canIncrease = minimumPrice < unitPrice;
-    if (canIncrease) {
-      const maxIncrease = Math.min(unitPrice * 0.05, unitPrice - minimumPrice);
-      const increasePct = maxIncrease > 0 ? Math.round((maxIncrease / unitPrice) * 100) : 3;
-      suggestedAction = `Avoid discounts. Review a ${increasePct}% to 5% price increase.`;
+    triggeredRule = isProtectMargin
+      ? `Fast mover, Accelerating momentum, Low stock (${daysOfCover}d cover)`
+      : `Fast mover, Stable momentum, Low stock (${daysOfCover}d cover)`;
+    if (recommendedPrice > unitPrice) {
+      suggestedAction = `Review a +${changePct}% price increase to ~${formatMoney(recommendedPrice)} (min ${formatMoney(minimumPrice)})`;
     } else {
       suggestedAction = "Avoid discounts. Do not reduce price below current levels.";
     }
-    parts.push("fast-moving, accelerating demand");
+    parts.push("fast-moving, " + (isProtectMargin ? "accelerating" : "stable") + " demand");
     parts.push(`only ${daysOfCover} days of stock cover`);
   } else if (isHoldAvailability) {
     strategy = "Hold price / protect availability";
@@ -1288,7 +1494,9 @@ export function computePricingStrategy(params: {
     // Default fallback
     strategy = "Hold price";
     triggeredRule = `Default — ${getVelocityLabel(velocity)}, ${getMomentumLabel(momentum)}`;
-    suggestedAction = "No price change recommended";
+    suggestedAction = recommendedPrice > unitPrice
+      ? `No % change recommended — current price is below the margin floor; raise to at least ${formatMoney(recommendedPrice)} to protect margin`
+      : "No price change recommended";
     parts.push(getVelocityLabel(velocity));
     parts.push(getMomentumLabel(momentum));
   }
@@ -1302,6 +1510,9 @@ export function computePricingStrategy(params: {
     minimumPrice: Math.round(minimumPrice * 100) / 100,
     inventoryPosition,
     triggeredRule,
+    recommendedPrice,
+    recommendedPriceChangePct: changePct,
+    priceChangeRule: priceChange.ruleId,
     conditions: {
       velocity,
       momentum,
@@ -1357,14 +1568,17 @@ function formatMoney(n: number): string {
  * - daysOfCover
  * - stockoutRisk
  * - overstockRisk
+ * - adjustmentFactor / adjustedNextForecast (when live current-month sales are supplied)
  * - daysOfCover in calculationBreakdown
  * - timeline in calculationBreakdown
  * - risk in calculationBreakdown
+ * - paceAdjustment in calculationBreakdown
  */
 export function recomputeTimeline(
   f: ForecastResult,
   currentStock: number,
-  leadTimeDays: number
+  leadTimeDays: number,
+  currentMonthOutbound?: number
 ): ForecastResult {
   const today = new Date();
   const rbd = f.calculationBreakdown?.reorder;
@@ -1378,6 +1592,46 @@ export function recomputeTimeline(
   const dailyForecast = f.dailyForecast > 0
     ? f.dailyForecast
     : f.forecast[0]?.dailyRate ?? 0;
+
+  // --- Live pace adjustment ---
+  // The persisted snapshot carries the model's current-month base forecast.
+  // When live current-month outbound sales are supplied we recompute the
+  // adjustment factor against the live clock; otherwise we keep the persisted
+  // values from the daily snapshot.
+  const paceBd = f.calculationBreakdown?.paceAdjustment;
+  const storedBaseCurrent =
+    f.currentMonthBaseForecast ?? paceBd?.currentMonthBaseForecast ?? 0;
+  const storedNextBase =
+    f.nextMonthBaseForecast ??
+    paceBd?.nextMonthBaseForecast ??
+    f.finalForecast ??
+    f.forecast[0]?.qty ??
+    0;
+  const curMonthKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  const curDaysInMonth = daysInMonthFor(curMonthKey);
+  const daysElapsed = today.getDate();
+
+  let adjustmentFactor = f.adjustmentFactor ?? paceBd?.adjustmentFactor ?? 1;
+  let adjustmentReason = f.adjustmentReason ?? paceBd?.reason ?? "No adjustment";
+  let adjustedNextForecast = f.adjustedNextForecast ?? storedNextBase;
+  let actualSalesToDate = paceBd?.actualSalesToDate ?? 0;
+  let expectedSalesToDate = paceBd?.expectedSalesToDate ?? 0;
+  let salesPaceRatio: number | null = paceBd?.salesPaceRatio ?? null;
+
+  if (currentMonthOutbound !== undefined) {
+    const pace = computePaceAdjustment({
+      currentMonthBaseForecast: storedBaseCurrent,
+      actualSalesToDate: currentMonthOutbound,
+      daysElapsed,
+      daysInMonth: curDaysInMonth,
+    });
+    adjustmentFactor = pace.adjustmentFactor;
+    adjustmentReason = pace.reason;
+    adjustedNextForecast = Math.round(storedNextBase * pace.adjustmentFactor);
+    actualSalesToDate = currentMonthOutbound;
+    expectedSalesToDate = pace.expectedSalesToDate;
+    salesPaceRatio = pace.salesPaceRatio;
+  }
 
   // Inventory position (use currentStock from movements)
   const inventoryPosition = Math.max(0, currentStock);
@@ -1428,48 +1682,33 @@ export function recomputeTimeline(
       ? "warning"
       : "safe";
 
-  // --- Reorder quantity (also date-sensitive: the current month's remaining
-  // days shrink every day, so recompute against the live clock). Uses the same
-  // formula as forecastSKU: lead-time demand from the current month's remaining
-  // days + following forecast months, plus safety stock = dailyForecast × safetyDays.
-  const curDm = daysInMonthFor(`${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`);
-  const remainingDaysThisMonth = Math.max(0, curDm - today.getDate() + 1);
-  // Current month rate: use the next forecast month's rate as the closest proxy.
-  const currentMonthRate = f.forecast[0]?.dailyRate ?? dailyForecast;
-  let leadTimeDemand = 0;
-  let remainingLeadDays = supplierLead;
-  const leadTimeDemandBreakdown: CalculationBreakdown["reorder"]["leadTimeDemandBreakdown"] = [];
-  const addLeadMonth = (monthName: string, dailyRate: number, daysToTake: number) => {
-    if (daysToTake <= 0) return;
-    leadTimeDemand += dailyRate * daysToTake;
-    leadTimeDemandBreakdown.push({
-      monthName,
-      dailyRate: Math.round(dailyRate * 10) / 10,
-      daysUsed: daysToTake,
-      contribution: Math.round(dailyRate * daysToTake * 100) / 100,
-    });
-  };
-  {
-    const daysToTake = Math.min(remainingLeadDays, remainingDaysThisMonth);
-    addLeadMonth(MONTH_NAMES[today.getMonth()], currentMonthRate, daysToTake);
-    remainingLeadDays -= daysToTake;
-  }
-  for (const mf of f.forecast) {
-    if (remainingLeadDays <= 0) break;
-    const dm = daysInMonthFor(mf.month);
-    const daysToTake = Math.min(remainingLeadDays, dm);
-    addLeadMonth(mf.monthName, mf.dailyRate, daysToTake);
-    remainingLeadDays -= daysToTake;
-  }
+  // --- Reorder quantity (simple rule, same as forecastSKU): daily average from
+  // the last 3 COMPLETED calendar months of corrected history ÷ their actual
+  // calendar days, requiredStock = dailyAverage × (lead + safety), then
+  // rawReorder = max(0, requiredStock − inventoryPosition).
+  const lastThreeMonths = (f.history ?? [])
+    .filter((h) => h.month < curMonthKey) // completed calendar months only
+    .slice(-3)
+    .map((h) => ({
+      monthKey: h.month,
+      monthName: monthNameFromKey(h.month),
+      demand: h.qty, // corrected outbound demand
+      days: daysInMonthFor(h.month), // calendar days in that month
+    }));
+  const totalDemand = lastThreeMonths.reduce((a, m) => a + m.demand, 0);
+  const totalDays = lastThreeMonths.reduce((a, m) => a + m.days, 0);
+  const dailyAverage = totalDays > 0 ? totalDemand / totalDays : 0;
 
-  const safetyStockUnits = Math.round(dailyForecast * safetyDays);
-  let recommended = Math.max(0, leadTimeDemand + safetyStockUnits - inventoryPosition);
+  const requiredStock = dailyAverage * (supplierLead + safetyDays);
+  const rawReorder = Math.max(0, requiredStock - inventoryPosition);
+  const safetyStockUnits = Math.round(dailyAverage * safetyDays);
+  let recommended = rawReorder;
 
   // Re-apply the persisted caps so the recomputed number matches the page rules.
   const maxCoverDays = rbd?.maxCoverDays ?? null;
-  const hasCap = maxCoverDays != null && rbd?.headroom != null && dailyForecast > 0;
+  const hasCap = maxCoverDays != null && rbd?.headroom != null && dailyAverage > 0;
   if (hasCap) {
-    const maxStock = dailyForecast * maxCoverDays!;
+    const maxStock = dailyAverage * maxCoverDays!;
     const headroom = Math.max(0, maxStock - inventoryPosition);
     recommended = Math.min(recommended, headroom);
   }
@@ -1498,6 +1737,11 @@ export function recomputeTimeline(
     inventoryPosition,
     daysOfCover,
     recommendedReorder: recommended,
+    currentMonthBaseForecast: Math.round(storedBaseCurrent * 100) / 100,
+    nextMonthBaseForecast: storedNextBase,
+    adjustedNextForecast,
+    adjustmentFactor,
+    adjustmentReason,
     estimatedStockoutDate,
     reorderByDate,
     nextRefillDate,
@@ -1509,41 +1753,39 @@ export function recomputeTimeline(
       reorder: {
         ...(f.calculationBreakdown?.reorder ?? {}),
         description:
-          "Reorder = (daily avg × lead time days) + (daily avg × safety stock days) − stock on hand. Lead-time demand is counted month by month: the current month contributes its remaining days, then each following month in full. Safety stock = daily average demand × safety stock days from the product catalogue.",
+          "Reorder = max(0, requiredStock − inventoryPosition), where requiredStock = dailyAverage × (supplierLeadTimeDays + safetyStockDays). Daily average = corrected demand over the last 3 completed calendar months ÷ their actual calendar days.",
         supplierLeadDays: supplierLead,
-        leadTimeDemandBreakdown,
-        totalLeadTimeDemand: Math.round(leadTimeDemand * 100) / 100,
+        lastThreeMonths,
+        totalDemand: Math.round(totalDemand * 100) / 100,
+        totalDays,
+        dailyAverage: Math.round(dailyAverage * 1000) / 1000,
+        requiredStock: Math.round(requiredStock * 100) / 100,
         dailyForecast,
         safetyStockDays: safetyDays,
-        safetyStockFormula: `${dailyForecast} × ${safetyDays}`,
+        safetyStockFormula: `${Math.round(dailyAverage * 1000) / 1000} × ${safetyDays}`,
         safetyStockUnits,
         inventoryPosition,
-        recommendedBeforeCaps: Math.max(
-          0,
-          leadTimeDemand + safetyStockUnits - inventoryPosition
-        ),
+        recommendedBeforeCaps: rawReorder,
         maxCoverDays,
         maxStock:
-          maxCoverDays && dailyForecast > 0
-            ? Math.round(dailyForecast * maxCoverDays)
+          maxCoverDays && dailyAverage > 0
+            ? Math.round(dailyAverage * maxCoverDays)
             : null,
         headroom: hasCap
-          ? Math.max(0, Math.round(dailyForecast * maxCoverDays!) - inventoryPosition)
+          ? Math.max(0, Math.round(dailyAverage * maxCoverDays!) - inventoryPosition)
           : null,
         afterCap: (() => {
-          let r = Math.max(0, leadTimeDemand + safetyStockUnits - inventoryPosition);
+          let r = rawReorder;
           if (hasCap) {
-            const maxStock = dailyForecast * maxCoverDays!;
-            r = Math.min(r, Math.max(0, maxStock - inventoryPosition));
+            r = Math.min(r, Math.max(0, dailyAverage * maxCoverDays! - inventoryPosition));
           }
           return Math.round(r);
         })(),
         minimumOrderQty: rbd?.minimumOrderQty ?? null,
         afterMOQ: (() => {
-          let r = Math.max(0, leadTimeDemand + safetyStockUnits - inventoryPosition);
+          let r = rawReorder;
           if (hasCap) {
-            const maxStock = dailyForecast * maxCoverDays!;
-            r = Math.min(r, Math.max(0, maxStock - inventoryPosition));
+            r = Math.min(r, Math.max(0, dailyAverage * maxCoverDays! - inventoryPosition));
           }
           if (r > 0 && rbd?.minimumOrderQty) r = Math.max(r, rbd.minimumOrderQty);
           return Math.round(r);
@@ -1552,6 +1794,19 @@ export function recomputeTimeline(
           rbd?.orderMultiple && rbd.orderMultiple > 1 ? rbd.orderMultiple : null,
         afterMultiple: recommended,
         finalRecommended: recommended,
+      },
+      paceAdjustment: {
+        ...(f.calculationBreakdown?.paceAdjustment ?? {}),
+        currentMonthBaseForecast: Math.round(storedBaseCurrent * 100) / 100,
+        nextMonthBaseForecast: storedNextBase,
+        adjustedNextForecast,
+        actualSalesToDate: Math.round(actualSalesToDate * 100) / 100,
+        expectedSalesToDate: Math.round(expectedSalesToDate * 100) / 100,
+        daysElapsed,
+        daysInMonth: curDaysInMonth,
+        salesPaceRatio,
+        adjustmentFactor,
+        reason: adjustmentReason,
       },
       daysOfCover: {
         ...f.calculationBreakdown.daysOfCover,
