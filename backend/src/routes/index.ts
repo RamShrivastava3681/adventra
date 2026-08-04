@@ -333,6 +333,25 @@ router.get("/purchase-invoices", authMiddleware, async (req, res) => {
 router.post("/purchase-invoices", authMiddleware, async (req, res) => {
   try {
     const item = await PurchaseInvoice.create({ ...req.body, clientId: req.user!.userId });
+    // Auto-create stock movement (stock-in) for inventory items — mirrors the
+    // sales invoice flow so purchase invoices credit inventory on creation
+    if (req.body.createStockMovement && req.body.lineItems?.length) {
+      for (const li of req.body.lineItems) {
+        if (li.productId) {
+          await StockMovement.create({
+            clientId: req.user!.userId,
+            productId: li.productId,
+            direction: "in",
+            itemName: li.description || "Purchase invoice item",
+            quantity: li.quantity || 1,
+            unit: "unit",
+            unitCost: li.unitCost || 0,
+            movementDate: req.body.issueDate || item.issueDate,
+            purchaseInvoiceId: item.id,
+          });
+        }
+      }
+    }
     // Instant reminder check for purchase invoices too
     if (item.dueDate && item.status !== "paid" && item.status !== "rejected") {
       const { sendReminderForInvoice } = await import("../invoice-reminder.js");
