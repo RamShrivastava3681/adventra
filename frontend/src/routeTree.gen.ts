@@ -23,12 +23,14 @@ import { Route as AppDashboardRouteImport } from './routes/app.dashboard'
 import { Route as AppDebtorsRouteImport } from './routes/app.debtors'
 import { Route as AppExpensesRouteImport } from './routes/app.expenses'
 import { Route as AppForecastRouteImport } from './routes/app.forecast'
+import { Route as AppGrnRouteImport } from './routes/app.grn'
 import { Route as AppInventoryRouteImport } from './routes/app.inventory'
 import { Route as AppInvoicesRouteImport } from './routes/app.invoices'
 import { Route as AppNotesRouteImport } from './routes/app.notes'
 import { Route as AppProductsRouteImport } from './routes/app.products'
 import { Route as AppProfileRouteImport } from './routes/app.profile'
 import { Route as AppProformasRouteImport } from './routes/app.proformas'
+import { Route as AppPurchaseOrdersRouteImport } from './routes/app.purchase-orders'
 import { Route as AppPurchasesRouteImport } from './routes/app.purchases'
 import { Route as AppQueueRouteImport } from './routes/app.queue'
 import { Route as AppRemindersRouteImport } from './routes/app.reminders'
@@ -113,6 +115,11 @@ const AppForecastRoute = AppForecastRouteImport.update({
   path: '/forecast',
   getParentRoute: () => AppRoute,
 } as any)
+const AppGrnRoute = AppGrnRouteImport.update({
+  id: '/grn',
+  path: '/grn',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppInventoryRoute = AppInventoryRouteImport.update({
   id: '/inventory',
   path: '/inventory',
@@ -141,6 +148,11 @@ const AppProfileRoute = AppProfileRouteImport.update({
 const AppProformasRoute = AppProformasRouteImport.update({
   id: '/proformas',
   path: '/proformas',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPurchaseOrdersRoute = AppPurchaseOrdersRouteImport.update({
+  id: '/purchase-orders',
+  path: '/purchase-orders',
   getParentRoute: () => AppRoute,
 } as any)
 const AppPurchasesRoute = AppPurchasesRouteImport.update({
@@ -224,12 +236,14 @@ export interface FileRoutesByFullPath {
   '/app/debtors': typeof AppDebtorsRoute
   '/app/expenses': typeof AppExpensesRoute
   '/app/forecast': typeof AppForecastRoute
+  '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/notes': typeof AppNotesRoute
   '/app/products': typeof AppProductsRoute
   '/app/profile': typeof AppProfileRoute
   '/app/proformas': typeof AppProformasRoute
+  '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
   '/app/reminders': typeof AppRemindersRoute
@@ -259,12 +273,14 @@ export interface FileRoutesByTo {
   '/app/debtors': typeof AppDebtorsRoute
   '/app/expenses': typeof AppExpensesRoute
   '/app/forecast': typeof AppForecastRoute
+  '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/notes': typeof AppNotesRoute
   '/app/products': typeof AppProductsRoute
   '/app/profile': typeof AppProfileRoute
   '/app/proformas': typeof AppProformasRoute
+  '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
   '/app/reminders': typeof AppRemindersRoute
@@ -295,12 +311,14 @@ export interface FileRoutesById {
   '/app/debtors': typeof AppDebtorsRoute
   '/app/expenses': typeof AppExpensesRoute
   '/app/forecast': typeof AppForecastRoute
+  '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/notes': typeof AppNotesRoute
   '/app/products': typeof AppProductsRoute
   '/app/profile': typeof AppProfileRoute
   '/app/proformas': typeof AppProformasRoute
+  '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
   '/app/reminders': typeof AppRemindersRoute
@@ -332,12 +350,14 @@ export interface FileRouteTypes {
     | '/app/debtors'
     | '/app/expenses'
     | '/app/forecast'
+    | '/app/grn'
     | '/app/inventory'
     | '/app/invoices'
     | '/app/notes'
     | '/app/products'
     | '/app/profile'
     | '/app/proformas'
+    | '/app/purchase-orders'
     | '/app/purchases'
     | '/app/queue'
     | '/app/reminders'
@@ -367,12 +387,14 @@ export interface FileRouteTypes {
     | '/app/debtors'
     | '/app/expenses'
     | '/app/forecast'
+    | '/app/grn'
     | '/app/inventory'
     | '/app/invoices'
     | '/app/notes'
     | '/app/products'
     | '/app/profile'
     | '/app/proformas'
+    | '/app/purchase-orders'
     | '/app/purchases'
     | '/app/queue'
     | '/app/reminders'
@@ -402,12 +424,14 @@ export interface FileRouteTypes {
     | '/app/debtors'
     | '/app/expenses'
     | '/app/forecast'
+    | '/app/grn'
     | '/app/inventory'
     | '/app/invoices'
     | '/app/notes'
     | '/app/products'
     | '/app/profile'
     | '/app/proformas'
+    | '/app/purchase-orders'
     | '/app/purchases'
     | '/app/queue'
     | '/app/reminders'
@@ -530,6 +554,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppForecastRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/grn': {
+      id: '/app/grn'
+      path: '/grn'
+      fullPath: '/app/grn'
+      preLoaderRoute: typeof AppGrnRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/inventory': {
       id: '/app/inventory'
       path: '/inventory'
@@ -570,6 +601,13 @@ declare module '@tanstack/react-router' {
       path: '/proformas'
       fullPath: '/app/proformas'
       preLoaderRoute: typeof AppProformasRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/purchase-orders': {
+      id: '/app/purchase-orders'
+      path: '/purchase-orders'
+      fullPath: '/app/purchase-orders'
+      preLoaderRoute: typeof AppPurchaseOrdersRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/purchases': {
@@ -678,12 +716,14 @@ interface AppRouteChildren {
   AppDebtorsRoute: typeof AppDebtorsRoute
   AppExpensesRoute: typeof AppExpensesRoute
   AppForecastRoute: typeof AppForecastRoute
+  AppGrnRoute: typeof AppGrnRoute
   AppInventoryRoute: typeof AppInventoryRoute
   AppInvoicesRoute: typeof AppInvoicesRoute
   AppNotesRoute: typeof AppNotesRoute
   AppProductsRoute: typeof AppProductsRoute
   AppProfileRoute: typeof AppProfileRoute
   AppProformasRoute: typeof AppProformasRoute
+  AppPurchaseOrdersRoute: typeof AppPurchaseOrdersRoute
   AppPurchasesRoute: typeof AppPurchasesRoute
   AppQueueRoute: typeof AppQueueRoute
   AppRemindersRoute: typeof AppRemindersRoute
@@ -710,12 +750,14 @@ const AppRouteChildren: AppRouteChildren = {
   AppDebtorsRoute: AppDebtorsRoute,
   AppExpensesRoute: AppExpensesRoute,
   AppForecastRoute: AppForecastRoute,
+  AppGrnRoute: AppGrnRoute,
   AppInventoryRoute: AppInventoryRoute,
   AppInvoicesRoute: AppInvoicesRoute,
   AppNotesRoute: AppNotesRoute,
   AppProductsRoute: AppProductsRoute,
   AppProfileRoute: AppProfileRoute,
   AppProformasRoute: AppProformasRoute,
+  AppPurchaseOrdersRoute: AppPurchaseOrdersRoute,
   AppPurchasesRoute: AppPurchasesRoute,
   AppQueueRoute: AppQueueRoute,
   AppRemindersRoute: AppRemindersRoute,

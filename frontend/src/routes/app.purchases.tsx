@@ -1,10 +1,10 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Mail } from "lucide-react";
+import { Plus, X, Loader2, Link2, Mail, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
@@ -13,10 +13,81 @@ export const Route = createFileRoute("/app/purchases")({
   component: PurchasesPage,
 });
 
+const PI_STATUSES = [
+  "draft",
+  "verified",
+  "approved_for_payment",
+  "partially_paid",
+  "paid",
+  "cancelled",
+];
+
+const PI_STATUS_LABELS: Record<string, string> = {
+  draft: "Draft",
+  verified: "Verified",
+  approved_for_payment: "Approved for Payment",
+  partially_paid: "Partially Paid",
+  paid: "Paid",
+  cancelled: "Cancelled",
+  // legacy statuses still displayed gracefully
+  pending: "Pending",
+  approved: "Approved",
+  overdue: "Overdue",
+  disputed: "Disputed",
+  rejected: "Rejected",
+  advanced: "Advanced",
+  funded: "Funded",
+};
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+// ─── Line draft (snake_case — the API transform handles the rest) ─────────
+type LineDraft = {
+  product_id: string;
+  sku: string | null;
+  name: string;
+  unit: string;
+  ordered_qty: number;
+  grn_received_qty: number;
+  invoice_qty: string;
+  unit_price: string;
+  po_unit_price: number | null;
+  gst_rate: string;
+};
+
+type POFragment = {
+  id: string;
+  po_number: string;
+  supplier_id: string | null;
+  supplier_name: string | null;
+  status: string;
+  lines: Array<{
+    product_id: string;
+    sku: string | null;
+    name: string;
+    unit: string;
+    ordered_qty: number;
+    unit_price: number;
+    gst_rate: number | null;
+  }>;
+};
+
+type GRNFragment = {
+  id: string;
+  receipt_number: string;
+  status: string;
+  lines: Array<{
+    product_id: string;
+    accepted_qty: number;
+    received_qty: number;
+  }>;
+};
+
 function PurchasesPage() {
   const { user, isAdmin, isChecker, isClient, isTreasury } = useAuth();
   const canCreate = isAdmin || (isClient && !isChecker && !isTreasury);
-  const canReview = isAdmin || isChecker;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
@@ -45,6 +116,18 @@ function PurchasesPage() {
     },
   });
 
+  // Goods POs — the linked purchase order that supplies the invoice lines.
+  const posQ = useQuery({
+    queryKey: ["goods-pos-for-pi"],
+    queryFn: async () => api.goodsPurchaseOrders.list(),
+  });
+
+  // GRNs — created AFTER the invoice; linked back to show received quantities.
+  const grnsQ = useQuery({
+    queryKey: ["goods-receipts-for-pi"],
+    queryFn: async () => api.goodsReceipts.list(),
+  });
+
   // Linked sales invoices (the trail)
   const salesQ = useQuery({
     queryKey: ["invoices-by-pi"],
@@ -56,11 +139,9 @@ function PurchasesPage() {
 
   const linkedSales = (piId: string) => (salesQ.data ?? []).filter((s: any) => s.purchase_invoice_id === piId);
 
-  const updateStatus = useMutation({
+  const setStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      const patch: any = { status };
-      if (status === "paid") patch.paid_date = new Date().toISOString().slice(0, 10);
-      await api.purchaseInvoices.update(id, patch);
+      await api.purchaseInvoices.update(id, { status });
     },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["purchase_invoices"] }); toast.success("Updated"); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -82,19 +163,26 @@ function PurchasesPage() {
 
   const totals = (piQ.data ?? []).reduce(
     (a: any, p: any) => {
-      a.all += Number(p.amount);
-      if (p.status !== "paid") a.open += Number(p.amount);
+      const amt = Number(p.grand_total ?? p.amount) || 0;
+      a.all += amt;
+      if (!["paid", "cancelled"].includes(p.status)) a.open += Math.max(0, Number(p.balance_due ?? p.amount) || 0);
       return a;
     },
     { all: 0, open: 0 },
   );
+
+  const grnById = useMemo(() => {
+    const m = new Map<string, GRNFragment>();
+    for (const g of (grnsQ.data ?? []) as GRNFragment[]) m.set(g.id, g);
+    return m;
+  }, [grnsQ.data]);
 
   return (
     <div>
       <PageHeader
         eyebrow="Procurement"
         title="Purchase invoices"
-        description="Invoices you receive from suppliers, with PO details and links to the sales they support."
+        description="Invoices you receive from suppliers, linked to the purchase order they bill. A purchase invoice records the supplier payable — it never touches stock. Only a confirmed GRN credits inventory."
         actions={
           canCreate ? (
             <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
@@ -116,11 +204,11 @@ function PurchasesPage() {
         </div>
 
         <div className="flex flex-wrap gap-2">
-          {["all", "pending", "approved", "paid", "overdue", "disputed"].map((s) => (
+          {["all", ...PI_STATUSES].map((s) => (
             <button key={s} onClick={() => setFilter(s)}
               className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
                 filter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-              }`}>{s}</button>
+              }`}>{s === "all" ? "All" : PI_STATUS_LABELS[s] ?? s}</button>
           ))}
         </div>
 
@@ -137,9 +225,9 @@ function PurchasesPage() {
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
                     <th className="px-5 py-2 text-left font-normal">Supplier</th>
                     <th className="px-5 py-2 text-left font-normal">PO</th>
-                    <th className="px-5 py-2 text-right font-normal">Amount</th>
+                    <th className="px-5 py-2 text-left font-normal">GRN</th>
+                    <th className="px-5 py-2 text-right font-normal">Grand total</th>
                     <th className="px-5 py-2 text-left font-normal">Due</th>
-                    <th className="px-5 py-2 text-right font-normal">Late days</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
                     <th className="px-5 py-2 text-left font-normal">Linked sales</th>
                     <th className="px-5 py-2 text-right font-normal">Actions</th>
@@ -147,29 +235,44 @@ function PurchasesPage() {
                 </thead>
                 <tbody>
                   {filtered.map((p: any) => {
-                    const dpd = p.due_date && p.status !== "paid" ? daysBetween(p.due_date) : 0;
+                    const dpd = p.due_date && !["paid", "cancelled"].includes(p.status) ? daysBetween(p.due_date) : 0;
                     let lateDays = Math.max(0, dpd);
                     if (p.status === "paid" && p.due_date && p.paid_date) {
                       const ms = new Date(p.paid_date).getTime() - new Date(p.due_date).getTime();
                       lateDays = Math.max(0, Math.round(ms / 86400000));
                     }
                     const links = linkedSales(p.id);
+                    const canEdit = canCreate && ["draft", "verified"].includes(p.status);
+                    const grn = grnById.get(p.linked_goods_receipt_id ?? "");
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3 font-mono text-xs">{p.invoice_number}</td>
-                        <td className="px-5 py-3">{p.vendor?.name ?? "—"}</td>
+                        <td className="px-5 py-3">{p.supplier_name ?? p.vendor?.name ?? "—"}</td>
                         <td className="px-5 py-3">
-                          {p.po_number ? (
+                          {p.goods_po_number ?? p.po_number ? (
                             <div>
-                              <div className="font-mono text-xs">{p.po_number}</div>
-                              <div className="text-[10px] text-muted-foreground">{p.po_date ? fmtDate(p.po_date) : ""}{p.po_amount ? ` · ${fmtMoney(p.po_amount)}` : ""}</div>
+                              <div className="font-mono text-xs">{p.goods_po_number ?? p.po_number}</div>
+                              {p.po_date ? <div className="text-[10px] text-muted-foreground">{fmtDate(p.po_date)}</div> : null}
                             </div>
                           ) : <span className="text-muted-foreground">—</span>}
                         </td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
+                        <td className="px-5 py-3">
+                          {p.linked_goods_receipt_number ? (
+                            <div>
+                              <div className="font-mono text-xs">{p.linked_goods_receipt_number}</div>
+                              {grn && grn.status === "confirmed" ? (
+                                <div className="text-[10px] text-success">Stock credited</div>
+                              ) : (
+                                <div className="text-[10px] text-muted-foreground">{grn?.status ?? ""}</div>
+                              )}
+                            </div>
+                          ) : <span className="text-muted-foreground">—</span>}
+                        </td>
+                        <td className="px-5 py-3 text-right num">{fmtMoney(p.grand_total ?? p.amount)}</td>
                         <td className="px-5 py-3 text-sm">{fmtDate(p.due_date)}</td>
-                        <td className={`px-5 py-3 text-right num ${lateDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>{lateDays}</td>
-                        <td className="px-5 py-3"><StatusPill status={p.status} /></td>
+                        <td className="px-5 py-3">
+                          <StatusPill status={p.status} label={PI_STATUS_LABELS[p.status] ?? p.status} />
+                        </td>
                         <td className="px-5 py-3">
                           {links.length === 0 ? (
                             <span className="text-muted-foreground">—</span>
@@ -185,13 +288,41 @@ function PurchasesPage() {
                           )}
                         </td>
                         <td className="px-5 py-3 text-right">
-                          <div className="inline-flex gap-1">
+                          <div className="inline-flex flex-wrap justify-end gap-1">
                             <button onClick={() => setViewing(p)} className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">View</button>
-                            {canCreate && p.status !== "paid" && p.status !== "approved" && p.status !== "disputed" && (
+                            {canEdit && (
                               <button onClick={() => setEditing(p)} className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">Edit</button>
                             )}
-                            {/* Send reminder button for unpaid purchase invoices */}
-                            {isAdmin && p.status !== "paid" && p.status !== "rejected" && p.status !== "cancelled" && p.due_date && (
+                            {canCreate && p.status === "draft" && (
+                              <button
+                                onClick={() => setStatus.mutate({ id: p.id, status: "verified" })}
+                                disabled={setStatus.isPending}
+                                className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
+                                title="I confirm the invoice is correct and ready for checker review"
+                              >
+                                <CheckCircle2 className="h-3 w-3" /> Verify
+                              </button>
+                            )}
+                            {canCreate && p.status === "verified" && (
+                              <button
+                                onClick={() => setStatus.mutate({ id: p.id, status: "draft" })}
+                                disabled={setStatus.isPending}
+                                className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                title="Send back to draft"
+                              >
+                                Reopen
+                              </button>
+                            )}
+                            {(canCreate || isAdmin) && ["draft", "verified"].includes(p.status) && (
+                              <button
+                                onClick={() => setStatus.mutate({ id: p.id, status: "cancelled" })}
+                                disabled={setStatus.isPending}
+                                className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
+                              >
+                                Cancel
+                              </button>
+                            )}
+                            {isAdmin && !["paid", "rejected", "cancelled"].includes(p.status) && p.due_date && (
                               <button
                                 onClick={() => sendReminder.mutate(p.id)}
                                 disabled={sendReminder.isPending}
@@ -201,25 +332,20 @@ function PurchasesPage() {
                                 <Mail className="h-3 w-3" /> Remind
                               </button>
                             )}
-                            {p.status === "pending" && (
-                              canReview ? (
-                                <Link to="/app/checker" className="text-[10px] uppercase tracking-widest text-primary hover:underline">Review →</Link>
-                              ) : (
-                                <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Awaiting checker</span>
-                              )
+                            {p.status === "verified" && (
+                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Awaiting checker</span>
                             )}
-                            {(p.status === "approved" || p.status === "advanced") && (
-                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">In funding queue</span>
+                            {["approved_for_payment", "partially_paid"].includes(p.status) && (
+                              <Link to="/app/queue" className="text-[10px] uppercase tracking-widest text-primary hover:underline">In funding queue →</Link>
                             )}
                             {p.status === "paid" && (
                               <span className="text-[10px] uppercase tracking-widest text-success">Closed</span>
                             )}
-                            {p.status === "overdue" && (
-                              <span className="text-[10px] uppercase tracking-widest text-destructive">Overdue</span>
+                            {p.status === "cancelled" && (
+                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Cancelled</span>
                             )}
                           </div>
                         </td>
-
                       </tr>
                     );
                   })}
@@ -234,6 +360,10 @@ function PurchasesPage() {
         <NewPurchaseModal
           userId={user.id}
           vendors={vendorsQ.data ?? []}
+          pos={(posQ.data ?? []).filter((p: any) => !["cancelled"].includes(p.status))}
+          grns={grnsQ.data ?? []}
+          isAdmin={isAdmin}
+          isTreasury={isTreasury}
           onClose={() => setOpen(false)}
           onCreated={() => qc.invalidateQueries({ queryKey: ["purchase_invoices"] })}
         />
@@ -243,90 +373,92 @@ function PurchasesPage() {
           invoice={editing}
           userId={user.id}
           vendors={vendorsQ.data ?? []}
+          pos={(posQ.data ?? []).filter((p: any) => !["cancelled"].includes(p.status))}
+          grns={grnsQ.data ?? []}
+          isAdmin={isAdmin}
+          isTreasury={isTreasury}
           onClose={() => setEditing(null)}
           onCreated={() => qc.invalidateQueries({ queryKey: ["purchase_invoices"] })}
         />
       )}
-      {viewing && <PurchaseDetailModal invoice={viewing} onClose={() => setViewing(null)} />}
+      {viewing && (
+        <PurchaseDetailModal
+          invoice={viewing}
+          grn={grnById.get(viewing.linked_goods_receipt_id ?? "") ?? null}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   );
 }
 
-function ActionBtn({ children, onClick, tone = "default" }: { children: React.ReactNode; onClick: () => void; tone?: "default" | "primary" | "success" | "destructive" }) {
-  const cls = {
-    default: "border-border hover:bg-muted",
-    primary: "border-primary/50 text-primary hover:bg-primary/10",
-    success: "border-success/50 text-success hover:bg-success/10",
-    destructive: "border-destructive/50 text-destructive hover:bg-destructive/10",
-  }[tone];
-  return <button onClick={onClick} className={`rounded-md border px-2.5 py-1 text-xs ${cls}`}>{children}</button>;
-}
-
-function NewPurchaseModal({ invoice, userId, vendors, onClose, onCreated }: { invoice?: any; userId: string; vendors: any[]; onClose: () => void; onCreated: () => void }) {
+function NewPurchaseModal({
+  invoice,
+  userId,
+  vendors,
+  pos,
+  grns,
+  isAdmin,
+  isTreasury,
+  onClose,
+  onCreated,
+}: {
+  invoice?: any;
+  userId: string;
+  vendors: any[];
+  pos: POFragment[];
+  grns: GRNFragment[];
+  isAdmin: boolean;
+  isTreasury: boolean;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const qc = useQueryClient();
   const isEdit = !!invoice;
+
   const [form, setForm] = useState({
+    vendor_id: invoice?.vendor_id ?? "",
     invoice_number: invoice?.invoice_number ?? "",
-    vendor_id: invoice?.vendor_id ?? vendors[0]?.id ?? "",
-    amount: invoice?.amount != null ? String(invoice.amount) : "",
-    po_number: invoice?.po_number ?? "",
-    po_date: (invoice?.po_date ?? "")?.slice(0, 10) ?? "",
-    po_amount: invoice?.po_amount != null ? String(invoice.po_amount) : "",
     issue_date: (invoice?.issue_date ?? new Date().toISOString().slice(0, 10))?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+    received_date: (invoice?.received_date ?? new Date().toISOString().slice(0, 10))?.slice(0, 10) ?? "",
     due_date: (invoice?.due_date ?? "")?.slice(0, 10) ?? "",
+    goods_po_id: invoice?.goods_purchase_order_id ?? "",
+    goods_po_number: invoice?.goods_po_number ?? "",
+    freight: invoice?.freight != null ? String(invoice.freight) : "0",
     notes: invoice?.notes ?? "",
-  });
-  const [docs, setDocs] = useState<DocMeta[]>([]);
-  const [inv, setInv] = useState({ enabled: false, product_id: "", quantity: "", unit: "unit", unit_cost: "" });
-
-  // Product catalogue — inventory items must link to an existing product
-  const productsQ = useQuery({
-    queryKey: ["products-for-purchase-inv"],
-    queryFn: async () => {
-      const data = await api.products.list();
-      return (data ?? []).filter((p: any) => p.status === "active");
-    },
+    difference_notes: invoice?.difference_notes ?? "",
   });
 
-  // Lookup proformas/advances by PO number (purchase side)
-  const poLookupQ = useQuery({
-    queryKey: ["po-lookup-purchase", form.po_number],
-    enabled: !!form.po_number.trim(),
-    queryFn: async () => {
-      const po = form.po_number.trim();
-      const orders = await api.purchaseOrders.list();
-      // Match by PO number OR proforma number — either can be typed into the field
-      const pfs = orders.filter((o: any) => o.side === "purchase" && (o.po_number === po || o.proforma_number === po));
-      const pfIds = pfs.map((p: any) => p.id);
-      let advances: any[] = [];
-      if (pfIds.length) {
-        const allAdvances = await api.advances.list();
-        advances = allAdvances.filter((a: any) => a.side === "purchase" && pfIds.includes(a.purchaseOrderId ?? a.purchase_order_id) && a.status !== "refunded");
-      }
-      return { proformas: pfs, advances };
-    },
-  });
+  const [lines, setLines] = useState<LineDraft[]>(
+    (invoice?.lines ?? []).map((l: any) => ({
+      product_id: l.product_id,
+      sku: l.sku ?? null,
+      name: l.name ?? "",
+      unit: l.unit ?? "unit",
+      ordered_qty: Number(l.ordered_qty) || 0,
+      grn_received_qty: Number(l.grn_received_qty) || 0,
+      invoice_qty: l.invoice_qty != null ? String(l.invoice_qty) : "",
+      unit_price: l.unit_price != null ? String(l.unit_price) : "",
+      po_unit_price: l.po_unit_price != null ? Number(l.po_unit_price) : null,
+      gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
+    })),
+  );
+  const [docs, setDocs] = useState<DocMeta[]>(invoice?.documents ?? []);
 
-  const advancesTotal = ((poLookupQ.data?.advances ?? []) as any[])
-    .filter((a) => a.status !== "refunded")
-    .reduce((s, a) => s + Number(a.amount), 0);
-  const balanceDue = Math.max(0, Number(form.amount || 0) - advancesTotal);
+  // GRN received quantities — from the linked GRN (created after this invoice).
+  const linkedGrn = useMemo(() => {
+    if (!isEdit || !invoice?.linked_goods_receipt_id) return null;
+    return grns.find((g) => g.id === invoice.linked_goods_receipt_id) ?? null;
+  }, [grns, invoice, isEdit]);
 
-  // Auto-fill the PO amount from the matched proforma once per PO number entry,
-  // so linking a proforma carries its PO amount onto the purchase invoice.
-  const lastFetchedPo = useRef<string>("");
   useEffect(() => {
-    if (!form.po_number.trim()) {
-      lastFetchedPo.current = "";
-      return;
-    }
-    const pfs = (poLookupQ.data?.proformas ?? []) as any[];
-    const withAmount = pfs.find((p: any) => p.po_amount != null && Number(p.po_amount) > 0);
-    if (withAmount && form.po_number.trim() !== lastFetchedPo.current) {
-      lastFetchedPo.current = form.po_number.trim();
-      setForm((f) => ({ ...f, po_amount: String(withAmount.po_amount) }));
-    }
-  }, [poLookupQ.data, form.po_number]);
+    if (!linkedGrn) return;
+    const qtyByProduct = new Map<string, number>();
+    for (const l of linkedGrn.lines ?? []) qtyByProduct.set(l.product_id, Number(l.accepted_qty ?? l.received_qty) || 0);
+    setLines((ls) =>
+      ls.map((l) => ({ ...l, grn_received_qty: qtyByProduct.get(l.product_id) ?? l.grn_received_qty ?? 0 })),
+    );
+  }, [linkedGrn]);
 
   const selectedVendor = vendors.find((v: any) => v.id === form.vendor_id);
   const termsDays = Number(selectedVendor?.payment_terms_days ?? 30) || 30;
@@ -338,50 +470,123 @@ function NewPurchaseModal({ invoice, userId, vendors, onClose, onCreated }: { in
   })();
   const effectiveDue = form.due_date || computedDue;
 
+  const eligiblePos = useMemo(() => {
+    // Only POs that can actually be billed (sent / partially received) are
+    // selectable — but the invoice's own linked PO is always kept so an
+    // existing invoice remains viewable/editable even after it's fully received.
+    const open = pos.filter((p) =>
+      ["approved", "sent", "partially_received"].includes(p.status),
+    );
+    const bySupplier = form.vendor_id
+      ? open.filter((p) => p.supplier_id === form.vendor_id)
+      : open;
+    const linked = pos.find((p) => p.id === form.goods_po_id);
+    return linked && !bySupplier.some((p) => p.id === linked.id)
+      ? [linked, ...bySupplier]
+      : bySupplier;
+  }, [pos, form.vendor_id, form.goods_po_id]);
+
+  const pickPo = (id: string) => {
+    const po = pos.find((p) => p.id === id);
+    setForm((f) => ({ ...f, goods_po_id: id, goods_po_number: po?.po_number ?? "" }));
+    if (!po) {
+      setLines([]);
+      return;
+    }
+    setLines(
+      (po.lines ?? []).map((l) => ({
+        product_id: l.product_id,
+        sku: l.sku ?? null,
+        name: l.name,
+        unit: l.unit ?? "unit",
+        ordered_qty: Number(l.ordered_qty) || 0,
+        grn_received_qty: 0,
+        invoice_qty: String(Number(l.ordered_qty) || 0),
+        unit_price: String(Number(l.unit_price) || 0),
+        po_unit_price: Number(l.unit_price) || 0,
+        gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
+      })),
+    );
+  };
+
+  const setLine = (i: number, patch: Partial<LineDraft>) =>
+    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+
+  const totals = useMemo(() => {
+    let subtotal = 0;
+    let gst = 0;
+    for (const l of lines) {
+      const qty = Number(l.invoice_qty) || 0;
+      const price = Number(l.unit_price) || 0;
+      const rate = Number(l.gst_rate) || 0;
+      const lt = round2(qty * price);
+      subtotal += lt;
+      gst += round2((lt * rate) / 100);
+    }
+    const freight = Number(form.freight) || 0;
+    return {
+      subtotal: round2(subtotal),
+      gst: round2(gst),
+      freight: round2(freight),
+      grand: round2(subtotal + gst + freight),
+    };
+  }, [lines, form.freight]);
+
+  // Quantity vs GRN + price vs PO differences — shown clearly (warn-only).
+  const differences = useMemo(() => {
+    const diffs: Array<{ name: string; type: "qty" | "price"; invoiceValue: number; referenceValue: number }> = [];
+    for (const l of lines) {
+      const qty = Number(l.invoice_qty) || 0;
+      const grn = Number(l.grn_received_qty) || 0;
+      if (grn > 0 && Math.abs(qty - grn) > 1e-9) {
+        diffs.push({ name: l.name, type: "qty", invoiceValue: qty, referenceValue: grn });
+      }
+      const price = Number(l.unit_price) || 0;
+      const poPrice = Number(l.po_unit_price);
+      if (Number.isFinite(poPrice) && poPrice >= 0 && Math.abs(price - poPrice) > 1e-9) {
+        diffs.push({ name: l.name, type: "price", invoiceValue: price, referenceValue: poPrice });
+      }
+    }
+    return diffs;
+  }, [lines]);
+
+  const amountPaid = Number(invoice?.amount_paid) || 0;
+  const balanceDue = round2(Math.max(0, totals.grand - amountPaid));
 
   const save = useMutation({
     mutationFn: async () => {
       if (!form.vendor_id) throw new Error("Add a supplier first.");
-      if (!form.invoice_number.trim()) throw new Error("Invoice number required");
-      if (!form.amount || Number(form.amount) <= 0) throw new Error("Amount must be > 0");
-      if (inv.enabled && !inv.product_id) throw new Error("Select a product from the catalogue to track inventory");
-      const payload = {
+      if (!form.invoice_number.trim()) throw new Error("Supplier invoice number required");
+      if (!form.goods_po_id) throw new Error("Link a purchase order — it supplies the invoice lines");
+      if (lines.length === 0) throw new Error("Add at least one line from the linked purchase order");
+      const payloadLines = lines.map((l) => ({
+        product_id: l.product_id,
+        invoice_qty: Number(l.invoice_qty) || 0,
+        unit_price: Number(l.unit_price) || 0,
+        gst_rate: l.gst_rate === "" ? null : Number(l.gst_rate),
+        grn_received_qty: Number(l.grn_received_qty) || 0,
+      }));
+      const supplierName = selectedVendor?.name ?? null;
+      const payload: any = {
         vendor_id: form.vendor_id,
+        supplier_name: supplierName,
         invoice_number: form.invoice_number.trim(),
-        amount: Number(form.amount),
-        po_number: form.po_number || null,
-        po_date: form.po_date || null,
-        po_amount: form.po_amount ? Number(form.po_amount) : null,
         issue_date: form.issue_date,
+        received_date: form.received_date || null,
         due_date: effectiveDue || null,
+        goods_purchase_order_id: form.goods_po_id || null,
+        goods_po_number: form.goods_po_number || null,
+        freight: Number(form.freight) || 0,
         notes: form.notes || null,
+        difference_notes: differences.length > 0 ? form.difference_notes.trim() || null : null,
         documents: docs,
       };
-      const created = isEdit && invoice
-        ? await api.purchaseInvoices.update(invoice.id, payload)
-        : await api.purchaseInvoices.create({ ...payload, clientId: userId, status: "pending" });
-      if (isEdit) return;
-      // Mark advances linked to matching proformas as applied (purchase side)
-      const advs = (poLookupQ.data?.advances ?? []) as any[];
-      if (form.po_number.trim() && advs.length) {
-        for (const a of advs) {
-          try { await api.advances.update(a.id, { status: "applied" }); } catch {}
-        }
-      }
-      if (inv.enabled && inv.product_id && Number(inv.quantity) > 0) {
-        const p = (productsQ.data ?? []).find((x: any) => x.id === inv.product_id);
-        await api.stockMovements.create({
-          clientId: userId,
-          direction: "in",
-          productId: inv.product_id,
-          itemName: p?.name ?? "",
-          sku: p?.sku ?? null,
-          quantity: Number(inv.quantity),
-          unit: inv.unit || "unit",
-          unitCost: inv.unit_cost ? Number(inv.unit_cost) : null,
-          purchaseInvoiceId: created?.id,
-          movementDate: form.issue_date,
-        });
+      // Lines are mandatory (every invoice links to a PO that supplies them).
+      payload.lines = payloadLines;
+      if (isEdit && invoice) {
+        await api.purchaseInvoices.update(invoice.id, payload);
+      } else {
+        await api.purchaseInvoices.create({ ...payload, clientId: userId, status: "draft" });
       }
     },
     onSuccess: () => {
@@ -395,9 +600,14 @@ function NewPurchaseModal({ invoice, userId, vendors, onClose, onCreated }: { in
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+      <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">{isEdit ? "Edit purchase invoice" : "New purchase invoice"}</h3>
+          <div>
+            <h3 className="font-display text-lg">{isEdit ? "Edit purchase invoice" : "New purchase invoice"}</h3>
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              Records the supplier payable — it never creates stock. The GRN (created later) credits inventory.
+            </div>
+          </div>
           <button onClick={onClose}><X className="h-4 w-4" /></button>
         </div>
         <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-5 p-5">
@@ -407,101 +617,240 @@ function NewPurchaseModal({ invoice, userId, vendors, onClose, onCreated }: { in
             </div>
           )}
 
-          <div>
-            <div className="mb-2 text-xs uppercase tracking-widest text-primary">Purchase order</div>
+          {/* ── Header ── */}
+          <fieldset className="rounded-lg border border-border/60 p-4">
+            <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">Invoice header</legend>
             <div className="grid gap-3 md:grid-cols-3">
-              <L label="PO number"><input maxLength={80} className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="PO-2026-001" /></L>
-              <L label="PO date"><input type="date" className="inp" value={form.po_date} onChange={(e) => setForm({ ...form, po_date: e.target.value })} /></L>
-              <L label="PO amount"><input type="number" step="0.01" min="0" className="inp" value={form.po_amount} onChange={(e) => setForm({ ...form, po_amount: e.target.value })} /></L>
+              <L label="Supplier *">
+                <select required className="inp" value={form.vendor_id} onChange={(e) => {
+                  const v = e.target.value;
+                  const po = pos.find((p) => p.id === form.goods_po_id);
+                  if (po && po.supplier_id !== v) {
+                    // The linked PO belongs to a different supplier — clear it
+                    // so invoice lines can't come from the wrong PO.
+                    setForm((f) => ({ ...f, vendor_id: v, goods_po_id: "", goods_po_number: "" }));
+                    setLines([]);
+                  } else {
+                    setForm((f) => ({ ...f, vendor_id: v }));
+                  }
+                }}>
+                  <option value="">Select supplier</option>
+                  {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+              </L>
+              <L label="Supplier invoice number *">
+                <input required maxLength={80} className="inp" value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} placeholder="INV-2026-0142" />
+              </L>
+              <L label="Payment due date">
+                <input type="date" className="inp" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
+              </L>
+              <L label="Invoice date">
+                <input required type="date" className="inp" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} />
+              </L>
+              <L label="Invoice received date">
+                <input type="date" className="inp" value={form.received_date} onChange={(e) => setForm({ ...form, received_date: e.target.value })} />
+              </L>
+              <L label={`Due auto (${termsDays}d net)`}>
+                <input type="date" className="inp" value={computedDue} disabled />
+              </L>
             </div>
-            <p className="mt-1 text-[10px] text-muted-foreground">Enter the PO or proforma number to auto-deduct any advances paid against it.</p>
+          </fieldset>
+
+          {/* ── Linked PO + lines ── */}
+          <fieldset className="rounded-lg border border-border/60 p-4">
+            <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              Linked purchase order & item lines
+            </legend>
+            <L label="Linked purchase order *">
+              <select required className="inp" value={form.goods_po_id} onChange={(e) => pickPo(e.target.value)} disabled={isEdit && !!invoice?.linked_goods_receipt_id}>
+                <option value="">Select purchase order…</option>
+                {eligiblePos.map((p) => (
+                  <option key={p.id} value={p.id}>{p.po_number} · {p.supplier_name ?? "—"} · {p.status.replace(/_/g, " ")}</option>
+                ))}
+              </select>
+            </L>
+            <p className="mt-1 text-[10px] text-muted-foreground">
+              Every purchase invoice must link to a purchase order — picking it auto-fills the product
+              lines, units and PO prices. Edit the billed quantity and price from the supplier invoice.
+            </p>
+
+            {isEdit && invoice?.linked_goods_receipt_number && (
+              <div className="mt-2 rounded-md border border-success/30 bg-success/5 p-2 text-xs text-success">
+                Linked GRN {invoice.linked_goods_receipt_number} — GRN received quantities are shown per line below.
+              </div>
+            )}
+
+            {lines.length === 0 ? (
+              <div className="mt-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+                Select a linked purchase order above — its product lines are required and auto-filled here.
+              </div>
+            ) : (
+              <div className="mt-3 space-y-2">
+                <div className="hidden grid-cols-12 gap-2 text-[9px] uppercase tracking-widest text-muted-foreground md:grid">
+                  <div className="col-span-3">SKU / Product</div>
+                  <div className="col-span-1">Unit</div>
+                  <div className="col-span-1">Ordered</div>
+                  <div className="col-span-1">GRN recv</div>
+                  <div className="col-span-1">Invoice qty</div>
+                  <div className="col-span-1">Unit price</div>
+                  <div className="col-span-1">GST %</div>
+                  <div className="col-span-2 text-right">Line total</div>
+                  <div className="col-span-1"></div>
+                </div>
+                {lines.map((l, i) => {
+                  const qty = Number(l.invoice_qty) || 0;
+                  const price = Number(l.unit_price) || 0;
+                  const lineTotal = round2(qty * price);
+                  const qtyDiff = Number(l.grn_received_qty) > 0 && Math.abs(qty - Number(l.grn_received_qty)) > 1e-9;
+                  const priceDiff =
+                    l.po_unit_price != null &&
+                    Number.isFinite(l.po_unit_price) &&
+                    l.po_unit_price >= 0 &&
+                    Math.abs(price - l.po_unit_price) > 1e-9;
+                  return (
+                    <div key={i} className="grid grid-cols-2 items-end gap-2 rounded-md border border-border/50 p-2 md:grid-cols-12">
+                      <div className="col-span-2 md:col-span-3">
+                        <div className="text-xs font-medium">{l.name}</div>
+                        {l.sku && <div className="font-mono text-[10px] text-muted-foreground">{l.sku}</div>}
+                        {(qtyDiff || priceDiff) && (
+                          <div className="mt-1 flex flex-wrap gap-1">
+                            {qtyDiff && (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[9px] text-warning">
+                                <AlertTriangle className="h-2.5 w-2.5" /> qty vs GRN
+                              </span>
+                            )}
+                            {priceDiff && (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[9px] text-warning">
+                                <AlertTriangle className="h-2.5 w-2.5" /> price vs PO
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div><L label="Unit"><input className="inp" value={l.unit} disabled /></L></div>
+                      <div><L label="Ordered"><input className="inp" value={String(l.ordered_qty)} disabled /></L></div>
+                      <div><L label="GRN recv"><input className="inp" value={String(l.grn_received_qty)} disabled /></L></div>
+                      <div>
+                        <L label="Invoice qty">
+                          <input type="number" min="0" step="0.001" className="inp" value={l.invoice_qty} onChange={(e) => setLine(i, { invoice_qty: e.target.value })} />
+                        </L>
+                      </div>
+                      <div>
+                        <L label="Unit price">
+                          <input type="number" min="0" step="0.01" className="inp" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} />
+                        </L>
+                      </div>
+                      <div>
+                        <L label="GST %">
+                          <input type="number" min="0" max="99" step="0.01" className="inp" value={l.gst_rate} onChange={(e) => setLine(i, { gst_rate: e.target.value })} placeholder="0" />
+                        </L>
+                      </div>
+                      <div className="text-right">
+                        <L label="Line total">
+                          <div className="inp text-right font-mono tabular-nums">{fmtMoney(lineTotal)}</div>
+                        </L>
+                      </div>
+                      <div className="flex items-end justify-end pb-1">
+                        <button type="button" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))} className="rounded p-1 text-muted-foreground hover:text-destructive">
+                          <X className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </fieldset>
+
+          {/* ── Totals ── */}
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
+              <Row label="Subtotal" value={fmtMoney(totals.subtotal)} />
+              <Row label="GST total" value={fmtMoney(totals.gst)} />
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">Freight / other</span>
+                <input
+                  type="number" min="0" step="0.01"
+                  className="w-28 rounded-md border border-border bg-background px-2 py-1 text-right text-sm"
+                  value={form.freight}
+                  onChange={(e) => setForm({ ...form, freight: e.target.value })}
+                />
+              </div>
+              <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">Grand total</span>
+                <span className="num text-base">{fmtMoney(totals.grand)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">Amount paid</span>
+                <span className="num text-success">{fmtMoney(amountPaid)}</span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">Balance due</span>
+                <span className={`num font-medium ${balanceDue > 0 ? "text-warning" : "text-success"}`}>{fmtMoney(balanceDue)}</span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <L label="Notes">
+                <textarea rows={3} className="inp resize-y" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Payment terms, delivery remarks…" />
+              </L>
+              <DocumentUploader userId={userId} scope="purchase_invoices" docs={docs} onChange={setDocs}
+                hint="Attach the supplier invoice PDF/image or other supporting paperwork." />
+            </div>
           </div>
 
-          {form.po_number.trim() && (
-            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
-              <div className="mb-1 uppercase tracking-widest text-primary">Advances paid against PO {form.po_number}</div>
-              {poLookupQ.isFetching ? (
-                <div className="text-muted-foreground">Looking up…</div>
-              ) : (poLookupQ.data?.advances ?? []).length === 0 ? (
-                <div className="text-muted-foreground">No advances recorded for this PO number on the purchase side.</div>
-              ) : (
-                <ul className="space-y-0.5">
-                  {((poLookupQ.data?.advances ?? []) as any[]).map((a) => (
-                    <li key={a.id} className="flex justify-between"><span className="text-muted-foreground">{fmtDate(a.advance_date)} {a.reference ? `· ${a.reference}` : ""}</span><span className="num text-primary">{fmtMoney(a.amount)}</span></li>
-                  ))}
-                </ul>
+          {/* ── Difference checks ── */}
+          {differences.length > 0 && (
+            <div className="rounded-lg border border-warning/40 bg-warning/5 p-4">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-warning">
+                <AlertTriangle className="h-4 w-4" /> {differences.length} difference{differences.length === 1 ? "" : "s"} vs PO / GRN
+              </div>
+              <ul className="mt-2 space-y-1 text-xs">
+                {differences.map((d, i) => (
+                  <li key={i} className="flex flex-wrap justify-between gap-2 rounded-md border border-border/50 bg-card/60 px-3 py-1.5">
+                    <span>{d.name}</span>
+                    <span className="text-muted-foreground">
+                      {d.type === "qty" ? (
+                        <>Invoice qty <b className="num text-foreground">{d.invoiceValue}</b> vs GRN received <b className="num text-warning">{d.referenceValue}</b></>
+                      ) : (
+                        <>Invoice price <b className="num text-foreground">{fmtMoney(d.invoiceValue)}</b> vs PO price <b className="num text-warning">{fmtMoney(d.referenceValue)}</b></>
+                      )}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-2">
+                <L label="Explanation note (recommended before approval)">
+                  <textarea rows={2} className="inp resize-y" value={form.difference_notes} onChange={(e) => setForm({ ...form, difference_notes: e.target.value })} placeholder="e.g. Price negotiated at invoicing; quantity adjusted for partial delivery…" />
+                </L>
+              </div>
+              {form.difference_notes.trim().length === 0 && (
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  Not required to save — but the checker will see these differences, so an explanation speeds up approval.
+                </p>
               )}
-              <div className="mt-2 flex justify-between border-t border-border pt-2">
-                <span>Total invoice amount</span><span className="num">{fmtMoney(Number(form.amount || 0))}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Advance paid</span><span className="num text-primary">{fmtMoney(advancesTotal)}</span>
-              </div>
-              <div className="flex justify-between font-medium border-t border-border pt-1 mt-1">
-                <span>Balance due to supplier</span><span className="num">{fmtMoney(balanceDue)}</span>
-              </div>
             </div>
           )}
 
-          <div className="grid gap-3 md:grid-cols-2">
-            <L label="Invoice number *"><input required maxLength={80} className="inp" value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} /></L>
-            <L label="Supplier *">
-              <select required className="inp" value={form.vendor_id} onChange={(e) => setForm({ ...form, vendor_id: e.target.value })}>
-                <option value="">Select supplier</option>
-                {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-              </select>
-            </L>
-            <L label="Total invoice amount *"><input required type="number" step="0.01" min="0" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
-            <L label="Issue date"><input required type="date" className="inp" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} /></L>
-            <L label={`Due date${selectedVendor ? ` (auto: ${termsDays}d net)` : ""}`}><input type="date" className="inp" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} /></L>
-          </div>
+          {isEdit && invoice?.status === "approved_for_payment" && !isAdmin && !isTreasury && (
+            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
+              This invoice is approved for payment. Only treasury/admin can record payments — use the funding queue.
+            </div>
+          )}
 
-          <L label="Notes"><textarea rows={2} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>
-
-          <DocumentUploader userId={userId} scope="purchase_invoices" docs={docs} onChange={setDocs}
-            hint="Attach the supplier invoice, BL, packing list, or other supporting paperwork." />
-
-          <div className="rounded-md border border-border p-3">
-            <label className="flex items-center gap-2 text-xs">
-              <input type="checkbox" checked={inv.enabled} onChange={(e) => setInv({ ...inv, enabled: e.target.checked })} />
-              <span className="uppercase tracking-widest text-muted-foreground">Track inventory (stock-in / credit)</span>
-            </label>
-            {inv.enabled && (productsQ.data ?? []).length === 0 && (
-              <div className="mt-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
-                No products in the catalogue yet — create a product first in the{" "}
-                <Link to="/app/products" className="underline">Product catalogue</Link> before tracking inventory.
-              </div>
-            )}
-            {inv.enabled && (productsQ.data ?? []).length > 0 && (
-              <div className="mt-3 grid gap-3 md:grid-cols-3">
-                <L label="Product *">
-                  <select className="inp" value={inv.product_id} onChange={(e) => {
-                    const p = (productsQ.data ?? []).find((x: any) => x.id === e.target.value);
-                    // Inventory value is cost-based: stock-in is valued at the product's unit COST,
-                    // not its sale price. (Stock-out later subtracts quantity × unit cost.)
-                    setInv({ ...inv, product_id: e.target.value, unit_cost: p ? String(p.unit_cost ?? "") : "" });
-                  }}>
-                    <option value="">Select product…</option>
-                    {(productsQ.data ?? []).map((p: any) => (
-                      <option key={p.id} value={p.id}>{p.name}{p.sku ? ` (${p.sku})` : ""}</option>
-                    ))}
-                  </select>
-                </L>
-                <L label="Quantity *"><input type="number" step="0.001" min="0" className="inp-qty" value={inv.quantity} onChange={(e) => setInv({ ...inv, quantity: e.target.value })} /></L>
-                <L label="Unit"><input className="inp" value={inv.unit} onChange={(e) => setInv({ ...inv, unit: e.target.value })} /></L>
-                <L label="Unit cost"><input type="number" step="0.01" min="0" className="inp" value={inv.unit_cost} onChange={(e) => setInv({ ...inv, unit_cost: e.target.value })} /></L>
-              </div>
-            )}
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
-            <button disabled={save.isPending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
-              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />} {isEdit ? "Save changes" : "Save"}
-            </button>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+            <p className="text-[10px] text-muted-foreground">
+              Saving never touches inventory — the confirmed GRN is the only stock-crediting document.
+            </p>
+            <div className="flex gap-2">
+              <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
+              <button disabled={save.isPending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
+                {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />} {isEdit ? "Save changes" : "Save draft"}
+              </button>
+            </div>
           </div>
         </form>
-        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}.inp-qty{width:100%;min-width:7rem;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.65rem .9rem;font-size:1.05rem;font-weight:600}.inp-qty:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:disabled{opacity:.55}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
       </div>
     </div>
   );
@@ -511,26 +860,152 @@ function L({ label, children }: { label: string; children: React.ReactNode }) {
   return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
 }
 
-function PurchaseDetailModal({ invoice, onClose }: { invoice: any; onClose: () => void }) {
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-xs uppercase tracking-widest text-muted-foreground">{label}</span>
+      <span className="num">{value}</span>
+    </div>
+  );
+}
+
+function PurchaseDetailModal({ invoice, grn, onClose }: { invoice: any; grn: GRNFragment | null; onClose: () => void }) {
+  const lines = invoice?.lines ?? [];
+  const subtotal = Number(invoice?.subtotal) || 0;
+  const gstTotal = Number(invoice?.gst_total) || 0;
+  const freight = Number(invoice?.freight) || 0;
+  const grandTotal = Number(invoice?.grand_total) || Number(invoice?.amount) || 0;
+  const amountPaid = Number(invoice?.amount_paid) || 0;
+  const balanceDue =
+    invoice?.balance_due != null ? Number(invoice.balance_due) : Math.max(0, grandTotal - amountPaid);
+
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <h3 className="font-display text-lg">Purchase invoice {invoice.invoice_number}</h3>
+      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <div>
+            <h3 className="font-display text-lg">Purchase invoice {invoice.invoice_number}</h3>
+            <div className="mt-1">
+              <StatusPill status={invoice.status} label={PI_STATUS_LABELS[invoice.status] ?? invoice.status} />
+            </div>
+          </div>
           <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
         </div>
-        <div className="space-y-4 p-5 text-sm">
-          <div className="grid grid-cols-2 gap-3">
-            <D label="Supplier" value={invoice.vendor?.name ?? "—"} />
-            <D label="Status" value={<StatusPill status={invoice.status} />} />
-            <D label="Amount" value={<span className="num">{fmtMoney(invoice.amount)}</span>} />
-            <D label="Issue date" value={invoice.issue_date ? fmtDate(invoice.issue_date) : "—"} />
+        <div className="space-y-5 p-5 text-sm">
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <D label="Supplier" value={invoice.supplier_name ?? invoice.vendor?.name ?? "—"} />
+            <D label="Invoice date" value={invoice.issue_date ? fmtDate(invoice.issue_date) : "—"} />
+            <D label="Received date" value={invoice.received_date ? fmtDate(invoice.received_date) : "—"} />
             <D label="Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "—"} />
+            <D label="Linked PO" value={invoice.goods_po_number ?? invoice.po_number ?? "—"} />
+            <D label="Linked GRN" value={invoice.linked_goods_receipt_number ?? "—"} />
             {invoice.paid_date && <D label="Paid date" value={fmtDate(invoice.paid_date)} />}
-            {invoice.po_number && <D label="PO number" value={invoice.po_number} />}
             {invoice.po_amount != null && invoice.po_amount > 0 && <D label="PO amount" value={<span className="num">{fmtMoney(invoice.po_amount)}</span>} />}
-            <div className="col-span-2"><D label="Notes" value={invoice.notes ?? "—"} /></div>
           </div>
+
+          {lines.length > 0 && (
+            <div className="overflow-x-auto rounded-md border border-border/60">
+              <table className="w-full text-sm">
+                <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-3 py-2 text-left font-normal">Product</th>
+                    <th className="px-3 py-2 text-right font-normal">Ordered</th>
+                    <th className="px-3 py-2 text-right font-normal">GRN recv</th>
+                    <th className="px-3 py-2 text-right font-normal">Invoice qty</th>
+                    <th className="px-3 py-2 text-right font-normal">Unit price</th>
+                    <th className="px-3 py-2 text-right font-normal">GST %</th>
+                    <th className="px-3 py-2 text-right font-normal">Line total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lines.map((l: any) => {
+                    const qty = Number(l.invoice_qty) || 0;
+                    const grnQty = Number(l.grn_received_qty) || 0;
+                    const price = Number(l.unit_price) || 0;
+                    const qtyDiff = grnQty > 0 && Math.abs(qty - grnQty) > 1e-9;
+                    const priceDiff =
+                      l.po_unit_price != null &&
+                      Number.isFinite(l.po_unit_price) &&
+                      l.po_unit_price >= 0 &&
+                      Math.abs(price - l.po_unit_price) > 1e-9;
+                    return (
+                      <tr key={l.product_id} className="border-b border-border/40">
+                        <td className="px-3 py-2">
+                          <div className="font-medium">{l.name}</div>
+                          {l.sku && <div className="text-[10px] font-mono text-muted-foreground">{l.sku}</div>}
+                          {(qtyDiff || priceDiff) && (
+                            <div className="mt-0.5 flex gap-1">
+                              {qtyDiff && <span className="text-[9px] font-medium text-warning">qty ≠ GRN</span>}
+                              {priceDiff && <span className="text-[9px] font-medium text-warning">price ≠ PO</span>}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 text-right num">{Number(l.ordered_qty) || 0}</td>
+                        <td className="px-3 py-2 text-right num">{grnQty}</td>
+                        <td className="px-3 py-2 text-right num">{qty}</td>
+                        <td className="px-3 py-2 text-right num">{fmtMoney(price)}</td>
+                        <td className="px-3 py-2 text-right num">{l.gst_rate ?? 0}%</td>
+                        <td className="px-3 py-2 text-right num">{fmtMoney(Number(l.line_total) || 0)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4">
+            <Row label="Subtotal" value={fmtMoney(subtotal)} />
+            <Row label="GST total" value={fmtMoney(gstTotal)} />
+            <Row label="Freight / other" value={fmtMoney(freight)} />
+            <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">Grand total</span>
+              <span className="num text-base">{fmtMoney(grandTotal)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">Amount paid</span>
+              <span className="num text-success">{fmtMoney(amountPaid)}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">Balance due</span>
+              <span className={`num font-medium ${balanceDue > 0 ? "text-warning" : "text-success"}`}>{fmtMoney(balanceDue)}</span>
+            </div>
+          </div>
+
+          {invoice.difference_notes && (
+            <div className="rounded-md border border-warning/40 bg-warning/5 p-3 text-xs text-warning">
+              <span className="font-medium uppercase tracking-widest">Difference note: </span>
+              {invoice.difference_notes}
+            </div>
+          )}
+
+          {grn && (
+            <div className="rounded-md border border-success/30 bg-success/5 p-3 text-xs text-success">
+              Linked GRN {grn.receipt_number} · {grn.status === "confirmed" ? "stock credited" : grn.status}
+            </div>
+          )}
+
+          {invoice.notes && (
+            <div className="rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Notes: </span>
+              {invoice.notes}
+            </div>
+          )}
+
+          {(invoice.documents ?? []).length > 0 && (
+            <div>
+              <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Attachments</span>
+              <div className="flex flex-wrap gap-2">
+                {(invoice.documents ?? []).map((d: any, i: number) => (
+                  <a key={i} href={d.url ?? d.public_url} target="_blank" rel="noreferrer"
+                    className="rounded-md border border-border px-2.5 py-1 text-xs text-primary hover:bg-primary/5">
+                    {d.name ?? `Attachment ${i + 1}`}
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+
           <div className="flex justify-end border-t border-border pt-3">
             <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Close</button>
           </div>

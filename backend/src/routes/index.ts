@@ -1,4 +1,5 @@
 import { Router, Request, Response, NextFunction } from "express";
+import multer from "multer";
 import jwt from "jsonwebtoken";
 import { config } from "../config.js";
 import { authMiddleware, AuthPayload } from "../middleware/auth.js";
@@ -65,6 +66,8 @@ import * as Supplier from "../models/supplier.js";
 import * as Invoice from "../models/invoice.js";
 import * as PurchaseInvoice from "../models/purchase-invoice.js";
 import * as PurchaseOrder from "../models/purchase-order.js";
+import * as GoodsPO from "../models/goods-purchase-order.js";
+import * as GoodsReceipt from "../models/goods-receipt.js";
 import * as Expense from "../models/expense.js";
 import * as Advance from "../models/advance.js";
 import * as Alert from "../models/alert.js";
@@ -361,33 +364,164 @@ router.delete("/invoices/:id", authMiddleware, async (req, res) => {
 });
 
 // ===================== PURCHASE INVOICES =====================
+// Lifecycle: draft → verified → approved_for_payment → partially_paid/paid,
+// with cancelled available from draft/verified. A purchase invoice NEVER
+// creates stock — only a confirmed GRN credits inventory. The invoice records
+// the supplier payable (grand total); payments accumulate in amountPaid.
+
+/** Resolve a merged supplier/vendor id to its display name (denormalized). */
+async function resolveSupplierName(id: string): Promise<string | null> {
+  if (!id) return null;
+  try {
+    const s = await Supplier.get(id);
+    if (s) return s.companyName;
+    const v = await Vendor.get(id);
+    if (v) return v.name;
+  } catch { /* ignore */ }
+  return null;
+}
+
+/**
+ * Validate + snapshot purchase-invoice lines against the linked goods PO.
+ * Product, name, unit and the PO unit price come from the PO; the billed
+ * quantity/price come from the supplier invoice.
+ */
+function validatePurchaseInvoiceLines(po: any, rawLines: any[]) {
+  if (!Array.isArray(rawLines) || rawLines.length === 0) {
+    throw new Error("Add at least one line from the linked purchase order");
+  }
+  const lines: any[] = [];
+  for (const ln of rawLines) {
+    const poLine = (po.lines ?? []).find((l: any) => l.productId === ln.productId);
+    if (!poLine) throw new Error("A line references a product that is not on the linked purchase order");
+    const invoiceQty = Number(ln.invoiceQty);
+    if (!Number.isFinite(invoiceQty) || invoiceQty <= 0) {
+      throw new Error(`Invoice quantity must be greater than zero for ${poLine.name}`);
+    }
+    const unitPrice = Number(ln.unitPrice);
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      throw new Error(`Unit price must be greater than or equal to zero for ${poLine.name}`);
+    }
+    const gst = ln.gstRate === undefined || ln.gstRate === null || ln.gstRate === "" ? poLine.gstRate : Number(ln.gstRate);
+    if (Number.isFinite(Number(gst)) && (Number(gst) < 0 || Number(gst) > 100)) {
+      throw new Error(`GST rate must be between 0 and 100% for ${poLine.name}`);
+    }
+    lines.push({
+      productId: poLine.productId,
+      sku: poLine.sku,
+      name: poLine.name,
+      unit: poLine.unit ?? "unit",
+      orderedQty: Number(poLine.orderedQty) || 0,
+      grnReceivedQty: Number(ln.grnReceivedQty) || 0,
+      invoiceQty,
+      unitPrice,
+      poUnitPrice: Number(poLine.unitPrice) || 0,
+      gstRate: Number.isFinite(Number(gst)) ? Number(gst) : null,
+    });
+  }
+  return lines;
+}
+
+/** Duplicate supplier invoice number check — same supplier, not cancelled. */
+async function findDuplicatePurchaseInvoice(
+  clientId: string,
+  supplierId: string | null | undefined,
+  invoiceNumber: string | null | undefined,
+  excludeId: string | null
+) {
+  if (!supplierId || !invoiceNumber) return null;
+  const needle = String(invoiceNumber).trim().toLowerCase();
+  if (!needle) return null;
+  const all = await PurchaseInvoice.list(clientId);
+  return (
+    all.find(
+      (p: any) =>
+        p.id !== excludeId &&
+        p.status !== "cancelled" &&
+        p.vendorId === supplierId &&
+        String(p.invoiceNumber ?? "").trim().toLowerCase() === needle
+    ) ?? null
+  );
+}
+
+/**
+ * Keep the linked purchase invoice in sync with a GRN: set the GRN reference
+ * and back-fill each line's received (accepted) quantity. When the GRN is
+ * cancelled (or the link is moved), the old link + quantities are cleared.
+ */
+async function syncLinkedPurchaseInvoice(receipt: any, previousPiId?: string) {
+  const detach = async (piId: string) => {
+    if (!piId) return;
+    const pi = await PurchaseInvoice.get(piId);
+    if (!pi) return;
+    if (pi.linkedGoodsReceiptId && pi.linkedGoodsReceiptId !== receipt.id) return;
+    await PurchaseInvoice.update(pi.id, {
+      linkedGoodsReceiptId: null,
+      linkedGoodsReceiptNumber: null,
+      lines: (pi.lines ?? []).map((l: any) => ({ ...l, grnReceivedQty: 0 })),
+    });
+  };
+  if (previousPiId && previousPiId !== receipt.purchaseInvoiceId) await detach(previousPiId);
+  if (!receipt.purchaseInvoiceId) return;
+  const pi = await PurchaseInvoice.get(receipt.purchaseInvoiceId);
+  if (!pi) return;
+  if (receipt.status === "cancelled") {
+    if (pi.linkedGoodsReceiptId === receipt.id) await detach(receipt.purchaseInvoiceId);
+    return;
+  }
+  const qtyByProduct = new Map<string, number>();
+  for (const ln of receipt.lines ?? []) {
+    qtyByProduct.set(String(ln.productId), Number(ln.acceptedQty ?? ln.receivedQty) || 0);
+  }
+  await PurchaseInvoice.update(pi.id, {
+    linkedGoodsReceiptId: receipt.id,
+    linkedGoodsReceiptNumber: receipt.receiptNumber,
+    lines: (pi.lines ?? []).map((l: any) => ({
+      ...l,
+      grnReceivedQty: qtyByProduct.get(String(l.productId)) ?? l.grnReceivedQty ?? 0,
+    })),
+  });
+}
+
 router.get("/purchase-invoices", authMiddleware, async (req, res) => {
   try { res.json(await PurchaseInvoice.list(req.user!.userId)); } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.post("/purchase-invoices", authMiddleware, async (req, res) => {
   try {
-    const item = await PurchaseInvoice.create({ ...req.body, clientId: req.user!.userId });
-    // Auto-create stock movement (stock-in) for inventory items — mirrors the
-    // sales invoice flow so purchase invoices credit inventory on creation
-    if (req.body.createStockMovement && req.body.lineItems?.length) {
-      for (const li of req.body.lineItems) {
-        if (li.productId) {
-          await StockMovement.create({
-            clientId: req.user!.userId,
-            productId: li.productId,
-            direction: "in",
-            itemName: li.description || "Purchase invoice item",
-            quantity: li.quantity || 1,
-            unit: "unit",
-            unitCost: li.unitCost || 0,
-            movementDate: req.body.issueDate || item.issueDate,
-            purchaseInvoiceId: item.id,
-          });
-        }
-      }
+    const body = req.body || {};
+    const clientId = req.user!.userId;
+    // NOTE: a purchase invoice NEVER creates stock — only a confirmed GRN credits
+    // inventory (the GRN is the sole stock-in document for purchases).
+    if (!body.vendorId) return res.status(400).json({ error: "Select a supplier" });
+    if (!body.invoiceNumber || !String(body.invoiceNumber).trim()) {
+      return res.status(400).json({ error: "Supplier invoice number is required" });
     }
+    // Supplier invoice number must be unique per supplier (cancelled excluded).
+    const dup = await findDuplicatePurchaseInvoice(clientId, body.vendorId, body.invoiceNumber, null);
+    if (dup) {
+      return res.status(400).json({ error: `Supplier invoice number "${body.invoiceNumber}" already exists for this supplier on invoice ${dup.invoiceNumber}` });
+    }
+    if (!body.supplierName) body.supplierName = await resolveSupplierName(body.vendorId);
+    // The purchase-invoice ↔ purchase-order link is MANDATORY: the invoice
+    // lines come from the PO, and the GRN (created later) receives against the
+    // same PO. No PO = no purchase invoice.
+    if (!body.goodsPurchaseOrderId) {
+      return res.status(400).json({ error: "A linked purchase order is required" });
+    }
+    if (!Array.isArray(body.lines) || body.lines.length === 0) {
+      return res.status(400).json({ error: "Add at least one line from the linked purchase order" });
+    }
+    const po = await GoodsPO.get(body.goodsPurchaseOrderId);
+    if (!po) return res.status(404).json({ error: "Linked purchase order not found" });
+    if (po.status === "cancelled") {
+      return res.status(400).json({ error: "Cannot invoice against a cancelled purchase order" });
+    }
+    try { body.lines = validatePurchaseInvoiceLines(po, body.lines); }
+    catch (e: any) { return res.status(400).json({ error: e.message }); }
+    body.goodsPoNumber = po.poNumber;
+    const item = await PurchaseInvoice.create({ ...body, clientId, vendorId: body.vendorId });
     // Instant reminder check for purchase invoices too
-    if (item.dueDate && item.status !== "paid" && item.status !== "rejected") {
+    if (item.dueDate && !["paid", "rejected", "cancelled"].includes(item.status)) {
       const { sendReminderForInvoice } = await import("../invoice-reminder.js");
       sendReminderForInvoice(item.id, "purchase").catch((err: any) =>
         console.error(`  ⚠ Instant reminder trigger failed for purchase ${item.invoiceNumber}:`, err)
@@ -398,12 +532,91 @@ router.post("/purchase-invoices", authMiddleware, async (req, res) => {
 });
 router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
   try {
-    const updated = await PurchaseInvoice.update(req.params.id, req.body);
+    const body = req.body || {};
+    const current = await PurchaseInvoice.get(req.params.id);
+    if (!current) return res.status(404).json({ error: "Purchase invoice not found" });
+    const roles: string[] = req.user!.roles || [];
+    const isAdmin = roles.includes("factor_admin");
+    const isChecker = roles.includes("checker");
+    const isTreasury = roles.includes("treasury");
+    const isCreator = req.user!.userId === current.clientId;
+
+    // ── Role guards on status changes ──
+    if (body.status && body.status !== current.status) {
+      const toStatus = String(body.status);
+      const allowed =
+        toStatus === "cancelled" ? isAdmin || isCreator :
+        toStatus === "paid" || toStatus === "partially_paid" ? isAdmin || isTreasury :
+        toStatus === "approved_for_payment" ? isAdmin || isChecker :
+        toStatus === "verified" ? isAdmin || isCreator :
+        toStatus === "draft" ? isAdmin || isCreator || isChecker :
+        false;
+      if (!allowed) return res.status(403).json({ error: "You do not have permission to make this status change" });
+    }
+    // ── Only treasury/admin can record payments ──
+    if (body.amountPaid !== undefined && Number(body.amountPaid) !== Number(current.amountPaid ?? 0)) {
+      if (!isAdmin && !isTreasury) return res.status(403).json({ error: "Only treasury/admin can record payments" });
+    }
+    // ── Closed invoices are frozen (payment/status only) ──
+    if (current.status === "paid" || current.status === "cancelled") {
+      const frozen = ["lines", "freight", "vendorId", "invoiceNumber", "issueDate", "receivedDate", "dueDate", "goodsPurchaseOrderId", "notes", "documents"];
+      if (frozen.some((k) => (body as any)[k] !== undefined)) {
+        return res.status(400).json({ error: `A ${current.status} invoice cannot be edited` });
+      }
+    }
+
+    if (body.vendorId && body.vendorId !== current.vendorId) {
+      body.supplierName = (await resolveSupplierName(body.vendorId)) ?? current.supplierName;
+    }
+    // The purchase-invoice ↔ purchase-order link is MANDATORY — but only for
+    // CONTENT edits. Status/payment/note transitions (checker approval,
+    // treasury payments, credit-note adjustments) must keep working on legacy
+    // invoices created before the rule, which have no linked PO.
+    const contentEdit =
+      body.lines !== undefined ||
+      body.freight !== undefined ||
+      body.goodsPurchaseOrderId !== undefined ||
+      body.vendorId !== undefined ||
+      body.invoiceNumber !== undefined;
+    if (contentEdit) {
+      const poId = body.goodsPurchaseOrderId || current.goodsPurchaseOrderId;
+      if (!poId) {
+        return res.status(400).json({ error: "A linked purchase order is required" });
+      }
+      if (body.goodsPurchaseOrderId !== undefined) {
+        const linkedPo = await GoodsPO.get(body.goodsPurchaseOrderId);
+        if (linkedPo?.status === "cancelled") {
+          return res.status(400).json({ error: "Cannot link a cancelled purchase order" });
+        }
+      }
+      if (body.lines !== undefined) {
+        if (!Array.isArray(body.lines) || body.lines.length === 0) {
+          return res.status(400).json({ error: "Add at least one line from the linked purchase order" });
+        }
+        const po = await GoodsPO.get(poId);
+        if (!po) return res.status(404).json({ error: "Linked purchase order not found" });
+        try { body.lines = validatePurchaseInvoiceLines(po, body.lines); }
+        catch (e: any) { return res.status(400).json({ error: e.message }); }
+        body.goodsPoNumber = po.poNumber;
+      }
+    }
+    // Supplier invoice number must be unique per supplier (excluding self + cancelled).
+    if (body.invoiceNumber !== undefined || body.vendorId !== undefined) {
+      const dup = await findDuplicatePurchaseInvoice(
+        req.user!.userId,
+        body.vendorId ?? current.vendorId,
+        body.invoiceNumber ?? current.invoiceNumber,
+        current.id
+      );
+      if (dup) {
+        return res.status(400).json({ error: `Supplier invoice number "${body.invoiceNumber ?? current.invoiceNumber}" already exists for this supplier on invoice ${dup.invoiceNumber}` });
+      }
+    }
+    const updated = await PurchaseInvoice.update(req.params.id, body);
     // Instant reminder check on update
-    if (req.body.dueDate || req.body.status) {
-      const { get } = await import("../models/purchase-invoice.js");
-      const inv = await get(req.params.id);
-      if (inv && inv.dueDate && inv.status !== "paid" && inv.status !== "rejected") {
+    if (body.dueDate || body.status) {
+      const inv = await PurchaseInvoice.get(req.params.id);
+      if (inv && inv.dueDate && !["paid", "rejected", "cancelled"].includes(inv.status)) {
         const { sendReminderForInvoice } = await import("../invoice-reminder.js");
         sendReminderForInvoice(inv.id, "purchase").catch((err: any) =>
           console.error(`  ⚠ Instant reminder trigger failed for purchase ${inv.invoiceNumber}:`, err)
@@ -414,24 +627,359 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.delete("/purchase-invoices/:id", authMiddleware, async (req, res) => {
-  try { await PurchaseInvoice.remove(req.params.id); res.json({ success: true }); } catch (err: any) { res.status(500).json({ error: err.message }); }
+  try {
+    const current = await PurchaseInvoice.get(req.params.id);
+    if (!current) return res.status(404).json({ error: "Purchase invoice not found" });
+    if (!["draft"].includes(current.status)) {
+      return res.status(400).json({ error: "Only draft purchase invoices can be deleted — cancel verified+ invoices instead" });
+    }
+    await PurchaseInvoice.remove(req.params.id);
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ===================== PURCHASE ORDERS (Proformas) =====================
+// Purchase-side proformas are supplier quotations: their product lines must
+// reference catalogue SKUs with quantity > 0 and unit price >= 0.
+
+/** Validate proforma (purchase-side) catalogue lines if provided. */
+async function validateProformaLines(clientId: string, rawLines: any[]) {
+  if (!Array.isArray(rawLines) || rawLines.length === 0) return [];
+  const products = await Product.list(clientId);
+  const catalogueIds = new Set(products.map((p: any) => p.id));
+  for (const l of rawLines) {
+    if (!l.productId) throw new Error("Every line must select a product from the catalogue");
+    if (!catalogueIds.has(l.productId)) throw new Error("Every SKU must come from the product catalogue");
+    if (!(Number(l.quantity) > 0)) throw new Error("Quantity must be greater than zero");
+    if (Number(l.unitPrice) < 0) throw new Error("Unit price must be greater than or equal to zero");
+  }
+  return rawLines;
+}
+
 router.get("/purchase-orders", authMiddleware, async (req, res) => {
   try { res.json(await PurchaseOrder.list(req.user!.userId)); } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.post("/purchase-orders", authMiddleware, async (req, res) => {
   try {
-    const item = await PurchaseOrder.create({ ...req.body, clientId: req.user!.userId });
+    const body = req.body || {};
+    if (body.lines !== undefined) {
+      try { body.lines = await validateProformaLines(req.user!.userId, body.lines); }
+      catch (e: any) { return res.status(400).json({ error: e.message }); }
+    }
+    const item = await PurchaseOrder.create({ ...body, clientId: req.user!.userId });
     res.status(201).json(item);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
-  try { res.json(await PurchaseOrder.update(req.params.id, req.body)); } catch (err: any) { res.status(500).json({ error: err.message }); }
+  try {
+    const body = req.body || {};
+    if (body.lines !== undefined) {
+      try { body.lines = await validateProformaLines(req.user!.userId, body.lines); }
+      catch (e: any) { return res.status(400).json({ error: e.message }); }
+    }
+    res.json(await PurchaseOrder.update(req.params.id, body));
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.delete("/purchase-orders/:id", authMiddleware, async (req, res) => {
   try { await PurchaseOrder.remove(req.params.id); res.json({ success: true }); } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ===================== GOODS PURCHASE ORDERS (catalogue-backed POs) =====================
+// Distinct from the proforma PurchaseOrder model above: a goods PO is a purchase
+// request/commitment that references catalogue SKUs. It NEVER creates inventory —
+// only a GRN (goods receipt) credits stock.
+
+/** Shape + catalogue checks for PO lines. SKUs must come from the product catalogue. */
+async function validateGoodsPOLines(clientId: string, rawLines: any[]) {
+  const lines = Array.isArray(rawLines) ? rawLines : [];
+  if (lines.length === 0) throw new Error("Add at least one product line");
+  const products = await Product.list(clientId);
+  const catalogueIds = new Set(products.map((p: any) => p.id));
+  for (const l of lines) {
+    if (!l.productId) throw new Error("Every line must select a product from the catalogue");
+    if (!catalogueIds.has(l.productId)) throw new Error("Every SKU must come from the product catalogue");
+    if (!(Number(l.orderedQty) > 0)) throw new Error("Ordered quantity must be greater than zero");
+    if (Number(l.unitPrice) < 0) throw new Error("Unit price must be greater than or equal to zero");
+  }
+  return lines;
+}
+
+router.get("/goods-purchase-orders", authMiddleware, async (req, res) => {
+  try { res.json(await GoodsPO.list(req.user!.userId)); } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.post("/goods-purchase-orders", authMiddleware, async (req, res) => {
+  try {
+    const body = req.body || {};
+    let lines: any[];
+    try { lines = await validateGoodsPOLines(req.user!.userId, body.lines); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+    const item = await GoodsPO.create({
+      ...body, lines, clientId: req.user!.userId,
+      buyerId: req.user!.userId, buyerName: req.user!.email,
+    });
+    res.status(201).json(item);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.put("/goods-purchase-orders/:id", authMiddleware, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.lines !== undefined) {
+      let lines: any[];
+      try { lines = await validateGoodsPOLines(req.user!.userId, body.lines); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+      body.lines = lines;
+    }
+    res.json(await GoodsPO.update(req.params.id, body));
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.delete("/goods-purchase-orders/:id", authMiddleware, async (req, res) => {
+  try { await GoodsPO.remove(req.params.id); res.json({ success: true }); } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ===================== GOODS RECEIPTS (GRN) =====================
+// Lifecycle: draft (no stock) → confirm (credits stock with the ACCEPTED
+// quantity, folds accepted qty into the PO) → cancelled (reversing debit
+// entries only if stock had already been credited).
+// The GRN is the ONLY document that credits inventory — POs, proformas and
+// purchase invoices never touch stock.
+
+function assertPOReceivable(po: any) {
+  if (po.status === "cancelled") throw new Error("Cannot receive against a cancelled PO");
+  if (po.status === "draft") throw new Error("Approve and send the PO before receiving goods");
+  if (po.status === "fully_received") throw new Error("PO is already fully received");
+}
+
+/**
+ * Validate GRN lines against the PO (ordered/pending limits) and snapshot them
+ * onto the GRN. The over-receipt gate applies to the ACCEPTED quantity — that
+ * is what counts toward the PO and enters stock.
+ */
+function validateReceiptLines(po: any, rawLines: any[], allowOverReceipt: boolean) {
+  const lines: any[] = [];
+  if (!Array.isArray(rawLines) || rawLines.length === 0) throw new Error("At least one received line required");
+  // Accumulate per-product accepted quantities so duplicate lines can't each
+  // pass the pending check and collectively over-receive.
+  const seen = new Map<string, number>();
+  for (const ln of rawLines) {
+    const poLine = (po.lines ?? []).find((l: any) => l.productId === ln.productId);
+    if (!poLine) throw new Error("A receipt line references a product that is not on this PO");
+    const receivedQty = Number(ln.receivedQty);
+    if (!Number.isFinite(receivedQty) || receivedQty <= 0) throw new Error(`Received quantity must be greater than zero for ${poLine.name}`);
+    // Empty/null accepted defaults to received (accepted is normally same as received).
+    const rawAccepted = ln.acceptedQty;
+    const acceptedQty =
+      rawAccepted === undefined || rawAccepted === null || rawAccepted === ""
+        ? receivedQty
+        : Number(rawAccepted);
+    if (!Number.isFinite(acceptedQty) || acceptedQty < 0) throw new Error(`Accepted quantity must be a non-negative number for ${poLine.name}`);
+    if (acceptedQty > receivedQty) throw new Error(`Accepted quantity cannot exceed received quantity for ${poLine.name}`);
+    const rawRejected = ln.rejectedQty;
+    const rejectedQty =
+      rawRejected === undefined || rawRejected === null || rawRejected === ""
+        ? 0
+        : Number(rawRejected);
+    if (!Number.isFinite(rejectedQty) || rejectedQty < 0) throw new Error(`Rejected quantity must be a non-negative number for ${poLine.name}`);
+    if (rejectedQty > receivedQty) throw new Error(`Rejected quantity cannot exceed received quantity for ${poLine.name}`);
+    if (acceptedQty + rejectedQty > receivedQty) {
+      throw new Error(`Accepted + rejected cannot exceed received quantity for ${poLine.name}`);
+    }
+    const already = seen.get(poLine.productId) ?? 0;
+    const pending = poLine.orderedQty - (poLine.receivedQty ?? 0) - already;
+    if (acceptedQty > pending && !allowOverReceipt) {
+      throw new Error(`Accepting ${acceptedQty} for ${poLine.name} exceeds the ${Math.max(0, pending)} pending. Over-receipt requires checker/admin approval.`);
+    }
+    seen.set(poLine.productId, already + acceptedQty);
+    lines.push({
+      productId: poLine.productId, sku: poLine.sku, name: poLine.name,
+      unit: poLine.unit ?? "unit",
+      orderedQty: poLine.orderedQty, receivedQty, acceptedQty, rejectedQty,
+      unitCost: Number(ln.unitCost ?? poLine.unitPrice) || 0,
+      gstRate: poLine.gstRate ?? null,
+      lineValue: Math.round(acceptedQty * (Number(ln.unitCost ?? poLine.unitPrice) || 0) * 100) / 100,
+      notes: ln.notes || null,
+    });
+  }
+  return lines;
+}
+
+/** Quantity that was credited for a line — accepted, or received for legacy GRNs. */
+function creditedQty(l: any): number {
+  return Number(l.acceptedQty ?? l.receivedQty) || 0;
+}
+
+/** Credit inventory for the ACCEPTED quantity of every GRN line and fold accepted qty into the PO. */
+async function creditGoodsReceipt(clientId: string, receipt: any, po: any) {
+  const unitByProduct = new Map<string, string>(
+    (po.lines ?? []).map((l: any) => [String(l.productId), String(l.unit ?? "unit")] as [string, string])
+  );
+  for (const ln of receipt.lines ?? []) {
+    const qty = creditedQty(ln);
+    if (!(qty > 0)) continue; // fully rejected lines credit nothing
+    await StockMovement.create({
+      clientId, productId: ln.productId, direction: "in", itemName: ln.name, sku: ln.sku,
+      quantity: qty, unit: unitByProduct.get(ln.productId) || ln.unit || "unit",
+      unitCost: ln.unitCost, notes: `GRN ${receipt.receiptNumber}`,
+      movementDate: receipt.receivedDate, goodsReceiptId: receipt.id,
+    });
+  }
+  await GoodsPO.recordReceipt(receipt.goodsPurchaseOrderId, (receipt.lines ?? []).map((l: any) => ({ productId: l.productId, receivedQty: creditedQty(l) })));
+}
+
+/** Create reversing debit (stock-out) entries for a confirmed GRN and revoke its PO quantities. */
+async function reverseGoodsReceipt(clientId: string, receipt: any, po: any) {
+  const unitByProduct = new Map<string, string>(
+    (po?.lines ?? []).map((l: any) => [String(l.productId), String(l.unit ?? "unit")] as [string, string])
+  );
+  for (const ln of receipt.lines ?? []) {
+    const qty = creditedQty(ln);
+    if (!(qty > 0)) continue;
+    await StockMovement.create({
+      clientId, productId: ln.productId, direction: "out", itemName: ln.name, sku: ln.sku,
+      quantity: qty, unit: unitByProduct.get(ln.productId) || ln.unit || "unit",
+      unitCost: ln.unitCost, notes: `GRN ${receipt.receiptNumber} cancelled — reversal`,
+      movementDate: db.todayDate(), goodsReceiptId: receipt.id,
+    });
+  }
+  await GoodsPO.revokeReceipt(receipt.goodsPurchaseOrderId, (receipt.lines ?? []).map((l: any) => ({ productId: l.productId, receivedQty: creditedQty(l) })));
+}
+
+async function recomputeForecast(clientId: string) {
+  const { recomputeAll } = await import("../services/forecast-service.js");
+  recomputeAll(clientId).catch((err: any) =>
+    console.error("  ⚠ Forecast recompute after goods receipt change failed:", err)
+  );
+}
+
+router.get("/goods-receipts", authMiddleware, async (req, res) => {
+  try { res.json(await GoodsReceipt.list(req.user!.userId)); } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /goods-receipts — create a DRAFT GRN. No stock impact. */
+router.post("/goods-receipts", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const body = req.body || {};
+    if (!body.goodsPurchaseOrderId) return res.status(400).json({ error: "goodsPurchaseOrderId required" });
+    const po = await GoodsPO.get(body.goodsPurchaseOrderId);
+    if (!po) return res.status(404).json({ error: "PO not found" });
+    if (po.status === "cancelled") return res.status(400).json({ error: "Cannot create a GRN against a cancelled PO" });
+    // A draft may be prepared against any open PO; the receivable/over-receipt
+    // checks run at CONFIRM time (the moment stock actually gets credited).
+    let lines: any[];
+    try { lines = validateReceiptLines(po, body.lines, false); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+    const receipt = await GoodsReceipt.create({
+      clientId, goodsPurchaseOrderId: po.id, poNumber: po.poNumber,
+      supplierId: body.supplierId ?? po.supplierId, supplierName: body.supplierName ?? po.supplierName,
+      warehouse: body.warehouse ?? po.warehouse,
+      receivedDate: body.receivedDate || null,
+      purchaseInvoiceId: body.purchaseInvoiceId || null,
+      challanNumber: body.challanNumber || null,
+      receivedById: req.user!.userId, receivedBy: req.user!.email,
+      notes: body.notes || null, documents: body.documents || [],
+      status: "draft", lines,
+    });
+    await syncLinkedPurchaseInvoice(receipt);
+    res.status(201).json(receipt);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /goods-receipts/:id/confirm — credit stock (idempotent, race-safe). */
+router.post("/goods-receipts/:id/confirm", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const receipt = await GoodsReceipt.get(req.params.id);
+    if (!receipt) return res.status(404).json({ error: "GRN not found" });
+    // Legacy GRNs from the pre-lifecycle flow have status "received" and were
+    // already credited — never credit them again.
+    if (receipt.status === "received") return res.json({ ...receipt, alreadyConfirmed: true });
+    if (receipt.status === "cancelled") return res.status(400).json({ error: "Cannot confirm a cancelled GRN" });
+    const allowOver = !!req.body?.allowOverReceipt && (req.user!.roles?.includes("factor_admin") || req.user!.roles?.includes("checker"));
+    const po = await GoodsPO.get(receipt.goodsPurchaseOrderId);
+    if (!po) return res.status(404).json({ error: "PO not found" });
+    try { assertPOReceivable(po); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+    // Re-validate at confirm time — the PO may have been received further in the
+    // meantime, so pending is checked against the live PO.
+    try { validateReceiptLines(po, receipt.lines, allowOver); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+    // Atomic draft → confirmed flip: exactly one concurrent confirm wins and
+    // credits stock; the others get alreadyConfirmed and credit nothing.
+    const flipped = await GoodsReceipt.flipToConfirmed(receipt.id, req.user!.email);
+    if (!flipped) return res.json({ ...receipt, alreadyConfirmed: true });
+    await creditGoodsReceipt(clientId, flipped, po);
+    await syncLinkedPurchaseInvoice(flipped);
+    recomputeForecast(clientId);
+    res.json(flipped);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /goods-receipts/:id/cancel — reversing debit entries only if stock was credited. */
+router.post("/goods-receipts/:id/cancel", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const receipt = await GoodsReceipt.get(req.params.id);
+    if (!receipt) return res.status(404).json({ error: "GRN not found" });
+    if (receipt.status === "cancelled") return res.json({ ...receipt, alreadyCancelled: true });
+    // Atomic → cancelled flip: only the winner performs the reversal.
+    const flipped = await GoodsReceipt.flipToCancelled(receipt.id, req.user!.email);
+    if (!flipped) return res.json({ ...receipt, alreadyCancelled: true });
+    // Decide reversal from POST-flip state: "received" is the legacy confirmed
+    // status (stock was credited), and flipToCancelled keeps stockCredited true
+    // from confirm — so this is also safe against a confirm racing in between.
+    const wasCredited = receipt.status === "received" || flipped.stockCredited === true;
+    if (wasCredited) {
+      const po = await GoodsPO.get(receipt.goodsPurchaseOrderId);
+      if (po) await reverseGoodsReceipt(clientId, receipt, po);
+    }
+    await syncLinkedPurchaseInvoice(flipped);
+    recomputeForecast(clientId);
+    res.json(flipped);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** PUT /goods-receipts/:id — edit a DRAFT only (no stock impact). */
+router.put("/goods-receipts/:id", authMiddleware, async (req, res) => {
+  try {
+    const receipt = await GoodsReceipt.get(req.params.id);
+    if (!receipt) return res.status(404).json({ error: "GRN not found" });
+    if (receipt.status !== "draft") return res.status(400).json({ error: "Only draft GRNs can be edited — confirm or cancel first" });
+    const body = req.body || {};
+    const po = await GoodsPO.get(receipt.goodsPurchaseOrderId);
+    if (!po) return res.status(404).json({ error: "PO not found" });
+    let lines = receipt.lines;
+    if (body.lines !== undefined) {
+      try { lines = validateReceiptLines(po, body.lines, false); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+    }
+    // Normalize an explicit empty-string unlink to null so the PI link clears.
+    const newPiId =
+      body.purchaseInvoiceId !== undefined
+        ? body.purchaseInvoiceId
+          ? String(body.purchaseInvoiceId)
+          : null
+        : receipt.purchaseInvoiceId;
+    const updated = await GoodsReceipt.update(receipt.id, {
+      receivedDate: body.receivedDate ?? receipt.receivedDate,
+      warehouse: body.warehouse ?? receipt.warehouse,
+      purchaseInvoiceId: newPiId,
+      challanNumber: body.challanNumber ?? receipt.challanNumber,
+      notes: body.notes ?? receipt.notes,
+      documents: body.documents ?? receipt.documents,
+      lines,
+    });
+    await syncLinkedPurchaseInvoice(updated, receipt.purchaseInvoiceId ?? undefined);
+    res.json(updated);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** DELETE /goods-receipts/:id — delete a DRAFT only. Confirmed GRNs must be cancelled first. */
+router.delete("/goods-receipts/:id", authMiddleware, async (req, res) => {
+  try {
+    const receipt = await GoodsReceipt.get(req.params.id);
+    if (!receipt) return res.status(404).json({ error: "GRN not found" });
+    if (receipt.status !== "draft") {
+      return res.status(400).json({ error: "Only draft GRNs can be deleted — cancel confirmed GRNs instead" });
+    }
+    // Detach any linked purchase invoice so it doesn't dangle at a deleted GRN.
+    await syncLinkedPurchaseInvoice({ ...receipt, status: "cancelled" }, receipt.purchaseInvoiceId ?? undefined);
+    await GoodsReceipt.remove(receipt.id);
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ===================== EXPENSES =====================
@@ -797,12 +1345,61 @@ router.post("/noa/:token/respond", async (req, res) => {
 });
 
 // ===================== FILE UPLOAD (S3) =====================
-router.post("/upload-url", authMiddleware, async (req, res) => {
+// In-memory multipart parser — 15 MB cap, matching the frontend uploaders.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 },
+});
+
+/**
+ * POST /upload — multipart form with `file`, and optionally `path` (S3 key) and
+ * `scope` (e.g. "products", "invoices"). If no path is given, one is derived
+ * from the user id + scope + a timestamp. Stores the object in S3 and returns
+ * { path, url, name, size, type }.
+ */
+router.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
   try {
-    const { key, contentType } = req.body;
+    const file = req.file;
+    if (!file) return res.status(400).json({ error: "No file provided (multipart field name: file)" });
+    const { path, scope } = (req.body || {}) as { path?: string; scope?: string };
+    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]+/g, "_");
+    const safePath = (path || `${req.user!.userId}/${scope || "misc"}/${Date.now()}-${safeName}`).replace(/^\/+/, "");
+    // Every key lives under the requester's own folder — never accept a path
+    // that points into another account's data.
+    if (!safePath.startsWith(`${req.user!.userId}/`)) {
+      return res.status(403).json({ error: "Upload key must be scoped to your account" });
+    }
     const { uploadFile } = await import("../s3.js");
-    // Note: For direct upload, use presigned POST. For now, accept base64 or buffer.
-    res.json({ message: "Upload endpoint ready. Use S3 presigned URLs for direct browser uploads." });
+    const result = await uploadFile(safePath, file.buffer, file.mimetype || "application/octet-stream");
+    res.status(201).json({ path: safePath, url: result.url, name: file.originalname, size: file.size, type: file.mimetype });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** GET /upload/<path>/url — signed short-lived download URL for a stored object. */
+router.get("/upload/*/url", authMiddleware, async (req, res) => {
+  try {
+    const key = decodeURIComponent(req.params[0]);
+    // Only sign URLs for the requester's own folder.
+    if (!key.startsWith(`${req.user!.userId}/`)) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+    const { getSignedDownloadUrl } = await import("../s3.js");
+    const url = await getSignedDownloadUrl(key);
+    res.json({ path: key, url });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** DELETE /upload/<path> — delete a stored object from S3. */
+router.delete("/upload/*", authMiddleware, async (req, res) => {
+  try {
+    const key = decodeURIComponent(req.params[0]);
+    // Only allow deleting objects in the requester's own folder.
+    if (!key.startsWith(`${req.user!.userId}/`)) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+    const { deleteFile } = await import("../s3.js");
+    await deleteFile(key);
+    res.json({ success: true });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 

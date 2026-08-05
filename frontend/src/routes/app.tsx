@@ -5,13 +5,46 @@ import api from "@/lib/api-client";
 import { useViewAsUserId } from "@/lib/view-as";
 import { ViewAsBanner } from "@/components/view-as-banner";
 import {
-  LayoutDashboard, FileText, BellRing, LogOut, Settings, Shield, Building2, Truck, ShoppingCart,
-  Receipt, Banknote, ClipboardCheck, Boxes, Wallet, FileSignature, FileMinus, Palette,
-  Package, TrendingUp, Users, Search, Menu, Command, Mail, ChevronRight, ChevronDown,
-  User, Briefcase, ClipboardList,
+  LayoutDashboard,
+  FileText,
+  BellRing,
+  LogOut,
+  Settings,
+  Shield,
+  Building2,
+  Truck,
+  ShoppingCart,
+  Receipt,
+  Banknote,
+  ClipboardCheck,
+  Boxes,
+  Wallet,
+  FileSignature,
+  FileMinus,
+  Palette,
+  Package,
+  TrendingUp,
+  Users,
+  Search,
+  Menu,
+  Command,
+  Mail,
+  ChevronRight,
+  ChevronDown,
+  User,
+  Briefcase,
+  ClipboardList,
+  PackageCheck,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem } from "@/components/ui/command";
+import {
+  CommandDialog,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+} from "@/components/ui/command";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import {
   DropdownMenu,
@@ -36,6 +69,8 @@ type NavSection =
 // ─── Shared Transactions items (used by operations, treasury, checker, admin) ──
 const TRANSACTIONS_ITEMS: NavItem[] = [
   { to: "/app/purchases", label: "Purchase invoices", icon: ShoppingCart },
+  { to: "/app/purchase-orders", label: "Purchase orders", icon: ClipboardList },
+  { to: "/app/grn", label: "Goods received (GRN)", icon: PackageCheck },
   { to: "/app/invoices", label: "Sales invoices", icon: FileText },
   { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
   { to: "/app/debtors", label: "Debtors", icon: Building2 },
@@ -62,7 +97,9 @@ function buildNavSections(roles: string[]): NavSection[] {
       { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
       { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
       {
-        type: "group", label: "Transactions", icon: Receipt,
+        type: "group",
+        label: "Transactions",
+        icon: Receipt,
         items: TRANSACTIONS_ITEMS,
       },
     ];
@@ -75,7 +112,9 @@ function buildNavSections(roles: string[]): NavSection[] {
       { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
       { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
       {
-        type: "group", label: "Transactions", icon: Receipt,
+        type: "group",
+        label: "Transactions",
+        icon: Receipt,
         items: TRANSACTIONS_ITEMS,
       },
     ];
@@ -87,7 +126,9 @@ function buildNavSections(roles: string[]): NavSection[] {
       { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
       { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
       {
-        type: "group", label: "Transactions", icon: Receipt,
+        type: "group",
+        label: "Transactions",
+        icon: Receipt,
         items: TRANSACTIONS_ITEMS,
       },
     ];
@@ -99,7 +140,9 @@ function buildNavSections(roles: string[]): NavSection[] {
       { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
       { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
       {
-        type: "group", label: "Sales", icon: Users,
+        type: "group",
+        label: "Sales",
+        icon: Users,
         items: [
           { to: "/app/crm", label: "Leads", icon: Users },
           { to: "/app/debtors", label: "Debtors", icon: Building2 },
@@ -116,10 +159,10 @@ function buildNavSections(roles: string[]): NavSection[] {
       { type: "single", label: "My Reports", icon: Users, to: "/app/reports" },
       { type: "single", label: "Requests", icon: ClipboardList, to: "/app/requests" },
       {
-        type: "group", label: "System", icon: Settings,
-        items: [
-          { to: "/app/settings", label: "Settings", icon: Settings },
-        ],
+        type: "group",
+        label: "System",
+        icon: Settings,
+        items: [{ to: "/app/settings", label: "Settings", icon: Settings }],
       },
     ];
   }
@@ -131,11 +174,15 @@ function buildNavSections(roles: string[]): NavSection[] {
       { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
       { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
       {
-        type: "group", label: "Transactions", icon: Receipt,
+        type: "group",
+        label: "Transactions",
+        icon: Receipt,
         items: TRANSACTIONS_ITEMS,
       },
       {
-        type: "group", label: "Catalog & Inventory", icon: Boxes,
+        type: "group",
+        label: "Catalog & Inventory",
+        icon: Boxes,
         items: [
           { to: "/app/products", label: "Product catalog", icon: Package },
           { to: "/app/forecast", label: "Demand forecasting", icon: TrendingUp },
@@ -143,7 +190,9 @@ function buildNavSections(roles: string[]): NavSection[] {
         ],
       },
       {
-        type: "group", label: "Sales", icon: Users,
+        type: "group",
+        label: "Sales",
+        icon: Users,
         items: [
           { to: "/app/crm", label: "Leads", icon: Users },
           { to: "/app/debtors", label: "Debtors", icon: Building2 },
@@ -151,7 +200,9 @@ function buildNavSections(roles: string[]): NavSection[] {
         ],
       },
       {
-        type: "group", label: "System", icon: Settings,
+        type: "group",
+        label: "System",
+        icon: Settings,
         items: [
           { to: "/app/alerts", label: "Alerts", icon: BellRing },
           { to: "/app/reminders", label: "Reminders", icon: Mail },
@@ -164,13 +215,21 @@ function buildNavSections(roles: string[]): NavSection[] {
   }
 
   // ── Fallback for unknown / unreporting_manager roles ──
-  return [
-    { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
-  ];
+  return [{ type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" }];
 }
 
 function AppLayout() {
-  const { user, loading, signOut, isAdmin, isTreasury, isChecker, isSalesRep, isOperations, isReportingManager } = useAuth();
+  const {
+    user,
+    loading,
+    signOut,
+    isAdmin,
+    isTreasury,
+    isChecker,
+    isSalesRep,
+    isOperations,
+    isReportingManager,
+  } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -230,23 +289,77 @@ function AppLayout() {
     // Allowed pages per role
     // Shared routes accessible to all logged-in users
     const SHARED_ROUTES = ["/app/profile", "/app/workspace", "/app/settings"];
-    const operationsAllowed = ["/app/dashboard", "/app/debtors", "/app/suppliers", "/app/invoices", "/app/purchases", "/app/proformas", "/app/advances", "/app/expenses", "/app/notes"];
+    const operationsAllowed = [
+      "/app/dashboard",
+      "/app/debtors",
+      "/app/suppliers",
+      "/app/invoices",
+      "/app/purchases",
+      "/app/purchase-orders",
+      "/app/grn",
+      "/app/proformas",
+      "/app/advances",
+      "/app/expenses",
+      "/app/notes",
+    ];
     const salesmanAllowed = ["/app/dashboard", "/app/crm", "/app/debtors", "/app/suppliers"];
 
     if (isAdmin) return; // admin goes anywhere
 
-    if (isChecker && pathname.startsWith("/app/") && ![...operationsAllowed, ...SHARED_ROUTES, "/app/checker"].some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+    if (
+      isChecker &&
+      pathname.startsWith("/app/") &&
+      ![...operationsAllowed, ...SHARED_ROUTES, "/app/checker"].some(
+        (p) => pathname === p || pathname.startsWith(p + "/"),
+      )
+    ) {
       navigate({ to: "/app/checker" });
-    } else if (isTreasury && pathname.startsWith("/app/") && ![...operationsAllowed, ...SHARED_ROUTES, "/app/queue"].some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+    } else if (
+      isTreasury &&
+      pathname.startsWith("/app/") &&
+      ![...operationsAllowed, ...SHARED_ROUTES, "/app/queue"].some(
+        (p) => pathname === p || pathname.startsWith(p + "/"),
+      )
+    ) {
       navigate({ to: "/app/queue" });
-    } else if (isOperations && pathname.startsWith("/app/") && ![...operationsAllowed, ...SHARED_ROUTES].some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+    } else if (
+      isOperations &&
+      pathname.startsWith("/app/") &&
+      ![...operationsAllowed, ...SHARED_ROUTES].some(
+        (p) => pathname === p || pathname.startsWith(p + "/"),
+      )
+    ) {
       navigate({ to: "/app/dashboard" });
-    } else if (isSalesRep && pathname.startsWith("/app/") && ![...salesmanAllowed, ...SHARED_ROUTES].some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+    } else if (
+      isSalesRep &&
+      pathname.startsWith("/app/") &&
+      ![...salesmanAllowed, ...SHARED_ROUTES].some(
+        (p) => pathname === p || pathname.startsWith(p + "/"),
+      )
+    ) {
       navigate({ to: "/app/crm" });
-    } else if (isReportingManager && pathname.startsWith("/app/") && !["/app/dashboard", "/app/reports", "/app/requests", ...SHARED_ROUTES].some((p) => pathname === p || pathname.startsWith(p + "/"))) {
+    } else if (
+      isReportingManager &&
+      pathname.startsWith("/app/") &&
+      !["/app/dashboard", "/app/reports", "/app/requests", ...SHARED_ROUTES].some(
+        (p) => pathname === p || pathname.startsWith(p + "/"),
+      )
+    ) {
       navigate({ to: "/app/dashboard" });
     }
-  }, [loading, user, isTreasury, isChecker, isAdmin, isSalesRep, isOperations, isReportingManager, viewAsUserId, pathname, navigate]);
+  }, [
+    loading,
+    user,
+    isTreasury,
+    isChecker,
+    isAdmin,
+    isSalesRep,
+    isOperations,
+    isReportingManager,
+    viewAsUserId,
+    pathname,
+    navigate,
+  ]);
 
   // When entering/exiting view-as, refetch cached queries so data reflects the
   // right user (e.g. after switching between two team members).
@@ -278,13 +391,12 @@ function AppLayout() {
   const navSections = buildNavSections(effectiveRoles);
 
   // Resolve the currently active flyout section data
-  const activeFlyoutSection =
-    activeFlyout
-      ? (navSections.find(
-          (s): s is Extract<NavSection, { type: "group" }> =>
-            s.type === "group" && s.label === activeFlyout,
-        ) ?? null)
-      : null;
+  const activeFlyoutSection = activeFlyout
+    ? (navSections.find(
+        (s): s is Extract<NavSection, { type: "group" }> =>
+          s.type === "group" && s.label === activeFlyout,
+      ) ?? null)
+    : null;
 
   const closeAll = () => {
     setActiveFlyout(null);
@@ -318,7 +430,10 @@ function AppLayout() {
         key={n.to}
         to={n.to}
         search={viewSearch}
-        onClick={() => { closeSidebar(); closeAll(); }}
+        onClick={() => {
+          closeSidebar();
+          closeAll();
+        }}
         className={`flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
           active
             ? "bg-blue-50 text-accent"
@@ -341,8 +456,12 @@ function AppLayout() {
       <div className="flex items-center gap-3 px-5 py-5 border-b border-sidebar-border shrink-0">
         <img src="/logo.png" alt="Adventra" className="h-9 w-auto rounded-[12px] object-contain" />
         <div>
-          <div className="font-display text-lg leading-tight tracking-tight text-sidebar-foreground">Adventra</div>
-          <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">{consoleLabel}</div>
+          <div className="font-display text-lg leading-tight tracking-tight text-sidebar-foreground">
+            Adventra
+          </div>
+          <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+            {consoleLabel}
+          </div>
         </div>
       </div>
 
@@ -372,7 +491,9 @@ function AppLayout() {
                 key={section.to}
                 to={section.to}
                 search={viewSearch}
-                onClick={() => { if (mobile) setMobileOpen(false); }}
+                onClick={() => {
+                  if (mobile) setMobileOpen(false);
+                }}
                 className={`flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                   active
                     ? "bg-blue-50 text-accent"
@@ -400,9 +521,7 @@ function AppLayout() {
                 <>
                   <button
                     onClick={() =>
-                      setMobileExpanded(
-                        mobileExpanded === section.label ? null : section.label,
-                      )
+                      setMobileExpanded(mobileExpanded === section.label ? null : section.label)
                     }
                     className={`flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                       hasActiveChild
@@ -410,7 +529,9 @@ function AppLayout() {
                         : "text-slate-500 hover:bg-blue-50/50 hover:text-slate-700"
                     }`}
                   >
-                    <Icon className={`h-4 w-4 shrink-0 ${hasActiveChild ? "text-accent" : "text-slate-400"}`} />
+                    <Icon
+                      className={`h-4 w-4 shrink-0 ${hasActiveChild ? "text-accent" : "text-slate-400"}`}
+                    />
                     <span className="flex-1 truncate text-left">{section.label}</span>
                     <ChevronDown
                       className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
@@ -434,7 +555,9 @@ function AppLayout() {
                       : "text-slate-500 hover:bg-blue-50/50 hover:text-slate-700"
                   } ${isOpen ? "ring-1 ring-blue-200" : ""}`}
                 >
-                  <Icon className={`h-4 w-4 shrink-0 ${hasActiveChild ? "text-accent" : "text-slate-400"}`} />
+                  <Icon
+                    className={`h-4 w-4 shrink-0 ${hasActiveChild ? "text-accent" : "text-slate-400"}`}
+                  />
                   <span className="flex-1 truncate text-left">{section.label}</span>
                   <ChevronRight
                     className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
@@ -451,9 +574,16 @@ function AppLayout() {
       {/* User footer */}
       <div className="border-t border-sidebar-border p-3 shrink-0">
         <div className="rounded-[12px] bg-slate-50/80 p-3 transition-colors hover:bg-slate-100/80 border border-sidebar-border/50">
-          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">Signed in as</div>
-          <div className="mt-0.5 truncate text-sm font-medium text-sidebar-foreground">{user?.email}</div>
-          <button onClick={handleSignOut} className="mt-2.5 inline-flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+            Signed in as
+          </div>
+          <div className="mt-0.5 truncate text-sm font-medium text-sidebar-foreground">
+            {user?.email}
+          </div>
+          <button
+            onClick={handleSignOut}
+            className="mt-2.5 inline-flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
             <LogOut className="h-3.5 w-3.5" /> Sign out
           </button>
         </div>
@@ -529,7 +659,9 @@ function AppLayout() {
                           : "text-slate-600 hover:bg-slate-50 hover:text-slate-800"
                       }`}
                     >
-                      <ItemIcon className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-slate-400"}`} />
+                      <ItemIcon
+                        className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-slate-400"}`}
+                      />
                       <span className="truncate">{n.label}</span>
                       {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />}
                     </button>
@@ -578,17 +710,29 @@ function AppLayout() {
                 {user?.email}
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => navigate({ to: "/app/profile", search: viewSearch })} className="cursor-pointer">
+              <DropdownMenuItem
+                onClick={() => navigate({ to: "/app/profile", search: viewSearch })}
+                className="cursor-pointer"
+              >
                 <User className="mr-2 h-4 w-4" /> Profile
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate({ to: "/app/workspace", search: viewSearch })} className="cursor-pointer">
+              <DropdownMenuItem
+                onClick={() => navigate({ to: "/app/workspace", search: viewSearch })}
+                className="cursor-pointer"
+              >
                 <Briefcase className="mr-2 h-4 w-4" /> My Workspace
               </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => navigate({ to: "/app/settings", search: viewSearch })} className="cursor-pointer">
+              <DropdownMenuItem
+                onClick={() => navigate({ to: "/app/settings", search: viewSearch })}
+                className="cursor-pointer"
+              >
                 <Settings className="mr-2 h-4 w-4" /> Settings
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-destructive focus:text-destructive">
+              <DropdownMenuItem
+                onClick={handleSignOut}
+                className="cursor-pointer text-destructive focus:text-destructive"
+              >
                 <LogOut className="mr-2 h-4 w-4" /> Sign out
               </DropdownMenuItem>
             </DropdownMenuContent>

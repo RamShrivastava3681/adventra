@@ -17,11 +17,24 @@ export interface Product {
   category: string | null;
   subcategory: string | null;
   gender: string | null;
+  /** Brand name, e.g. "Nike", "Puma" */
+  brand: string | null;
   size: string | null;
   color: string | null;
+  /** Variant / model identifier, e.g. "Airmax-2024" */
+  model: string | null;
+  /** Unit of measure — piece, pair, carton, box, dozen, kg, etc. */
+  unitOfMeasure: string;
   season: string;
+  barcode: string | null;
+  /** Barcode symbology — EAN-13, UPC-A, QR, etc. Optional. */
+  barcodeType: string | null;
+  /** Units packed per carton — optional. */
+  unitsPerCarton: number | null;
   unitPrice: number;
   unitCost: number;
+  /** Max retail price (MRP) — printed list price. */
+  mrp: number | null;
   /** Minimum gross margin (0.01–0.99) used to derive the floor for recommended prices. null = inherit the catalogue default margin. */
   minimumGrossMarginPercentage: number | null;
   reorderLevel: number;
@@ -30,7 +43,16 @@ export interface Product {
   /** Days of demand to hold as a buffer (drives reorder safety stock) */
   safetyStockDays: number;
   supplierId: string | null;
-  barcode: string | null;
+  /** The supplier's own code/reference for this product — optional. */
+  supplierProductCode: string | null;
+  /** Minimum quantity that must be ordered at once. */
+  minimumOrderQuantity: number | null;
+  /** Quantities must be ordered in multiples of this number. */
+  orderMultiple: number | null;
+  /** HSN code for taxation (India). */
+  hsnCode: string | null;
+  /** GST rate as a percentage (0, 5, 12, 18, 28…). null = not set. */
+  gstRate: number | null;
   imageUrl: string | null;
   status: string;
   createdAt: string;
@@ -69,18 +91,29 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
     category: data.category || null,
     subcategory: data.subcategory || null,
     gender: data.gender || null,
+    brand: data.brand || null,
     size: data.size || null,
     color: data.color || null,
+    model: data.model || null,
+    unitOfMeasure: data.unitOfMeasure || "piece",
     season: data.season || "all",
+    barcode: data.barcode || null,
+    barcodeType: data.barcodeType || null,
+    unitsPerCarton: data.unitsPerCarton ?? null,
     unitPrice: data.unitPrice || 0,
     unitCost: data.unitCost || 0,
+    mrp: data.mrp ?? null,
     minimumGrossMarginPercentage: data.minimumGrossMarginPercentage ?? null,
     reorderLevel: data.reorderLevel || 0,
     maxStock: data.maxStock || 0,
     leadTimeDays: data.leadTimeDays || 30,
     safetyStockDays: data.safetyStockDays || 30,
     supplierId: data.supplierId || null,
-    barcode: data.barcode || null,
+    supplierProductCode: data.supplierProductCode || null,
+    minimumOrderQuantity: data.minimumOrderQuantity ?? null,
+    orderMultiple: data.orderMultiple ?? null,
+    hsnCode: data.hsnCode || null,
+    gstRate: data.gstRate ?? null,
     imageUrl: data.imageUrl || null,
     status: data.status || "active",
     createdAt: now,
@@ -91,7 +124,7 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
 }
 
 export async function update(id: string, updates: Partial<Product>) {
-  const allowed = ["name","description","category","subcategory","gender","size","color","season","unitPrice","unitCost","minimumGrossMarginPercentage","reorderLevel","maxStock","leadTimeDays","safetyStockDays","supplierId","barcode","imageUrl","status","sku"];
+  const allowed = ["name","description","category","subcategory","gender","brand","size","color","model","unitOfMeasure","season","barcode","barcodeType","unitsPerCarton","unitPrice","unitCost","mrp","minimumGrossMarginPercentage","reorderLevel","maxStock","leadTimeDays","safetyStockDays","supplierId","supplierProductCode","minimumOrderQuantity","orderMultiple","hsnCode","gstRate","imageUrl","status","sku"];
   const patch: Record<string, any> = {};
   for (const key of allowed) {
     if ((updates as any)[key] !== undefined) patch[key] = (updates as any)[key];

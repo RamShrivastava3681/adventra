@@ -79,7 +79,15 @@ export function Card({ title, action, children, className = "" }: { title?: stri
   );
 }
 
-export function StatusPill({ status }: { status: string }) {
+export function StatusPill({
+  status,
+  label,
+  tone,
+}: {
+  status: string;
+  label?: string;
+  tone?: string;
+}) {
   const map: Record<string, string> = {
     pending: "bg-slate-100 text-slate-500",
     approved: "bg-blue-50 text-blue-600",
@@ -90,10 +98,15 @@ export function StatusPill({ status }: { status: string }) {
     critical: "bg-red-50 text-red-600",
     warning: "bg-amber-50 text-amber-600",
     info: "bg-blue-50 text-blue-600",
+    draft: "bg-slate-100 text-slate-500",
+    verified: "bg-blue-50 text-blue-600",
+    approved_for_payment: "bg-violet-50 text-violet-600",
+    partially_paid: "bg-amber-50 text-amber-600",
+    cancelled: "bg-red-50 text-red-600",
   };
   return (
-    <span className={`status-pill ${map[status] ?? "bg-slate-100 text-slate-500"}`}>
-      {status}
+    <span className={`status-pill ${tone ?? map[status] ?? "bg-slate-100 text-slate-500"}`}>
+      {label ?? status}
     </span>
   );
 }

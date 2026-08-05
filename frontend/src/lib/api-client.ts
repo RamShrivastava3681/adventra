@@ -9,10 +9,7 @@ function getToken(): string | null {
   return localStorage.getItem("auth_token");
 }
 
-async function request<T = any>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
+async function request<T = any>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -41,7 +38,10 @@ async function request<T = any>(
     const body = await res.json().catch(() => ({}));
     const error: any = new Error(body.error || `Request failed: ${res.status}`);
     error.status = res.status;
-    console.error(`[API] ${options.method || "GET"} ${path} → ${res.status}:`, body.error || res.statusText);
+    console.error(
+      `[API] ${options.method || "GET"} ${path} → ${res.status}:`,
+      body.error || res.statusText,
+    );
     // Log full error body in development for debugging
     if (import.meta.env.DEV) console.debug("[API] Response body:", body);
     throw error;
@@ -64,8 +64,12 @@ const api = {
   auth: {
     login: (email: string, password: string) =>
       api.post<{ token: string; user: any }>("/auth/login", { email, password }),
-    signup: (data: { email: string; password: string; companyName?: string; contactName?: string }) =>
-      api.post<{ token: string; user: any }>("/auth/signup", data),
+    signup: (data: {
+      email: string;
+      password: string;
+      companyName?: string;
+      contactName?: string;
+    }) => api.post<{ token: string; user: any }>("/auth/signup", data),
     me: () => api.get<any>("/auth/me"),
     updateProfile: (data: any) => api.put<any>("/auth/profile", data),
     setToken: (token: string) => localStorage.setItem("auth_token", token),
@@ -145,6 +149,24 @@ const api = {
     delete: (id: string) => api.delete(`/purchase-orders/${id}`),
   },
 
+  // Goods Purchase Orders (catalogue-backed procurement POs)
+  goodsPurchaseOrders: {
+    list: () => api.get<any[]>("/goods-purchase-orders"),
+    create: (data: any) => api.post<any>("/goods-purchase-orders", data),
+    update: (id: string, data: any) => api.put<any>(`/goods-purchase-orders/${id}`, data),
+    delete: (id: string) => api.delete(`/goods-purchase-orders/${id}`),
+  },
+
+  // Goods Receipts (GRNs — credit inventory when goods arrive)
+  goodsReceipts: {
+    list: () => api.get<any[]>("/goods-receipts"),
+    create: (data: any) => api.post<any>("/goods-receipts", data),
+    update: (id: string, data: any) => api.put<any>(`/goods-receipts/${id}`, data),
+    delete: (id: string) => api.delete(`/goods-receipts/${id}`),
+    confirm: (id: string, data?: any) => api.post<any>(`/goods-receipts/${id}/confirm`, data ?? {}),
+    cancel: (id: string) => api.post<any>(`/goods-receipts/${id}/cancel`, {}),
+  },
+
   // Expenses
   expenses: {
     list: () => api.get<any[]>("/expenses"),
@@ -184,8 +206,7 @@ const api = {
     delete: (id: string) => api.delete(`/journals/${id}`),
   },
 
-  accountTransactions: (accountId: string) =>
-    api.get<any>(`/account-transactions/${accountId}`),
+  accountTransactions: (accountId: string) => api.get<any>(`/account-transactions/${accountId}`),
 
   // Credit/Debit Notes
   creditDebitNotes: {
@@ -239,13 +260,17 @@ const api = {
 
   // Forecast Variables (persisted snapshots from backend)
   forecastVariables: {
-    list: () => api.get<{
-      computedDate: string | null;
-      wasRecomputed: boolean;
-      snapshots: any[];
-      products: any[];
-    }>("/forecast-variables"),
-    recompute: () => api.post<{ computedDate: string; count: number; message: string }>("/forecast-variables/recompute"),
+    list: () =>
+      api.get<{
+        computedDate: string | null;
+        wasRecomputed: boolean;
+        snapshots: any[];
+        products: any[];
+      }>("/forecast-variables"),
+    recompute: () =>
+      api.post<{ computedDate: string; count: number; message: string }>(
+        "/forecast-variables/recompute",
+      ),
   },
 
   // NOA
@@ -261,7 +286,8 @@ const api = {
   },
   reminders: {
     send: (invoiceId: string) => api.post<any>(`/invoices/${invoiceId}/send-reminder`),
-    sendPurchase: (invoiceId: string) => api.post<any>(`/purchase-invoices/${invoiceId}/send-reminder`),
+    sendPurchase: (invoiceId: string) =>
+      api.post<any>(`/purchase-invoices/${invoiceId}/send-reminder`),
     runAll: () => api.post<any>("/reminders/run"),
   },
 
@@ -285,8 +311,13 @@ const api = {
   // Admin
   admin: {
     users: () => api.get<any[]>("/admin/users"),
-    createUser: (data: { email: string; password: string; contactName?: string; role: string; managerId?: string }) =>
-      api.post<any>("/admin/users/create", data),
+    createUser: (data: {
+      email: string;
+      password: string;
+      contactName?: string;
+      role: string;
+      managerId?: string;
+    }) => api.post<any>("/admin/users/create", data),
     updateRole: (userId: string, role: string, add: boolean) =>
       api.put("/admin/users/role", { userId, role, add }),
     listManagers: () => api.get<any[]>("/admin/users/managers"),

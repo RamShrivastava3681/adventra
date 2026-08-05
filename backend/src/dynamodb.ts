@@ -91,6 +91,52 @@ export async function updateItem(
   return result.Attributes ?? null;
 }
 
+/**
+ * Conditional update — only applies `updates` when `conditionExpression` holds.
+ * Throws if the condition fails (caller can catch ConditionalCheckFailedException)
+ * or returns null when `returnNullOnConditionFailure` is true. Used for atomic
+ * state flips (e.g. draft → confirmed) so concurrent requests can't both win.
+ */
+export async function updateItemIf(
+  pk: string,
+  sk: string,
+  updates: Record<string, any>,
+  conditionExpression: string,
+  conditionValues: Record<string, any>,
+  returnNullOnConditionFailure = true,
+  conditionNames: Record<string, string> = {}
+) {
+  const expr = Object.keys(updates)
+    .map((k, i) => `#f${i} = :v${i}`)
+    .join(", ");
+  const attrNames = Object.keys(updates).reduce(
+    (a, k, i) => ({ ...a, [`#f${i}`]: k }),
+    {} as Record<string, string>
+  );
+  const attrValues = Object.values(updates).reduce(
+    (a, v, i) => ({ ...a, [`:v${i}`]: v }),
+    {} as Record<string, any>
+  );
+  const params: UpdateCommandInput = {
+    TableName: TABLE,
+    Key: { pk, sk },
+    UpdateExpression: `SET ${expr}`,
+    ConditionExpression: conditionExpression,
+    ExpressionAttributeNames: { ...attrNames, ...conditionNames },
+    ExpressionAttributeValues: { ...attrValues, ...conditionValues },
+    ReturnValues: "ALL_NEW",
+  };
+  try {
+    const result = await docClient.send(new UpdateCommand(params));
+    return result.Attributes ?? null;
+  } catch (err: any) {
+    if (returnNullOnConditionFailure && err?.name === "ConditionalCheckFailedException") {
+      return null;
+    }
+    throw err;
+  }
+}
+
 export async function deleteItem(pk: string, sk?: string) {
   const params: DeleteCommandInput = {
     TableName: TABLE,

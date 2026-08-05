@@ -3,8 +3,23 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Banknote, CheckCircle2, Lock, ArrowDownToLine, ArrowUpFromLine, FileMinus, FilePlus, Sparkles } from "lucide-react";
+import {
+  PageHeader,
+  Card,
+  StatusPill,
+  fmtMoney,
+  fmtDate,
+  daysBetween,
+} from "@/components/ledger-ui";
+import {
+  Banknote,
+  Lock,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  FileMinus,
+  FilePlus,
+  Sparkles,
+} from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 
@@ -17,7 +32,9 @@ function parseYMD(s?: string | null): Date | null {
   const m = String(s).match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (!m) {
     const d = new Date(s);
-    return isNaN(d.getTime()) ? null : new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    return isNaN(d.getTime())
+      ? null
+      : new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
   }
   return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
 }
@@ -37,6 +54,7 @@ type Row = {
   po_number: string | null;
   advance: number;
   balance: number;
+  amount_paid: number;
   due_date: string | null;
   issue_date: string | null;
   status: string;
@@ -54,7 +72,11 @@ function QueuePage() {
     queryKey: ["queue-sales"],
     queryFn: async () => {
       const data = await api.invoices.list();
-      return data.filter((i: any) => ["approved", "funded", "advanced", "overdue"].includes(i.status)).sort((a: any, b: any) => (a.dueDate ?? a.due_date ?? "9999").localeCompare(b.dueDate ?? b.due_date ?? "9999"));
+      return data
+        .filter((i: any) => ["approved", "funded", "advanced", "overdue"].includes(i.status))
+        .sort((a: any, b: any) =>
+          (a.dueDate ?? a.due_date ?? "9999").localeCompare(b.dueDate ?? b.due_date ?? "9999"),
+        );
     },
   });
 
@@ -62,13 +84,25 @@ function QueuePage() {
     queryKey: ["queue-purchases"],
     queryFn: async () => {
       const data = await api.purchaseInvoices.list();
-      return data.filter((p: any) => ["approved", "funded", "advanced", "overdue"].includes(p.status)).sort((a: any, b: any) => (a.dueDate ?? a.due_date ?? "9999").localeCompare(b.dueDate ?? b.due_date ?? "9999"));
+      return data
+        .filter((p: any) =>
+          ["approved_for_payment", "partially_paid", "approved", "funded", "advanced", "overdue"].includes(p.status),
+        )
+        .sort((a: any, b: any) =>
+          (a.dueDate ?? a.due_date ?? "9999").localeCompare(b.dueDate ?? b.due_date ?? "9999"),
+        );
     },
   });
 
   // Live advance lookup by PO number — DB is source of truth
-  const salePos = Array.from(new Set(((salesQ.data ?? []) as any[]).map((i) => (i.po_number ?? "").trim()).filter(Boolean)));
-  const purPos = Array.from(new Set(((purchasesQ.data ?? []) as any[]).map((p) => (p.po_number ?? "").trim()).filter(Boolean)));
+  const salePos = Array.from(
+    new Set(((salesQ.data ?? []) as any[]).map((i) => (i.po_number ?? "").trim()).filter(Boolean)),
+  );
+  const purPos = Array.from(
+    new Set(
+      ((purchasesQ.data ?? []) as any[]).map((p) => (p.po_number ?? "").trim()).filter(Boolean),
+    ),
+  );
 
   const advLookupQ = useQuery({
     queryKey: ["queue-advances", salePos, purPos],
@@ -83,7 +117,12 @@ function QueuePage() {
         const idToPo = new Map<string, string>(poRows.map((r: any) => [r.id, r.po_number]));
         if (!ids.length) return;
         const allAdvances = await api.advances.list();
-        const advs = allAdvances.filter((a: any) => a.side === s && ids.includes(a.purchaseOrderId ?? a.purchase_order_id) && a.status !== "refunded");
+        const advs = allAdvances.filter(
+          (a: any) =>
+            a.side === s &&
+            ids.includes(a.purchaseOrderId ?? a.purchase_order_id) &&
+            a.status !== "refunded",
+        );
         for (const a of advs as any[]) {
           const po = idToPo.get(a.purchase_order_id);
           if (!po) continue;
@@ -99,7 +138,19 @@ function QueuePage() {
     po ? Number(advMap[`${s}::${po.trim()}`] ?? 0) : 0;
 
   const closeSale = useMutation({
-    mutationFn: async ({ id, amount_received, receipt_date, amount, due_date }: { id: string; amount_received: number; receipt_date: string; amount: number; due_date: string | null }) => {
+    mutationFn: async ({
+      id,
+      amount_received,
+      receipt_date,
+      amount,
+      due_date,
+    }: {
+      id: string;
+      amount_received: number;
+      receipt_date: string;
+      amount: number;
+      due_date: string | null;
+    }) => {
       const short_payment = Math.max(0, +(amount - amount_received).toFixed(2));
       const late_days = diffDaysUTC(due_date, receipt_date);
       const patch: any = {
@@ -117,20 +168,32 @@ function QueuePage() {
       qc.invalidateQueries({ queryKey: ["invoices"] });
       const ld = diffDaysUTC(vars.due_date, vars.receipt_date);
       const sp = Math.max(0, +(vars.amount - vars.amount_received).toFixed(2));
-      toast.success(`Invoice closed · ${ld} late day${ld === 1 ? "" : "s"}${sp > 0 ? ` · short ${fmtMoney(sp)}` : ""}`);
+      toast.success(
+        `Invoice closed · ${ld} late day${ld === 1 ? "" : "s"}${sp > 0 ? ` · short ${fmtMoney(sp)}` : ""}`,
+      );
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
   const payPurchase = useMutation({
-    mutationFn: async ({ id }: { id: string }) => {
-      const today = new Date().toISOString().slice(0, 10);
-      await api.purchaseInvoices.update(id, { status: "paid", paid_date: today });
+    mutationFn: async ({
+      id,
+      amount_paid,
+      paid_date,
+    }: {
+      id: string;
+      amount_paid: number;
+      paid_date: string;
+    }) => {
+      // Status is derived from amountPaid vs the payable: full → paid,
+      // partial → partially_paid. The purchase invoice itself never creates
+      // stock — it only records the supplier payable being settled.
+      await api.purchaseInvoices.update(id, { amount_paid, paid_date });
     },
-    onSuccess: () => {
+    onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["queue-purchases"] });
       qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
-      toast.success("Balance paid");
+      toast.success(vars.amount_paid > 0 ? "Payment recorded" : "Payment cleared");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -140,8 +203,13 @@ function QueuePage() {
     queryKey: ["queue-proformas"],
     queryFn: async () => {
       const data = await api.purchaseOrders.list();
-      // Never surface cancelled proformas for funding (cancel keeps the old proforma_status)
-      return data.filter((p: any) => p.status !== "cancelled" && p.proforma_status === "approved");
+      // Never surface closed proformas for funding (cancelled/expired/converted keep
+      // the old proforma_status, but the document lifecycle has ended).
+      return data.filter(
+        (p: any) =>
+          !["cancelled", "expired", "converted_to_po"].includes(p.status) &&
+          p.proforma_status === "approved",
+      );
     },
   });
 
@@ -177,7 +245,11 @@ function QueuePage() {
   const partiesQ = useQuery({
     queryKey: ["queue-parties"],
     queryFn: async () => {
-      const [debtors, suppliers, vendors] = await Promise.all([api.debtors.list(), api.suppliers.list(), api.vendors.list()]);
+      const [debtors, suppliers, vendors] = await Promise.all([
+        api.debtors.list(),
+        api.suppliers.list(),
+        api.vendors.list(),
+      ]);
       const map: Record<string, string> = {};
       for (const d of debtors) map[d.id] = d.name;
       for (const s of suppliers) map[s.id] = s.company_name ?? s.companyName ?? s.name;
@@ -186,7 +258,8 @@ function QueuePage() {
     },
   });
   const partyMap = partiesQ.data ?? {};
-  const pfParty = (p: any) => (p.side === "sales" ? partyMap[p.debtor_id] : partyMap[p.vendor_id]) ?? "—";
+  const pfParty = (p: any) =>
+    (p.side === "sales" ? partyMap[p.debtor_id] : partyMap[p.vendor_id]) ?? "—";
 
   const notesQ = useQuery({
     queryKey: ["queue-notes"],
@@ -228,8 +301,8 @@ function QueuePage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-
   const [closeFor, setCloseFor] = useState<Row | null>(null);
+  const [payFor, setPayFor] = useState<Row | null>(null);
 
   const rows: Row[] = [
     ...((salesQ.data ?? []) as Array<Record<string, any>>).map((i): Row => {
@@ -243,6 +316,7 @@ function QueuePage() {
         po_number: i.po_number ?? null,
         advance,
         balance: Math.max(0, amount - advance),
+        amount_paid: 0,
         due_date: i.due_date,
         issue_date: i.issue_date,
         status: i.status,
@@ -258,13 +332,18 @@ function QueuePage() {
         id: p.id,
         invoice_number: p.invoice_number,
         amount,
-        po_number: p.po_number ?? null,
+        po_number: p.goods_po_number ?? p.po_number ?? null,
         advance,
-        balance: Math.max(0, amount - advance),
+        // New-style invoices carry balance_due (grand total − amount paid).
+        balance:
+          p.balance_due != null
+            ? Math.max(0, Number(p.balance_due))
+            : Math.max(0, amount - advance),
+        amount_paid: Number(p.amount_paid) || 0,
         due_date: p.due_date,
         issue_date: p.issue_date,
         status: p.status,
-        party: p.vendor?.name ?? "—",
+        party: p.supplier_name ?? p.vendor?.name ?? "—",
         client: "—",
       };
     }),
@@ -274,8 +353,12 @@ function QueuePage() {
 
   const balanceToPay = rows.filter((r) => r.kind === "purchase").reduce((s, r) => s + r.balance, 0);
   const balanceToReceive = rows.filter((r) => r.kind === "sale").reduce((s, r) => s + r.balance, 0);
-  const advancesAppliedOut = rows.filter((r) => r.kind === "purchase").reduce((s, r) => s + r.advance, 0);
-  const advancesAppliedIn = rows.filter((r) => r.kind === "sale").reduce((s, r) => s + r.advance, 0);
+  const advancesAppliedOut = rows
+    .filter((r) => r.kind === "purchase")
+    .reduce((s, r) => s + r.advance, 0);
+  const advancesAppliedIn = rows
+    .filter((r) => r.kind === "sale")
+    .reduce((s, r) => s + r.advance, 0);
 
   return (
     <div>
@@ -315,7 +398,9 @@ function QueuePage() {
               key={s}
               onClick={() => setSide(s)}
               className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                side === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
+                side === s
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground"
               }`}
             >
               {s === "all" ? "All" : s === "sale" ? "Sales (AR)" : "Purchases (AP)"}
@@ -346,41 +431,76 @@ function QueuePage() {
                     <th className="px-5 py-2 text-left font-normal">Due</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
-                    <th className="sticky right-0 hidden bg-card px-5 py-2 text-right font-normal md:table-cell">Action</th>
+                    <th className="sticky right-0 hidden bg-card px-5 py-2 text-right font-normal md:table-cell">
+                      Action
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((r) => {
                     const dpd = r.due_date && r.status !== "paid" ? daysBetween(r.due_date) : 0;
                     const lateDays = Math.max(0, dpd);
-                    const action = <QueueAction row={r} isTreasury={isTreasury} onCloseSale={setCloseFor} onPayPurchase={() => payPurchase.mutate({ id: r.id })} />;
+                    const action = (
+                      <QueueAction
+                        row={r}
+                        isTreasury={isTreasury}
+                        onCloseSale={setCloseFor}
+                        onPayPurchase={setPayFor}
+                      />
+                    );
                     return (
                       <Fragment key={`${r.kind}-${r.id}`}>
-                      <tr className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3">
-                          <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
-                            r.kind === "sale" ? "bg-primary/15 text-primary" : "bg-warning/15 text-warning"
-                          }`}>{r.kind === "sale" ? "Sale (AR)" : "Purchase (AP)"}</span>
-                        </td>
-                        <td className="px-5 py-3 font-mono text-xs">
-                          <div>{r.invoice_number}</div>
-                          {r.po_number && <div className="text-[10px] text-muted-foreground">PO {r.po_number}</div>}
-                        </td>
-                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{r.client ?? "—"}</td>}
-                        <td className="px-5 py-3">{r.party}</td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
-                        <td className="px-5 py-3 text-right num text-primary">{r.advance > 0 ? `− ${fmtMoney(r.advance)}` : "—"}</td>
-                        <td className={`px-5 py-3 text-right num font-medium ${r.kind === "sale" ? "text-success" : "text-warning"}`}>{fmtMoney(r.balance)}</td>
-                        <td className="px-5 py-3 text-sm">{fmtDate(r.due_date)}</td>
-                        <td className={`px-5 py-3 text-right num ${lateDays > 0 ? "text-destructive" : "text-muted-foreground"}`}>{lateDays}</td>
-                        <td className="px-5 py-3"><StatusPill status={r.status} /></td>
-                        <td className="sticky right-0 hidden bg-card px-5 py-3 text-right md:table-cell">{action}</td>
-                      </tr>
-                      <tr className="border-b border-border/60 md:hidden">
-                        <td colSpan={isAdmin ? 11 : 10} className="px-5 pb-4 pt-0 text-left">
-                          <div className="flex justify-start">{action}</div>
-                        </td>
-                      </tr>
+                        <tr className="border-b border-border/60 hover:bg-muted/30">
+                          <td className="px-5 py-3">
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                                r.kind === "sale"
+                                  ? "bg-primary/15 text-primary"
+                                  : "bg-warning/15 text-warning"
+                              }`}
+                            >
+                              {r.kind === "sale" ? "Sale (AR)" : "Purchase (AP)"}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3 font-mono text-xs">
+                            <div>{r.invoice_number}</div>
+                            {r.po_number && (
+                              <div className="text-[10px] text-muted-foreground">
+                                PO {r.po_number}
+                              </div>
+                            )}
+                          </td>
+                          {isAdmin && (
+                            <td className="px-5 py-3 text-muted-foreground">{r.client ?? "—"}</td>
+                          )}
+                          <td className="px-5 py-3">{r.party}</td>
+                          <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
+                          <td className="px-5 py-3 text-right num text-primary">
+                            {r.advance > 0 ? `− ${fmtMoney(r.advance)}` : "—"}
+                          </td>
+                          <td
+                            className={`px-5 py-3 text-right num font-medium ${r.kind === "sale" ? "text-success" : "text-warning"}`}
+                          >
+                            {fmtMoney(r.balance)}
+                          </td>
+                          <td className="px-5 py-3 text-sm">{fmtDate(r.due_date)}</td>
+                          <td
+                            className={`px-5 py-3 text-right num ${lateDays > 0 ? "text-destructive" : "text-muted-foreground"}`}
+                          >
+                            {lateDays}
+                          </td>
+                          <td className="px-5 py-3">
+                            <StatusPill status={r.status} />
+                          </td>
+                          <td className="sticky right-0 hidden bg-card px-5 py-3 text-right md:table-cell">
+                            {action}
+                          </td>
+                        </tr>
+                        <tr className="border-b border-border/60 md:hidden">
+                          <td colSpan={isAdmin ? 11 : 10} className="px-5 pb-4 pt-0 text-left">
+                            <div className="flex justify-start">{action}</div>
+                          </td>
+                        </tr>
                       </Fragment>
                     );
                   })}
@@ -394,7 +514,9 @@ function QueuePage() {
           {proformasQ.isLoading ? (
             <TableSkeleton rows={3} cols={8} />
           ) : (proformasQ.data ?? []).length === 0 ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">No approved proformas waiting to be funded.</div>
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              No approved proformas waiting to be funded.
+            </div>
           ) : (
             <div className="-mx-5 overflow-x-auto">
               <table className="table-premium w-full text-sm">
@@ -414,10 +536,14 @@ function QueuePage() {
                     <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-5 py-3 font-mono text-xs">{p.proforma_number ?? "—"}</td>
                       <td className="px-5 py-3 font-mono text-xs">{p.po_number}</td>
-                      <td className="px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground">{p.side}</td>
+                      <td className="px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+                        {p.side}
+                      </td>
                       <td className="px-5 py-3">{pfParty(p)}</td>
                       <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
-                      <td className="px-5 py-3 text-sm">{fmtDate(p.proforma_date ?? p.issue_date)}</td>
+                      <td className="px-5 py-3 text-sm">
+                        {fmtDate(p.proforma_date ?? p.issue_date)}
+                      </td>
                       <td className="px-5 py-3 text-right">
                         {isTreasury ? (
                           <button
@@ -445,7 +571,9 @@ function QueuePage() {
           {notesQ.isLoading ? (
             <TableSkeleton rows={3} cols={9} />
           ) : (notesQ.data ?? []).length === 0 ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">No approved notes waiting to be applied.</div>
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              No approved notes waiting to be applied.
+            </div>
           ) : (
             <div className="-mx-5 overflow-x-auto">
               <table className="table-premium w-full text-sm">
@@ -466,7 +594,11 @@ function QueuePage() {
                   {(notesQ.data ?? []).map((n: any) => {
                     const Icon = n.kind === "credit" ? FileMinus : FilePlus;
                     const inv = n.invoice ?? n.purchase;
-                    const linkLabel = n.invoice ? `Sale · ${n.invoice.invoice_number}` : n.purchase ? `Purchase · ${n.purchase.invoice_number}` : "Unlinked";
+                    const linkLabel = n.invoice
+                      ? `Sale · ${n.invoice.invoice_number}`
+                      : n.purchase
+                        ? `Purchase · ${n.purchase.invoice_number}`
+                        : "Unlinked";
                     const amt = Number(n.amount);
                     const signed = n.kind === "debit" ? amt : -amt;
                     const current = inv ? Number(inv.amount) : 0;
@@ -475,22 +607,43 @@ function QueuePage() {
                     return (
                       <tr key={n.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3">
-                          <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${n.kind === "credit" ? "border-rose-500/30 text-rose-400" : "border-emerald-500/30 text-emerald-400"}`}>
-                            <Icon className="h-3 w-3" />{n.kind}
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${n.kind === "credit" ? "border-rose-500/30 text-rose-400" : "border-emerald-500/30 text-emerald-400"}`}
+                          >
+                            <Icon className="h-3 w-3" />
+                            {n.kind}
                           </span>
                         </td>
                         <td className="px-5 py-3 font-mono text-xs">{n.note_number}</td>
-                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{n.client?.company_name ?? "—"}</td>}
+                        {isAdmin && (
+                          <td className="px-5 py-3 text-muted-foreground">
+                            {n.client?.company_name ?? "—"}
+                          </td>
+                        )}
                         <td className="px-5 py-3 font-mono text-xs">{linkLabel}</td>
                         <td className="px-5 py-3 text-muted-foreground">{n.counterparty ?? "—"}</td>
-                        <td className="px-5 py-3 text-right num">{inv ? fmtMoney(current) : "—"}</td>
-                        <td className={`px-5 py-3 text-right num ${signed < 0 ? "text-primary" : "text-warning"}`}>{signed < 0 ? `− ${fmtMoney(amt)}` : `+ ${fmtMoney(amt)}`}</td>
-                        <td className="px-5 py-3 text-right num font-medium">{inv ? fmtMoney(after) : "—"}</td>
+                        <td className="px-5 py-3 text-right num">
+                          {inv ? fmtMoney(current) : "—"}
+                        </td>
+                        <td
+                          className={`px-5 py-3 text-right num ${signed < 0 ? "text-primary" : "text-warning"}`}
+                        >
+                          {signed < 0 ? `− ${fmtMoney(amt)}` : `+ ${fmtMoney(amt)}`}
+                        </td>
+                        <td className="px-5 py-3 text-right num font-medium">
+                          {inv ? fmtMoney(after) : "—"}
+                        </td>
                         <td className="px-5 py-3 text-right">
                           {!inv ? (
-                            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">No linked invoice</span>
+                            <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                              No linked invoice
+                            </span>
                           ) : canApply ? (
-                            <button onClick={() => applyNote.mutate(n)} disabled={applyNote.isPending} className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-primary/50 px-2.5 py-1 text-xs text-primary hover:bg-primary/10 disabled:opacity-60">
+                            <button
+                              onClick={() => applyNote.mutate(n)}
+                              disabled={applyNote.isPending}
+                              className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-primary/50 px-2.5 py-1 text-xs text-primary hover:bg-primary/10 disabled:opacity-60"
+                            >
                               <Sparkles className="h-3 w-3" /> Apply to invoice
                             </button>
                           ) : (
@@ -509,7 +662,6 @@ function QueuePage() {
         </Card>
       </div>
 
-
       {closeFor && (
         <CloseSaleModal
           row={closeFor}
@@ -518,6 +670,18 @@ function QueuePage() {
             closeSale.mutate(
               { id: closeFor.id, amount: closeFor.balance, due_date: closeFor.due_date, ...vals },
               { onSuccess: () => setCloseFor(null) },
+            );
+          }}
+        />
+      )}
+      {payFor && (
+        <PayPurchaseModal
+          row={payFor}
+          onClose={() => setPayFor(null)}
+          onSubmit={(vals) => {
+            payPurchase.mutate(
+              { id: payFor.id, ...vals },
+              { onSuccess: () => setPayFor(null) },
             );
           }}
         />
@@ -535,7 +699,7 @@ function QueueAction({
   row: Row;
   isTreasury: boolean;
   onCloseSale: (row: Row) => void;
-  onPayPurchase: () => void;
+  onPayPurchase: (row: Row) => void;
 }) {
   if (!isTreasury) {
     return (
@@ -547,63 +711,216 @@ function QueueAction({
 
   if (row.kind === "sale") {
     return (
-      <button onClick={() => onCloseSale(row)} className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10">
+      <button
+        onClick={() => onCloseSale(row)}
+        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10"
+      >
         <ArrowDownToLine className="h-3 w-3" /> Record receipt
       </button>
     );
   }
 
-  if (row.balance <= 0) {
-    return (
-      <button onClick={onPayPurchase} className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10">
-        <CheckCircle2 className="h-3 w-3" /> Mark settled
-      </button>
-    );
-  }
-
   return (
-    <button onClick={onPayPurchase} className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-warning/50 px-2.5 py-1 text-xs text-warning hover:bg-warning/10">
-      <ArrowUpFromLine className="h-3 w-3" /> Pay balance
+    <button
+      onClick={() => onPayPurchase(row)}
+      className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-warning/50 px-2.5 py-1 text-xs text-warning hover:bg-warning/10"
+    >
+      <ArrowUpFromLine className="h-3 w-3" /> Record payment
     </button>
   );
 }
 
-function CloseSaleModal({ row, onClose, onSubmit }: { row: Row; onClose: () => void; onSubmit: (v: { amount_received: number; receipt_date: string }) => void }) {
+function PayPurchaseModal({
+  row,
+  onClose,
+  onSubmit,
+}: {
+  row: Row;
+  onClose: () => void;
+  onSubmit: (v: { amount_paid: number; paid_date: string }) => void;
+}) {
+  const [amt, setAmt] = useState(String(row.balance));
+  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const alreadyPaid = row.amount_paid || 0;
+  // amountPaid on the invoice is cumulative — this payment adds to what's paid.
+  const payNow = Number(amt) || 0;
+  const totalPaid = Math.round((alreadyPaid + payNow) * 100) / 100;
+  const outstanding = Math.max(0, +(row.balance - payNow).toFixed(2));
+  const full = totalPaid >= row.amount - 0.005;
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="mb-4 font-display text-lg">
+          Record payment · {row.invoice_number}
+        </h3>
+        <div className="space-y-3 text-sm">
+          <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground space-y-1">
+            <div>
+              Supplier payable: <span className="num text-foreground">{fmtMoney(row.amount)}</span>
+            </div>
+            <div>
+              Already paid: <span className="num text-success">{fmtMoney(alreadyPaid)}</span>
+            </div>
+            <div>
+              Balance due: <span className="num text-warning">{fmtMoney(row.balance)}</span> · Due{" "}
+              {fmtDate(row.due_date)}
+            </div>
+            <div className="pt-1 text-[10px]">
+              Paying the full balance flips the invoice to Paid; a partial amount marks it
+              Partially Paid. The purchase invoice never touches stock — it only settles the
+              supplier payable.
+            </div>
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+              Amount to pay now
+            </span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={amt}
+              onChange={(e) => setAmt(e.target.value)}
+              className="w-full rounded-md border border-border bg-background p-2"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+              Payment date
+            </span>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full rounded-md border border-border bg-background p-2"
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-md border border-border bg-background/40 p-3">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                Total paid after
+              </div>
+              <div className="num text-lg text-success">{fmtMoney(totalPaid)}</div>
+            </div>
+            <div className="rounded-md border border-border bg-background/40 p-3">
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                Remaining after
+              </div>
+              <div className={`num text-lg ${outstanding > 0 ? "text-warning" : "text-success"}`}>
+                {fmtMoney(outstanding)}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
+            Cancel
+          </button>
+          <button
+            onClick={() => onSubmit({ amount_paid: totalPaid, paid_date: date })}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+          >
+            <ArrowUpFromLine className="h-3.5 w-3.5" />
+            {full ? "Mark paid" : "Record partial payment"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CloseSaleModal({
+  row,
+  onClose,
+  onSubmit,
+}: {
+  row: Row;
+  onClose: () => void;
+  onSubmit: (v: { amount_received: number; receipt_date: string }) => void;
+}) {
   const [amt, setAmt] = useState(String(row.balance));
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const short = Math.max(0, +(row.balance - Number(amt || 0)).toFixed(2));
   const late = diffDaysUTC(row.due_date, date);
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-vault" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
         <h3 className="mb-4 font-display text-lg">Close sales invoice {row.invoice_number}</h3>
         <div className="space-y-3 text-sm">
           <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground space-y-1">
-            <div>Gross: <span className="num text-foreground">{fmtMoney(row.amount)}</span></div>
-            {row.advance > 0 && <div>Advance received: <span className="num text-primary">− {fmtMoney(row.advance)}</span></div>}
-            <div>Balance expected: <span className="num text-success">{fmtMoney(row.balance)}</span> · Due {fmtDate(row.due_date)}</div>
+            <div>
+              Gross: <span className="num text-foreground">{fmtMoney(row.amount)}</span>
+            </div>
+            {row.advance > 0 && (
+              <div>
+                Advance received:{" "}
+                <span className="num text-primary">− {fmtMoney(row.advance)}</span>
+              </div>
+            )}
+            <div>
+              Balance expected: <span className="num text-success">{fmtMoney(row.balance)}</span> ·
+              Due {fmtDate(row.due_date)}
+            </div>
           </div>
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Amount received</span>
-            <input type="number" step="0.01" min="0" value={amt} onChange={(e) => setAmt(e.target.value)} className="w-full rounded-md border border-border bg-background p-2" />
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+              Amount received
+            </span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={amt}
+              onChange={(e) => setAmt(e.target.value)}
+              className="w-full rounded-md border border-border bg-background p-2"
+            />
           </label>
           <label className="block">
-            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Receipt date</span>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-md border border-border bg-background p-2" />
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+              Receipt date
+            </span>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full rounded-md border border-border bg-background p-2"
+            />
           </label>
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-md border border-border bg-background/40 p-3">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Short payment</div>
-              <div className={`num text-lg ${short > 0 ? "text-destructive" : "text-success"}`}>{fmtMoney(short)}</div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                Short payment
+              </div>
+              <div className={`num text-lg ${short > 0 ? "text-destructive" : "text-success"}`}>
+                {fmtMoney(short)}
+              </div>
             </div>
             <div className="rounded-md border border-border bg-background/40 p-3">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Late days</div>
-              <div className={`num text-lg ${late > 0 ? "text-warning" : "text-success"}`}>{late}</div>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                Late days
+              </div>
+              <div className={`num text-lg ${late > 0 ? "text-warning" : "text-success"}`}>
+                {late}
+              </div>
             </div>
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
+          <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
+            Cancel
+          </button>
           <button
             onClick={() => onSubmit({ amount_received: Number(amt), receipt_date: date })}
             className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"

@@ -9,6 +9,8 @@ export interface StockMovement {
   quantity: number; unit: string; unitCost: number | null;
   notes: string | null; movementDate: string;
   invoiceId: string | null; purchaseInvoiceId: string | null;
+  /** GRN that created this stock-in movement (goods receipts). */
+  goodsReceiptId: string | null;
   createdAt: string; updatedAt: string;
 }
 
@@ -38,6 +40,7 @@ export async function create(data: Partial<StockMovement> & { clientId: string; 
     unitCost: data.unitCost != null ? data.unitCost : null,
     notes: data.notes || null, movementDate: data.movementDate || db.todayDate(),
     invoiceId: data.invoiceId || null, purchaseInvoiceId: data.purchaseInvoiceId || null,
+    goodsReceiptId: data.goodsReceiptId || null,
     createdAt: now, updatedAt: now,
   };
   await db.putItem(item);

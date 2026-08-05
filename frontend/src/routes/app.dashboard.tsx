@@ -217,7 +217,7 @@ function Dashboard() {
                 { label: "61–90 days", val: aging.b3, tone: "bg-warning" },
                 { label: "90+ days", val: aging.b4, tone: "bg-destructive" },
               ].map((b) => {
-                const total = Object.values(aging).reduce((a, x) => a + x, 0) || 1;
+                const total = (Object.values(aging) as number[]).reduce((a, x) => a + x, 0) || 1;
                 const pct = (b.val / total) * 100;
                 return (
                   <div key={b.label}>
