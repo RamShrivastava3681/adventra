@@ -154,25 +154,40 @@ test("forecast anchors on the 12-month weighted baseline + trend", () => {
   );
 });
 
-console.log("\nbucketMovementsByMonth — completed months only + currentMonthBucket");
-test("buckets only completed months (current month excluded) and corrects stockouts", () => {
+console.log("\nbucketMovementsByMonth — trailing months (current month included) + currentMonthBucket");
+test("buckets the trailing window (current month included) and corrects stockouts", () => {
   const now = new Date();
-  const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const lastMonth = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, "0")}`;
+  const cur = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const movements = Array.from({ length: 42 }, (_, i) => ({
-    movement_date: `${lastMonth}-${String((i % 28) + 1).padStart(2, "0")}`,
+    movement_date: `${cur}-${String((i % 28) + 1).padStart(2, "0")}`,
     quantity: 1,
     direction: "out",
   }));
   const buckets = bucketMovementsByMonth(movements, 1, [
-    { month: lastMonth, inStockDays: 21, daysInMonth: 30 },
+    { month: cur, inStockDays: 21, daysInMonth: 30 },
   ]);
-  eq(buckets.length, 1, "one completed month bucket");
-  eq(buckets[0].month, lastMonth, "bucket is the last completed month");
+  eq(buckets.length, 1, "one trailing-month bucket");
+  eq(buckets[0].month, cur, "newest bucket is the current (in-progress) month");
   const b = buckets[0];
   eq(b.rawQty, 42);
   close(b.qty, 60);
   close(b.availabilityRate!, 0.7, 0.001);
+});
+test("older buckets land in the trailing months before the current one", () => {
+  const now = new Date();
+  const cur = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const lastMonth = `${lm.getFullYear()}-${String(lm.getMonth() + 1).padStart(2, "0")}`;
+  const movements = [
+    { movement_date: `${cur}-05`, quantity: 7, direction: "out" },
+    { movement_date: `${lastMonth}-20`, quantity: 3, direction: "out" },
+  ];
+  const buckets = bucketMovementsByMonth(movements, 2);
+  eq(buckets.length, 2, "two trailing months");
+  eq(buckets[1].month, cur, "newest bucket = current month");
+  eq(buckets[0].month, lastMonth, "older bucket = previous month");
+  eq(buckets[0].rawQty, 3);
+  eq(buckets[1].rawQty, 7);
 });
 test("currentMonthBucket sums only current-month outbound movements", () => {
   const now = new Date();

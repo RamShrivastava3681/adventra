@@ -126,12 +126,13 @@ export function bucketMovementsByMonth(
   months: number = 12,
   availability?: AvailabilityInput[]
 ): MonthlyBucket[] {
-  // Last `months` COMPLETED calendar months only — the current (partial) month
-  // is never part of the model history. Current-month data is available
-  // separately via currentMonthBucket() for the live pace adjustment.
+  // Trailing `months` calendar months of outbound sales — the current
+  // (partial) month IS included as the newest bucket, so the model reacts to
+  // live demand. The current month's rawQty is the partial-month sales to
+  // date (it is still available separately via currentMonthBucket()).
   const now = new Date();
   const buckets: MonthlyBucket[] = [];
-  for (let i = months; i >= 1; i--) {
+  for (let i = months - 1; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
     buckets.push({
       month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
@@ -1230,7 +1231,7 @@ export function forecastSKU(
     availabilityRate: Math.round(availabilityRate * 100) / 100,
     correctedDemand: Math.round(correctedDemand),
     weightedBaseline: Math.round(avg),
-    trendAdjustment: Math.round(slope * 10) / 10,
+    trendAdjustment: Math.round(slope * 100) / 100,
     trendStrength: trendAnalysis.strength,
     trendDirection: trendAnalysis.direction,
     seasonalityFactor: Math.round(nextMonthSeas * 100) / 100,
@@ -1260,7 +1261,7 @@ export function forecastSKU(
     stockoutUrgency,
     // legacy aliases
     avgMonthly: Math.round(avg),
-    trend: Math.round(slope * 10) / 10,
+    trend: Math.round(slope * 100) / 100,
     velocity: momentumTag, // legacy alias
     _velocityLegacy: momentumTag === "accelerating" ? "fast" : momentumTag === "stable" ? "steady" : momentumTag === "declining" ? "slow" : "dead" as "fast" | "steady" | "slow" | "dead",
     calculationBreakdown,
