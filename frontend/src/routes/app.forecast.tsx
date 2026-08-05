@@ -135,10 +135,14 @@ function ForecastPage() {
         });
       }
 
-      // Build a map of snapshots by productId
+      // Build a map of snapshots by productId — keep the NEWEST snapshot per
+      // product. Raced recomputes can leave duplicate rows behind, and the
+      // backend returns them newest-first; without this guard a stale zero
+      // snapshot can overwrite the fresh one and the page renders dead/0.
       const snapshotMap = new Map<string, any>();
       for (const s of fv.snapshots) {
-        snapshotMap.set(s.productId, s);
+        const cur = snapshotMap.get(s.productId);
+        if (!cur || newerSnapshot(s, cur)) snapshotMap.set(s.productId, s);
       }
 
       const rows: Analysis[] = [];
@@ -462,6 +466,16 @@ function ForecastPage() {
 }
 
 // --------------- utilities ---------------
+
+/** True when `a` is a newer persisted snapshot than `b` (by computedDate, then updatedAt). */
+function newerSnapshot(a: any, b: any): boolean {
+  const aDate = a.computedDate ?? a.computed_date ?? "";
+  const bDate = b.computedDate ?? b.computed_date ?? "";
+  if (aDate !== bDate) return aDate > bDate;
+  const aUpd = a.updatedAt ?? a.updated_at ?? "";
+  const bUpd = b.updatedAt ?? b.updated_at ?? "";
+  return aUpd > bUpd;
+}
 
 function daysRemaining(dateStr: string): number {
   const d = new Date(dateStr);

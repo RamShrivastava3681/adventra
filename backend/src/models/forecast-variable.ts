@@ -111,6 +111,25 @@ export async function upsert(
   };
 
   await db.putItem(item);
+
+  // Deduplicate: raced recomputes can leave multiple rows per product (two
+  // upserts both ran getByProduct before either wrote). Delete every other row
+  // for this product that is strictly OLDER than the row just written, so the
+  // last writer wins and the client never sees a stale zero snapshot. Rows
+  // that are newer are left alone (that is the other writer's row).
+  const others = (await listByClient(data.clientId)).filter(
+    (f) => f.productId === data.productId && f.id !== id
+  );
+  for (const other of others) {
+    const otherKey = `${other.computedDate}T${other.updatedAt}`;
+    const thisKey = `${item.computedDate}T${item.updatedAt}`;
+    // id tiebreaker makes same-millisecond writes deterministic (keep the
+    // lexicographically larger id) so duplicates can never accumulate.
+    if (otherKey < thisKey || (otherKey === thisKey && other.id < id)) {
+      await remove(other.id);
+    }
+  }
+
   return item;
 }
 
