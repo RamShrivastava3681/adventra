@@ -1,10 +1,21 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, X, Loader2, ArrowDownToLine, ArrowUpFromLine, Trash2, Link2, ListPlus, FilePlus2 } from "lucide-react";
+import {
+  Plus,
+  X,
+  Loader2,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Trash2,
+  ScanBarcode,
+  Check,
+  Ban,
+  Package,
+} from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 
@@ -14,27 +25,101 @@ export const Route = createFileRoute("/app/inventory")({
 
 type Movement = {
   id: string;
-  client_id: string;
+  movement_number: string;
+  product_id: string | null;
   direction: "in" | "out";
   item_name: string;
   sku: string | null;
   quantity: number;
   unit: string;
   unit_cost: number | null;
+  warehouse: string | null;
+  reason: string | null;
+  linked_document_type: string | null;
+  linked_document_number: string | null;
+  status: "draft" | "confirmed" | "cancelled";
+  created_by_id: string | null;
+  created_by_name: string | null;
+  confirmed_by_id: string | null;
+  confirmed_by_name: string | null;
+  confirmed_at: string | null;
   notes: string | null;
+  movement_date: string;
   invoice_id: string | null;
   purchase_invoice_id: string | null;
-  movement_date: string;
+  goods_receipt_id: string | null;
+  purchase_order_id: string | null;
   created_at: string;
 };
+
+// Reasons a user may pick on a MANUAL entry. Goods receipt & Dispatch are
+// system-generated (confirmed GRNs / dispatched invoices).
+const MANUAL_REASONS: { label: string; direction: "in" | "out"; docType: string }[] = [
+  { label: "Opening stock", direction: "in", docType: "Adjustment" },
+  { label: "Stock adjustment", direction: "in", docType: "Adjustment" },
+  { label: "Damage", direction: "out", docType: "Adjustment" },
+  { label: "Samples / internal use", direction: "out", docType: "Adjustment" },
+  { label: "Customer return", direction: "in", docType: "Return" },
+  { label: "Supplier return", direction: "out", docType: "Return" },
+];
+
+const LINKED_DOC_TYPES = [
+  "GRN",
+  "Dispatch",
+  "PO",
+  "Purchase Invoice",
+  "Sales Invoice",
+  "Return",
+  "Adjustment",
+];
+
+function invalidateStock(qc: ReturnType<typeof useQueryClient>) {
+  qc.invalidateQueries({ queryKey: ["stock_movements"] });
+  qc.invalidateQueries({ queryKey: ["stock_movements_all"] });
+  qc.invalidateQueries({ queryKey: ["movements-forecast"] });
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    draft: { label: "Draft", cls: "border-warning/40 bg-warning/10 text-warning" },
+    confirmed: { label: "Confirmed", cls: "border-success/40 bg-success/10 text-success" },
+    cancelled: { label: "Cancelled", cls: "border-border bg-muted/40 text-muted-foreground" },
+  };
+  const s = map[status] ?? { label: status, cls: "border-border text-muted-foreground" };
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${s.cls}`}
+    >
+      {s.label}
+    </span>
+  );
+}
+
+function DirBadge({ direction }: { direction: "in" | "out" }) {
+  return direction === "in" ? (
+    <span className="inline-flex items-center gap-1 text-success">
+      <ArrowDownToLine className="h-3.5 w-3.5" /> Credit
+    </span>
+  ) : (
+    <span className="inline-flex items-center gap-1 text-warning">
+      <ArrowUpFromLine className="h-3.5 w-3.5" /> Debit
+    </span>
+  );
+}
 
 function InventoryPage() {
   const { user, isAdmin, isClient, isChecker, isTreasury } = useAuth();
   const canWrite = isAdmin || (isClient && !isChecker && !isTreasury);
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [startMode, setStartMode] = useState<"single" | "mass">("single");
-  const [filter, setFilter] = useState<"all" | "in" | "out">("all");
+  const [dirFilter, setDirFilter] = useState<"all" | "in" | "out">("all");
+  const [statusFilter, setStatusFilter] = useState<"all" | "draft" | "confirmed" | "cancelled">(
+    "all",
+  );
+  const [pendingAction, setPendingAction] = useState<{
+    kind: "cancel" | "delete";
+    movement: Movement;
+  } | null>(null);
 
   const movementsQ = useQuery({
     queryKey: ["stock_movements"],
@@ -44,27 +129,49 @@ function InventoryPage() {
     },
   });
 
-  const rows = (movementsQ.data ?? []).filter((m: any) => filter === "all" || m.direction === filter);
+  const rows = (movementsQ.data ?? []).filter(
+    (m: Movement) =>
+      (dirFilter === "all" || m.direction === dirFilter) &&
+      (statusFilter === "all" || m.status === statusFilter),
+  );
 
-  // Aggregate balances per item
+  // Live balances — confirmed credits − confirmed debits ONLY (drafts never move stock)
   const balances = useMemo(() => {
-    const m = new Map<string, { item: string; unit: string; qty: number; value: number }>();
+    const m = new Map<
+      string,
+      { item: string; unit: string; sku: string | null; qty: number; value: number }
+    >();
     for (const r of (movementsQ.data ?? []) as Movement[]) {
-      const k = `${r.item_name}|${r.unit}`;
+      if (r.status !== "confirmed") continue;
+      const key = r.sku ?? r.product_id ?? `${r.item_name}|${r.unit}`;
       const sign = r.direction === "in" ? 1 : -1;
-      const cur = m.get(k) ?? { item: r.item_name, unit: r.unit, qty: 0, value: 0 };
+      const cur = m.get(key) ?? { item: r.item_name, unit: r.unit, sku: r.sku, qty: 0, value: 0 };
       cur.qty += sign * Number(r.quantity);
       cur.value += sign * Number(r.quantity) * Number(r.unit_cost ?? 0);
-      m.set(k, cur);
+      m.set(key, cur);
     }
     return [...m.values()].sort((a, b) => a.item.localeCompare(b.item));
   }, [movementsQ.data]);
 
-  const del = useMutation({
-    mutationFn: async (id: string) => {
-      await api.stockMovements.delete(id);
+  const confirmMut = useMutation({
+    mutationFn: async (id: string) => api.stockMovements.confirm(id),
+    onSuccess: () => {
+      invalidateStock(qc);
+      toast.success("Movement confirmed — stock updated");
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["stock_movements"] }); toast.success("Removed"); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const actMut = useMutation({
+    mutationFn: async ({ kind, id }: { kind: "cancel" | "delete"; id: string }) => {
+      if (kind === "cancel") await api.stockMovements.cancel(id);
+      else await api.stockMovements.delete(id);
+    },
+    onSuccess: () => {
+      invalidateStock(qc);
+      toast.success("Movement updated");
+      setPendingAction(null);
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -72,34 +179,40 @@ function InventoryPage() {
     <div>
       <PageHeader
         eyebrow="Inventory"
-        title="Stock ledger"
-        description="Stock-in from purchase invoices (credit) and stock-out from sales invoices (debit). Not every transaction needs inventory."
+        title="Inventory"
+        description="Live stock is confirmed credit entries minus confirmed debit entries. Goods receipts credit stock automatically and dispatched invoices debit it; manual entries (opening stock, adjustments, damage, samples, returns) start as drafts and confirm when verified."
         actions={
           canWrite ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <button onClick={() => { setStartMode("single"); setOpen(true); }} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
-                <Plus className="h-4 w-4" /> New movement
-              </button>
-              <button onClick={() => { setStartMode("mass"); setOpen(true); }} className="inline-flex items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-4 py-2 text-sm font-medium text-primary transition hover:bg-primary/10">
-                <ListPlus className="h-4 w-4" /> Bulk entry
-              </button>
-            </div>
+            <button
+              onClick={() => setOpen(true)}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
+            >
+              <Plus className="h-4 w-4" /> New movement
+            </button>
           ) : (
-            <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">Read-only</span>
+            <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+              Read-only
+            </span>
           )
         }
       />
 
       <div className="space-y-6 p-6 md:p-10">
-        <Card title="Current balances">
+        <Card title="Live stock">
+          <p className="-mt-2 mb-4 text-xs text-muted-foreground">
+            Confirmed credits − confirmed debits per SKU.
+          </p>
           {balances.length === 0 ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">No items tracked yet.</div>
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              No stock yet — confirm a goods receipt or record an opening stock entry.
+            </div>
           ) : (
             <div className="-mx-5 overflow-x-auto">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Item</th>
+                    <th className="px-5 py-2 text-left font-normal">SKU</th>
                     <th className="px-5 py-2 text-right font-normal">In stock</th>
                     <th className="px-5 py-2 text-left font-normal">Unit</th>
                     <th className="px-5 py-2 text-right font-normal">Inventory value</th>
@@ -107,9 +220,14 @@ function InventoryPage() {
                 </thead>
                 <tbody>
                   {balances.map((b) => (
-                    <tr key={`${b.item}|${b.unit}`} className="border-b border-border/60">
+                    <tr key={`${b.sku ?? b.item}`} className="border-b border-border/60">
                       <td className="px-5 py-2.5">{b.item}</td>
-                      <td className={`px-5 py-2.5 text-right num ${b.qty < 0 ? "text-destructive" : ""}`}>{b.qty.toLocaleString()}</td>
+                      <td className="px-5 py-2.5 text-muted-foreground">{b.sku ?? "—"}</td>
+                      <td
+                        className={`px-5 py-2.5 text-right num ${b.qty < 0 ? "text-destructive" : ""}`}
+                      >
+                        {b.qty.toLocaleString()}
+                      </td>
                       <td className="px-5 py-2.5 text-muted-foreground">{b.unit}</td>
                       <td className="px-5 py-2.5 text-right num">{fmtMoney(b.value)}</td>
                     </tr>
@@ -120,61 +238,173 @@ function InventoryPage() {
           )}
         </Card>
 
-        <div className="flex flex-wrap gap-2">
-          {(["all", "in", "out"] as const).map((s) => (
-            <button key={s} onClick={() => setFilter(s)}
-              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                filter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-              }`}>{s === "in" ? "Stock-in" : s === "out" ? "Stock-out" : "All"}</button>
-          ))}
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+              Direction
+            </span>
+            {(["all", "in", "out"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setDirFilter(s)}
+                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
+                  dirFilter === s
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {s === "in" ? "Credit" : s === "out" ? "Debit" : "All"}
+              </button>
+            ))}
+          </div>
+          <span className="h-4 w-px bg-border" />
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+              Status
+            </span>
+            {(["all", "draft", "confirmed", "cancelled"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setStatusFilter(s)}
+                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
+                  statusFilter === s
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {s === "all" ? "All" : s}
+              </button>
+            ))}
+          </div>
         </div>
 
         <Card title="Movements">
           {movementsQ.isLoading ? (
-            <TableSkeleton rows={5} cols={7} />
+            <TableSkeleton rows={5} cols={8} />
           ) : rows.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">No movements.</div>
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              No movements match the filters.
+            </div>
           ) : (
             <div className="-mx-5 overflow-x-auto">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">Movement no.</th>
                     <th className="px-5 py-2 text-left font-normal">Date</th>
                     <th className="px-5 py-2 text-left font-normal">Direction</th>
                     <th className="px-5 py-2 text-left font-normal">Item</th>
                     <th className="px-5 py-2 text-right font-normal">Qty</th>
                     <th className="px-5 py-2 text-right font-normal">Unit cost</th>
-                    <th className="px-5 py-2 text-left font-normal">Linked invoice</th>
+                    <th className="px-5 py-2 text-right font-normal">Total</th>
+                    <th className="px-5 py-2 text-left font-normal">Reason</th>
+                    <th className="px-5 py-2 text-left font-normal">Warehouse</th>
+                    <th className="px-5 py-2 text-left font-normal">Linked doc</th>
+                    <th className="px-5 py-2 text-left font-normal">Status</th>
                     <th className="px-5 py-2 text-right font-normal"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((m: any) => (
+                  {rows.map((m: Movement) => (
                     <tr key={m.id} className="border-b border-border/60 hover:bg-muted/30">
-                      <td className="px-5 py-3 text-muted-foreground">{fmtDate(m.movement_date)}</td>
                       <td className="px-5 py-3">
-                        {m.direction === "in" ? (
-                          <span className="inline-flex items-center gap-1 text-success"><ArrowDownToLine className="h-3.5 w-3.5" /> Credit</span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-warning"><ArrowUpFromLine className="h-3.5 w-3.5" /> Debit</span>
+                        <div className="font-mono text-xs">{m.movement_number}</div>
+                        {m.created_by_name && (
+                          <div className="text-[10px] text-muted-foreground">
+                            by {m.created_by_name}
+                          </div>
                         )}
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">
+                        {fmtDate(m.movement_date)}
+                      </td>
+                      <td className="px-5 py-3">
+                        <DirBadge direction={m.direction} />
                       </td>
                       <td className="px-5 py-3">
                         <div>{m.item_name}</div>
-                        {m.sku && <div className="text-[10px] text-muted-foreground">SKU {m.sku}</div>}
+                        {m.sku && (
+                          <div className="text-[10px] text-muted-foreground">SKU {m.sku}</div>
+                        )}
                       </td>
-                      <td className="px-5 py-3 text-right num">{Number(m.quantity).toLocaleString()} <span className="text-[10px] text-muted-foreground">{m.unit}</span></td>
-                      <td className="px-5 py-3 text-right num">{m.unit_cost != null ? fmtMoney(m.unit_cost) : "—"}</td>
+                      <td className="px-5 py-3 text-right num">
+                        {Number(m.quantity).toLocaleString()}{" "}
+                        <span className="text-[10px] text-muted-foreground">{m.unit}</span>
+                      </td>
+                      <td className="px-5 py-3 text-right num">
+                        {m.unit_cost != null ? fmtMoney(m.unit_cost) : "—"}
+                      </td>
+                      <td className="px-5 py-3 text-right num">
+                        {fmtMoney(Number(m.quantity) * Number(m.unit_cost ?? 0))}
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">{m.reason ?? "—"}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{m.warehouse ?? "—"}</td>
                       <td className="px-5 py-3">
-                        {m.invoice ? (
-                          <Link to="/app/invoices" className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><Link2 className="h-3 w-3" />{m.invoice.invoice_number}</Link>
-                        ) : m.purchase ? (
-                          <Link to="/app/purchases" className="inline-flex items-center gap-1 text-xs text-primary hover:underline"><Link2 className="h-3 w-3" />{m.purchase.invoice_number}</Link>
-                        ) : <span className="text-muted-foreground">—</span>}
+                        {m.linked_document_type ? (
+                          <div>
+                            <div className="text-xs">{m.linked_document_type}</div>
+                            {m.linked_document_number && (
+                              <div className="text-[10px] text-muted-foreground">
+                                {m.linked_document_number}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </td>
+                      <td className="px-5 py-3">
+                        <StatusBadge status={m.status} />
+                        {m.status === "confirmed" && m.confirmed_by_name && (
+                          <div className="mt-0.5 text-[10px] text-muted-foreground">
+                            by {m.confirmed_by_name}
+                          </div>
+                        )}
+                      </td>{" "}
                       <td className="px-5 py-3 text-right">
                         {canWrite && (
-                          <button onClick={() => del.mutate(m.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                          <div className="flex justify-end gap-0.5">
+                            {/* Movements created by a source document (GRN / invoice) are managed there */}
+                            {!m.goods_receipt_id && !m.invoice_id && !m.purchase_invoice_id && (
+                              <>
+                                {m.status === "draft" && (
+                                  <button
+                                    onClick={() => confirmMut.mutate(m.id)}
+                                    title="Confirm movement"
+                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-success/10 hover:text-success"
+                                  >
+                                    <Check className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                                {m.status !== "cancelled" && (
+                                  <button
+                                    onClick={() =>
+                                      setPendingAction({ kind: "cancel", movement: m })
+                                    }
+                                    title={
+                                      m.status === "confirmed"
+                                        ? "Cancel (reverses stock)"
+                                        : "Cancel draft"
+                                    }
+                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-warning/10 hover:text-warning"
+                                  >
+                                    <Ban className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                                {m.status !== "confirmed" && (
+                                  <button
+                                    onClick={() =>
+                                      setPendingAction({ kind: "delete", movement: m })
+                                    }
+                                    title="Delete"
+                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -186,230 +416,516 @@ function InventoryPage() {
         </Card>
       </div>
 
-      {open && user && <NewMovementModal userId={user.id} onClose={() => setOpen(false)} initialMode={startMode} />}
+      {open && user && <NewMovementModal userId={user.id} onClose={() => setOpen(false)} />}
+      {pendingAction && (
+        <ConfirmAction
+          action={pendingAction}
+          onClose={() => setPendingAction(null)}
+          onSubmit={(kind) => actMut.mutate({ kind, id: pendingAction.movement.id })}
+          pending={actMut.isPending}
+        />
+      )}
     </div>
   );
 }
 
-function NewMovementModal({ userId, onClose, initialMode = "single" }: { userId: string; onClose: () => void; initialMode?: "single" | "mass" }) {
+function ConfirmAction({
+  action,
+  onClose,
+  onSubmit,
+  pending,
+}: {
+  action: { kind: "cancel" | "delete"; movement: Movement };
+  onClose: () => void;
+  onSubmit: (kind: "cancel" | "delete") => void;
+  pending: boolean;
+}) {
+  const isConfirmed = action.movement.status === "confirmed";
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-xl border border-border bg-card p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="font-display text-lg">
+          {action.kind === "cancel" ? "Cancel movement?" : "Delete movement?"}
+        </h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {action.kind === "cancel"
+            ? isConfirmed
+              ? `${action.movement.movement_number} is confirmed and already moved stock — cancelling creates an opposite reversal entry so live stock stays correct.`
+              : `${action.movement.movement_number} is still a draft and never touched stock — cancelling just closes it.`
+            : `${action.movement.movement_number} will be permanently removed.`}
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-md border border-border px-4 py-2 text-sm transition hover:bg-muted/40"
+          >
+            Keep
+          </button>
+          <button
+            onClick={() => onSubmit(action.kind)}
+            disabled={pending}
+            className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white transition disabled:opacity-60 ${action.kind === "cancel" ? "bg-warning hover:bg-warning/90" : "bg-destructive hover:bg-destructive/90"}`}
+          >
+            {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+            {action.kind === "cancel" ? "Cancel movement" : "Delete"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => void }) {
   const qc = useQueryClient();
   const today = new Date().toISOString().slice(0, 10);
-  const [mode, setMode] = useState<"single" | "mass">(initialMode);
   const [form, setForm] = useState({
+    movementDate: today,
+    warehouse: "",
+    reason: "",
     direction: "in" as "in" | "out",
-    product_id: "",
-    item_name: "",
-    sku: "",
-    quantity: "",
-    unit: "unit",
-    unit_cost: "",
+    linkedDocumentType: "",
+    linkedDocumentNumber: "",
     notes: "",
-    invoice_id: "",
-    purchase_invoice_id: "",
-    movement_date: today,
+    productId: "",
+    quantity: "1",
+    unitCost: "",
+    scan: "",
   });
-  const [entries, setEntries] = useState<{ quantity: string; movement_date: string; notes: string }[]>([
-    { quantity: "", movement_date: today, notes: "" },
-  ]);
 
-  const invoicesQ = useQuery({
-    queryKey: ["inv-mini"],
-    queryFn: async () => {
-      const data = await api.invoices.list();
-      return data.map((i: any) => ({ id: i.id, invoice_number: i.invoiceNumber ?? i.invoice_number })).reverse();
-    },
-  });
-  const purchQ = useQuery({
-    queryKey: ["pi-mini"],
-    queryFn: async () => {
-      const data = await api.purchaseInvoices.list();
-      return data.map((i: any) => ({ id: i.id, invoice_number: i.invoiceNumber ?? i.invoice_number })).reverse();
-    },
-  });
   const productsQ = useQuery({
     queryKey: ["products-mini"],
     queryFn: async () => {
       const data = await api.products.list();
-      return data.map((p: any) => ({ id: p.id, sku: p.sku, name: p.name, unit_cost: p.unitCost ?? p.unit_cost, unit_price: p.unitPrice ?? p.unit_price })).sort((a: any, b: any) => a.sku?.localeCompare(b.sku ?? "") ?? 0);
+      return data
+        .map((p: any) => ({
+          id: p.id,
+          sku: p.sku,
+          name: p.name,
+          unit: p.unitOfMeasure ?? p.unit_of_measure ?? "unit",
+          unitCost: p.unitCost ?? p.unit_cost ?? 0,
+          barcode: p.barcode ?? "",
+        }))
+        .sort(
+          (a: any, b: any) =>
+            (a.sku ?? "").localeCompare(b.sku ?? "") || (a.name ?? "").localeCompare(b.name ?? ""),
+        );
     },
   });
 
-  // Inventory value is cost-based: stock-in is valued at the product's unit COST
-  // and stock-out subtracts quantity × unit cost (the sale price is irrelevant).
-  const unitValueFor = (pid: string) => {
-    const p = (productsQ.data ?? []).find((x: any) => x.id === pid) as any;
-    if (!p) return "";
-    return String(p.unit_cost ?? "");
-  };
+  // Suggest existing document numbers for the linked-doc pickers
+  const linkedDocsQ = useQuery({
+    queryKey: ["linked-docs", form.linkedDocumentType],
+    queryFn: async () => {
+      switch (form.linkedDocumentType) {
+        case "GRN":
+          return (await api.goodsReceipts.list()).map(
+            (d: any) => d.receiptNumber ?? d.receipt_number,
+          );
+        case "PO":
+          return (await api.goodsPurchaseOrders.list()).map((d: any) => d.poNumber ?? d.po_number);
+        case "Purchase Invoice":
+          return (await api.purchaseInvoices.list()).map(
+            (d: any) => d.invoiceNumber ?? d.invoice_number,
+          );
+        case "Sales Invoice":
+          return (await api.invoices.list()).map((d: any) => d.invoiceNumber ?? d.invoice_number);
+        default:
+          return [];
+      }
+    },
+    enabled: ["GRN", "PO", "Purchase Invoice", "Sales Invoice"].includes(form.linkedDocumentType),
+  });
 
-  // When a product is picked, auto-fill item_name, sku and unit cost
+  const selected = (productsQ.data ?? []).find((p: any) => p.id === form.productId);
+
   const pickProduct = (pid: string) => {
-    const p = (productsQ.data ?? []).find((x: any) => x.id === pid) as any;
-    if (p) setForm((f) => ({ ...f, product_id: pid, item_name: p.name, sku: p.sku, unit_cost: f.unit_cost || unitValueFor(pid) }));
-    else setForm((f) => ({ ...f, product_id: "" }));
+    const p = (productsQ.data ?? []).find((x: any) => x.id === pid);
+    setForm((f) => ({ ...f, productId: pid, unitCost: p ? String(p.unitCost ?? "") : f.unitCost }));
   };
 
-  // Changing direction keeps the cost basis (unit cost applies to both directions)
-  const setDirection = (direction: "in" | "out") => {
-    setForm((f) => {
-      const unit_cost = f.product_id ? unitValueFor(f.product_id) : f.unit_cost;
-      return { ...f, direction, unit_cost };
-    });
+  const handleReason = (reason: string) => {
+    const meta = MANUAL_REASONS.find((r) => r.label === reason);
+    setForm((f) => ({
+      ...f,
+      reason,
+      direction: meta?.direction ?? f.direction,
+      linkedDocumentType: meta?.docType ?? f.linkedDocumentType,
+    }));
   };
 
-  // ---- Bulk entry helpers ----
-  const addEntry = () => setEntries((es) => [...es, { quantity: "", movement_date: today, notes: "" }]);
-  const removeEntry = (i: number) => setEntries((es) => (es.length > 1 ? es.filter((_, idx) => idx !== i) : es));
-  const updateEntry = (i: number, patch: Partial<{ quantity: string; movement_date: string; notes: string }>) =>
-    setEntries((es) => es.map((e, idx) => (idx === i ? { ...e, ...patch } : e)));
+  // Scan a barcode (or type an exact SKU) → select the product & bump quantity
+  const scanProduct = () => {
+    const q = form.scan.trim().toLowerCase();
+    if (!q) return;
+    const p = (productsQ.data ?? []).find(
+      (x: any) =>
+        String(x.barcode ?? "").toLowerCase() === q || String(x.sku ?? "").toLowerCase() === q,
+    );
+    if (!p) {
+      toast.error(`No product found for “${form.scan.trim()}” — check the barcode or SKU`);
+      return;
+    }
+    const next = (Number(form.quantity) || 0) + 1;
+    if (form.productId === p.id) {
+      setForm((f) => ({ ...f, quantity: String(next), scan: "" }));
+    } else {
+      setForm((f) => ({
+        ...f,
+        productId: p.id,
+        unitCost: String(p.unitCost ?? ""),
+        quantity: String(next),
+        scan: "",
+      }));
+    }
+    toast.success(`${p.sku} scanned — quantity ${next}`);
+  };
 
-  // Shared fields (item name, sku, unit, unit cost) stay constant across all rows
-  const payload = (quantity: number, movement_date: string, notes: string | null) => ({
-    clientId: userId,
-    product_id: form.product_id || null,
-    direction: form.direction,
-    item_name: form.item_name.trim(),
-    sku: form.sku || null,
-    quantity,
-    unit: form.unit || "unit",
-    unit_cost: form.unit_cost ? Number(form.unit_cost) : null,
-    notes: notes?.trim() || form.notes || null,
-    invoice_id: form.direction === "out" && form.invoice_id ? form.invoice_id : null,
-    purchase_invoice_id: form.direction === "in" && form.purchase_invoice_id ? form.purchase_invoice_id : null,
-    movement_date,
-  });
+  const totalValue = (Number(form.quantity) || 0) * (Number(form.unitCost) || 0);
 
-  const create = useMutation({
-    mutationFn: async () => {
-      if (!form.item_name.trim()) throw new Error("Item name required");
-      if (!form.quantity || Number(form.quantity) <= 0) throw new Error("Quantity must be > 0");
-      await api.stockMovements.create(payload(Number(form.quantity), form.movement_date, form.notes || null));
+  const save = useMutation({
+    mutationFn: async (confirmNow: boolean) => {
+      if (!form.productId) throw new Error("Select or scan a product from the catalogue");
+      if (!form.reason) throw new Error("Movement reason is required");
+      if (!form.notes.trim()) throw new Error("Notes are required for manual inventory entries");
+      const qty = Number(form.quantity);
+      if (!(qty > 0)) throw new Error("Quantity must be greater than zero");
+      await api.stockMovements.create({
+        clientId: userId,
+        product_id: form.productId,
+        direction: form.direction,
+        quantity: qty,
+        unit_cost: form.unitCost !== "" ? Number(form.unitCost) : null,
+        warehouse: form.warehouse.trim() || null,
+        reason: form.reason,
+        linked_document_type: form.linkedDocumentType || null,
+        linked_document_number: form.linkedDocumentNumber.trim() || null,
+        notes: form.notes.trim(),
+        movement_date: form.movementDate,
+        status: confirmNow ? "confirmed" : "draft",
+      });
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["stock_movements"] }); qc.invalidateQueries({ queryKey: ["stock_movements_all"] }); toast.success("Movement recorded"); onClose(); },
+    onSuccess: (_d, confirmNow) => {
+      invalidateStock(qc);
+      toast.success(confirmNow ? "Movement confirmed — stock updated" : "Draft movement saved");
+      onClose();
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const createAll = useMutation({
-    mutationFn: async () => {
-      if (!form.item_name.trim()) throw new Error("Item name required");
-      const valid = entries.filter((e) => e.quantity && Number(e.quantity) > 0);
-      if (valid.length === 0) throw new Error("Add at least one entry with quantity > 0");
-      for (const e of valid) {
-        await api.stockMovements.create(payload(Number(e.quantity), e.movement_date, e.notes || null));
-      }
-      return valid.length;
-    },
-    onSuccess: (count) => {
-      qc.invalidateQueries({ queryKey: ["stock_movements"] });
-      qc.invalidateQueries({ queryKey: ["stock_movements_all"] });
-      toast.success(`${count} movement${count > 1 ? "s" : ""} recorded`);
-      onClose();
-    },
-    onError: (e) => {
-      // Some entries may already be saved — refresh so partial records show up
-      qc.invalidateQueries({ queryKey: ["stock_movements"] });
-      qc.invalidateQueries({ queryKey: ["stock_movements_all"] });
-      toast.error(e instanceof Error ? e.message : "Failed");
-    },
-  });
-
-  const submitting = create.isPending || createAll.isPending;
-  const totalQty = entries.reduce((s, e) => s + (Number(e.quantity) || 0), 0);
-  const validCount = entries.filter((e) => e.quantity && Number(e.quantity) > 0).length;
-
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-xl overflow-y-auto rounded-xl border border-border bg-card" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">{mode === "mass" ? "Bulk stock entries" : "New stock movement"}</h3>
-          <button onClick={onClose}><X className="h-4 w-4" /></button>
+          <h3 className="font-display text-lg">New movement</h3>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground transition hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); if (mode === "mass") createAll.mutate(); else create.mutate(); }} className="space-y-4 p-5">
-          {/* Entry mode toggle */}
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" aria-pressed={mode === "single"} onClick={() => setMode("single")} className={`rounded-md border px-3 py-2 text-sm transition ${mode === "single" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
-              <FilePlus2 className="mr-2 inline h-4 w-4" /> Single entry
-            </button>
-            <button type="button" aria-pressed={mode === "mass"} onClick={() => setMode("mass")} className={`rounded-md border px-3 py-2 text-sm transition ${mode === "mass" ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
-              <ListPlus className="mr-2 inline h-4 w-4" /> Bulk entry
-            </button>
-          </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" onClick={() => setDirection("in")} className={`rounded-md border px-3 py-2 text-sm ${form.direction === "in" ? "border-success bg-success/10 text-success" : "border-border"}`}>
-              <ArrowDownToLine className="mr-2 inline h-4 w-4" /> Stock-in (purchase)
-            </button>
-            <button type="button" onClick={() => setDirection("out")} className={`rounded-md border px-3 py-2 text-sm ${form.direction === "out" ? "border-warning bg-warning/10 text-warning" : "border-border"}`}>
-              <ArrowUpFromLine className="mr-2 inline h-4 w-4" /> Stock-out (sale)
-            </button>
-          </div>
-          <L label="Catalog product (optional — links to forecast)">
-            <select className="inp" value={form.product_id} onChange={(e) => pickProduct(e.target.value)}>
-              <option value="">— Ad-hoc item —</option>
-              {(productsQ.data ?? []).map((p: any) => <option key={p.id} value={p.id}>{p.sku} · {p.name}</option>)}
-            </select>
-          </L>
-          <div className="grid grid-cols-2 gap-3">
-            <L label="Item name *"><input required className="inp" value={form.item_name} onChange={(e) => setForm({ ...form, item_name: e.target.value })} /></L>
-            <L label="SKU"><input className="inp" value={form.sku} onChange={(e) => setForm({ ...form, sku: e.target.value })} /></L>
-            <L label="Unit"><input className="inp" value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} placeholder="kg / box / unit" /></L>
-            <L label="Unit cost"><input type="number" step="0.01" min="0" className="inp" value={form.unit_cost} onChange={(e) => setForm({ ...form, unit_cost: e.target.value })} /></L>
-          </div>
-          {form.direction === "in" ? (
-            <L label="Link to purchase invoice (optional)">
-              <select className="inp" value={form.purchase_invoice_id} onChange={(e) => setForm({ ...form, purchase_invoice_id: e.target.value })}>
-                <option value="">— None —</option>
-                {(purchQ.data ?? []).map((p: any) => <option key={p.id} value={p.id}>{p.invoice_number}</option>)}
-              </select>
-            </L>
-          ) : (
-            <L label="Link to sales invoice (optional)">
-              <select className="inp" value={form.invoice_id} onChange={(e) => setForm({ ...form, invoice_id: e.target.value })}>
-                <option value="">— None —</option>
-                {(invoicesQ.data ?? []).map((p: any) => <option key={p.id} value={p.id}>{p.invoice_number}</option>)}
-              </select>
-            </L>
-          )}
-
-          {mode === "single" ? (
-            <>
-              <div className="grid grid-cols-2 gap-3">
-                <L label="Quantity *"><input required type="number" step="0.001" min="0" className="inp" value={form.quantity} onChange={(e) => setForm({ ...form, quantity: e.target.value })} /></L>
-                <L label="Date"><input required type="date" className="inp" value={form.movement_date} onChange={(e) => setForm({ ...form, movement_date: e.target.value })} /></L>
-              </div>
-              <L label="Notes"><textarea rows={2} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>
-            </>
-          ) : (
-            <>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate(false);
+          }}
+          className="space-y-5 p-5"
+        >
+          {/* ── Movement details ── */}
+          <section className="space-y-3 rounded-lg border border-border/70 p-4">
+            <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Movement details
+            </h4>
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <div>
-                <div className="mb-2 flex items-center justify-between gap-2">
-                  <span className="text-xs uppercase tracking-widest text-muted-foreground">Entries — qty & date per row</span>
-                  <span className="text-[10px] text-muted-foreground">{entries.length} row{entries.length === 1 ? "" : "s"} · {totalQty.toLocaleString()} total qty</span>
-                </div>
-                <div className="space-y-2">
-                  {entries.map((e, i) => (
-                    <div key={i} className="grid grid-cols-2 items-end gap-2 rounded-lg border border-border/70 bg-muted/30 p-2.5 sm:grid-cols-[84px_1fr_1fr_auto]">
-                      <L label="Qty *"><input type="number" step="0.001" min="0" className="inp" value={e.quantity} onChange={(ev) => updateEntry(i, { quantity: ev.target.value })} /></L>
-                      <L label="Date *"><input type="date" className="inp" value={e.movement_date} onChange={(ev) => updateEntry(i, { movement_date: ev.target.value })} /></L>
-                      <L label="Notes"><input className="inp" placeholder="per-entry note (optional)" value={e.notes} onChange={(ev) => updateEntry(i, { notes: ev.target.value })} /></L>
-                      <button type="button" onClick={() => removeEntry(i)} title="Remove entry" className="mb-1 rounded-md p-1.5 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive">
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-                <button type="button" onClick={addEntry} className="mt-2 inline-flex w-full items-center justify-center gap-1.5 rounded-md border border-dashed border-border px-3 py-2 text-xs font-medium text-muted-foreground transition hover:border-primary hover:text-primary">
-                  <Plus className="h-3.5 w-3.5" /> Add another entry
+                <L label="Movement number">
+                  <div className="flex h-[38px] items-center rounded-md border border-dashed border-border bg-muted/30 px-3 text-xs text-muted-foreground">
+                    <span className="font-mono">MOV-XXXXXXXX</span>
+                  </div>
+                </L>
+              </div>
+              <L label="Movement date *">
+                <input
+                  required
+                  type="date"
+                  className="inp"
+                  value={form.movementDate}
+                  onChange={(e) => setForm({ ...form, movementDate: e.target.value })}
+                />
+              </L>
+              <L label="Warehouse / store">
+                <input
+                  className="inp"
+                  value={form.warehouse}
+                  onChange={(e) => setForm({ ...form, warehouse: e.target.value })}
+                  placeholder="e.g. Main store"
+                />
+              </L>
+            </div>
+
+            <L label="Movement reason *">
+              <select
+                required
+                className="inp"
+                value={form.reason}
+                onChange={(e) => handleReason(e.target.value)}
+              >
+                <option value="">— Select reason —</option>
+                {MANUAL_REASONS.map((r) => (
+                  <option key={r.label} value={r.label}>
+                    {r.label}
+                  </option>
+                ))}
+              </select>
+            </L>
+
+            <L label="Direction">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, direction: "in" })}
+                  className={`rounded-md border px-3 py-2 text-sm transition ${form.direction === "in" ? "border-success bg-success/10 text-success" : "border-border text-muted-foreground hover:text-foreground"}`}
+                >
+                  <ArrowDownToLine className="mr-2 inline h-4 w-4" /> Credit{" "}
+                  <span className="text-[10px] opacity-70">stock in</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setForm({ ...form, direction: "out" })}
+                  className={`rounded-md border px-3 py-2 text-sm transition ${form.direction === "out" ? "border-warning bg-warning/10 text-warning" : "border-border text-muted-foreground hover:text-foreground"}`}
+                >
+                  <ArrowUpFromLine className="mr-2 inline h-4 w-4" /> Debit{" "}
+                  <span className="text-[10px] opacity-70">stock out</span>
                 </button>
               </div>
-            </>
-          )}
+            </L>
+          </section>
 
-          <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
-            <button disabled={submitting} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
-              {submitting && <Loader2 className="h-4 w-4 animate-spin" />}
-              {mode === "mass" && validCount > 0 ? `Save ${validCount} entr${validCount === 1 ? "y" : "ies"}` : "Save"}
+          {/* ── Inventory item ── */}
+          <section className="space-y-3 rounded-lg border border-border/70 p-4">
+            <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Inventory item
+            </h4>
+
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <L label="Scan barcode or search SKU">
+                  <input
+                    className="inp"
+                    value={form.scan}
+                    onChange={(e) => setForm({ ...form, scan: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        scanProduct();
+                      }
+                    }}
+                    placeholder="Scan barcode or type SKU, then Enter"
+                  />
+                </L>
+              </div>
+              <button
+                type="button"
+                onClick={scanProduct}
+                className="mt-[22px] inline-flex h-[38px] items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
+              >
+                <ScanBarcode className="h-4 w-4" /> Scan
+              </button>
+            </div>
+
+            <div className="flex items-center gap-3">
+              <span className="h-px flex-1 bg-border/70" />
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                or pick from catalogue
+              </span>
+              <span className="h-px flex-1 bg-border/70" />
+            </div>
+
+            <L label="Product (SKU · name)">
+              <select
+                className="inp"
+                value={form.productId}
+                onChange={(e) => pickProduct(e.target.value)}
+              >
+                <option value="">— Select product —</option>
+                {(productsQ.data ?? []).map((p: any) => (
+                  <option key={p.id} value={p.id}>
+                    {p.sku} · {p.name}
+                  </option>
+                ))}
+              </select>
+            </L>
+
+            {selected ? (
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                <div>
+                  <L label="SKU (catalogue)">
+                    <div className="flex h-[38px] items-center rounded-md border border-border/70 bg-muted/30 px-3 font-mono text-xs">
+                      {selected.sku}
+                    </div>
+                  </L>
+                </div>
+                <div>
+                  <L label="Product name (catalogue)">
+                    <div className="flex h-[38px] items-center truncate rounded-md border border-border/70 bg-muted/30 px-3 text-xs">
+                      {selected.name}
+                    </div>
+                  </L>
+                </div>
+                <div>
+                  <L label="Unit (catalogue)">
+                    <div className="flex h-[38px] items-center rounded-md border border-border/70 bg-muted/30 px-3 text-xs">
+                      {selected.unit}
+                    </div>
+                  </L>
+                </div>
+                <div>
+                  <L label="Quantity *">
+                    <input
+                      required
+                      type="number"
+                      step="0.001"
+                      min="0"
+                      className="inp"
+                      value={form.quantity}
+                      onChange={(e) => setForm({ ...form, quantity: e.target.value })}
+                    />
+                  </L>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
+                <Package className="mx-auto mb-1 h-5 w-5 opacity-50" />
+                Select or scan a product — SKU, name and unit are auto-filled from the catalogue.
+              </div>
+            )}
+
+            {selected && (
+              <div className="grid grid-cols-3 gap-3">
+                <L label="Unit cost (auto-filled)">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="inp"
+                    value={form.unitCost}
+                    onChange={(e) => setForm({ ...form, unitCost: e.target.value })}
+                  />
+                </L>
+                <div>
+                  <L label="Total value (calculated)">
+                    <div className="flex h-[38px] items-center rounded-md border border-primary/30 bg-primary/5 px-3 font-display text-sm font-semibold text-primary">
+                      {fmtMoney(totalValue)}
+                    </div>
+                  </L>
+                </div>
+                <div>
+                  <L label="Status">
+                    <div className="flex h-[38px] items-center rounded-md border border-warning/40 bg-warning/10 px-3 text-xs font-medium text-warning">
+                      Draft on save
+                    </div>
+                  </L>
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* ── Linked document ── */}
+          <section className="space-y-3 rounded-lg border border-border/70 p-4">
+            <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              Linked document
+            </h4>
+            <div className="grid grid-cols-2 gap-3">
+              <L label="Linked document type">
+                <select
+                  className="inp"
+                  value={form.linkedDocumentType}
+                  onChange={(e) =>
+                    setForm({
+                      ...form,
+                      linkedDocumentType: e.target.value,
+                      linkedDocumentNumber: "",
+                    })
+                  }
+                >
+                  <option value="">— None —</option>
+                  {LINKED_DOC_TYPES.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </L>
+              <L label="Linked document number">
+                <input
+                  className="inp"
+                  list="linked-doc-suggestions"
+                  value={form.linkedDocumentNumber}
+                  onChange={(e) => setForm({ ...form, linkedDocumentNumber: e.target.value })}
+                  placeholder={
+                    ["GRN", "PO", "Purchase Invoice", "Sales Invoice"].includes(
+                      form.linkedDocumentType,
+                    )
+                      ? "Type or pick a number…"
+                      : "e.g. RET-001"
+                  }
+                />
+                <datalist id="linked-doc-suggestions">
+                  {(linkedDocsQ.data ?? []).map((n: string) => (
+                    <option key={n} value={n} />
+                  ))}
+                </datalist>
+              </L>
+            </div>
+          </section>
+
+          <L label="Notes *">
+            <textarea
+              required
+              rows={2}
+              className="inp"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              placeholder="Required — e.g. opening stock count, damaged batch ref, sample purpose…"
+            />
+          </L>
+
+          <div className="flex flex-wrap justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm transition hover:bg-muted/40"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={save.isPending}
+              className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium transition hover:bg-muted/40 disabled:opacity-60"
+            >
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Save draft
+            </button>
+            <button
+              type="button"
+              disabled={save.isPending}
+              onClick={() => save.mutate(true)}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+            >
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              <Check className="h-4 w-4" /> Save & confirm
             </button>
           </div>
         </form>
@@ -420,5 +936,12 @@ function NewMovementModal({ userId, onClose, initialMode = "single" }: { userId:
 }
 
 function L({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
 }

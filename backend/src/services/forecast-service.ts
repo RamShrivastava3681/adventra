@@ -29,10 +29,14 @@ export async function recomputeAll(clientId: string): Promise<{
   count: number;
   snapshots: ForecastSnapshot[];
 }> {
-  const [products, movements] = await Promise.all([
+  const [products, rawMovements] = await Promise.all([
     Product.list(clientId),
     StockMovement.list(clientId),
   ]);
+
+  // Only CONFIRMED movements reflect live stock (drafts/cancelled don't).
+  // list() already normalizes legacy records to "confirmed".
+  const movements = rawMovements.filter((m) => m.status === "confirmed");
 
   const activeProducts = products.filter(
     (p: any) => p.status === "active"

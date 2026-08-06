@@ -79,7 +79,7 @@ async function fetchAuto(asOf: string) {
     invs: (invs ?? []).filter((i: any) => (i.issueDate ?? i.issue_date) <= asOf),
     bills: (bills ?? []).filter((b: any) => (b.issueDate ?? b.issue_date) <= asOf),
     advs: (advs ?? []).filter((a: any) => (a.advanceDate ?? a.advance_date) <= asOf),
-    stock: (stock ?? []).filter((s: any) => (s.createdAt ?? s.created_at ?? "").slice(0, 10) <= asOf),
+    stock: (stock ?? []).filter((s: any) => (s.createdAt ?? s.created_at ?? "").slice(0, 10) <= asOf && (s.status ?? "confirmed") === "confirmed"),
   };
 }
 

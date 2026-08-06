@@ -59,7 +59,7 @@ async function fetchBalanceSheetData(asOf: string) {
     invoices: (invs ?? []).filter((i: any) => (i.issueDate ?? i.issue_date) <= asOf),
     bills: (bills ?? []).filter((b: any) => (b.issueDate ?? b.issue_date) <= asOf),
     advances: (advs ?? []).filter((a: any) => (a.advanceDate ?? a.advance_date) <= asOf),
-    stock: (stock ?? []).filter((s: any) => (s.createdAt ?? s.created_at ?? "").slice(0, 10) <= asOf),
+    stock: (stock ?? []).filter((s: any) => (s.createdAt ?? s.created_at ?? "").slice(0, 10) <= asOf && (s.status ?? "confirmed") === "confirmed"),
     manual: (manual ?? []) as ManualEntry[],
     journals: (journals ?? []).filter((j: any) => j.status === "posted" && (j.journalDate ?? j.journal_date) <= asOf),
     expenses: (expenses ?? []).filter((e: any) => (e.expenseDate ?? e.expense_date) <= asOf),

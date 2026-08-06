@@ -141,18 +141,21 @@ function ProductsPage() {
     queryKey: ["stock_movements_all"],
     queryFn: async () => {
       const data = await api.stockMovements.list();
-      return data.map(
-        (m: {
-          productId?: string;
-          product_id?: string;
-          direction?: string;
-          quantity?: number;
-        }) => ({
-          product_id: m.productId ?? m.product_id ?? null,
-          direction: m.direction ?? "",
-          quantity: m.quantity ?? 0,
-        }),
-      );
+      // Live stock counts CONFIRMED movements only (drafts/cancelled don't move stock)
+      return data
+        .filter((m: any) => (m.status ?? "confirmed") === "confirmed")
+        .map(
+          (m: {
+            productId?: string;
+            product_id?: string;
+            direction?: string;
+            quantity?: number;
+          }) => ({
+            product_id: m.productId ?? m.product_id ?? null,
+            direction: m.direction ?? "",
+            quantity: m.quantity ?? 0,
+          }),
+        );
     },
   });
 

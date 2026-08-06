@@ -88,7 +88,10 @@ function ForecastPage() {
     queryKey: ["movements-forecast"],
     queryFn: async () => {
       const data = await api.stockMovements.list();
-      return data.map((m: any) => ({ product_id: m.productId ?? m.product_id, direction: m.direction, quantity: m.quantity, movement_date: m.movementDate ?? m.movement_date }));
+      // Live stock counts CONFIRMED movements only (drafts/cancelled don't move stock)
+      return data
+        .filter((m: any) => (m.status ?? "confirmed") === "confirmed")
+        .map((m: any) => ({ product_id: m.productId ?? m.product_id, direction: m.direction, quantity: m.quantity, movement_date: m.movementDate ?? m.movement_date }));
     },
     refetchInterval: 60_000, // live stock levels — sales/stock-ins flow in every minute
   });

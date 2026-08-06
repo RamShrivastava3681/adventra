@@ -393,6 +393,11 @@ function NewInvoiceModal({ invoice, onClose, debtors, purchases, userId }: { inv
           unitCost: inv.unit_cost ? Number(inv.unit_cost) : null,
           invoiceId: created.id,
           movementDate: form.issue_date,
+          // Confirmed dispatch — debit entry linked to the sales invoice
+          status: "confirmed",
+          reason: "Dispatch",
+          linkedDocumentType: "Sales Invoice",
+          linkedDocumentNumber: created.invoiceNumber ?? created.invoice_number ?? null,
         });
       }
     },
