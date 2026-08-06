@@ -509,6 +509,7 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
           name: p.name,
           unit: p.unitOfMeasure ?? p.unit_of_measure ?? "unit",
           unitCost: p.unitCost ?? p.unit_cost ?? 0,
+          mrp: p.mrp ?? null,
           barcode: p.barcode ?? "",
         }))
         .sort(
@@ -544,19 +545,31 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
 
   const selected = (productsQ.data ?? []).find((p: any) => p.id === form.productId);
 
+  // Auto-filled unit value: debit (out) fetches MRP, credit (in) fetches unit cost.
+  const autoValue = (p: any, direction: "in" | "out") =>
+    String(direction === "out" ? (p.mrp ?? p.unitCost ?? "") : (p.unitCost ?? ""));
+
   const pickProduct = (pid: string) => {
     const p = (productsQ.data ?? []).find((x: any) => x.id === pid);
-    setForm((f) => ({ ...f, productId: pid, unitCost: p ? String(p.unitCost ?? "") : f.unitCost }));
+    setForm((f) => ({
+      ...f,
+      productId: pid,
+      unitCost: p ? autoValue(p, f.direction) : f.unitCost,
+    }));
   };
 
   const handleReason = (reason: string) => {
     const meta = MANUAL_REASONS.find((r) => r.label === reason);
-    setForm((f) => ({
-      ...f,
-      reason,
-      direction: meta?.direction ?? f.direction,
-      linkedDocumentType: meta?.docType ?? f.linkedDocumentType,
-    }));
+    setForm((f) => {
+      const dir = meta?.direction ?? f.direction;
+      return {
+        ...f,
+        reason,
+        direction: dir,
+        linkedDocumentType: meta?.docType ?? f.linkedDocumentType,
+        unitCost: selected && dir !== f.direction ? autoValue(selected, dir) : f.unitCost,
+      };
+    });
   };
 
   // Scan a barcode (or type an exact SKU) → select the product & bump quantity
@@ -578,7 +591,7 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
       setForm((f) => ({
         ...f,
         productId: p.id,
-        unitCost: String(p.unitCost ?? ""),
+        unitCost: autoValue(p, f.direction),
         quantity: String(next),
         scan: "",
       }));
@@ -696,7 +709,13 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
-                  onClick={() => setForm({ ...form, direction: "in" })}
+                  onClick={() =>
+                    setForm((f) => ({
+                      ...f,
+                      direction: "in",
+                      unitCost: f.direction !== "in" && selected ? autoValue(selected, "in") : f.unitCost,
+                    }))
+                  }
                   className={`rounded-md border px-3 py-2 text-sm transition ${form.direction === "in" ? "border-success bg-success/10 text-success" : "border-border text-muted-foreground hover:text-foreground"}`}
                 >
                   <ArrowDownToLine className="mr-2 inline h-4 w-4" /> Credit{" "}
@@ -704,7 +723,13 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
                 </button>
                 <button
                   type="button"
-                  onClick={() => setForm({ ...form, direction: "out" })}
+                  onClick={() =>
+                    setForm((f) => ({
+                      ...f,
+                      direction: "out",
+                      unitCost: f.direction !== "out" && selected ? autoValue(selected, "out") : f.unitCost,
+                    }))
+                  }
                   className={`rounded-md border px-3 py-2 text-sm transition ${form.direction === "out" ? "border-warning bg-warning/10 text-warning" : "border-border text-muted-foreground hover:text-foreground"}`}
                 >
                   <ArrowUpFromLine className="mr-2 inline h-4 w-4" /> Debit{" "}
@@ -815,7 +840,7 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
 
             {selected && (
               <div className="grid grid-cols-3 gap-3">
-                <L label="Unit cost (auto-filled)">
+                <L label={`${form.direction === "out" ? "MRP" : "Unit cost"} (auto-filled)`}>
                   <input
                     type="number"
                     step="0.01"
@@ -824,6 +849,11 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
                     value={form.unitCost}
                     onChange={(e) => setForm({ ...form, unitCost: e.target.value })}
                   />
+                  {form.direction === "out" && (
+                    <span className="mt-1 block text-[10px] text-muted-foreground">
+                      Debit entries value stock-out at MRP.
+                    </span>
+                  )}
                 </L>
                 <div>
                   <L label="Total value (calculated)">
