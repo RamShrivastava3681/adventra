@@ -15,6 +15,7 @@ import {
   Check,
   Ban,
   Package,
+  Pencil,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -48,6 +49,7 @@ type Movement = {
   invoice_id: string | null;
   purchase_invoice_id: string | null;
   goods_receipt_id: string | null;
+  goods_dispatch_id: string | null;
   purchase_order_id: string | null;
   created_at: string;
 };
@@ -120,6 +122,7 @@ function InventoryPage() {
     kind: "cancel" | "delete";
     movement: Movement;
   } | null>(null);
+  const [editing, setEditing] = useState<Movement | null>(null);
 
   const movementsQ = useQuery({
     queryKey: ["stock_movements"],
@@ -167,9 +170,9 @@ function InventoryPage() {
       if (kind === "cancel") await api.stockMovements.cancel(id);
       else await api.stockMovements.delete(id);
     },
-    onSuccess: () => {
+    onSuccess: (_d, vars) => {
       invalidateStock(qc);
-      toast.success("Movement updated");
+      toast.success(vars.kind === "cancel" ? "Movement cancelled" : "Movement deleted");
       setPendingAction(null);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -365,8 +368,20 @@ function InventoryPage() {
                         {canWrite && (
                           <div className="flex justify-end gap-0.5">
                             {/* Movements created by a source document (GRN / invoice) are managed there */}
-                            {!m.goods_receipt_id && !m.invoice_id && !m.purchase_invoice_id && (
+                            {!m.goods_receipt_id &&
+                              !m.invoice_id &&
+                              !m.purchase_invoice_id &&
+                              !m.goods_dispatch_id && (
                               <>
+                                {m.status !== "cancelled" && (
+                                  <button
+                                    onClick={() => setEditing(m)}
+                                    title="Edit movement"
+                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
+                                  >
+                                    <Pencil className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
                                 {m.status === "draft" && (
                                   <button
                                     onClick={() => confirmMut.mutate(m.id)}
@@ -381,11 +396,7 @@ function InventoryPage() {
                                     onClick={() =>
                                       setPendingAction({ kind: "cancel", movement: m })
                                     }
-                                    title={
-                                      m.status === "confirmed"
-                                        ? "Cancel (reverses stock)"
-                                        : "Cancel draft"
-                                    }
+                                    title="Cancel movement"
                                     className="rounded-md p-1.5 text-muted-foreground transition hover:bg-warning/10 hover:text-warning"
                                   >
                                     <Ban className="h-3.5 w-3.5" />
@@ -416,7 +427,10 @@ function InventoryPage() {
         </Card>
       </div>
 
-      {open && user && <NewMovementModal userId={user.id} onClose={() => setOpen(false)} />}
+      {open && user && <MovementModal userId={user.id} onClose={() => setOpen(false)} />}
+      {editing && user && (
+        <MovementModal userId={user.id} movement={editing} onClose={() => setEditing(null)} />
+      )}
       {pendingAction && (
         <ConfirmAction
           action={pendingAction}
@@ -456,7 +470,7 @@ function ConfirmAction({
         <p className="mt-1 text-sm text-muted-foreground">
           {action.kind === "cancel"
             ? isConfirmed
-              ? `${action.movement.movement_number} is confirmed and already moved stock — cancelling creates an opposite reversal entry so live stock stays correct.`
+              ? `${action.movement.movement_number} is confirmed and already moved stock — cancelling removes it from live stock. No reversal entry is created.`
               : `${action.movement.movement_number} is still a draft and never touched stock — cancelling just closes it.`
             : `${action.movement.movement_number} will be permanently removed.`}
         </p>
@@ -481,20 +495,28 @@ function ConfirmAction({
   );
 }
 
-function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => void }) {
+function MovementModal({
+  userId,
+  movement,
+  onClose,
+}: {
+  userId: string;
+  movement?: Movement | null;
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const today = new Date().toISOString().slice(0, 10);
   const [form, setForm] = useState({
-    movementDate: today,
-    warehouse: "",
-    reason: "",
-    direction: "in" as "in" | "out",
-    linkedDocumentType: "",
-    linkedDocumentNumber: "",
-    notes: "",
-    productId: "",
-    quantity: "1",
-    unitCost: "",
+    movementDate: movement?.movement_date ?? today,
+    warehouse: movement?.warehouse ?? "",
+    reason: movement?.reason ?? "",
+    direction: (movement?.direction ?? "in") as "in" | "out",
+    linkedDocumentType: movement?.linked_document_type ?? "",
+    linkedDocumentNumber: movement?.linked_document_number ?? "",
+    notes: movement?.notes ?? "",
+    productId: movement?.product_id ?? "",
+    quantity: movement ? String(movement.quantity) : "1",
+    unitCost: movement?.unit_cost != null ? String(movement.unit_cost) : "",
     scan: "",
   });
 
@@ -608,8 +630,7 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
       if (!form.notes.trim()) throw new Error("Notes are required for manual inventory entries");
       const qty = Number(form.quantity);
       if (!(qty > 0)) throw new Error("Quantity must be greater than zero");
-      await api.stockMovements.create({
-        clientId: userId,
+      const payload = {
         product_id: form.productId,
         direction: form.direction,
         quantity: qty,
@@ -620,12 +641,30 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
         linked_document_number: form.linkedDocumentNumber.trim() || null,
         notes: form.notes.trim(),
         movement_date: form.movementDate,
-        status: confirmNow ? "confirmed" : "draft",
-      });
+      };
+      if (movement) {
+        await api.stockMovements.update(movement.id, payload);
+        // "Save & confirm" on a draft: update first, then flip it confirmed.
+        if (confirmNow && movement.status === "draft") {
+          await api.stockMovements.confirm(movement.id);
+        }
+      } else {
+        await api.stockMovements.create({
+          ...payload,
+          clientId: userId,
+          status: confirmNow ? "confirmed" : "draft",
+        });
+      }
     },
     onSuccess: (_d, confirmNow) => {
       invalidateStock(qc);
-      toast.success(confirmNow ? "Movement confirmed — stock updated" : "Draft movement saved");
+      toast.success(
+        confirmNow
+          ? "Movement confirmed — stock updated"
+          : movement
+            ? "Movement updated"
+            : "Draft movement saved",
+      );
       onClose();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -641,7 +680,9 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">New movement</h3>
+          <h3 className="font-display text-lg">
+            {movement ? "Edit movement" : "New movement"}
+          </h3>
           <button
             onClick={onClose}
             className="text-muted-foreground transition hover:text-foreground"
@@ -666,7 +707,9 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
               <div>
                 <L label="Movement number">
                   <div className="flex h-[38px] items-center rounded-md border border-dashed border-border bg-muted/30 px-3 text-xs text-muted-foreground">
-                    <span className="font-mono">MOV-XXXXXXXX</span>
+                    <span className="font-mono">
+                      {movement?.movement_number ?? "MOV-XXXXXXXX"}
+                    </span>
                   </div>
                 </L>
               </div>
@@ -864,9 +907,21 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
                 </div>
                 <div>
                   <L label="Status">
-                    <div className="flex h-[38px] items-center rounded-md border border-warning/40 bg-warning/10 px-3 text-xs font-medium text-warning">
-                      Draft on save
-                    </div>
+                    {movement ? (
+                      <div
+                        className={`flex h-[38px] items-center rounded-md border px-3 text-xs font-medium ${
+                          movement.status === "confirmed"
+                            ? "border-success/40 bg-success/10 text-success"
+                            : "border-warning/40 bg-warning/10 text-warning"
+                        }`}
+                      >
+                        {movement.status === "confirmed" ? "Confirmed" : "Draft"}
+                      </div>
+                    ) : (
+                      <div className="flex h-[38px] items-center rounded-md border border-warning/40 bg-warning/10 px-3 text-xs font-medium text-warning">
+                        Draft on save
+                      </div>
+                    )}
                   </L>
                 </div>
               </div>
@@ -941,22 +996,37 @@ function NewMovementModal({ userId, onClose }: { userId: string; onClose: () => 
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={save.isPending}
-              className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium transition hover:bg-muted/40 disabled:opacity-60"
-            >
-              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Save draft
-            </button>
-            <button
-              type="button"
-              disabled={save.isPending}
-              onClick={() => save.mutate(true)}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
-            >
-              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              <Check className="h-4 w-4" /> Save & confirm
-            </button>
+            {movement && movement.status !== "draft" ? (
+              /* Confirmed movement — only save the corrected entry */
+              <button
+                type="submit"
+                disabled={save.isPending}
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+              >
+                {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save changes
+              </button>
+            ) : (
+              <>
+                <button
+                  type="submit"
+                  disabled={save.isPending}
+                  className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium transition hover:bg-muted/40 disabled:opacity-60"
+                >
+                  {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {movement ? "Save changes" : "Save draft"}
+                </button>
+                <button
+                  type="button"
+                  disabled={save.isPending}
+                  onClick={() => save.mutate(true)}
+                  className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+                >
+                  {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                  <Check className="h-4 w-4" /> Save & confirm
+                </button>
+              </>
+            )}
           </div>
         </form>
         <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>

@@ -162,8 +162,21 @@ router.put("/products/:id", authMiddleware, async (req, res) => {
 });
 router.delete("/products/:id", authMiddleware, async (req, res) => {
   try {
-    await Product.remove(req.params.id);
-    res.json({ success: true });
+    const clientId = req.user!.userId;
+    const product = await Product.get(req.params.id);
+    if (!product) return res.status(404).json({ error: "Product not found" });
+    if (product.clientId !== clientId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    // Cascade: remove the catalogue record AND everything that hangs off it —
+    // inventory movements and forecast snapshots. Documents (invoices, orders,
+    // GRNs, dispatches, quotations) keep their own snapshot copies untouched.
+    const movementsDeleted = await StockMovement.removeByProduct(clientId, product.id);
+    const { removeAllForProduct } = await import("../models/forecast-variable.js");
+    const forecastsDeleted = await removeAllForProduct(clientId, product.id);
+    await Product.remove(product.id);
+    recomputeForecast(clientId);
+    res.json({ success: true, movementsDeleted, forecastsDeleted });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
@@ -315,47 +328,26 @@ router.post("/stock-movements/:id/confirm", authMiddleware, async (req, res) => 
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-/** POST /stock-movements/:id/cancel — cancelling a confirmed movement creates an opposite reversal. */
+/** POST /stock-movements/:id/cancel — cancel a manual movement (drafts or confirmed). */
 router.post("/stock-movements/:id/cancel", authMiddleware, async (req, res) => {
   try {
     const clientId = req.user!.userId;
     const current = await StockMovement.get(req.params.id);
     if (!current) return res.status(404).json({ error: "Movement not found" });
+    if (current.clientId !== clientId) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
     if (current.goodsReceiptId || current.invoiceId || current.purchaseInvoiceId || current.goodsDispatchId) {
       return res.status(400).json({ error: "This movement is created by its linked document — cancel the GRN, invoice or dispatch instead" });
     }
     if (current.status === "cancelled") return res.json({ ...current, alreadyCancelled: true });
-    // Atomic → cancelled flip FIRST (mirrors the GRN cancel pattern): exactly
-    // one concurrent cancel wins, so only the winner writes the reversal — a
-    // loser never creates a duplicate reversal entry.
+    // Atomic → cancelled flip: exactly one concurrent cancel wins.
     const flipped = await StockMovement.cancel(current.id, req.user!.userId, req.user!.email);
     if (!flipped) return res.json({ ...current, alreadyCancelled: true });
-    // A confirmed movement already moved stock — create an opposite reversal
-    // entry (also confirmed) so live stock stays correct.
-    if (current.status === "confirmed") {
-      await StockMovement.create({
-        clientId,
-        productId: current.productId,
-        direction: current.direction === "in" ? "out" : "in",
-        itemName: current.itemName,
-        sku: current.sku,
-        quantity: current.quantity,
-        unit: current.unit,
-        unitCost: current.unitCost,
-        warehouse: current.warehouse,
-        reason: current.reason || "Stock adjustment",
-        linkedDocumentType: current.linkedDocumentType,
-        linkedDocumentNumber: current.linkedDocumentNumber,
-        status: "confirmed",
-        notes: `${current.movementNumber} cancelled — reversal`,
-        movementDate: db.todayDate(),
-        createdById: req.user!.userId,
-        createdByName: req.user!.email,
-        confirmedById: req.user!.userId,
-        confirmedByName: req.user!.email,
-        confirmedAt: db.nowISO(),
-      });
-    }
+    // No reversal entry is ever created. Live stock only counts CONFIRMED
+    // movements — a cancelled entry simply drops out of the balance, so its
+    // effect is removed automatically (a cancelled +100 credit leaves the
+    // balance at 0, not −100).
     recomputeForecast(clientId);
     res.json(flipped);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
@@ -363,8 +355,12 @@ router.post("/stock-movements/:id/cancel", authMiddleware, async (req, res) => {
 
 router.delete("/stock-movements/:id", authMiddleware, async (req, res) => {
   try {
+    const clientId = req.user!.userId;
     const current = await StockMovement.get(req.params.id);
     if (current) {
+      if (current.clientId !== clientId) {
+        return res.status(403).json({ error: "Forbidden" });
+      }
       if (current.goodsReceiptId || current.invoiceId || current.purchaseInvoiceId || current.goodsDispatchId) {
         return res.status(400).json({ error: "This movement is created by its linked document — manage it from the GRN, invoice or dispatch instead" });
       }
@@ -379,6 +375,62 @@ router.delete("/stock-movements/:id", authMiddleware, async (req, res) => {
       console.error("  ⚠ Forecast recompute after stock movement deletion failed:", err)
     );
     res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/**
+ * PUT /stock-movements/:id — edit a MANUAL movement (drafts or confirmed).
+ * Live stock & inventory value recompute from the corrected entry because they
+ * are always derived from the movement list. System-created movements (linked
+ * to a GRN / invoice / purchase invoice / dispatch) are managed from their
+ * source document, and cancelled movements are closed — neither can be edited.
+ */
+router.put("/stock-movements/:id", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const current = await StockMovement.get(req.params.id);
+    if (!current) return res.status(404).json({ error: "Movement not found" });
+    if (current.goodsReceiptId || current.invoiceId || current.purchaseInvoiceId || current.goodsDispatchId) {
+      return res.status(400).json({ error: "This movement is created by its linked document — manage it from the GRN, invoice or dispatch instead" });
+    }
+    if (current.status === "cancelled") {
+      return res.status(400).json({ error: "Cancelled movements cannot be edited" });
+    }
+    const body = req.body || {};
+
+    // Same strict validation as manual creation.
+    if (body.quantity !== undefined && !(Number(body.quantity) > 0)) {
+      return res.status(400).json({ error: "Quantity must be greater than zero" });
+    }
+    if (body.direction !== undefined && !["in", "out"].includes(body.direction)) {
+      return res.status(400).json({ error: "Direction must be Credit (in) or Debit (out)" });
+    }
+    if (body.reason !== undefined && !MANUAL_MOVEMENT_REASONS.includes(body.reason)) {
+      return res.status(400).json({ error: "Manual entries require a movement reason — Opening stock, Stock adjustment, Damage, Samples / internal use, Customer return or Supplier return" });
+    }
+    if (body.notes !== undefined && !String(body.notes).trim()) {
+      return res.status(400).json({ error: "Notes are required for every manual inventory entry" });
+    }
+    if (body.unitCost !== undefined && body.unitCost !== null && body.unitCost !== "") {
+      const uc = Number(body.unitCost);
+      if (!Number.isFinite(uc) || uc < 0) {
+        return res.status(400).json({ error: "Unit cost must be greater than or equal to zero" });
+      }
+      body.unitCost = uc;
+    }
+    // Changing the product re-snapshots SKU / name / unit from the catalogue
+    // (users never type those — the item identity always comes from the product).
+    if (body.productId !== undefined && body.productId !== current.productId) {
+      const product = await Product.get(body.productId);
+      if (!product) return res.status(400).json({ error: "The selected catalogue product no longer exists" });
+      body.itemName = product.name;
+      body.sku = product.sku;
+      body.unit = product.unitOfMeasure || "unit";
+    }
+
+    const updated = await StockMovement.update(current.id, body);
+    recomputeForecast(clientId);
+    res.json(updated);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 

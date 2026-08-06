@@ -144,6 +144,19 @@ export async function removeAllForClient(clientId: string) {
   }
 }
 
+/** Delete every forecast snapshot for a single product (catalogue deletion). */
+export async function removeAllForProduct(clientId: string, productId: string) {
+  const items = await listByClient(clientId);
+  let count = 0;
+  for (const item of items) {
+    if (item.productId === productId) {
+      await remove(item.id);
+      count++;
+    }
+  }
+  return count;
+}
+
 /** Get the latest computed date across all forecast variables for a client */
 export async function getLatestComputedDate(clientId: string): Promise<string | null> {
   const items = await listByClient(clientId);

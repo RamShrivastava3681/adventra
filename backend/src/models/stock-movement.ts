@@ -13,9 +13,10 @@ export const MOVEMENT_STATUSES = ["draft", "confirmed", "cancelled"] as const;
  *               Σ confirmed credits − Σ confirmed debits). System actions
  *               (confirmed GRN, dispatched sales invoice) create movements
  *               already confirmed.
- *   cancelled → cancelled before/after confirm; cancelling a confirmed
- *               movement creates an opposite reversal entry so stock stays
- *               correct.
+ *   cancelled → cancelled before/after confirm. Live stock only counts
+ *               CONFIRMED movements, so a cancelled entry simply drops out
+ *               of the balance — no reversal entry is created (cancelling a
+ *               confirmed +100 credit leaves the balance at 0).
  *
  * Legacy records created before the status field existed are normalized to
  * "confirmed" by list/get (they already affected stock).
@@ -175,9 +176,43 @@ export async function remove(id: string) {
   return db.deleteItem(`STOCK_MOVEMENT#${id}`);
 }
 
+/**
+ * Edit a manual movement (drafts or confirmed). System-created movements are
+ * rejected by the route — callers here only ever touch user-editable fields.
+ * When the product changes the caller re-snapshots itemName/sku/unit from the
+ * catalogue before calling update().
+ */
+export async function update(id: string, updates: Partial<StockMovement>) {
+  const allowed = [
+    "productId", "itemName", "sku", "unit", "direction", "quantity", "unitCost",
+    "warehouse", "reason", "linkedDocumentType", "linkedDocumentNumber",
+    "notes", "movementDate",
+  ];
+  const patch: Record<string, any> = {};
+  for (const key of allowed) {
+    if ((updates as any)[key] !== undefined) patch[key] = (updates as any)[key];
+  }
+  patch.updatedAt = db.nowISO();
+  return db.updateItem(`STOCK_MOVEMENT#${id}`, `STOCK_MOVEMENT#${id}`, patch);
+}
+
 export async function getByProduct(clientId: string, productId: string) {
   const all = await list(clientId);
   return all.filter((m) => m.productId === productId);
+}
+
+/**
+ * Delete every movement that belongs to a product (used when the catalogue
+ * product is removed, so inventory entries don't linger as orphans). Scoped to
+ * the client — other accounts' records are never touched.
+ */
+export async function removeByProduct(clientId: string, productId: string) {
+  const all = await listAll();
+  const targets = all.filter((m) => m.clientId === clientId && m.productId === productId);
+  for (const m of targets) {
+    await db.deleteItem(`STOCK_MOVEMENT#${m.id}`);
+  }
+  return targets.length;
 }
 
 /** Live stock for a product = confirmed credits − confirmed debits. */

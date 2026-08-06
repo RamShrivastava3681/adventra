@@ -88,6 +88,7 @@ function ProductsPage() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
+  const [deleting, setDeleting] = useState<Product | null>(null);
 
   const productsQ = useQuery({
     queryKey: ["products"],
@@ -183,12 +184,20 @@ function ProductsPage() {
   });
 
   const del = useMutation({
-    mutationFn: async (id: string) => {
-      await api.products.delete(id);
+    mutationFn: async (p: Product) => {
+      await api.products.delete(p.id);
     },
     onSuccess: () => {
+      // The product's stock movements, forecasts and catalogue record are gone
+      // too — refresh every surface that shows them.
       qc.invalidateQueries({ queryKey: ["products"] });
-      toast.success("Deleted");
+      qc.invalidateQueries({ queryKey: ["products-forecast"] });
+      qc.invalidateQueries({ queryKey: ["stock_movements"] });
+      qc.invalidateQueries({ queryKey: ["stock_movements_all"] });
+      qc.invalidateQueries({ queryKey: ["movements-forecast"] });
+      qc.invalidateQueries({ queryKey: ["forecast-variables"] });
+      toast.success("Product and its inventory entries deleted");
+      setDeleting(null);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -406,7 +415,8 @@ function ProductsPage() {
                                 <Pencil className="h-3.5 w-3.5" />
                               </button>
                               <button
-                                onClick={() => del.mutate(p.id)}
+                                onClick={() => setDeleting(p)}
+                                title="Delete product & its inventory entries"
                                 className="text-muted-foreground hover:text-destructive"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -433,6 +443,76 @@ function ProductsPage() {
           onClose={() => setOpen(false)}
         />
       )}
+      {deleting && (
+        <ConfirmProductDelete
+          product={deleting}
+          movementCount={
+            (movementsQ.data ?? []).filter((m: any) => m.product_id === deleting.id).length
+          }
+          onClose={() => setDeleting(null)}
+          onConfirm={() => del.mutate(deleting)}
+          pending={del.isPending}
+        />
+      )}
+    </div>
+  );
+}
+
+function ConfirmProductDelete({
+  product,
+  movementCount,
+  onClose,
+  onConfirm,
+  pending,
+}: {
+  product: Product;
+  movementCount: number;
+  onClose: () => void;
+  onConfirm: () => void;
+  pending: boolean;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-xl border border-border bg-card p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="font-display text-lg">Delete {product.name}?</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          This permanently removes <span className="font-medium text-foreground">{product.sku}</span>{" "}
+          from the catalogue{movementCount > 0 ? (
+            <>
+              , along with its{" "}
+              <span className="font-medium text-foreground">
+                {movementCount} stock movement{movementCount === 1 ? "" : "s"}
+              </span>{" "}
+              and forecast entries
+            </>
+          ) : (
+            " and its forecast entries"
+          )}
+          . Invoices, orders and receipts keep their records.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-md border border-border px-4 py-2 text-sm transition hover:bg-muted/40"
+          >
+            Keep
+          </button>
+          <button
+            onClick={onConfirm}
+            disabled={pending}
+            className="inline-flex items-center gap-2 rounded-md bg-destructive px-4 py-2 text-sm font-medium text-white transition hover:bg-destructive/90 disabled:opacity-60"
+          >
+            {pending && <Loader2 className="h-4 w-4 animate-spin" />}
+            Delete product
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

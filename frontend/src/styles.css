@@ -153,6 +153,22 @@
   }
 }
 
+/* ============================================================
+   NUMBER INPUTS — typing only, no scroll-to-change, no arrows
+   Hides the native up/down spinner buttons on every number input
+   (scroll-to-change is disabled by a global listener in main.tsx)
+   ============================================================ */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 @layer utilities {
   /* Card shadow — soft subtle elevation */
   .shadow-card {

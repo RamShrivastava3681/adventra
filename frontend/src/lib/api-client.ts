@@ -96,6 +96,7 @@ const api = {
     list: (productId?: string) =>
       api.get<any[]>(`/stock-movements${productId ? `?productId=${productId}` : ""}`),
     create: (data: any) => api.post<any>("/stock-movements", data),
+    update: (id: string, data: any) => api.put<any>(`/stock-movements/${id}`, data),
     confirm: (id: string) => api.post<any>(`/stock-movements/${id}/confirm`, {}),
     cancel: (id: string) => api.post<any>(`/stock-movements/${id}/cancel`, {}),
     delete: (id: string) => api.delete(`/stock-movements/${id}`),
