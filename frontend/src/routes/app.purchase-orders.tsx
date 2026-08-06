@@ -441,6 +441,7 @@ function PurchaseOrdersPage() {
       {open && user && (
         <POModal
           userId={user.id}
+          email={user.email}
           po={editing}
           products={productsQ.data ?? []}
           suppliers={suppliersQ.data ?? []}
@@ -498,6 +499,7 @@ type LineDraft = {
 
 function POModal({
   userId,
+  email,
   po,
   products,
   suppliers,
@@ -507,6 +509,7 @@ function POModal({
   onSaved,
 }: {
   userId: string;
+  email: string;
   po: PO | null;
   products: CatalogueProduct[];
   suppliers: Array<{ id: string; name: string }>;
@@ -528,6 +531,9 @@ function POModal({
     warehouse: po?.warehouse ?? "",
     expected_delivery_date: (po?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
     payment_terms: po?.payment_terms ?? "",
+    // Free-text "Buyer / created by" — new POs default to the signed-in
+    // user's email (what the backend used to store); the user can type anything.
+    buyer_name: po ? (po.buyer_name ?? "") : email,
     notes: po?.notes ?? "",
     freight: po?.freight != null ? String(po.freight) : "",
   });
@@ -631,6 +637,7 @@ function POModal({
         warehouse: f.warehouse.trim() || null,
         expected_delivery_date: f.expected_delivery_date || null,
         payment_terms: f.payment_terms || null,
+        buyer_name: f.buyer_name.trim() || null,
         notes: f.notes.trim() || null,
         freight: Number(f.freight) || 0,
         documents: docs,
@@ -771,7 +778,13 @@ function POModal({
                 </datalist>
               </L>
               <L label="Buyer / created by">
-                <input className="inp" value={po?.buyer_name ?? "You"} disabled />
+                <input
+                  className="inp"
+                  value={f.buyer_name}
+                  onChange={(e) => setF({ ...f, buyer_name: e.target.value })}
+                  placeholder="You"
+                  disabled={!editable}
+                />
               </L>
             </div>
             <div className="mt-3">

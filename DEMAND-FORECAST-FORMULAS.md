@@ -709,39 +709,40 @@ so it falls back to a simple ±30% range: `low = center×0.7`, `high = center×1
 
 **The question:** "At my forecast selling speed, how many days will my current stock last?"
 
-### Formula 10a — The forward daily rate (weighted, 3 months)
+### Formula 10a — The last-3-months average daily demand
 
-A single month's rate can be misleading (December is a peak), so the engine averages the first 3
-forecast months' daily rates, giving more weight to the **nearer** months (weights 3, 2, 1):
+The engine averages the **last 3 calendar months** of outbound demand — the 3 months before the
+forecast month (e.g. a **September** forecast looks at **June, July, August**) — and divides by
+their actual calendar days. This is the same window the reorder recommendation uses, so the two
+numbers always agree:
 
 ```
-coverDailyRate = (r₁×3 + r₂×2 + r₃×1) ÷ (3 + 2 + 1)
+last3DailyAvg = (Jun demand + Jul demand + Aug demand) ÷ (Jun days + Jul days + Aug days)
 ```
 
-**Our actual numbers (Sep 1.2, Oct 0.8, Nov 0.6):**
+**Our actual numbers (Jun 22, Jul 28, Aug 30):**
 ```
-coverDailyRate = (1.2×3 + 0.8×2 + 0.6×1) ÷ 6
-               = (3.6 + 1.6 + 0.6) ÷ 6
-               = 5.8 ÷ 6 = 0.97/day
+last3DailyAvg = (22 + 28 + 30) ÷ (30 + 31 + 31)
+              = 80 ÷ 92 = 0.87/day
 ```
 
-*(Fallback: if no positive forecast rate exists, the engine uses the recent 3-month history average
-÷ 30 = 26.67 ÷ 30 = 0.89/day.)*
+*(The window is always the 3 most recent calendar months — the current month is counted in full,
+with its full recorded demand and all its calendar days. No month is treated as a partial.)*
 
 ### Formula 10b — Days of cover
 
 ```
-daysOfCover = round(inventoryPosition ÷ coverDailyRate)
+daysOfCover = round(inventoryPosition ÷ last3DailyAvg)
 ```
 
 **Our actual numbers:**
 ```
 inventoryPosition = stock on hand + confirmed inbound − committed customer orders
                   = 30 + 0 − 0 = 30
-daysOfCover       = round(30 ÷ 0.97) = 31 days
+daysOfCover       = round(30 ÷ 0.87) = 34 days
 ```
 
-The page shows **Days cover = 31d**.
+The page shows **Days cover = 34d**.
 
 > 🍋 **Lemonade stand:** you have 30 cups of lemonade and you sell ~1 cup a day → you'll last
 > about 30 days. (If a big order was already promised to a customer, we'd subtract it; if a
@@ -759,12 +760,13 @@ The page shows **Days cover = 31d**.
 
 ### Formula 11a — The daily average demand
 
-The engine uses the **last 3 completed calendar months** of corrected demand (the current partial
-month is excluded so a half-finished month can't skew the rate):
+The engine uses the **3 most recent calendar months** of corrected demand — the current month
+included as a **full month** (its full recorded demand and all its calendar days, so a half-finished
+month can't skew the rate):
 
 ```
-dailyAverage = (May + Jun + Jul demand) ÷ (their calendar days)
-             = (22 + 28 + 30) ÷ (31 + 30 + 31)
+dailyAverage = (Jun + Jul + Aug demand) ÷ (their calendar days)
+             = (22 + 28 + 30) ÷ (30 + 31 + 31)
              = 80 ÷ 92 = 0.87/day
 ```
 
@@ -928,7 +930,7 @@ HP-2001 is rank 1 of 2 → 0.50 → `medium_mover`; HP-2002 → rank 2 of 2 → 
 coverVsLead = daysOfCover ÷ max(supplierLeadTimeDays, 1)
 ```
 
-**Our actual numbers:** `coverVsLead = 31 ÷ 14 = 2.21`
+**Our actual numbers:** `coverVsLead = 34 ÷ 14 = 2.43`
 
 | Condition | Stockout risk |
 |---|---|
@@ -936,7 +938,7 @@ coverVsLead = daysOfCover ÷ max(supplierLeadTimeDays, 1)
 | coverVsLead < 1.5 | **medium** |
 | otherwise | **low** |
 
-Our 2.21 → **low** ✅
+Our 2.43 → **low** ✅
 
 ### Formula 14b — Overstock risk
 
@@ -951,10 +953,10 @@ maxCoverDays (default 180)
 | daysOfCover > 180 × 0.75 = 135 | **medium** |
 | otherwise | **low** |
 
-Our daysOfCover = 31 → **low** ✅
+Our daysOfCover = 34 → **low** ✅
 (The 400-unit example from Step 11: 400 > 180 → **high**.)
 
-> 🍋 **Lemonade stand:** 31 days of stock vs a 14-day delivery = you're safe (2.21× covered).
+> 🍋 **Lemonade stand:** 34 days of stock vs a 14-day delivery = you're safe (2.43× covered).
 > If you only had 10 days of stock, that's less than 14 → high risk of running out.
 
 ---
@@ -975,8 +977,8 @@ estimatedStockoutDate = today + daysOfCover days
 
 **Our actual numbers:**
 ```
-daysOfCover           = 31 days          (from Step 8)
-estimatedStockoutDate = 2026-08-04 + 31 days = 2026-09-04
+daysOfCover           = 34 days          (from Step 8)
+estimatedStockoutDate = 2026-08-04 + 34 days = 2026-09-07
 ```
 
 *(If stock is already 0, the stockout date is today. If there is no forecast demand at all
@@ -988,7 +990,7 @@ estimatedStockoutDate = 2026-08-04 + 31 days = 2026-09-04
 reorderByDate = estimatedStockoutDate − supplierLeadTimeDays
 ```
 
-**Our actual numbers:** `2026-09-04 − 14 days = 2026-08-21`
+**Our actual numbers:** `2026-09-07 − 14 days = 2026-08-24`
 
 ### Formula 15c — Next refill date (if you ordered today)
 
@@ -1006,12 +1008,12 @@ nextRefillDate = today + supplierLeadTimeDays
 | reorderByDate ≤ today + supplierLeadTimeDays | `warning` |
 | otherwise | `safe` |
 
-**Our actual numbers:** reorderByDate (Aug 21) > today + 14 days (Aug 18) → **`safe`** ✅
+**Our actual numbers:** reorderByDate (Aug 24) > today + 14 days (Aug 18) → **`safe`** ✅
 
-> 🍋 **Lemonade stand:** you have 31 days of stock, so you'll run out on Sep 4. The lemon man
-> takes 14 days, so you must order by Aug 21 at the very latest. Since that's comfortably in the
+> 🍋 **Lemonade stand:** you have 34 days of stock, so you'll run out on Sep 7. The lemon man
+> takes 14 days, so you must order by Aug 24 at the very latest. Since that's comfortably in the
 > future, the page rates you "safe". If the date ever slips inside the 14-day delivery window the
-> page would warn, and past Aug 21 it would scream "CRITICAL".
+> page would warn, and past Aug 24 it would scream "CRITICAL".
 
 ---
 
@@ -1142,8 +1144,8 @@ low     = max(0, center − half)    high = center + half
 
 **Days of cover**
 ```
-coverDailyRate = (r₁×3 + r₂×2 + r₃×1) ÷ 6
-daysOfCover    = round(inventoryPosition ÷ coverDailyRate)
+last3DailyAvg = Σ last 3 months' demand ÷ Σ their calendar days
+daysOfCover   = round(inventoryPosition ÷ last3DailyAvg)
 inventoryPosition = stock + confirmedInbound − committedOrders
 ```
 
@@ -1210,7 +1212,7 @@ low if cover < lead + safetyDays · high if cover > maxCoverDays · else normal
 | Safety stock formula | `dailyForecast × safetyStockDays` | reorder safety stock |
 | Safety stock days (default) | 30 (per-product field in the catalogue) | monthly safety stock & reorder |
 | Max cover days (default) | 180 | overstock risk & reorder cap |
-| Cover-rate weights | 3, 2, 1 (near → far) | days of cover |
+| Last-3-month window | the 3 calendar months before the forecast month | days of cover |
 | Momentum thresholds | 120% / 60% of baseline | momentum tag |
 | Velocity cutoffs | 20% / 50% of category rank | velocity tag |
 | History length | 12 months | everything |
@@ -1269,7 +1271,7 @@ Key source files:
 | **Seasonality factor** | Month multiplier vs normal (1.0 = normal) |
 | **Weighted average** | Average where recent months count more |
 | **Safety stock** | Extra buffer stock for surprises |
-| **Days of cover** | How many days current stock lasts at forecast speed |
+| **Days of cover** | How many days current stock lasts at the last-3-months' average demand |
 | **Reorder / recommendedReorder** | Units you should order now |
 | **MOQ** | Minimum order quantity (supplier rule) |
 | **Order multiple** | Rounding rule (e.g. boxes of 25) |

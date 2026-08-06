@@ -339,6 +339,30 @@ test("no stockout date when demand is zero (daysOfCover = Infinity)", () => {
   eq(r.daysOfCover, Infinity);
   eq(r.estimatedStockoutDate, null);
 });
+test("days of cover = stock ÷ last-3-months daily average (window = 3 months before the forecast month)", () => {
+  const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
+  const r = forecastSKU(h, 30, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
+  const bd = r.calculationBreakdown;
+  // Same window as the reorder recommendation: the 3 calendar months before
+  // the forecast month (e.g. a September forecast → June, July, August).
+  eq(bd.reorder.lastThreeMonths.length, 3, "window is 3 months");
+  // The daily average is the precise Σdemand ÷ Σcalendar-days (e.g. 274 ÷ 92).
+  eq(bd.daysOfCover.totalDemand, bd.reorder.totalDemand, "Σ last-3-months demand");
+  eq(bd.daysOfCover.totalDays, bd.reorder.totalDays, "Σ last-3-months calendar days");
+  close(bd.daysOfCover.recentDaily, bd.reorder.dailyAverage, 0.005);
+  eq(bd.daysOfCover.daysOfCover, Math.round(30 / bd.reorder.dailyAverage), "daysOfCover = stock ÷ last-3-mo daily avg");
+  eq(r.daysOfCover, bd.daysOfCover.daysOfCover, "top-level matches breakdown");
+});
+test("recomputeTimeline refreshes days of cover with the same last-3-months window", () => {
+  const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
+  const r = forecastSKU(h, 30, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
+  const fresh = recomputeTimeline(r, 30, 14);
+  const bd = fresh.calculationBreakdown;
+  eq(bd.reorder.lastThreeMonths.length, 3, "window is 3 months");
+  // The page recomputes cover from persisted snapshots via recomputeTimeline.
+  eq(bd.daysOfCover.daysOfCover, Math.round(30 / bd.reorder.dailyAverage), "daysOfCover refreshed from last-3-mo daily avg");
+  close(bd.daysOfCover.recentDaily, bd.reorder.dailyAverage, 0.005);
+});
 test("stockout date is today when already out of stock", () => {
   const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
   const r = forecastSKU(h, 0, 14);
@@ -436,7 +460,7 @@ test("seasonality factor is the raw month factor, not neighbor-blended", () => {
   close(bd.clampedFactor, bd.rawFactor, 0.001);
 });
 test("safety stock = dailyAverage × safetyStockDays from config", () => {
-  // Safety stock is daily avg demand (last 3 completed months) × product safety stock days.
+  // Safety stock is daily avg demand (3 most recent months, in full) × product safety stock days.
   const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
   const a = forecastSKU(h, 0, 30, 6, { config: { supplierLeadTimeDays: 30, safetyStockDays: 30 } });
   const bd = a.calculationBreakdown.reorder;
@@ -462,15 +486,15 @@ test("reorder = requiredStock − stock on hand (last-3-months daily average)", 
   eq(r2.recommendedReorder, Math.ceil(bd2.recommendedBeforeCaps));
   close(r2.recommendedReorder, Math.max(0, expected - 100), 1);
 });
-test("daily average uses the last 3 completed months when no live current-month data", () => {
+test("daily average window = the 3 most recent calendar months, current month counted in full", () => {
   const now = new Date();
   const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const h = mkHistory([10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]);
   const r = forecastSKU(h, 0, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
   const bd = r.calculationBreakdown.reorder;
-  eq(bd.lastThreeMonths.length, 3, "exactly 3 completed months");
-  truthy(bd.lastThreeMonths.every((m) => m.monthKey < curKey), "current (partial) month is excluded");
-  eq(bd.totalDemand, 30, "3 completed months × 10 units each");
+  eq(bd.lastThreeMonths.length, 3, "exactly 3 months");
+  eq(bd.lastThreeMonths[2].monthKey, curKey, "the current month is the newest entry (counted in full)");
+  eq(bd.totalDemand, 30, "3 full months × 10 units each");
   // Calendar days must match the real days of those months
   const realDays = bd.lastThreeMonths.reduce(
     (s, m) => s + new Date(Number(m.monthKey.slice(0, 4)), Number(m.monthKey.slice(5, 7)), 0).getDate(),
@@ -480,22 +504,24 @@ test("daily average uses the last 3 completed months when no live current-month 
   // dailyAverage = totalDemand ÷ totalDays
   close(bd.dailyAverage, bd.totalDemand / bd.totalDays, 0.0001);
 });
-test("reorder daily average includes the current (in-progress) month when live data is passed", () => {
+test("the last-3-month window uses full months even when partial current-month data is passed", () => {
   const now = new Date();
   const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const curDays = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const h = mkHistory([10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10, 10]);
   const r = forecastSKU(h, 0, 14, 6, {
     config: { supplierLeadTimeDays: 14, safetyStockDays: 30 },
+    // A partial "to-date" current month (5) must NOT shrink the window — the
+    // current month is always counted as a full month from its history bucket.
     currentMonth: { month: curKey, qty: 5, rawQty: 5 },
   });
   const bd = r.calculationBreakdown.reorder;
   eq(bd.lastThreeMonths.length, 3, "window is still 3 months");
   const last = bd.lastThreeMonths[2];
-  eq(last.monthKey, curKey, "the in-progress month is the newest entry");
-  eq(last.demand, 5, "current-month outbound to date");
-  eq(last.days, curDays, "counted with its full calendar days");
-  eq(bd.totalDemand, 25, "2 completed months × 10 + current to-date 5");
+  eq(last.monthKey, curKey, "the current month is the newest entry");
+  eq(last.demand, 10, "current month counted with its FULL demand, not the partial to-date 5");
+  eq(last.days, curDays, "counted with all its calendar days");
+  eq(bd.totalDemand, 30, "3 full months × 10 units each");
   // dailyAverage is rounded to 3 decimals in the breakdown → allow 0.001
   close(bd.dailyAverage, bd.totalDemand / bd.totalDays, 0.001);
 });
@@ -527,14 +553,14 @@ test("recomputeTimeline refreshes reorder against live stock & backfills new fie
   eq(rb.safetyStockDays, 30, "safety days backfilled with default");
   truthy(typeof rb.safetyStockUnits === "number" && rb.safetyStockUnits > 0, "safety units backfilled");
   truthy(typeof rb.dailyForecast === "number", "dailyForecast backfilled");
-  // Daily average uses the last 3 completed months when no live data is passed
+  // Daily average window = the 3 most recent calendar months (current included, in full)
   const now = new Date();
   const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-  eq(rb.lastThreeMonths.length, 3, "exactly 3 completed months");
-  truthy(rb.lastThreeMonths.every((m) => m.monthKey < curKey), "current month excluded");
+  eq(rb.lastThreeMonths.length, 3, "exactly 3 months");
+  eq(rb.lastThreeMonths[2].monthKey, curKey, "current month included as a full month");
   truthy(typeof rb.dailyAverage === "number" && rb.dailyAverage > 0, "daily average backfilled");
 });
-test("recomputeTimeline includes the current month in the reorder window when live outbound is passed", () => {
+test("recomputeTimeline window = the 3 most recent calendar months in full (live outbound only drives pace)", () => {
   const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
   const r = forecastSKU(h, 50, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
   const fresh = recomputeTimeline(r, 50, 14, 5);
@@ -543,9 +569,9 @@ test("recomputeTimeline includes the current month in the reorder window when li
   const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   eq(rb.lastThreeMonths.length, 3, "window is still 3 months");
   const last = rb.lastThreeMonths[2];
-  eq(last.monthKey, curKey, "current month included when live outbound is passed");
-  eq(last.demand, 5, "live outbound to date");
-  eq(rb.totalDemand, 65, "2 completed months × 30 + current to-date 5");
+  eq(last.monthKey, curKey, "current month always included");
+  eq(last.demand, 30, "current month counted in full (live to-date 5 does not shrink it)");
+  eq(rb.totalDemand, 90, "3 full months × 30 units each");
 });
 
 console.log("\nrecommended price — demo price-change table (configurable, recommendation only)");

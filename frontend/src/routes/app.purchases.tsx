@@ -729,9 +729,6 @@ function NewPurchaseModal({
               <L label="Invoice received date">
                 <input type="date" className="inp" value={form.received_date} onChange={(e) => setForm({ ...form, received_date: e.target.value })} />
               </L>
-              <L label={`Due auto (${termsDays}d net)`}>
-                <input type="date" className="inp" value={computedDue} disabled />
-              </L>
             </div>
           </fieldset>
 

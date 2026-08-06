@@ -1261,7 +1261,12 @@ router.post("/goods-purchase-orders", authMiddleware, async (req, res) => {
     try { lines = await validateGoodsPOLines(req.user!.userId, body.lines); } catch (e: any) { return res.status(400).json({ error: e.message }); }
     const item = await GoodsPO.create({
       ...body, lines, clientId: req.user!.userId,
-      buyerId: req.user!.userId, buyerName: req.user!.email,
+      // buyerId always records the actual creator; buyerName is a free-text
+      // "Buyer / created by" display field the user may set to anything.
+      // An explicit empty value is honored (user cleared the field); the
+      // signed-in email is only the fallback when no value was sent at all.
+      buyerId: req.user!.userId,
+      buyerName: body.buyerName !== undefined ? body.buyerName : req.user!.email,
     });
     res.status(201).json(item);
   } catch (err: any) { res.status(500).json({ error: err.message }); }

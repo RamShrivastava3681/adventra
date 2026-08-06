@@ -352,21 +352,20 @@ high      = 35.48 + 15          = 50.48</code></pre>
 <hr/>
 <h2 id="10-step-8--days-of-cover-how-many-days-of-stock">10. Step 8 — Days of cover (how many days of stock)</h2>
 <p><strong>The question:</strong> "At my forecast selling speed, how many days will my current stock last?"</p>
-<h3 id="formula-10a--the-forward-daily-rate-weighted-3-months">Formula 10a — The forward daily rate (weighted, 3 months)</h3>
-<p>A single month's rate can be misleading (December is a peak), so the engine averages the first 3 forecast months' daily rates, giving more weight to the <strong>nearer</strong> months (weights 3, 2, 1):</p>
-<pre><code>coverDailyRate = (r₁×3 + r₂×2 + r₃×1) ÷ (3 + 2 + 1)</code></pre>
-<p><strong>Our actual numbers (Sep 1.2, Oct 0.8, Nov 0.6):</strong></p>
-<pre><code>coverDailyRate = (1.2×3 + 0.8×2 + 0.6×1) ÷ 6
-               = (3.6 + 1.6 + 0.6) ÷ 6
-               = 5.8 ÷ 6 = 0.97/day</code></pre>
-<p>*(Fallback: if no positive forecast rate exists, the engine uses the recent 3-month history average ÷ 30 = 26.67 ÷ 30 = 0.89/day.)*</p>
+<h3 id="formula-10a--the-last-3-months-average-daily-demand">Formula 10a — The last-3-months average daily demand</h3>
+<p>The engine averages the <strong>last 3 calendar months</strong> of outbound demand — the 3 months before the forecast month (e.g. a <strong>September</strong> forecast looks at <strong>June, July, August</strong>) — and divides by their actual calendar days. This is the same window the reorder recommendation uses, so the two numbers always agree:</p>
+<pre><code>last3DailyAvg = (Jun demand + Jul demand + Aug demand) ÷ (Jun days + Jul days + Aug days)</code></pre>
+<p><strong>Our actual numbers (Jun 22, Jul 28, Aug 30):</strong></p>
+<pre><code>last3DailyAvg = (22 + 28 + 30) ÷ (30 + 31 + 31)
+              = 80 ÷ 92 = 0.87/day</code></pre>
+<p>*(The window is always the 3 most recent calendar months — the current month is counted in full, with its full recorded demand and all its calendar days. No month is treated as a partial.)*</p>
 <h3 id="formula-10b--days-of-cover">Formula 10b — Days of cover</h3>
-<pre><code>daysOfCover = round(inventoryPosition ÷ coverDailyRate)</code></pre>
+<pre><code>daysOfCover = round(inventoryPosition ÷ last3DailyAvg)</code></pre>
 <p><strong>Our actual numbers:</strong></p>
 <pre><code>inventoryPosition = stock on hand + confirmed inbound − committed customer orders
                   = 30 + 0 − 0 = 30
-daysOfCover       = round(30 ÷ 0.97) = 31 days</code></pre>
-<p>The page shows <strong>Days cover = 31d</strong>.</p>
+daysOfCover       = round(30 ÷ 0.87) = 34 days</code></pre>
+<p>The page shows <strong>Days cover = 34d</strong>.</p>
 <blockquote>🍋 <strong>Lemonade stand:</strong> you have 30 cups of lemonade and you sell ~1 cup a day → you'll last about 30 days. (If a big order was already promised to a customer, we'd subtract it; if a delivery is already on its way, we'd add it.)</blockquote>
 <hr/>
 <h2 id="11-step-9--the-reorder-recommendation-how-much-to-buy">11. Step 9 — The reorder recommendation (how much to buy)</h2>
@@ -375,9 +374,9 @@ daysOfCover       = round(30 ÷ 0.97) = 31 days</code></pre>
 <p>   plus a buffer against demand surprises.</p>
 <ol><li><strong>Minus what you already have.</strong></li></ol>
 <h3 id="formula-11a--the-daily-average-demand">Formula 11a — The daily average demand</h3>
-<p>The engine uses the <strong>last 3 completed calendar months</strong> of corrected demand (the current partial month is excluded so a half-finished month can't skew the rate):</p>
-<pre><code>dailyAverage = (May + Jun + Jul demand) ÷ (their calendar days)
-             = (22 + 28 + 30) ÷ (31 + 30 + 31)
+<p>The engine uses the <strong>3 most recent calendar months</strong> of corrected demand — the current month included as a <strong>full month</strong> (its full recorded demand and all its calendar days, so a half-finished month can't skew the rate):</p>
+<pre><code>dailyAverage = (Jun + Jul + Aug demand) ÷ (their calendar days)
+             = (22 + 28 + 30) ÷ (30 + 31 + 31)
              = 80 ÷ 92 = 0.87/day</code></pre>
 <h3 id="formula-11b--required-stock--safety-stock">Formula 11b — Required stock & safety stock</h3>
 <pre><code>requiredStock = dailyAverage × (supplierLeadTimeDays + safetyStockDays)
@@ -440,14 +439,14 @@ threshold60pct  = 19.30 × 0.6 = 11.58</code></pre>
 <h2 id="14-step-12--risks-stockout--overstock">14. Step 12 — Risks (stockout & overstock)</h2>
 <h3 id="formula-14a--coverage-ratio--stockout-risk">Formula 14a — Coverage ratio & stockout risk</h3>
 <pre><code>coverVsLead = daysOfCover ÷ max(supplierLeadTimeDays, 1)</code></pre>
-<p><strong>Our actual numbers:</strong> <code>coverVsLead = 31 ÷ 14 = 2.21</code></p>
+<p><strong>Our actual numbers:</strong> <code>coverVsLead = 34 ÷ 14 = 2.43</code></p>
 <div class="table-wrap"><table><thead><tr><th>Condition</th><th>Stockout risk</th></tr></thead><tbody><tr><td>coverVsLead < 1.0</td><td><strong>high</strong> (you'll run out before new stock arrives)</td></tr><tr><td>coverVsLead < 1.5</td><td><strong>medium</strong></td></tr><tr><td>otherwise</td><td><strong>low</strong></td></tr></tbody></table></div>
-<p>Our 2.21 → <strong>low</strong> ✅</p>
+<p>Our 2.43 → <strong>low</strong> ✅</p>
 <h3 id="formula-14b--overstock-risk">Formula 14b — Overstock risk</h3>
 <pre><code>maxCoverDays (default 180)</code></pre>
 <div class="table-wrap"><table><thead><tr><th>Condition</th><th>Overstock risk</th></tr></thead><tbody><tr><td>daysOfCover = ∞ AND stock > 0</td><td><strong>high</strong></td></tr><tr><td>daysOfCover > 180</td><td><strong>high</strong></td></tr><tr><td>daysOfCover > 180 × 0.75 = 135</td><td><strong>medium</strong></td></tr><tr><td>otherwise</td><td><strong>low</strong></td></tr></tbody></table></div>
-<p>Our daysOfCover = 31 → <strong>low</strong> ✅ (The 400-unit example from Step 11: 400 > 180 → <strong>high</strong>.)</p>
-<blockquote>🍋 <strong>Lemonade stand:</strong> 31 days of stock vs a 14-day delivery = you're safe (2.21× covered). If you only had 10 days of stock, that's less than 14 → high risk of running out.</blockquote>
+<p>Our daysOfCover = 34 → <strong>low</strong> ✅ (The 400-unit example from Step 11: 400 > 180 → <strong>high</strong>.)</p>
+<blockquote>🍋 <strong>Lemonade stand:</strong> 34 days of stock vs a 14-day delivery = you're safe (2.43× covered). If you only had 10 days of stock, that's less than 14 → high risk of running out.</blockquote>
 <hr/>
 <h2 id="15-step-13--the-timeline">15. Step 13 — The timeline</h2>
 <p>The page shows three important dates.</p>
@@ -455,19 +454,19 @@ threshold60pct  = 19.30 × 0.6 = 11.58</code></pre>
 <p>The stockout date is simply <strong>today + days of cover</strong> — the days-of-cover number already computed in Step 8 tells you how many days of stock you have left, so the date you run out is exactly that many days from today.</p>
 <pre><code>estimatedStockoutDate = today + daysOfCover days</code></pre>
 <p><strong>Our actual numbers:</strong></p>
-<pre><code>daysOfCover           = 31 days          (from Step 8)
-estimatedStockoutDate = 2026-08-04 + 31 days = 2026-09-04</code></pre>
+<pre><code>daysOfCover           = 34 days          (from Step 8)
+estimatedStockoutDate = 2026-08-04 + 34 days = 2026-09-07</code></pre>
 <p>*(If stock is already 0, the stockout date is today. If there is no forecast demand at all (daysOfCover = ∞), there is no stockout date and the SKU shows as "Sufficient".)*</p>
 <h3 id="formula-15b--reorder-by-date-last-safe-day-to-order">Formula 15b — Reorder-by date (last safe day to order)</h3>
 <pre><code>reorderByDate = estimatedStockoutDate − supplierLeadTimeDays</code></pre>
-<p><strong>Our actual numbers:</strong> <code>2026-09-04 − 14 days = 2026-08-21</code></p>
+<p><strong>Our actual numbers:</strong> <code>2026-09-07 − 14 days = 2026-08-24</code></p>
 <h3 id="formula-15c--next-refill-date-if-you-ordered-today">Formula 15c — Next refill date (if you ordered today)</h3>
 <pre><code>nextRefillDate = today + supplierLeadTimeDays</code></pre>
 <p><strong>Our actual numbers:</strong> <code>2026-08-04 + 14 days = 2026-08-18</code></p>
 <h3 id="formula-15d--stockout-urgency">Formula 15d — Stockout urgency</h3>
 <div class="table-wrap"><table><thead><tr><th>Condition</th><th>Urgency</th></tr></thead><tbody><tr><td>stock ≤ 0, or reorderByDate ≤ today</td><td><code>critical</code></td></tr><tr><td>reorderByDate ≤ today + supplierLeadTimeDays</td><td><code>warning</code></td></tr><tr><td>otherwise</td><td><code>safe</code></td></tr></tbody></table></div>
-<p><strong>Our actual numbers:</strong> reorderByDate (Aug 21) > today + 14 days (Aug 18) → <strong><code>safe</code></strong> ✅</p>
-<blockquote>🍋 <strong>Lemonade stand:</strong> you have 31 days of stock, so you'll run out on Sep 4. The lemon man takes 14 days, so you must order by Aug 21 at the very latest. Since that's comfortably in the future, the page rates you "safe". If the date ever slips inside the 14-day delivery window the page would warn, and past Aug 21 it would scream "CRITICAL".</blockquote>
+<p><strong>Our actual numbers:</strong> reorderByDate (Aug 24) > today + 14 days (Aug 18) → <strong><code>safe</code></strong> ✅</p>
+<blockquote>🍋 <strong>Lemonade stand:</strong> you have 34 days of stock, so you'll run out on Sep 7. The lemon man takes 14 days, so you must order by Aug 24 at the very latest. Since that's comfortably in the future, the page rates you "safe". If the date ever slips inside the 14-day delivery window the page would warn, and past Aug 24 it would scream "CRITICAL".</blockquote>
 <hr/>
 <h2 id="16-step-14--pricing-strategy-what-to-do-with-the-price">16. Step 14 — Pricing strategy (what to do with the price)</h2>
 <p>Finally, the page suggests a pricing move based on <strong>velocity</strong>, <strong>momentum</strong>, <strong>days of cover</strong>, and your margins.</p>
@@ -524,8 +523,8 @@ sePred  = se × √(1 + 1/n + (forecastIndex − meanX)² ÷ ssx)
 half    = round(z × sePred)
 low     = max(0, center − half)    high = center + half</code></pre>
 <p><strong>Days of cover</strong></p>
-<pre><code>coverDailyRate = (r₁×3 + r₂×2 + r₃×1) ÷ 6
-daysOfCover    = round(inventoryPosition ÷ coverDailyRate)
+<pre><code>last3DailyAvg = Σ last 3 months' demand ÷ Σ their calendar days
+daysOfCover   = round(inventoryPosition ÷ last3DailyAvg)
 inventoryPosition = stock + confirmedInbound − committedOrders</code></pre>
 <p><strong>Reorder</strong></p>
 <pre><code>dailyAverage   = Σ(last 3 completed months' demand) ÷ Σ(their calendar days)
@@ -555,7 +554,7 @@ low if cover &lt; lead + safetyDays · high if cover &gt; maxCoverDays · else n
 + the 8 decision rules in Step 14</code></pre>
 <hr/>
 <h2 id="appendix-b--constants-and-default-values">Appendix B — Constants and default values</h2>
-<div class="table-wrap"><table><thead><tr><th>Constant</th><th>Value</th><th>Where used</th></tr></thead><tbody><tr><td>Baseline weights</td><td>3 / 2 / 1 (newest 3 / middle 3 / oldest 6)</td><td>weighted average</td></tr><tr><td>Trend weights</td><td>equal — plain linear regression</td><td>trend slope</td></tr><tr><td>Trend dampening</td><td>none (<code>slope × i</code>)</td><td>trend contribution per month</td></tr><tr><td>Seasonality mode</td><td>raw per-month factor (no neighbor smoothing)</td><td>seasonal factors</td></tr><tr><td>Seasonality clamp</td><td>0.5 – 2.0</td><td>seasonal factors</td></tr><tr><td>Factor clamp</td><td>0.7× – 1.5× baseline</td><td>business factors</td></tr><tr><td>Confidence level</td><td>80% (<code>z = 1.28</code>)</td><td>prediction interval</td></tr><tr><td>Small-history fallback</td><td>±30%</td><td>prediction interval (n < 3)</td></tr><tr><td>Availability divisor floor</td><td>0.70</td><td>availability correction</td></tr><tr><td>Availability cap</td><td>1.4× actual</td><td>availability correction</td></tr><tr><td>Safety stock formula</td><td><code>dailyForecast × safetyStockDays</code></td><td>reorder safety stock</td></tr><tr><td>Safety stock days (default)</td><td>30 (per-product field in the catalogue)</td><td>monthly safety stock & reorder</td></tr><tr><td>Max cover days (default)</td><td>180</td><td>overstock risk & reorder cap</td></tr><tr><td>Cover-rate weights</td><td>3, 2, 1 (near → far)</td><td>days of cover</td></tr><tr><td>Momentum thresholds</td><td>120% / 60% of baseline</td><td>momentum tag</td></tr><tr><td>Velocity cutoffs</td><td>20% / 50% of category rank</td><td>velocity tag</td></tr><tr><td>History length</td><td>12 months</td><td>everything</td></tr><tr><td>Forecast horizon</td><td>6 months</td><td>the forecast table</td></tr><tr><td>Default gross margin floor</td><td>40%</td><td>pricing strategy</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Constant</th><th>Value</th><th>Where used</th></tr></thead><tbody><tr><td>Baseline weights</td><td>3 / 2 / 1 (newest 3 / middle 3 / oldest 6)</td><td>weighted average</td></tr><tr><td>Trend weights</td><td>equal — plain linear regression</td><td>trend slope</td></tr><tr><td>Trend dampening</td><td>none (<code>slope × i</code>)</td><td>trend contribution per month</td></tr><tr><td>Seasonality mode</td><td>raw per-month factor (no neighbor smoothing)</td><td>seasonal factors</td></tr><tr><td>Seasonality clamp</td><td>0.5 – 2.0</td><td>seasonal factors</td></tr><tr><td>Factor clamp</td><td>0.7× – 1.5× baseline</td><td>business factors</td></tr><tr><td>Confidence level</td><td>80% (<code>z = 1.28</code>)</td><td>prediction interval</td></tr><tr><td>Small-history fallback</td><td>±30%</td><td>prediction interval (n < 3)</td></tr><tr><td>Availability divisor floor</td><td>0.70</td><td>availability correction</td></tr><tr><td>Availability cap</td><td>1.4× actual</td><td>availability correction</td></tr><tr><td>Safety stock formula</td><td><code>dailyForecast × safetyStockDays</code></td><td>reorder safety stock</td></tr><tr><td>Safety stock days (default)</td><td>30 (per-product field in the catalogue)</td><td>monthly safety stock & reorder</td></tr><tr><td>Max cover days (default)</td><td>180</td><td>overstock risk & reorder cap</td></tr><tr><td>Last-3-month window</td><td>the 3 calendar months before the forecast month</td><td>days of cover</td></tr><tr><td>Momentum thresholds</td><td>120% / 60% of baseline</td><td>momentum tag</td></tr><tr><td>Velocity cutoffs</td><td>20% / 50% of category rank</td><td>velocity tag</td></tr><tr><td>History length</td><td>12 months</td><td>everything</td></tr><tr><td>Forecast horizon</td><td>6 months</td><td>the forecast table</td></tr><tr><td>Default gross margin floor</td><td>40%</td><td>pricing strategy</td></tr></tbody></table></div>
 <hr/>
 <h2 id="appendix-c--how-to-reproduce-these-exact-numbers">Appendix C — How to reproduce these exact numbers</h2>
 <p>The engine is pure TypeScript with no dependencies, so it runs anywhere Node ≥ 23.6 is installed (type-stripping is enabled by default there; no <code>bun</code>, no npm install needed):</p>
@@ -573,7 +572,7 @@ bun src/lib/forecast-engine.tests.ts     # if bun is installed</code></pre>
 <ul><li><strong>Engine:</strong> <code>frontend/src/lib/forecast-engine.ts</code></li><li><strong>Page:</strong> <code>frontend/src/routes/app.forecast.tsx</code></li><li><strong>Tests:</strong> <code>frontend/src/lib/forecast-engine.tests.ts</code></li><li><strong>Reproducible examples:</strong> <code>frontend/scripts/forecast-doc-examples.ts</code>, <code>frontend/scripts/forecast-doc-examples-extra.ts</code></li></ul>
 <hr/>
 <h2 id="glossary--the-words-we-use">Glossary — the words we use</h2>
-<div class="table-wrap"><table><thead><tr><th>Word</th><th>Plain meaning</th></tr></thead><tbody><tr><td><strong>Demand</strong></td><td>How many units people want to buy</td></tr><tr><td><strong>Stock / inventory</strong></td><td>How many units you have</td></tr><tr><td><strong>On hand</strong></td><td>Stock physically in your shop/warehouse now</td></tr><tr><td><strong>Stockout</strong></td><td>Running out of stock (you can't sell)</td></tr><tr><td><strong>Lead time</strong></td><td>Days between placing an order and it arriving</td></tr><tr><td><strong>Baseline</strong></td><td>The "normal" monthly demand number</td></tr><tr><td><strong>Trend / slope</strong></td><td>How much demand changes per month (up or down)</td></tr><tr><td><strong>Trend strength (R²)</strong></td><td>How reliably the data follows the trend (0–100%)</td></tr><tr><td><strong>Seasonality factor</strong></td><td>Month multiplier vs normal (1.0 = normal)</td></tr><tr><td><strong>Weighted average</strong></td><td>Average where recent months count more</td></tr><tr><td><strong>Safety stock</strong></td><td>Extra buffer stock for surprises</td></tr><tr><td><strong>Days of cover</strong></td><td>How many days current stock lasts at forecast speed</td></tr><tr><td><strong>Reorder / recommendedReorder</strong></td><td>Units you should order now</td></tr><tr><td><strong>MOQ</strong></td><td>Minimum order quantity (supplier rule)</td></tr><tr><td><strong>Order multiple</strong></td><td>Rounding rule (e.g. boxes of 25)</td></tr><tr><td><strong>Prediction interval</strong></td><td>The "probably between X and Y" range</td></tr><tr><td><strong>Momentum</strong></td><td>Recent demand vs your own history (accelerating/stable/declining)</td></tr><tr><td><strong>Velocity</strong></td><td>Your sales vs others in the same category (fast/medium/slow/dead)</td></tr><tr><td><strong>Overstock</strong></td><td>Holding way more stock than you need</td></tr><tr><td><strong>Gross margin</strong></td><td>(Price − Cost) ÷ Price — profit share of each sale</td></tr><tr><td><strong>Confirmed inbound</strong></td><td>Stock already ordered, arriving soon</td></tr><tr><td><strong>Committed orders</strong></td><td>Stock already promised to customers</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Word</th><th>Plain meaning</th></tr></thead><tbody><tr><td><strong>Demand</strong></td><td>How many units people want to buy</td></tr><tr><td><strong>Stock / inventory</strong></td><td>How many units you have</td></tr><tr><td><strong>On hand</strong></td><td>Stock physically in your shop/warehouse now</td></tr><tr><td><strong>Stockout</strong></td><td>Running out of stock (you can't sell)</td></tr><tr><td><strong>Lead time</strong></td><td>Days between placing an order and it arriving</td></tr><tr><td><strong>Baseline</strong></td><td>The "normal" monthly demand number</td></tr><tr><td><strong>Trend / slope</strong></td><td>How much demand changes per month (up or down)</td></tr><tr><td><strong>Trend strength (R²)</strong></td><td>How reliably the data follows the trend (0–100%)</td></tr><tr><td><strong>Seasonality factor</strong></td><td>Month multiplier vs normal (1.0 = normal)</td></tr><tr><td><strong>Weighted average</strong></td><td>Average where recent months count more</td></tr><tr><td><strong>Safety stock</strong></td><td>Extra buffer stock for surprises</td></tr><tr><td><strong>Days of cover</strong></td><td>How many days current stock lasts at the last-3-months' average demand</td></tr><tr><td><strong>Reorder / recommendedReorder</strong></td><td>Units you should order now</td></tr><tr><td><strong>MOQ</strong></td><td>Minimum order quantity (supplier rule)</td></tr><tr><td><strong>Order multiple</strong></td><td>Rounding rule (e.g. boxes of 25)</td></tr><tr><td><strong>Prediction interval</strong></td><td>The "probably between X and Y" range</td></tr><tr><td><strong>Momentum</strong></td><td>Recent demand vs your own history (accelerating/stable/declining)</td></tr><tr><td><strong>Velocity</strong></td><td>Your sales vs others in the same category (fast/medium/slow/dead)</td></tr><tr><td><strong>Overstock</strong></td><td>Holding way more stock than you need</td></tr><tr><td><strong>Gross margin</strong></td><td>(Price − Cost) ÷ Price — profit share of each sale</td></tr><tr><td><strong>Confirmed inbound</strong></td><td>Stock already ordered, arriving soon</td></tr><tr><td><strong>Committed orders</strong></td><td>Stock already promised to customers</td></tr></tbody></table></div>
 <hr/>
 <p>*Generated from the real output of <code>forecastSKU()</code> in <code>frontend/src/lib/forecast-engine.ts</code> on 2026-08-04.*</p>
 <footer>

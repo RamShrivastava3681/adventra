@@ -2118,16 +2118,32 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
             }
             highlight
             formula={
-              breakdown.daysOfCover.dailyForecast > 0
-                ? `${breakdown.daysOfCover.inventoryPosition} ÷ ${breakdown.daysOfCover.dailyForecast} = ${breakdown.daysOfCover.daysOfCover}`
-                : `Recent 3mo avg: ${breakdown.daysOfCover.recent3MonthAvg} ÷ 30 = ${breakdown.daysOfCover.recentDaily}`
+              breakdown.daysOfCover.recentDaily > 0
+                ? `${breakdown.daysOfCover.inventoryPosition} ÷ ${breakdown.daysOfCover.recentDaily} (last 3-mo daily avg) = ${breakdown.daysOfCover.daysOfCover}`
+                : "No demand in the last 3 months → ∞"
             }
           />
           <CalcVar
-            name="Recent 3mo avg"
+            name="Last 3-mo demand"
+            value={breakdown.daysOfCover.totalDemand}
+          />
+          <CalcVar
+            name="Last 3-mo days"
+            value={breakdown.daysOfCover.totalDays}
+          />
+          <CalcVar
+            name="Last 3-mo daily avg"
+            value={breakdown.daysOfCover.recentDaily}
+            formula={
+              breakdown.daysOfCover.totalDays > 0
+                ? `${breakdown.daysOfCover.totalDemand} ÷ ${breakdown.daysOfCover.totalDays} days = ${breakdown.daysOfCover.recentDaily}`
+                : undefined
+            }
+          />
+          <CalcVar
+            name="Last 3-mo avg (monthly)"
             value={breakdown.daysOfCover.recent3MonthAvg}
           />
-          <CalcVar name="Recent daily" value={breakdown.daysOfCover.recentDaily} />
           <CalcVar
             name="Velocity"
             value={breakdown.momentum.result}
