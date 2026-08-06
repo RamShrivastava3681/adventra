@@ -246,7 +246,12 @@ function PurchasesPage() {
                     const grn = grnById.get(p.linked_goods_receipt_id ?? "");
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3 font-mono text-xs">{p.invoice_number}</td>
+                        <td className="px-5 py-3">
+                          <div className="font-mono text-xs">{p.invoice_number}</div>
+                          {Number(p.advance_deducted ?? 0) > 0 && (
+                            <div className="text-[10px] text-muted-foreground">Less advance {fmtMoney(p.advance_deducted)}</div>
+                          )}
+                        </td>
                         <td className="px-5 py-3">{p.supplier_name ?? p.vendor?.name ?? "—"}</td>
                         <td className="px-5 py-3">
                           {p.goods_po_number ?? p.po_number ? (
@@ -424,6 +429,9 @@ function NewPurchaseModal({
     due_date: (invoice?.due_date ?? "")?.slice(0, 10) ?? "",
     goods_po_id: invoice?.goods_purchase_order_id ?? "",
     goods_po_number: invoice?.goods_po_number ?? "",
+    po_number: invoice?.po_number ?? "",
+    linked_supplier_proforma_id: invoice?.linked_supplier_proforma_id ?? "",
+    linked_supplier_proforma_number: invoice?.linked_supplier_proforma_number ?? "",
     freight: invoice?.freight != null ? String(invoice.freight) : "0",
     notes: invoice?.notes ?? "",
     difference_notes: invoice?.difference_notes ?? "",
@@ -550,8 +558,76 @@ function NewPurchaseModal({
     return diffs;
   }, [lines]);
 
+  // Purchase proformas available to formally link (drives the advance deduction).
+  const proformasQ = useQuery({
+    queryKey: ["purchase-proformas-for-pi"],
+    queryFn: async () => {
+      const data = await api.purchaseOrders.list();
+      return (data ?? []).filter((p: any) => p.side === "purchase");
+    },
+  });
+
+  // Lookup advances paid against the linked purchase proforma by PO number.
+  const advLookupQ = useQuery({
+    queryKey: ["pi-adv-lookup", form.po_number],
+    enabled: !!form.po_number.trim(),
+    queryFn: async () => {
+      const po = form.po_number.trim();
+      const orders = await api.purchaseOrders.list();
+      const pfs = orders.filter(
+        (o: any) => o.side === "purchase" && (o.po_number === po || o.proforma_number === po),
+      );
+      const pfIds = pfs.map((p: any) => p.id);
+      let advances: any[] = [];
+      if (pfIds.length) {
+        const allAdvances = await api.advances.list();
+        advances = allAdvances.filter(
+          (a: any) =>
+            a.side === "purchase" &&
+            pfIds.includes(a.purchaseOrderId ?? a.purchase_order_id) &&
+            a.status !== "refunded",
+        );
+      }
+      return { proformas: pfs, advances };
+    },
+  });
+
+  const advancesTotal = ((advLookupQ.data?.advances ?? []) as any[]).reduce(
+    (s, a) => s + Number(a.amount),
+    0,
+  );
+
+  // Pick a linked proforma → set the formal link and PO reference.
+  const pickProforma = (id: string) => {
+    const pf = (proformasQ.data ?? []).find((p: any) => p.id === id) as any;
+    setForm((f) => ({
+      ...f,
+      linked_supplier_proforma_id: id,
+      linked_supplier_proforma_number: id ? (pf?.proforma_number ?? pf?.po_number ?? "") : "",
+      po_number: id ? (pf?.proforma_number ?? pf?.po_number ?? f.po_number) : f.po_number,
+    }));
+  };
+
+  // When a typed PO number uniquely matches one purchase proforma, formalize
+  // the link automatically so the deduction is applied to the stored amount.
+  const autoLinkedPf = useRef<string>("");
+  useEffect(() => {
+    const pfs = (advLookupQ.data?.proformas ?? []) as any[];
+    if (pfs.length !== 1) return;
+    const pf = pfs[0];
+    if (form.linked_supplier_proforma_id && form.linked_supplier_proforma_id !== pf.id) return;
+    if (autoLinkedPf.current === pf.id) return;
+    autoLinkedPf.current = pf.id;
+    setForm((f) => ({
+      ...f,
+      linked_supplier_proforma_id: pf.id,
+      linked_supplier_proforma_number: pf.proforma_number ?? pf.po_number ?? "",
+    }));
+  }, [advLookupQ.data, form.linked_supplier_proforma_id]);
+
   const amountPaid = Number(invoice?.amount_paid) || 0;
-  const balanceDue = round2(Math.max(0, totals.grand - amountPaid));
+  const netPayable = round2(Math.max(0, totals.grand - advancesTotal));
+  const balanceDue = round2(Math.max(0, netPayable - amountPaid));
 
   const save = useMutation({
     mutationFn: async () => {
@@ -576,6 +652,9 @@ function NewPurchaseModal({
         due_date: effectiveDue || null,
         goods_purchase_order_id: form.goods_po_id || null,
         goods_po_number: form.goods_po_number || null,
+        po_number: form.po_number || null,
+        linked_supplier_proforma_id: form.linked_supplier_proforma_id || null,
+        linked_supplier_proforma_number: form.linked_supplier_proforma_number || null,
         freight: Number(form.freight) || 0,
         notes: form.notes || null,
         difference_notes: differences.length > 0 ? form.difference_notes.trim() || null : null,
@@ -678,9 +757,7 @@ function NewPurchaseModal({
               <div className="mt-2 rounded-md border border-success/30 bg-success/5 p-2 text-xs text-success">
                 Linked GRN {invoice.linked_goods_receipt_number} — GRN received quantities are shown per line below.
               </div>
-            )}
-
-            {lines.length === 0 ? (
+            )}              {lines.length === 0 ? (
               <div className="mt-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
                 Select a linked purchase order above — its product lines are required and auto-filled here.
               </div>
@@ -762,6 +839,58 @@ function NewPurchaseModal({
             )}
           </fieldset>
 
+          {/* ── Advance deduction (optional purchase-proforma link) ── */}
+          <fieldset className="rounded-lg border border-border/60 p-4">
+            <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              Advance deduction
+            </legend>
+            <div className="space-y-3">
+              <L label="Linked supplier proforma (optional — deducts advances already paid)">
+                <select
+                  className="inp"
+                  value={form.linked_supplier_proforma_id}
+                  onChange={(e) => pickProforma(e.target.value)}
+                >
+                  <option value="">None — manual PO reference</option>
+                  {(proformasQ.data ?? []).map((p: any) => (
+                    <option key={p.id} value={p.id}>
+                      {p.proforma_number ?? p.po_number ?? p.id}
+                      {p.debtor?.name ? ` · ${p.debtor.name}` : ""}
+                    </option>
+                  ))}
+                </select>
+              </L>
+              <L label="PO / proforma number (optional)">
+                <input className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="e.g. PF-2026-004" />
+              </L>
+              <p className="text-[10px] text-muted-foreground">
+                Advances already paid to the supplier against the linked proforma are deducted from the invoice total — the net amount is what you owe. If no proforma, the full amount applies.
+              </p>
+              {form.po_number.trim() && (
+                <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
+                  <div className="mb-1 uppercase tracking-widest text-primary">Advances paid against {form.po_number}</div>
+                  {advLookupQ.isFetching ? (
+                    <div className="text-muted-foreground">Looking up…</div>
+                  ) : (advLookupQ.data?.advances ?? []).length === 0 ? (
+                    <div className="text-muted-foreground">No advances recorded for this PO number on the purchase side — full amount applies.</div>
+                  ) : (
+                    <ul className="space-y-0.5">
+                      {((advLookupQ.data?.advances ?? []) as any[]).map((a) => (
+                        <li key={a.id} className="flex justify-between">
+                          <span className="text-muted-foreground">{fmtDate(a.advance_date)} {a.reference ? `· ${a.reference}` : ""}</span>
+                          <span className="num text-primary">{fmtMoney(a.amount)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="mt-2 flex justify-between border-t border-border pt-2 font-medium">
+                    <span>Balance outstanding</span><span className="num">{fmtMoney(netPayable)}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </fieldset>
+
           {/* ── Totals ── */}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
@@ -779,6 +908,16 @@ function NewPurchaseModal({
               <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
                 <span className="text-xs uppercase tracking-widest text-muted-foreground">Grand total</span>
                 <span className="num text-base">{fmtMoney(totals.grand)}</span>
+              </div>
+              {advancesTotal > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase tracking-widest text-muted-foreground">Less advance paid</span>
+                  <span className="num text-destructive">−{fmtMoney(advancesTotal)}</span>
+                </div>
+              )}
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">Net payable</span>
+                <span className="num">{fmtMoney(netPayable)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs uppercase tracking-widest text-muted-foreground">Amount paid</span>
@@ -875,9 +1014,11 @@ function PurchaseDetailModal({ invoice, grn, onClose }: { invoice: any; grn: GRN
   const gstTotal = Number(invoice?.gst_total) || 0;
   const freight = Number(invoice?.freight) || 0;
   const grandTotal = Number(invoice?.grand_total) || Number(invoice?.amount) || 0;
+  const advance = Number(invoice?.advance_deducted ?? 0);
+  const netAmount = Number(invoice?.amount ?? Math.max(0, grandTotal - advance));
   const amountPaid = Number(invoice?.amount_paid) || 0;
   const balanceDue =
-    invoice?.balance_due != null ? Number(invoice.balance_due) : Math.max(0, grandTotal - amountPaid);
+    invoice?.balance_due != null ? Number(invoice.balance_due) : Math.max(0, netAmount - amountPaid);
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
@@ -898,6 +1039,7 @@ function PurchaseDetailModal({ invoice, grn, onClose }: { invoice: any; grn: GRN
             <D label="Received date" value={invoice.received_date ? fmtDate(invoice.received_date) : "—"} />
             <D label="Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "—"} />
             <D label="Linked PO" value={invoice.goods_po_number ?? invoice.po_number ?? "—"} />
+            {invoice.linked_supplier_proforma_number && <D label="Linked proforma" value={invoice.linked_supplier_proforma_number} />}
             <D label="Linked GRN" value={invoice.linked_goods_receipt_number ?? "—"} />
             {invoice.paid_date && <D label="Paid date" value={fmtDate(invoice.paid_date)} />}
             {invoice.po_amount != null && invoice.po_amount > 0 && <D label="PO amount" value={<span className="num">{fmtMoney(invoice.po_amount)}</span>} />}
@@ -961,6 +1103,16 @@ function PurchaseDetailModal({ invoice, grn, onClose }: { invoice: any; grn: GRN
             <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
               <span className="text-xs uppercase tracking-widest text-muted-foreground">Grand total</span>
               <span className="num text-base">{fmtMoney(grandTotal)}</span>
+            </div>
+            {advance > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">Less advance paid</span>
+                <span className="num text-destructive">−{fmtMoney(advance)}</span>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">Net payable</span>
+              <span className="num">{fmtMoney(netAmount)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-xs uppercase tracking-widest text-muted-foreground">Amount paid</span>

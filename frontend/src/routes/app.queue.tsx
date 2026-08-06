@@ -306,8 +306,12 @@ function QueuePage() {
 
   const rows: Row[] = [
     ...((salesQ.data ?? []) as Array<Record<string, any>>).map((i): Row => {
-      const amount = Number(i.amount);
-      const advance = advFor("sales", i.po_number);
+      // Goods invoices now store the net amount (grand total − advances) and
+      // the deducted advance. Fall back to the legacy PO-number lookup for
+      // invoices created before those fields existed.
+      const storedAdv = Number(i.advance_deducted ?? 0);
+      const advance = storedAdv > 0 ? storedAdv : advFor("sales", i.po_number);
+      const amount = Number(i.amount ?? i.grand_total ?? 0);
       return {
         kind: "sale",
         id: i.id,
@@ -315,7 +319,7 @@ function QueuePage() {
         amount,
         po_number: i.po_number ?? null,
         advance,
-        balance: Math.max(0, amount - advance),
+        balance: storedAdv > 0 ? Math.max(0, amount) : Math.max(0, amount - advance),
         amount_paid: 0,
         due_date: i.due_date,
         issue_date: i.issue_date,
@@ -325,8 +329,12 @@ function QueuePage() {
       };
     }),
     ...((purchasesQ.data ?? []) as Array<Record<string, any>>).map((p): Row => {
-      const amount = Number(p.amount);
-      const advance = advFor("purchase", p.po_number);
+      // Purchase invoices now store the net payable (grand total − advances)
+      // and the deducted advance. Fall back to the legacy PO-number lookup for
+      // invoices created before those fields existed.
+      const storedAdv = Number(p.advance_deducted ?? 0);
+      const advance = storedAdv > 0 ? storedAdv : advFor("purchase", p.po_number);
+      const amount = Number(p.amount ?? p.grand_total ?? 0);
       return {
         kind: "purchase",
         id: p.id,
@@ -334,7 +342,7 @@ function QueuePage() {
         amount,
         po_number: p.goods_po_number ?? p.po_number ?? null,
         advance,
-        // New-style invoices carry balance_due (grand total − amount paid).
+        // New-style invoices carry balance_due (net payable − amount paid).
         balance:
           p.balance_due != null
             ? Math.max(0, Number(p.balance_due))

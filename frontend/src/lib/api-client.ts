@@ -133,6 +133,9 @@ const api = {
     create: (data: any) => api.post<any>("/invoices", data),
     update: (id: string, data: any) => api.put<any>(`/invoices/${id}`, data),
     delete: (id: string) => api.delete(`/invoices/${id}`),
+    issue: (id: string) => api.post<any>(`/invoices/${id}/issue`, {}),
+    recordPayment: (id: string, data: { amountReceived: number; receiptDate?: string }) =>
+      api.post<any>(`/invoices/${id}/payment`, data),
   },
 
   // Purchase Invoices
@@ -149,6 +152,8 @@ const api = {
     create: (data: any) => api.post<any>("/purchase-orders", data),
     update: (id: string, data: any) => api.put<any>(`/purchase-orders/${id}`, data),
     delete: (id: string) => api.delete(`/purchase-orders/${id}`),
+    // Auto-create a DRAFT sales order from a sales proforma and link it.
+    convertToSO: (id: string) => api.post<any>(`/purchase-orders/${id}/convert-to-so`, {}),
   },
 
   // Goods Purchase Orders (catalogue-backed procurement POs)
@@ -167,6 +172,37 @@ const api = {
     delete: (id: string) => api.delete(`/goods-receipts/${id}`),
     confirm: (id: string, data?: any) => api.post<any>(`/goods-receipts/${id}/confirm`, data ?? {}),
     cancel: (id: string) => api.post<any>(`/goods-receipts/${id}/cancel`, {}),
+  },
+
+  // Quotations (offers to customers — never touch stock or accounting)
+  quotations: {
+    list: () => api.get<any[]>("/quotations"),
+    get: (id: string) => api.get<any>(`/quotations/${id}`),
+    create: (data: any) => api.post<any>("/quotations", data),
+    update: (id: string, data: any) => api.put<any>(`/quotations/${id}`, data),
+    delete: (id: string) => api.delete(`/quotations/${id}`),
+    convert: (id: string) => api.post<any>(`/quotations/${id}/convert`, {}),
+  },
+
+  // Goods Sales Orders (catalogue-backed customer orders — never touch stock)
+  goodsSalesOrders: {
+    list: () => api.get<any[]>("/goods-sales-orders"),
+    create: (data: any) => api.post<any>("/goods-sales-orders", data),
+    update: (id: string, data: any) => api.put<any>(`/goods-sales-orders/${id}`, data),
+    delete: (id: string) => api.delete(`/goods-sales-orders/${id}`),
+  },
+
+  // Goods Dispatches (dispatch notes — DEBIT inventory when confirmed)
+  goodsDispatches: {
+    list: () => api.get<any[]>("/goods-dispatches"),
+    get: (id: string) => api.get<any>(`/goods-dispatches/${id}`),
+    create: (data: any) => api.post<any>("/goods-dispatches", data),
+    update: (id: string, data: any) => api.put<any>(`/goods-dispatches/${id}`, data),
+    delete: (id: string) => api.delete(`/goods-dispatches/${id}`),
+    confirm: (id: string, data?: any) => api.post<any>(`/goods-dispatches/${id}/confirm`, data ?? {}),
+    cancel: (id: string) => api.post<any>(`/goods-dispatches/${id}/cancel`, {}),
+    deliver: (id: string, data: any) => api.post<any>(`/goods-dispatches/${id}/deliver`, data),
+    return: (id: string, data: any) => api.post<any>(`/goods-dispatches/${id}/return`, data),
   },
 
   // Expenses

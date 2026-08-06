@@ -53,6 +53,10 @@ export interface StockMovement {
   goodsReceiptId: string | null;
   /** Goods PO this movement belongs to (GRN-created movements). */
   purchaseOrderId: string | null;
+  /** Dispatch note that created this stock-out movement (sales orders). */
+  goodsDispatchId: string | null;
+  /** Goods sales order this movement belongs to (dispatch-created movements). */
+  salesOrderId: string | null;
   createdAt: string; updatedAt: string;
 }
 
@@ -108,6 +112,8 @@ export async function create(data: Partial<StockMovement> & { clientId: string; 
     invoiceId: data.invoiceId || null, purchaseInvoiceId: data.purchaseInvoiceId || null,
     goodsReceiptId: data.goodsReceiptId || null,
     purchaseOrderId: data.purchaseOrderId || null,
+    goodsDispatchId: data.goodsDispatchId || null,
+    salesOrderId: data.salesOrderId || null,
     createdAt: now, updatedAt: now,
   };
   await db.putItem(item);
@@ -141,6 +147,11 @@ export async function confirm(id: string, confirmedById: string, confirmedByName
  * Atomic → cancelled flip. Returns the updated item, or null if already
  * cancelled. Callers decide whether a reversal entry is needed based on the
  * prior status (confirmed = already affected stock).
+ *
+ * NOTE: the condition only checks the status — the old
+ * `attribute_not_exists(cancelledAt)` guard never passed because create()
+ * stores `cancelledAt: null` (a NULL DynamoDB attribute still exists),
+ * silently breaking every cancel.
  */
 export async function cancel(id: string, cancelledById: string, cancelledByName: string) {
   return db.updateItemIf(
@@ -153,7 +164,7 @@ export async function cancel(id: string, cancelledById: string, cancelledByName:
       cancelledAt: db.nowISO(),
       updatedAt: db.nowISO(),
     },
-    "#status <> :cancelled AND attribute_not_exists(cancelledAt)",
+    "#status <> :cancelled",
     { ":cancelled": "cancelled" },
     true,
     { "#status": "status" },

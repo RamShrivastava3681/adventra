@@ -7,6 +7,12 @@ export type PreviewLine = {
   quantity: number;
   unit_price: number;
   line_total: number;
+  /** Optional SKU shown next to the description. */
+  sku?: string | null;
+  /** Optional discount % shown in the rate column. */
+  discount_pct?: number | null;
+  /** Optional GST % shown in the rate column. */
+  gst_rate?: number | null;
 };
 
 export type PreviewTemplate = {
@@ -44,6 +50,17 @@ export type PreviewDoc = {
   tax_amount: number;
   total: number;
   notes?: string | null;
+  // ── Goods-invoice extras (optional — shown when provided) ──
+  so_number?: string | null;
+  total_discount?: number;
+  gst_total?: number;
+  freight?: number;
+  /** Advances received against the linked proforma, deducted from the total. */
+  advance_deducted?: number;
+  amount_received?: number;
+  balance_outstanding?: number;
+  billing_address?: string | null;
+  delivery_address?: string | null;
 };
 
 export function PrintShell({
@@ -113,6 +130,7 @@ export function PrintShell({
             <div className="text-right text-sm text-slate-600">
               <div><span className="text-slate-500">Date: </span>{fmtDate(doc.date)}</div>
               {doc.due_date && <div><span className="text-slate-500">Due: </span>{fmtDate(doc.due_date)}</div>}
+              {doc.so_number && <div><span className="text-slate-500">SO: </span><span className="font-mono">{doc.so_number}</span></div>}
               {doc.po_number && <div><span className="text-slate-500">PO: </span><span className="font-mono">{doc.po_number}</span></div>}
               {doc.reference && <div><span className="text-slate-500">Ref: </span>{doc.reference}</div>}
             </div>
@@ -123,6 +141,12 @@ export function PrintShell({
             <div>
               <div className="mb-1 text-xs font-semibold uppercase tracking-widest text-slate-500">{doc.kind === "invoice" ? "Bill to" : "Counterparty"}</div>
               <div className="font-semibold">{doc.party_name}</div>
+              {doc.billing_address && (
+                <div className="text-slate-600"><span className="text-slate-400">Billing: </span>{doc.billing_address}</div>
+              )}
+              {doc.delivery_address && (
+                <div className="text-slate-600"><span className="text-slate-400">Delivery: </span>{doc.delivery_address}</div>
+              )}
               {doc.party_address && <div className="whitespace-pre-line text-slate-600">{doc.party_address}</div>}
               <div className="text-slate-600">{[doc.party_email, doc.party_phone].filter(Boolean).join(" · ")}</div>
             </div>
@@ -147,9 +171,20 @@ export function PrintShell({
             <tbody>
               {(doc.line_items.length ? doc.line_items : [{ description: doc.notes || (doc.kind === "invoice" ? "Goods/services supplied" : "Adjustment"), quantity: 1, unit_price: doc.subtotal, line_total: doc.subtotal }]).map((li, idx) => (
                 <tr key={idx} className="border-b border-slate-100">
-                  <td className="px-3 py-2 align-top whitespace-pre-line">{li.description || "—"}</td>
+                  <td className="px-3 py-2 align-top whitespace-pre-line">
+                    {li.description || "—"}
+                    {li.sku && <span className="ml-1 font-mono text-xs text-slate-400">{li.sku}</span>}
+                  </td>
                   <td className="px-3 py-2 text-right align-top">{Number(li.quantity).toLocaleString()}</td>
-                  <td className="px-3 py-2 text-right align-top">{fmt(li.unit_price)}</td>
+                  <td className="px-3 py-2 text-right align-top">
+                    {fmt(li.unit_price)}
+                    {(li.discount_pct != null && li.discount_pct > 0) && (
+                      <div className="text-xs text-slate-400">−{li.discount_pct}%</div>
+                    )}
+                    {(li.gst_rate != null && li.gst_rate > 0) && (
+                      <div className="text-xs text-slate-400">+{li.gst_rate}% GST</div>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-right align-top">{fmt(li.line_total)}</td>
                 </tr>
               ))}
@@ -160,12 +195,34 @@ export function PrintShell({
           <div className="mt-4 flex justify-end">
             <div className="w-72 text-sm">
               <div className="flex justify-between py-1"><span className="text-slate-600">Subtotal</span><span>{fmt(doc.subtotal)}</span></div>
+              {doc.total_discount != null && doc.total_discount > 0 && (
+                <div className="flex justify-between py-1 text-slate-600"><span>Total discount</span><span>−{fmt(doc.total_discount)}</span></div>
+              )}
+              {doc.gst_total != null && doc.gst_total > 0 && (
+                <div className="flex justify-between py-1 text-slate-600"><span>GST</span><span>{fmt(doc.gst_total)}</span></div>
+              )}
+              {doc.freight != null && doc.freight > 0 && (
+                <div className="flex justify-between py-1 text-slate-600"><span>Freight / charges</span><span>{fmt(doc.freight)}</span></div>
+              )}
+              {doc.advance_deducted != null && doc.advance_deducted > 0 && (
+                <div className="flex justify-between py-1 text-slate-600"><span>Less: advance received</span><span>−{fmt(doc.advance_deducted)}</span></div>
+              )}
               {doc.tax_rate > 0 && (
                 <div className="flex justify-between py-1 text-slate-600"><span>Tax ({doc.tax_rate}%)</span><span>{fmt(doc.tax_amount)}</span></div>
               )}
               <div className="mt-1 flex justify-between border-t-2 pt-2 text-lg font-bold" style={{ borderColor: template.accent_color, color: template.accent_color }}>
                 <span>Total {template.currency}</span><span>{fmt(doc.total)}</span>
               </div>
+              {(doc.amount_received != null || doc.balance_outstanding != null) && (
+                <div className="mt-2 space-y-1 border-t border-slate-200 pt-2 text-xs">
+                  {doc.amount_received != null && (
+                    <div className="flex justify-between text-slate-600"><span>Amount received</span><span>{fmt(doc.amount_received)}</span></div>
+                  )}
+                  {doc.balance_outstanding != null && (
+                    <div className="flex justify-between font-semibold text-slate-900"><span>Balance outstanding</span><span>{fmt(doc.balance_outstanding)}</span></div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
 

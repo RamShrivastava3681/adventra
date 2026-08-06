@@ -57,14 +57,20 @@ type PF = {
   freight: number;
   grand_total: number;
   linked_goods_po_id: string | null;
+  linked_goods_so_id: string | null;
+  // ── Sales-side (customer proforma) fields ──
+  debtor_contact: string | null;
+  debtor_gstin: string | null;
 };
 
-// Document statuses for purchase proformas (supplier quotations).
-const PF_DOC_STATUSES = ["received", "reviewed", "converted_to_po", "expired", "cancelled"];
+// Document statuses for proformas — purchase (supplier quotations) and
+// sales (customer proformas entered/uploaded into the system).
+const PF_DOC_STATUSES = ["received", "reviewed", "converted_to_po", "converted_to_so", "expired", "cancelled"];
 const PF_DOC_LABELS: Record<string, string> = {
   received: "Received",
   reviewed: "Reviewed",
   converted_to_po: "Converted to PO",
+  converted_to_so: "Converted to Sales Order",
   expired: "Expired",
   cancelled: "Cancelled",
 };
@@ -84,7 +90,7 @@ const FUNDING_TONES: Record<string, string> = {
 
 // Document lifecycle is over for these statuses — they never sit in a workflow
 // stage and their funding dimension is closed.
-const DOC_CLOSED = ["cancelled", "expired", "converted_to_po"];
+const DOC_CLOSED = ["cancelled", "expired", "converted_to_po", "converted_to_so"];
 
 const CURRENCIES = ["USD", "INR", "EUR", "GBP", "AED"];
 const PAYMENT_TERMS = [
@@ -108,6 +114,7 @@ type CatalogueProduct = {
   unit_of_measure: string;
   gst_rate: number | null;
   unit_cost: number | null;
+  unit_price: number | null;
   status: string;
 };
 
@@ -256,12 +263,25 @@ function ProformasPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  // Sales proforma → auto-create a DRAFT sales order and link it.
+  const convertSo = useMutation({
+    mutationFn: async (id: string) => api.purchaseOrders.convertToSO(id),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      qc.invalidateQueries({ queryKey: ["sales-orders"] });
+      toast.success(
+        `Draft sales order ${(res as any)?.salesOrder?.soNumber ?? ""} created`,
+      );
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
   return (
     <div>
       <PageHeader
         eyebrow="Proforma invoices"
         title="Proformas & advances"
-        description="Purchase proformas are supplier quotations with catalogue lines that can be converted into a purchase order. Sales proformas raise an advance against a PO — approved by the checker and paid/received by treasury, the advance is recorded and applied to the final invoice."
+        description="Purchase proformas are supplier quotations with catalogue lines that can be converted into a purchase order. Sales proformas are customer proforma invoices entered into the system — catalogue lines, totals and an optional advance request, convertible into a sales order. Proformas never create inventory entries."
         actions={
           canCreate ? (
             <div className="flex gap-2">
@@ -356,13 +376,18 @@ function ProformasPage() {
                 <tbody>
                   {rows.map((p) => {
                     const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
-                    const docStatus =
-                      p.side === "purchase" && PF_DOC_LABELS[p.status] ? p.status : null;
+                    // Doc lifecycle: received → reviewed → converted (PO/SO) → expired/cancelled.
+                    // Applies to BOTH sides — sales proformas are customer proformas entered
+                    // into the system, purchase proformas are supplier quotations.
+                    const docStatus = PF_DOC_LABELS[p.status] ? p.status : null;
                     // Doc lifecycle is over — the funding dimension closes with it.
                     const docClosed = DOC_CLOSED.includes(p.status);
                     const poLink = docStatus === "converted_to_po" ? p.linked_goods_po_id : null;
+                    const soLink = docStatus === "converted_to_so" ? p.linked_goods_so_id : null;
                     const editableDoc =
-                      p.side === "purchase" && ["received", "reviewed"].includes(p.status);
+                      p.side === "purchase"
+                        ? ["received", "reviewed"].includes(p.status)
+                        : ["received", "reviewed", "proforma"].includes(p.status);
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3">
@@ -370,7 +395,7 @@ function ProformasPage() {
                           <div className="text-[10px] text-muted-foreground">
                             {p.proforma_date ? fmtDate(p.proforma_date) : fmtDate(p.issue_date)}
                           </div>
-                          {p.side === "purchase" && p.grand_total != null && p.grand_total > 0 && (
+                          {p.grand_total != null && p.grand_total > 0 && (
                             <div className="text-[10px] text-muted-foreground">
                               Total {fmtMoney(p.grand_total)}
                             </div>
@@ -395,7 +420,7 @@ function ProformasPage() {
                           {p.side}
                         </td>
                         <td className="px-5 py-3 text-right num">
-                          {p.side === "purchase" && p.grand_total != null && p.grand_total > 0
+                          {p.grand_total != null && p.grand_total > 0
                             ? fmtMoney(p.grand_total)
                             : fmtMoney(p.amount)}
                         </td>
@@ -423,6 +448,11 @@ function ProformasPage() {
                                 <Link2 className="h-2.5 w-2.5" /> Linked PO
                               </span>
                             )}
+                            {soLink && (
+                              <span className="inline-flex items-center gap-1 text-[9px] text-primary">
+                                <Link2 className="h-2.5 w-2.5" /> Linked SO
+                              </span>
+                            )}
                           </div>
                         </td>
                         <td className="px-5 py-3 text-right">
@@ -437,7 +467,7 @@ function ProformasPage() {
                               p.proforma_status !== "funded" &&
                               p.status !== "invoiced" &&
                               p.status !== "cancelled" &&
-                              (p.side === "sales" || editableDoc) && (
+                              editableDoc && (
                                 <button
                                   onClick={() => setEditingPf(p)}
                                   className="rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary"
@@ -455,7 +485,18 @@ function ProformasPage() {
                                   <PackageOpen className="h-3 w-3" /> Convert to PO
                                 </button>
                               )}
-                            {canCreate && p.side === "purchase" && p.status === "received" && (
+                            {canCreate &&
+                              p.side === "sales" &&
+                              ["received", "reviewed"].includes(p.status) && (
+                                <button
+                                  onClick={() => convertSo.mutate(p.id)}
+                                  disabled={convertSo.isPending}
+                                  className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
+                                >
+                                  <PackageOpen className="h-3 w-3" /> Convert to SO
+                                </button>
+                              )}
+                            {canCreate && p.status === "received" && (
                               <button
                                 onClick={() =>
                                   setDocStatus.mutate({ id: p.id, status: "reviewed" })
@@ -466,7 +507,6 @@ function ProformasPage() {
                               </button>
                             )}
                             {canCreate &&
-                              p.side === "purchase" &&
                               ["received", "reviewed"].includes(p.status) && (
                                 <button
                                   onClick={() =>
@@ -538,8 +578,10 @@ function ProformasPage() {
               convert it to a Purchase order.
             </li>
             <li>
-              <span className="font-medium text-foreground">Sales proforma</span> — raise an advance
-              against a PO number; checker approves, treasury pays/receives, and the advance is
+              <span className="font-medium text-foreground">Sales proforma</span> — record the
+              customer's proforma invoice (catalogue lines, totals, attachment) as Received,
+              review it, and convert it to a Sales order (a draft SO is auto-created, never stock).
+              An optional advance request flows through the checker/treasury pipeline and is
               applied to the final invoice with the same PO number.
             </li>
             <li>
@@ -551,7 +593,11 @@ function ProformasPage() {
       </div>
 
       {open && user && open === "sales" && (
-        <SalesProformaModal userId={user.id} onClose={() => setOpen(null)} />
+        <SalesProformaModal
+          userId={user.id}
+          products={(productsQ.data ?? []) as CatalogueProduct[]}
+          onClose={() => setOpen(null)}
+        />
       )}
       {open && user && open === "purchase" && (
         <PurchaseProformaModal
@@ -564,7 +610,12 @@ function ProformasPage() {
         />
       )}
       {editingPf && user && editingPf.side === "sales" && (
-        <SalesProformaModal userId={user.id} pf={editingPf} onClose={() => setEditingPf(null)} />
+        <SalesProformaModal
+          userId={user.id}
+          pf={editingPf}
+          products={(productsQ.data ?? []) as CatalogueProduct[]}
+          onClose={() => setEditingPf(null)}
+        />
       )}
       {editingPf && user && editingPf.side === "purchase" && (
         <PurchaseProformaModal
@@ -612,59 +663,172 @@ function StatusPill({ label, tone }: { label: string; tone?: string }) {
   );
 }
 
-// ─── Sales proforma (advance-funding — unchanged) ────────────────────────
+// ─── Sales proforma (customer proforma with catalogue lines) ─────────────
+// A customer proforma invoice is given to the debtor and entered/uploaded into
+// the system. It NEVER creates inventory entries — only a confirmed dispatch
+// debits stock. Lines come from the catalogue; the advance payment requested
+// (optional) feeds the existing funding pipeline.
 function SalesProformaModal({
   userId,
   pf,
+  products,
   onClose,
 }: {
   userId: string;
   pf?: PF;
+  products: CatalogueProduct[];
   onClose: () => void;
 }) {
   const qc = useQueryClient();
   const isEdit = !!pf;
-  const [form, setForm] = useState({
-    po_number: pf?.po_number ?? "",
+  const [f, setF] = useState({
     proforma_number: pf?.proforma_number ?? "",
     proforma_date:
       (pf?.proforma_date ?? new Date().toISOString().slice(0, 10))?.slice(0, 10) ??
       new Date().toISOString().slice(0, 10),
     party_id: pf?.debtor_id ?? "",
-    amount: pf ? String(pf.amount ?? "") : "",
-    po_amount: pf?.po_amount != null ? String(pf.po_amount) : "",
+    debtor_contact: pf?.debtor_contact ?? "",
+    debtor_gstin: pf?.debtor_gstin ?? "",
+    valid_until: (pf?.valid_until ?? "")?.slice(0, 10) ?? "",
     currency: pf?.currency ?? "USD",
+    payment_terms: pf?.payment_terms ?? "",
+    expected_delivery_date: (pf?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
     notes: pf?.notes ?? "",
+    linked_so_id: pf?.linked_goods_so_id ?? "",
+    po_number: pf?.po_number ?? "",
+    amount: pf?.amount != null && pf.amount > 0 ? String(pf.amount) : "",
+    freight: pf?.freight != null ? String(pf.freight) : "",
   });
+  const [lines, setLines] = useState<LineDraft[]>(
+    (pf?.lines ?? []).map((l) => ({
+      product_id: l.product_id,
+      sku: l.sku,
+      name: l.name,
+      unit: l.unit,
+      quantity: String(l.quantity),
+      unit_price: String(l.unit_price),
+      gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
+    })),
+  );
+  const [docs, setDocs] = useState<DocMeta[]>(pf?.documents ?? []);
+
+  const setLine = (i: number, patch: Partial<LineDraft>) =>
+    setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+
+  const pickProduct = (i: number, id: string) => {
+    const p = products.find((x) => x.id === id);
+    setLine(i, {
+      product_id: id,
+      name: p?.name ?? "",
+      sku: p?.sku ?? null,
+      unit: p?.unit_of_measure ?? "piece",
+      unit_price: p?.unit_price != null ? String(p.unit_price) : "",
+      gst_rate: p?.gst_rate != null ? String(p.gst_rate) : "",
+    });
+  };
+
+  const addLine = () =>
+    setLines((ls) => [
+      ...ls,
+      {
+        product_id: "",
+        sku: null,
+        name: "",
+        unit: "piece",
+        quantity: "",
+        unit_price: "",
+        gst_rate: "",
+      },
+    ]);
+
+  const totals = useMemo(() => {
+    const subtotal = round2(
+      lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0),
+    );
+    const gstTotal = round2(
+      lines.reduce(
+        (s, l) =>
+          s +
+          ((Number(l.quantity) || 0) * (Number(l.unit_price) || 0) * (Number(l.gst_rate) || 0)) /
+            100,
+        0,
+      ),
+    );
+    const freight = Number(f.freight) || 0;
+    return { subtotal, gstTotal, freight, grandTotal: round2(subtotal + gstTotal + freight) };
+  }, [lines, f.freight]);
 
   const partiesQ = useQuery({
     queryKey: ["pf-debtors"],
     queryFn: async () => {
       const data = await api.debtors.list();
       return data
-        .map((d: { id: string; name?: string }) => ({ id: d.id, name: d.name ?? d.id }))
+        .map(
+          (d: {
+            id: string;
+            name?: string;
+            contact_name?: string;
+            contact_email?: string;
+            contact_phone?: string;
+          }) => ({
+            id: d.id,
+            name: d.name ?? d.id,
+            contact: [d.contact_name, d.contact_email, d.contact_phone]
+              .filter(Boolean)
+              .join(" · "),
+          }),
+        )
         .sort((a, b) => a.name.localeCompare(b.name));
     },
   });
 
+  // Existing sales orders to optionally link this proforma to.
+  const sosQ = useQuery({
+    queryKey: ["pf-sales-orders"],
+    queryFn: async () => api.goodsSalesOrders.list(),
+  });
+
   const save = useMutation({
     mutationFn: async () => {
-      if (!form.po_number.trim()) throw new Error("PO number is required");
-      if (!form.proforma_number.trim()) throw new Error("Proforma number is required");
-      if (!form.party_id) throw new Error("Pick a debtor");
-      const amt = Number(form.amount);
-      if (!amt || amt <= 0) throw new Error("Advance amount must be > 0");
+      if (!f.proforma_number.trim()) throw new Error("Proforma invoice number is required");
+      if (!f.party_id) throw new Error("Pick a debtor");
+      const payloadLines = lines.map((l) => ({
+        product_id: l.product_id,
+        sku: l.sku,
+        name: l.name,
+        unit: l.unit || "piece",
+        quantity: Number(l.quantity) || 0,
+        unit_price: Number(l.unit_price) || 0,
+        gst_rate: l.gst_rate ? Number(l.gst_rate) : null,
+      }));
+      for (const l of payloadLines) {
+        if (!l.product_id) throw new Error("Every line must select a product from the catalogue");
+        if (!(l.quantity > 0)) throw new Error("Quantity must be greater than zero");
+        if (l.unit_price < 0) throw new Error("Unit price must be greater than or equal to zero");
+      }
+      if (payloadLines.length === 0) {
+        throw new Error("Add at least one product line");
+      }
       const payload = {
-        debtorId: form.party_id,
+        proformaNumber: f.proforma_number.trim(),
+        proformaDate: f.proforma_date,
+        debtorId: f.party_id,
         vendorId: null,
-        poNumber: form.po_number.trim(),
-        proformaNumber: form.proforma_number.trim(),
-        proformaDate: form.proforma_date,
-        amount: amt,
-        poAmount: form.po_amount ? Number(form.po_amount) : null,
-        currency: form.currency,
-        issueDate: form.proforma_date,
-        notes: form.notes || null,
+        debtorContact: f.debtor_contact.trim() || null,
+        debtorGstin: f.debtor_gstin.trim() || null,
+        validUntil: f.valid_until || null,
+        currency: f.currency,
+        paymentTerms: f.payment_terms || null,
+        expectedDeliveryDate: f.expected_delivery_date || null,
+        notes: f.notes.trim() || null,
+        linkedGoodsSoId: f.linked_so_id || null,
+        poNumber: f.po_number.trim() || null,
+        amount: Number(f.amount) || 0,
+        poAmount: null,
+        issueDate: f.proforma_date,
+        freight: Number(f.freight) || 0,
+        documents: docs,
+        lines: payloadLines,
       };
       if (isEdit && pf) {
         await api.purchaseOrders.update(pf.id, payload);
@@ -673,111 +837,365 @@ function SalesProformaModal({
           ...payload,
           clientId: userId,
           side: "sales",
-          status: "proforma",
+          status: "received",
           proformaStatus: "pending_review",
         });
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["proformas"] });
-      toast.success(isEdit ? "Proforma updated" : "Proforma submitted for review");
+      toast.success(isEdit ? "Proforma updated" : "Proforma recorded — submitted for review");
       onClose();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
   return (
-    <Modal title={`${isEdit ? "Edit" : "New"} sales proforma`} onClose={onClose}>
+    <Modal title={`${isEdit ? "Edit" : "New"} sales proforma`} onClose={onClose} wide>
       <form
         onSubmit={(e) => {
           e.preventDefault();
           save.mutate();
         }}
-        className="space-y-4 p-5"
+        className="space-y-5 p-5"
       >
-        <L label="PO number *">
-          <input
-            required
-            className="inp"
-            value={form.po_number}
-            onChange={(e) => setForm({ ...form, po_number: e.target.value })}
-            placeholder="PO-2026-001"
-          />
-        </L>
-        <L label="Proforma number *">
-          <input
-            required
-            className="inp"
-            value={form.proforma_number}
-            onChange={(e) => setForm({ ...form, proforma_number: e.target.value })}
-            placeholder="PF-2026-001"
-          />
-        </L>
-        <L label="Debtor *">
-          <select
-            required
-            className="inp"
-            value={form.party_id}
-            onChange={(e) => setForm({ ...form, party_id: e.target.value })}
-          >
-            <option value="">Select…</option>
-            {(partiesQ.data ?? []).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </L>
-        <div className="grid grid-cols-2 gap-3">
-          <L label={`Advance amount * (${form.currency})`}>
+        {/* Header */}
+        <fieldset className="rounded-lg border border-border/60 p-4">
+          <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Customer proforma
+          </legend>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <L label="Proforma invoice number *">
+              <input
+                required
+                className="inp"
+                value={f.proforma_number}
+                onChange={(e) => setF({ ...f, proforma_number: e.target.value })}
+                placeholder="PF-2026-001"
+              />
+            </L>
+            <L label="Proforma invoice date">
+              <input
+                type="date"
+                className="inp"
+                value={f.proforma_date}
+                onChange={(e) => setF({ ...f, proforma_date: e.target.value })}
+              />
+            </L>
+            <L label="Debtor *">
+              <select
+                required
+                className="inp"
+                value={f.party_id}
+                onChange={(e) => {
+                  const d = (partiesQ.data ?? []).find((x) => x.id === e.target.value);
+                  setF({
+                    ...f,
+                    party_id: e.target.value,
+                    debtor_contact: d?.contact ?? f.debtor_contact,
+                  });
+                }}
+              >
+                <option value="">Select debtor…</option>
+                {(partiesQ.data ?? []).map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </L>
+            <L label="Debtor contact">
+              <input
+                className="inp"
+                value={f.debtor_contact}
+                onChange={(e) => setF({ ...f, debtor_contact: e.target.value })}
+                placeholder="Name · email · phone"
+              />
+            </L>
+            <L label="Debtor GSTIN (optional)">
+              <input
+                className="inp"
+                value={f.debtor_gstin}
+                onChange={(e) => setF({ ...f, debtor_gstin: e.target.value })}
+                placeholder="e.g. 27ABCDE1234F1Z5"
+              />
+            </L>
+            <L label="Valid until">
+              <input
+                type="date"
+                className="inp"
+                value={f.valid_until}
+                onChange={(e) => setF({ ...f, valid_until: e.target.value })}
+              />
+            </L>
+            <L label="Currency">
+              <select
+                className="inp"
+                value={f.currency}
+                onChange={(e) => setF({ ...f, currency: e.target.value })}
+              >
+                {CURRENCIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </L>
+            <L label="Payment terms">
+              <input
+                list="pf-sales-payment-terms"
+                className="inp"
+                value={f.payment_terms}
+                onChange={(e) => setF({ ...f, payment_terms: e.target.value })}
+                placeholder="Net 30"
+              />
+              <datalist id="pf-sales-payment-terms">
+                {PAYMENT_TERMS.filter(Boolean).map((t) => (
+                  <option key={t} value={t} />
+                ))}
+              </datalist>
+            </L>
+            <L label="Expected delivery date">
+              <input
+                type="date"
+                className="inp"
+                value={f.expected_delivery_date}
+                onChange={(e) => setF({ ...f, expected_delivery_date: e.target.value })}
+              />
+            </L>
+            <L label="Linked sales order (optional)">
+              <select
+                className="inp"
+                value={f.linked_so_id}
+                onChange={(e) => setF({ ...f, linked_so_id: e.target.value })}
+              >
+                <option value="">None</option>
+                {(sosQ.data ?? []).map((so: any) => (
+                  <option key={so.id} value={so.id}>
+                    {so.so_number ?? so.id} · {so.customer_name ?? "—"}
+                  </option>
+                ))}
+              </select>
+            </L>
+          </div>
+          <div className="mt-3">
+            <L label="Notes">
+              <textarea
+                rows={2}
+                className="inp resize-y"
+                value={f.notes}
+                onChange={(e) => setF({ ...f, notes: e.target.value })}
+                placeholder="Order remarks, delivery instructions…"
+              />
+            </L>
+          </div>
+          <div className="mt-3">
+            <DocumentUploader
+              userId={userId}
+              scope="proformas"
+              docs={docs}
+              onChange={setDocs}
+              hint="Attach the customer proforma invoice (PDF or image)."
+            />
+          </div>
+        </fieldset>
+
+        {/* Lines */}
+        <fieldset className="rounded-lg border border-border/60 p-4">
+          <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Product lines
+          </legend>
+          {products.length === 0 ? (
+            <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+              No active products in the catalogue yet — add products in the Product catalogue tab
+              first.
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <div className="hidden grid-cols-12 gap-2 text-[9px] uppercase tracking-widest text-muted-foreground md:grid">
+                <div className="col-span-4">SKU / Product</div>
+                <div className="col-span-1">Unit</div>
+                <div className="col-span-2">Qty</div>
+                <div className="col-span-2">Unit price</div>
+                <div className="col-span-1">GST %</div>
+                <div className="col-span-1 text-right">Line total</div>
+                <div className="col-span-1"></div>
+              </div>
+              {lines.map((l, i) => {
+                const lineTotal = round2((Number(l.quantity) || 0) * (Number(l.unit_price) || 0));
+                return (
+                  <div
+                    key={i}
+                    className="grid grid-cols-2 items-end gap-2 rounded-md border border-border/50 p-2 md:grid-cols-12"
+                  >
+                    <div className="col-span-2 md:col-span-4">
+                      <L label="Product">
+                        <select
+                          className="inp"
+                          value={l.product_id}
+                          onChange={(e) => pickProduct(i, e.target.value)}
+                        >
+                          <option value="">Select product…</option>
+                          {products.map((p) => (
+                            <option key={p.id} value={p.id}>
+                              {p.sku ? `${p.sku} · ` : ""}
+                              {p.name}
+                            </option>
+                          ))}
+                        </select>
+                      </L>
+                      {l.name && (
+                        <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
+                      )}
+                    </div>
+                    <div>
+                      <L label="Unit">
+                        <input
+                          className="inp"
+                          value={l.unit}
+                          onChange={(e) => setLine(i, { unit: e.target.value })}
+                        />
+                      </L>
+                    </div>
+                    <div className="md:col-span-2">
+                      <L label="Qty">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          className="inp"
+                          value={l.quantity}
+                          onChange={(e) => setLine(i, { quantity: e.target.value })}
+                        />
+                      </L>
+                    </div>
+                    <div className="md:col-span-2">
+                      <L label="Unit price">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="inp"
+                          value={l.unit_price}
+                          onChange={(e) => setLine(i, { unit_price: e.target.value })}
+                        />
+                      </L>
+                    </div>
+                    <div>
+                      <L label="GST %">
+                        <input
+                          list="pf-gst-rates"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="inp"
+                          value={l.gst_rate}
+                          onChange={(e) => setLine(i, { gst_rate: e.target.value })}
+                        />
+                      </L>
+                    </div>
+                    <div className="text-right">
+                      <L label="Line total">
+                        <div className="inp text-right font-mono tabular-nums">
+                          {fmtMoney(lineTotal)}
+                        </div>
+                      </L>
+                    </div>
+                    <div className="flex items-end justify-end pb-1">
+                      <button
+                        type="button"
+                        onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}
+                        className="rounded p-1 text-muted-foreground hover:text-destructive"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              <button
+                type="button"
+                onClick={addLine}
+                className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add line
+              </button>
+            </div>
+          )}
+        </fieldset>
+
+        {/* Totals */}
+        <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
+          <Row label="Subtotal" value={fmtMoney(totals.subtotal)} />
+          <Row label="GST total" value={fmtMoney(totals.gstTotal)} />
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">
+              Freight / charges
+            </span>
             <input
-              required
               type="number"
-              step="0.01"
               min="0"
-              className="inp"
-              value={form.amount}
-              onChange={(e) => setForm({ ...form, amount: e.target.value })}
+              step="0.01"
+              className="inp !w-28 !py-1 text-right"
+              value={f.freight}
+              onChange={(e) => setF({ ...f, freight: e.target.value })}
             />
-          </L>
-          <L label="Proforma date *">
-            <input
-              required
-              type="date"
-              className="inp"
-              value={form.proforma_date}
-              onChange={(e) => setForm({ ...form, proforma_date: e.target.value })}
-            />
-          </L>
+          </div>
+          <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">
+              Grand total
+            </span>
+            <span className="num text-base">{fmtMoney(totals.grandTotal)}</span>
+          </div>
         </div>
-        <L label={`PO amount (${form.currency})`}>
-          <input
-            type="number"
-            step="0.01"
-            min="0"
-            className="inp"
-            value={form.po_amount}
-            onChange={(e) => setForm({ ...form, po_amount: e.target.value })}
-            placeholder="Optional"
-          />
-        </L>
-        <L label="Notes">
-          <textarea
-            rows={2}
-            className="inp"
-            value={form.notes}
-            onChange={(e) => setForm({ ...form, notes: e.target.value })}
-          />
-        </L>
-        <p className="text-[11px] text-muted-foreground">
-          Once funded, this advance is recorded as money received from the debtor against this PO.
-        </p>
+
+        {/* Advance & funding (checker/treasury flow) */}
+        <fieldset className="rounded-lg border border-border/60 p-4">
+          <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Advance & funding
+          </legend>
+          <div className="grid grid-cols-2 gap-3">
+            <L label={`Advance payment requested (${f.currency}) — optional`}>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className="inp"
+                value={f.amount}
+                onChange={(e) => setF({ ...f, amount: e.target.value })}
+                placeholder="Optional"
+              />
+            </L>
+            <L label="PO number (funding reference)">
+              <input
+                className="inp"
+                value={f.po_number ?? ""}
+                onChange={(e) => setF({ ...f, po_number: e.target.value })}
+                placeholder="Optional — used to match advances"
+              />
+            </L>
+          </div>
+          <p className="mt-2 text-[11px] text-muted-foreground">
+            A proforma never creates inventory — stock only reduces after a confirmed dispatch.
+            If an advance is requested it is submitted for checker review, then received by
+            treasury. Convert the proforma to a Sales order from the list to hand it to the sales
+            workflow.
+          </p>
+        </fieldset>
+
         <Actions
           onClose={onClose}
           pending={save.isPending}
-          label={isEdit ? "Save changes" : "Submit"}
+          label={isEdit ? "Save changes" : "Record proforma"}
         />
       </form>
+      <datalist id="pf-gst-rates">
+        <option value="0" />
+        <option value="5" />
+        <option value="12" />
+        <option value="18" />
+        <option value="28" />
+      </datalist>
     </Modal>
   );
 }
@@ -1535,32 +1953,36 @@ function FundModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: (
 // ─── Detail modal ─────────────────────────────────────────────────────────
 function ProformaDetailModal({ pf, onClose }: { pf: PF; onClose: () => void }) {
   const cp = pf.side === "sales" ? pf.debtor?.name : pf.vendor?.name;
-  const docLabel =
-    pf.side === "purchase" && PF_DOC_LABELS[pf.status] ? PF_DOC_LABELS[pf.status] : pf.status;
+  const docLabel = PF_DOC_LABELS[pf.status] ? PF_DOC_LABELS[pf.status] : pf.status;
   return (
     <Modal title={`Proforma · ${pf.proforma_number ?? pf.po_number}`} onClose={onClose} wide>
       <div className="space-y-4 p-5 text-sm">
         <Summary pf={pf} />
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           <D label="Counterparty" value={cp ?? "—"} />
           <D label="Currency" value={pf.currency} />
           <D label="Side" value={pf.side} />
           <D label="Proforma date" value={pf.proforma_date ? fmtDate(pf.proforma_date) : "—"} />
           <D label="Document status" value={docLabel} />
-          {pf.side === "purchase" && pf.payment_terms && (
-            <D label="Payment terms" value={pf.payment_terms} />
-          )}
+          {pf.payment_terms && <D label="Payment terms" value={pf.payment_terms} />}
           {pf.side === "purchase" && pf.supplier_gstin && (
             <D label="GSTIN" value={pf.supplier_gstin} />
           )}
-          {pf.side === "purchase" && pf.valid_until && (
-            <D label="Valid until" value={fmtDate(pf.valid_until)} />
+          {pf.side === "sales" && pf.debtor_gstin && (
+            <D label="Debtor GSTIN" value={pf.debtor_gstin} />
           )}
-          {pf.side === "purchase" && pf.expected_delivery_date && (
+          {pf.side === "sales" && pf.debtor_contact && (
+            <D label="Debtor contact" value={pf.debtor_contact} />
+          )}
+          {pf.valid_until && <D label="Valid until" value={fmtDate(pf.valid_until)} />}
+          {pf.expected_delivery_date && (
             <D label="Expected delivery" value={fmtDate(pf.expected_delivery_date)} />
           )}
           {pf.side === "purchase" && pf.linked_goods_po_id && (
             <D label="Linked purchase order" value={pf.linked_goods_po_id} />
+          )}
+          {pf.side === "sales" && pf.linked_goods_so_id && (
+            <D label="Linked sales order" value={pf.linked_goods_so_id} />
           )}
           {pf.proforma_status && pf.proforma_status !== "none" && (
             <D label="Funding stage" value={pf.proforma_status} />
@@ -1570,7 +1992,7 @@ function ProformaDetailModal({ pf, onClose }: { pf: PF; onClose: () => void }) {
           </div>
         </div>
 
-        {pf.side === "purchase" && (pf.lines ?? []).length > 0 && (
+        {(pf.lines ?? []).length > 0 && (
           <div className="overflow-x-auto rounded-md border border-border/60">
             <table className="w-full text-sm">
               <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">

@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
 import jwt from "jsonwebtoken";
+import { v4 as uuid } from "uuid";
 import { config } from "../config.js";
 import { authMiddleware, AuthPayload } from "../middleware/auth.js";
 import { requireAdmin, requireChecker } from "../middleware/roles.js";
@@ -68,6 +69,9 @@ import * as PurchaseInvoice from "../models/purchase-invoice.js";
 import * as PurchaseOrder from "../models/purchase-order.js";
 import * as GoodsPO from "../models/goods-purchase-order.js";
 import * as GoodsReceipt from "../models/goods-receipt.js";
+import * as GoodsSO from "../models/goods-sales-order.js";
+import * as GoodsDispatch from "../models/goods-dispatch.js";
+import * as Quotation from "../models/quotation.js";
 import * as Expense from "../models/expense.js";
 import * as Advance from "../models/advance.js";
 import * as Alert from "../models/alert.js";
@@ -242,7 +246,7 @@ router.post("/stock-movements", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Status must be draft or confirmed" });
     }
 
-    const isSystemFlow = !!(body.invoiceId || body.goodsReceiptId || body.purchaseInvoiceId);
+    const isSystemFlow = !!(body.invoiceId || body.goodsReceiptId || body.purchaseInvoiceId || body.goodsDispatchId);
 
     if (!isSystemFlow) {
       if (!body.reason || !MANUAL_MOVEMENT_REASONS.includes(body.reason)) {
@@ -298,8 +302,8 @@ router.post("/stock-movements/:id/confirm", authMiddleware, async (req, res) => 
     const clientId = req.user!.userId;
     const current = await StockMovement.get(req.params.id);
     if (!current) return res.status(404).json({ error: "Movement not found" });
-    if (current.goodsReceiptId || current.invoiceId || current.purchaseInvoiceId) {
-      return res.status(400).json({ error: "This movement is created by its linked document — manage it from the GRN or invoice instead" });
+    if (current.goodsReceiptId || current.invoiceId || current.purchaseInvoiceId || current.goodsDispatchId) {
+      return res.status(400).json({ error: "This movement is created by its linked document — manage it from the GRN, invoice or dispatch instead" });
     }
     if (current.status === "cancelled") {
       return res.status(400).json({ error: "Cannot confirm a cancelled movement" });
@@ -317,8 +321,8 @@ router.post("/stock-movements/:id/cancel", authMiddleware, async (req, res) => {
     const clientId = req.user!.userId;
     const current = await StockMovement.get(req.params.id);
     if (!current) return res.status(404).json({ error: "Movement not found" });
-    if (current.goodsReceiptId || current.invoiceId || current.purchaseInvoiceId) {
-      return res.status(400).json({ error: "This movement is created by its linked document — cancel the GRN or invoice instead" });
+    if (current.goodsReceiptId || current.invoiceId || current.purchaseInvoiceId || current.goodsDispatchId) {
+      return res.status(400).json({ error: "This movement is created by its linked document — cancel the GRN, invoice or dispatch instead" });
     }
     if (current.status === "cancelled") return res.json({ ...current, alreadyCancelled: true });
     // Atomic → cancelled flip FIRST (mirrors the GRN cancel pattern): exactly
@@ -361,8 +365,8 @@ router.delete("/stock-movements/:id", authMiddleware, async (req, res) => {
   try {
     const current = await StockMovement.get(req.params.id);
     if (current) {
-      if (current.goodsReceiptId || current.invoiceId || current.purchaseInvoiceId) {
-        return res.status(400).json({ error: "This movement is created by its linked document — manage it from the GRN or invoice instead" });
+      if (current.goodsReceiptId || current.invoiceId || current.purchaseInvoiceId || current.goodsDispatchId) {
+        return res.status(400).json({ error: "This movement is created by its linked document — manage it from the GRN, invoice or dispatch instead" });
       }
       if (current.status === "confirmed") {
         return res.status(400).json({ error: "Confirmed movements cannot be deleted — cancel them instead" });
@@ -444,6 +448,104 @@ router.get("/invoices/:id/remind-debtor/:token", async (req, res) => {
   }
 });
 
+/**
+ * Validate sales-invoice lines against the product catalogue and snapshot them.
+ * SKUs must come from the catalogue; quantity > 0 and unit price >= 0.
+ * Creating an invoice NEVER creates inventory — only a confirmed dispatch debits.
+ */
+async function validateInvoiceLines(clientId: string, rawLines: any[]) {
+  const lines = Array.isArray(rawLines) ? rawLines : [];
+  if (lines.length === 0) throw new Error("Add at least one product line");
+  const products = await Product.list(clientId);
+  const catalogueIds = new Set(products.map((p: any) => p.id));
+  for (const l of lines) {
+    if (!l.productId) throw new Error("Every line must select a product from the catalogue");
+    if (!catalogueIds.has(l.productId)) throw new Error("Every SKU must come from the product catalogue");
+    if (!(Number(l.quantity) > 0)) throw new Error("Quantity must be greater than zero");
+    if (Number(l.unitPrice) < 0) throw new Error("Unit selling price must be greater than or equal to zero");
+  }
+  return lines;
+}
+
+/**
+ * Resolve the proforma linked to an invoice (sales: customer proforma, or
+ * purchase: supplier proforma) and compute the advance deduction from the
+ * recorded advances (server-side, never trusted from the client). Prefers the
+ * formal linked-proforma id; falls back to matching the typed PO number
+ * against proformas of the given side. Returns null when there is nothing to
+ * link; throws when a formal link is invalid.
+ */
+async function resolveProformaForInvoice(
+  clientId: string,
+  body: any,
+  side: "sales" | "purchase",
+) {
+  const formalId: string | null | undefined =
+    body.linkedCustomerProformaId ?? body.linkedSupplierProformaId;
+  const poNumber: string | null | undefined = body.poNumber;
+  const linkName = side === "sales" ? "customer proforma" : "supplier proforma";
+  let pfId: string | null = formalId || null;
+  let pfNumber: string | null = null;
+  if (!pfId) {
+    const needle = String(poNumber ?? "").trim();
+    if (!needle) return null;
+    const orders = await PurchaseOrder.list(clientId);
+    const matches = (orders as any[]).filter(
+      (p) =>
+        p.side === side &&
+        (String(p.proformaNumber ?? "") === needle || String(p.poNumber ?? "") === needle),
+    );
+    // Multiple/no match by number → manual PO entry, no formal link.
+    if (matches.length !== 1) {
+      return { proformaId: null, proformaNumber: null, advanceDeducted: 0 };
+    }
+    pfId = matches[0].id;
+    pfNumber = matches[0].proformaNumber ?? matches[0].poNumber ?? null;
+  } else {
+    const pf = await PurchaseOrder.get(pfId);
+    if (!pf) throw new Error(`Linked ${linkName} not found`);
+    if (pf.side !== side) throw new Error(`The linked proforma is not a ${side} proforma`);
+    pfNumber = pf.proformaNumber ?? pf.poNumber ?? null;
+  }
+  const advances = await Advance.list(clientId);
+  const deducted = (advances as any[])
+    .filter((a) => a.side === side && a.purchaseOrderId === pfId && a.status !== "refunded")
+    .reduce((s: number, a: any) => s + (Number(a.amount) || 0), 0);
+  return {
+    proformaId: pfId,
+    proformaNumber: pfNumber,
+    advanceDeducted: Math.round(deducted * 100) / 100,
+  };
+}
+
+/**
+ * Validate a sales invoice against its linked sales order: the SO must be
+ * confirmed/open (never draft or cancelled), the invoice customer must be the
+ * SO customer, and every line must reference a product on the SO with a
+ * quantity that fits the ordered quantity.
+ */
+function assertInvoiceMatchesSO(so: any, lines: any[], debtorId: string | null) {
+  if (!so) throw new Error("Linked sales order not found");
+  if (so.status === "cancelled") throw new Error("Cannot invoice against a cancelled sales order");
+  if (so.status === "draft") throw new Error("Confirm the sales order before invoicing");
+  if (debtorId && so.customerId && debtorId !== so.customerId) {
+    throw new Error("The invoice customer must match the linked sales order's customer");
+  }
+  for (const l of lines) {
+    if (!l.productId) continue; // catalogue check validates product selection
+    const soLine = (so.lines ?? []).find((x: any) => x.productId === l.productId);
+    if (!soLine) {
+      throw new Error(`"${l.name || l.productId}" is not on the linked sales order`);
+    }
+    const qty = Number(l.quantity) || 0;
+    if (qty > Number(soLine.orderedQty)) {
+      throw new Error(
+        `Invoice quantity for ${soLine.name} (${qty}) exceeds the ordered quantity (${Number(soLine.orderedQty)}) on the sales order`,
+      );
+    }
+  }
+}
+
 router.get("/invoices", authMiddleware, async (req, res) => {
   try { res.json(await Invoice.list(req.user!.userId)); } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -454,39 +556,56 @@ router.get("/invoices/:id", authMiddleware, async (req, res) => {
     res.json(item);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
+
+/**
+ * POST /invoices — create a sales invoice (draft by default).
+ * IMPORTANT: creating an invoice NEVER reduces stock. Stock is only debited
+ * when a Dispatch note is confirmed — the invoice merely bills the customer
+ * after the goods have been dispatched.
+ */
 router.post("/invoices", authMiddleware, async (req, res) => {
   try {
-    const item = await Invoice.create({ ...req.body, clientId: req.user!.userId });
-    // Auto-create stock movement for inventory items — a confirmed dispatch:
-    // Debit entry, reduces stock, linked to the sales invoice.
-    if (req.body.createStockMovement && req.body.lineItems?.length) {
-      for (const li of req.body.lineItems) {
-        if (li.productId) {
-          await StockMovement.create({
-            clientId: req.user!.userId,
-            productId: li.productId,
-            direction: "out",
-            itemName: li.description || "Invoice item",
-            quantity: li.quantity || 1,
-            unit: "unit",
-            unitCost: li.unitCost || 0,
-            movementDate: req.body.issueDate,
-            invoiceId: item.id,
-            status: "confirmed",
-            reason: "Dispatch",
-            linkedDocumentType: "Sales Invoice",
-            linkedDocumentNumber: item.invoiceNumber || null,
-            createdById: req.user!.userId,
-            createdByName: req.user!.email,
-            confirmedById: req.user!.userId,
-            confirmedByName: req.user!.email,
-            confirmedAt: db.nowISO(),
-          });
+    const clientId = req.user!.userId;
+    const body = req.body || {};
+    if (!body.debtorId) return res.status(400).json({ error: "Select a customer" });
+    // Goods invoices always carry catalogue lines.
+    if (!Array.isArray(body.lines) || body.lines.length === 0) {
+      return res.status(400).json({ error: "Add at least one product line" });
+    }
+    try { body.lines = await validateInvoiceLines(clientId, body.lines); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+    // The sales order link is MANDATORY: every invoice bills against a
+    // confirmed sales order, and its lines must come from that order.
+    if (!body.goodsSalesOrderId) return res.status(400).json({ error: "A linked sales order is required" });
+    const so = await GoodsSO.get(body.goodsSalesOrderId);
+    if (!so) return res.status(404).json({ error: "Linked sales order not found" });
+    try {
+      assertInvoiceMatchesSO(so, body.lines ?? [], body.debtorId);
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message });
+    }
+    if (!body.goodsSalesOrderNumber) body.goodsSalesOrderNumber = so.soNumber;
+    // Resolve the linked customer proforma (formal field or PO-number match)
+    // and compute the advance deduction server-side from the recorded advances.
+    if (body.linkedCustomerProformaId || body.poNumber) {
+      try {
+        const pf = await resolveProformaForInvoice(clientId, body, "sales");
+        if (pf) {
+          body.linkedCustomerProformaId = pf.proformaId;
+          body.linkedCustomerProformaNumber = pf.proformaNumber;
+          body.advanceDeducted = pf.advanceDeducted;
         }
+      } catch (e: any) {
+        return res.status(400).json({ error: e.message });
       }
     }
+    const item = await Invoice.create({
+      ...body,
+      clientId,
+      invoiceNumber: body.invoiceNumber || `INV-${uuid().slice(0, 8).toUpperCase()}`,
+      status: body.status || "draft",
+    });
     // Instant reminder check: if due date is close or past, send reminder immediately
-    if (item.dueDate && item.status !== "paid" && item.status !== "rejected") {
+    if (item.dueDate && item.status !== "paid" && item.status !== "rejected" && item.status !== "draft") {
       const { sendReminderForInvoice } = await import("../invoice-reminder.js");
       // Fire-and-forget — don't block the response
       sendReminderForInvoice(item.id, "sales").catch((err: any) =>
@@ -496,6 +615,60 @@ router.post("/invoices", authMiddleware, async (req, res) => {
     res.status(201).json(item);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
+
+/** POST /invoices/:id/issue — flip a draft into the review queue (Issued). */
+router.post("/invoices/:id/issue", authMiddleware, async (req, res) => {
+  try {
+    const current = await Invoice.get(req.params.id);
+    if (!current) return res.status(404).json({ error: "Invoice not found" });
+    if (current.status === "cancelled") return res.status(400).json({ error: "Cannot issue a cancelled invoice" });
+    if (current.status === "paid") return res.status(400).json({ error: "Invoice is already paid" });
+    // Idempotent re-issue: an already-issued invoice just stays issued.
+    if (current.status !== "draft") return res.json({ ...current, alreadyIssued: true });
+    // Every invoice that enters the review/funding queue must be backed by a
+    // confirmed sales order — legacy drafts without a link cannot be issued.
+    if (!current.goodsSalesOrderId) {
+      return res.status(400).json({ error: "Link a confirmed sales order before issuing this invoice" });
+    }
+    const issueSo = await GoodsSO.get(current.goodsSalesOrderId);
+    if (!issueSo || issueSo.status === "cancelled") {
+      return res.status(400).json({ error: "Cannot issue an invoice linked to a cancelled sales order" });
+    }
+    if (issueSo.status === "draft") {
+      return res.status(400).json({ error: "Confirm the sales order before issuing this invoice" });
+    }
+    const updated = await Invoice.update(current.id, { status: "pending" });
+    res.json(updated);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /invoices/:id/payment — record a customer payment (treasury/admin). */
+router.post("/invoices/:id/payment", authMiddleware, async (req, res) => {
+  try {
+    const roles: string[] = req.user!.roles || [];
+    if (!roles.includes("factor_admin") && !roles.includes("treasury")) {
+      return res.status(403).json({ error: "Only treasury/admin can record payments" });
+    }
+    const current = await Invoice.get(req.params.id);
+    if (!current) return res.status(404).json({ error: "Invoice not found" });
+    if (current.status === "draft") {
+      return res.status(400).json({ error: "Issue the invoice before recording payments" });
+    }
+    if (current.status === "cancelled") {
+      return res.status(400).json({ error: "Cannot record a payment on a cancelled invoice" });
+    }
+    if (current.status === "paid") {
+      return res.status(400).json({ error: "Invoice is already paid" });
+    }
+    const amt = Number(req.body?.amountReceived);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return res.status(400).json({ error: "Payment amount must be greater than zero" });
+    }
+    const updated = await Invoice.recordPayment(req.params.id, amt, req.body?.receiptDate || db.todayDate());
+    res.json(updated);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 router.put("/invoices/:id", authMiddleware, async (req, res) => {
   try {
     if (req.body.status && ["approved","rejected","disputed"].includes(req.body.status)) {
@@ -505,7 +678,72 @@ router.put("/invoices/:id", authMiddleware, async (req, res) => {
         return res.status(403).json({ error: "Only checker/admin can approve/reject" });
       }
     }
-    const updated = await Invoice.update(req.params.id, req.body);
+    if (req.body.status === "cancelled") {
+      const userRoles = req.user!.roles || [];
+      const isAdmin = userRoles.includes("factor_admin");
+      const isCreator = req.user!.userId === (await Invoice.get(req.params.id))?.clientId;
+      if (!isAdmin && !isCreator) {
+        return res.status(403).json({ error: "Only the creator or an admin can cancel an invoice" });
+      }
+      const current = await Invoice.get(req.params.id);
+      if (current && !["draft", "pending"].includes(current.status)) {
+        return res.status(400).json({ error: "Only draft or issued invoices can be cancelled" });
+      }
+    }
+    const body = req.body || {};
+    const current = await Invoice.get(req.params.id);
+    if (!current) return res.status(404).json({ error: "Invoice not found" });
+    // Closed invoices are frozen for content edits (payment/status only).
+    if (current.status === "paid" || current.status === "cancelled") {
+      const frozen = ["lines", "freight", "amount", "debtorId", "invoiceNumber", "issueDate", "dueDate", "goodsSalesOrderId", "billingAddress", "deliveryAddress", "paymentTerms", "customerContact", "notes", "documents", "poNumber", "poAmount", "linkedCustomerProformaId", "linkedCustomerProformaNumber", "advanceDeducted"];
+      if (frozen.some((k) => (body as any)[k] !== undefined)) {
+        return res.status(400).json({ error: `A ${current.status} invoice cannot be edited` });
+      }
+    }
+    // Content edits are restricted to draft (and light edits on issued).
+    if (body.lines !== undefined) {
+      let lines: any[];
+      try { lines = await validateInvoiceLines(req.user!.userId, body.lines); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+      body.lines = lines;
+    }
+    // The sales order link is MANDATORY for content edits — validate against
+    // the SO whenever the order, lines or customer are touched. Status and
+    // payment transitions (checker/treasury) keep working on legacy invoices.
+    const contentEdit =
+      body.lines !== undefined ||
+      body.goodsSalesOrderId !== undefined ||
+      body.debtorId !== undefined;
+    if (contentEdit) {
+      const soId = body.goodsSalesOrderId || current.goodsSalesOrderId;
+      if (!soId) return res.status(400).json({ error: "A linked sales order is required" });
+      const so = await GoodsSO.get(soId);
+      if (!so) return res.status(404).json({ error: "Linked sales order not found" });
+      try {
+        assertInvoiceMatchesSO(
+          so,
+          body.lines !== undefined ? body.lines : current.lines ?? [],
+          body.debtorId !== undefined ? body.debtorId : current.debtorId,
+        );
+      } catch (e: any) {
+        return res.status(400).json({ error: e.message });
+      }
+      if (body.goodsSalesOrderId && !body.goodsSalesOrderNumber) body.goodsSalesOrderNumber = so.soNumber;
+    }
+    // Re-resolve the linked proforma when the link or PO number changes.
+    if (body.linkedCustomerProformaId !== undefined || body.poNumber !== undefined) {
+      try {
+        const merged = { ...current, ...body } as any;
+        const pf = await resolveProformaForInvoice(req.user!.userId, merged, "sales");
+        if (pf) {
+          body.linkedCustomerProformaId = pf.proformaId;
+          body.linkedCustomerProformaNumber = pf.proformaNumber;
+          body.advanceDeducted = pf.advanceDeducted;
+        }
+      } catch (e: any) {
+        return res.status(400).json({ error: e.message });
+      }
+    }
+    const updated = await Invoice.update(req.params.id, body);
     // Instant reminder check on update (e.g., status changed to approved)
     if (req.body.dueDate || req.body.status) {
       const inv = await Invoice.get(req.params.id);
@@ -520,7 +758,14 @@ router.put("/invoices/:id", authMiddleware, async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.delete("/invoices/:id", authMiddleware, async (req, res) => {
-  try { await Invoice.remove(req.params.id); res.json({ success: true }); } catch (err: any) { res.status(500).json({ error: err.message }); }
+  try {
+    const current = await Invoice.get(req.params.id);
+    if (current && current.status !== "draft") {
+      return res.status(400).json({ error: "Only draft invoices can be deleted — cancel instead" });
+    }
+    await Invoice.remove(req.params.id);
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ===================== PURCHASE INVOICES =====================
@@ -676,9 +921,25 @@ router.post("/purchase-invoices", authMiddleware, async (req, res) => {
     if (po.status === "cancelled") {
       return res.status(400).json({ error: "Cannot invoice against a cancelled purchase order" });
     }
+    if (po.status === "draft") {
+      return res.status(400).json({ error: "Approve and send the purchase order before invoicing" });
+    }
     try { body.lines = validatePurchaseInvoiceLines(po, body.lines); }
     catch (e: any) { return res.status(400).json({ error: e.message }); }
     body.goodsPoNumber = po.poNumber;
+    // Optional supplier-proforma link → advance deduction (server-side).
+    if (body.linkedSupplierProformaId || body.poNumber) {
+      try {
+        const pf = await resolveProformaForInvoice(clientId, body, "purchase");
+        if (pf) {
+          body.linkedSupplierProformaId = pf.proformaId;
+          body.linkedSupplierProformaNumber = pf.proformaNumber;
+          body.advanceDeducted = pf.advanceDeducted;
+        }
+      } catch (e: any) {
+        return res.status(400).json({ error: e.message });
+      }
+    }
     const item = await PurchaseInvoice.create({ ...body, clientId, vendorId: body.vendorId });
     // Instant reminder check for purchase invoices too
     if (item.dueDate && !["paid", "rejected", "cancelled"].includes(item.status)) {
@@ -719,7 +980,7 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
     }
     // ── Closed invoices are frozen (payment/status only) ──
     if (current.status === "paid" || current.status === "cancelled") {
-      const frozen = ["lines", "freight", "vendorId", "invoiceNumber", "issueDate", "receivedDate", "dueDate", "goodsPurchaseOrderId", "notes", "documents"];
+      const frozen = ["lines", "freight", "vendorId", "invoiceNumber", "issueDate", "receivedDate", "dueDate", "goodsPurchaseOrderId", "notes", "documents", "linkedSupplierProformaId", "linkedSupplierProformaNumber", "advanceDeducted"];
       if (frozen.some((k) => (body as any)[k] !== undefined)) {
         return res.status(400).json({ error: `A ${current.status} invoice cannot be edited` });
       }
@@ -748,6 +1009,9 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
         if (linkedPo?.status === "cancelled") {
           return res.status(400).json({ error: "Cannot link a cancelled purchase order" });
         }
+        if (linkedPo?.status === "draft") {
+          return res.status(400).json({ error: "Approve and send the purchase order before invoicing" });
+        }
       }
       if (body.lines !== undefined) {
         if (!Array.isArray(body.lines) || body.lines.length === 0) {
@@ -758,6 +1022,21 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
         try { body.lines = validatePurchaseInvoiceLines(po, body.lines); }
         catch (e: any) { return res.status(400).json({ error: e.message }); }
         body.goodsPoNumber = po.poNumber;
+      }
+    }
+    // Optional supplier-proforma link → recompute the advance deduction when
+    // the link or PO number changes.
+    if (body.linkedSupplierProformaId !== undefined || body.poNumber !== undefined) {
+      try {
+        const merged = { ...current, ...body } as any;
+        const pf = await resolveProformaForInvoice(req.user!.userId, merged, "purchase");
+        if (pf) {
+          body.linkedSupplierProformaId = pf.proformaId;
+          body.linkedSupplierProformaNumber = pf.proformaNumber;
+          body.advanceDeducted = pf.advanceDeducted;
+        }
+      } catch (e: any) {
+        return res.status(400).json({ error: e.message });
       }
     }
     // Supplier invoice number must be unique per supplier (excluding self + cancelled).
@@ -842,6 +1121,62 @@ router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
 });
 router.delete("/purchase-orders/:id", authMiddleware, async (req, res) => {
   try { await PurchaseOrder.remove(req.params.id); res.json({ success: true }); } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/**
+ * POST /purchase-orders/:id/convert-to-so — turn a sales proforma into a DRAFT
+ * sales order. The SO is auto-created from the proforma's header + catalogue
+ * lines (draft — no stock impact; only a confirmed dispatch ever debits
+ * inventory) and the proforma is marked "converted_to_so" + linked by id.
+ */
+router.post("/purchase-orders/:id/convert-to-so", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const pf = await PurchaseOrder.get(req.params.id);
+    if (!pf) return res.status(404).json({ error: "Proforma not found" });
+    if (pf.side !== "sales") {
+      return res.status(400).json({ error: "Only sales proformas can be converted to a sales order" });
+    }
+    if (pf.status === "converted_to_so") {
+      return res.status(400).json({ error: "Proforma is already converted to a sales order" });
+    }
+    if (!["received", "reviewed"].includes(pf.status)) {
+      return res.status(400).json({ error: "Only received or reviewed proformas can be converted to a sales order" });
+    }
+    const lines: any[] = (pf.lines ?? []).map((l: any) => ({
+      productId: l.productId,
+      sku: l.sku,
+      name: l.name,
+      unit: l.unit || "unit",
+      orderedQty: Number(l.quantity) || 0,
+      dispatchedQty: 0,
+      unitPrice: Number(l.unitPrice) || 0,
+      discountPct: null,
+      gstRate: l.gstRate ?? null,
+      notes: null,
+    }));
+    if (lines.length === 0) {
+      return res.status(400).json({ error: "Add at least one product line before converting" });
+    }
+    const customerName = pf.debtorId ? await resolveCustomerName(pf.debtorId) : null;
+    const so = await GoodsSO.create({
+      clientId,
+      orderDate: db.todayDate(),
+      customerId: pf.debtorId || null,
+      customerName,
+      contactPerson: pf.debtorContact || null,
+      paymentTerms: pf.paymentTerms || null,
+      expectedDispatchDate: null,
+      expectedDeliveryDate: pf.expectedDeliveryDate || null,
+      notes: pf.notes || null,
+      documents: pf.documents || [],
+      freight: pf.freight || 0,
+      status: "draft",
+      lines,
+    });
+    await PurchaseOrder.update(pf.id, { status: "converted_to_so", linkedGoodsSoId: so.id });
+    res.status(201).json({ success: true, salesOrder: so });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ===================== GOODS PURCHASE ORDERS (catalogue-backed POs) =====================
@@ -1157,6 +1492,578 @@ router.delete("/goods-receipts/:id", authMiddleware, async (req, res) => {
     await syncLinkedPurchaseInvoice({ ...receipt, status: "cancelled" }, receipt.purchaseInvoiceId ?? undefined);
     await GoodsReceipt.remove(receipt.id);
     res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ===================== GOODS SALES ORDERS (catalogue-backed SOs) =====================
+// A sales order records a customer's confirmed order against the catalogue. It
+// NEVER debits inventory — stock only reduces after a CONFIRMED dispatch note
+// (the sales-side mirror of PO → GRN).
+
+/** Shape + catalogue checks for SO lines. SKUs must come from the product catalogue. */
+async function validateGoodsSOLines(clientId: string, rawLines: any[]) {
+  const lines = Array.isArray(rawLines) ? rawLines : [];
+  if (lines.length === 0) throw new Error("Add at least one product line");
+  const products = await Product.list(clientId);
+  const catalogueIds = new Set(products.map((p: any) => p.id));
+  for (const l of lines) {
+    if (!l.productId) throw new Error("Every line must select a product from the catalogue");
+    if (!catalogueIds.has(l.productId)) throw new Error("Every SKU must come from the product catalogue");
+    if (!(Number(l.orderedQty) > 0)) throw new Error("Ordered quantity must be greater than zero");
+    if (Number(l.unitPrice) < 0) throw new Error("Unit selling price must be greater than or equal to zero");
+    if (l.discountPct !== undefined && l.discountPct !== null && l.discountPct !== "") {
+      const d = Number(l.discountPct);
+      if (!Number.isFinite(d) || d < 0 || d > 100) {
+        throw new Error("Discount must be a percentage between 0 and 100");
+      }
+    }
+  }
+  return lines;
+}
+
+/** Resolve a customer (debtor) id to its display name (denormalized). */
+async function resolveCustomerName(id: string): Promise<string | null> {
+  if (!id) return null;
+  try {
+    const d = await Debtor.get(id);
+    if (d) return d.name;
+  } catch { /* ignore */ }
+  return null;
+}
+
+router.get("/goods-sales-orders", authMiddleware, async (req, res) => {
+  try { res.json(await GoodsSO.list(req.user!.userId)); } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.post("/goods-sales-orders", authMiddleware, async (req, res) => {
+  try {
+    const body = req.body || {};
+    let lines: any[];
+    try { lines = await validateGoodsSOLines(req.user!.userId, body.lines); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+    if (!body.customerName && body.customerId) body.customerName = await resolveCustomerName(body.customerId);
+    const item = await GoodsSO.create({
+      ...body, lines, clientId: req.user!.userId,
+      salespersonId: req.user!.userId, salespersonName: req.user!.email,
+    });
+    res.status(201).json(item);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.put("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.lines !== undefined) {
+      let lines: any[];
+      try { lines = await validateGoodsSOLines(req.user!.userId, body.lines); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+      body.lines = lines;
+    }
+    if (body.customerName === undefined && body.customerId) body.customerName = await resolveCustomerName(body.customerId);
+    res.json(await GoodsSO.update(req.params.id, body));
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.delete("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
+  try { await GoodsSO.remove(req.params.id); res.json({ success: true }); } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ===================== QUOTATIONS =====================
+// A quotation is an offer to a customer/prospect. It NEVER affects inventory
+// or accounting — stock is only affected after a confirmed dispatch. An
+// accepted quotation converts into a GoodsSalesOrder (linked by id + number).
+
+/** Shape + catalogue checks for quotation lines. SKUs must come from the product catalogue. */
+async function validateQuotationLines(clientId: string, rawLines: any[]) {
+  const lines = Array.isArray(rawLines) ? rawLines : [];
+  if (lines.length === 0) throw new Error("Add at least one product line");
+  const products = await Product.list(clientId);
+  const catalogueIds = new Set(products.map((p: any) => p.id));
+  for (const l of lines) {
+    if (!l.productId) throw new Error("Every line must select a product from the catalogue");
+    if (!catalogueIds.has(l.productId)) throw new Error("Every SKU must come from the product catalogue");
+    if (!(Number(l.quantity) > 0)) throw new Error("Quantity must be greater than zero");
+    if (Number(l.unitPrice) < 0) throw new Error("Unit selling price must be greater than or equal to zero");
+    if (l.discountType !== undefined && l.discountType !== null && !["pct", "amount"].includes(l.discountType)) {
+      throw new Error("Discount type must be 'pct' or 'amount'");
+    }
+    if (l.discountType === "pct" && (Number(l.discountValue) < 0 || Number(l.discountValue) > 100)) {
+      throw new Error("Percentage discount must be between 0 and 100");
+    }
+    if (l.discountType === "amount" && Number(l.discountValue) < 0) {
+      throw new Error("Discount amount must be greater than or equal to zero");
+    }
+  }
+  return lines;
+}
+
+router.get("/quotations", authMiddleware, async (req, res) => {
+  try { res.json(await Quotation.list(req.user!.userId)); } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.get("/quotations/:id", authMiddleware, async (req, res) => {
+  try {
+    const item = await Quotation.get(req.params.id);
+    if (!item) return res.status(404).json({ error: "Quotation not found" });
+    res.json(item);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.post("/quotations", authMiddleware, async (req, res) => {
+  try {
+    const body = req.body || {};
+    let lines: any[];
+    try { lines = await validateQuotationLines(req.user!.userId, body.lines); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+    if (!body.customerName && body.customerId) body.customerName = await resolveCustomerName(body.customerId);
+    const item = await Quotation.create({
+      ...body, lines, clientId: req.user!.userId,
+      salespersonId: req.user!.userId, salespersonName: req.user!.email,
+    });
+    res.status(201).json(item);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.put("/quotations/:id", authMiddleware, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (body.lines !== undefined) {
+      let lines: any[];
+      try { lines = await validateQuotationLines(req.user!.userId, body.lines); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+      body.lines = lines;
+    }
+    if (body.customerName === undefined && body.customerId) body.customerName = await resolveCustomerName(body.customerId);
+    res.json(await Quotation.update(req.params.id, body));
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.delete("/quotations/:id", authMiddleware, async (req, res) => {
+  try {
+    const q = await Quotation.get(req.params.id);
+    if (!q) return res.status(404).json({ error: "Quotation not found" });
+    if (!["draft"].includes(q.status)) {
+      return res.status(400).json({ error: "Only draft quotations can be deleted" });
+    }
+    await Quotation.remove(q.id);
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /quotations/:id/convert — turn a sent/accepted quotation into a sales order. */
+router.post("/quotations/:id/convert", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const q = await Quotation.get(req.params.id);
+    if (!q) return res.status(404).json({ error: "Quotation not found" });
+    if (q.status === "converted_to_so") return res.status(400).json({ error: "Quotation is already converted to a sales order" });
+    if (!["sent", "accepted"].includes(q.status)) {
+      return res.status(400).json({ error: "Only sent or accepted quotations can be converted to a sales order" });
+    }
+    const lines: any[] = (q.lines ?? []).map((l: any) => {
+      let discountPct: number | null = null;
+      if (l.discountType === "pct") discountPct = Number(l.discountValue) || 0;
+      else if (l.discountType === "amount") {
+        const gross = (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0);
+        if (gross > 0) discountPct = Math.round(((Number(l.discountValue) || 0) / gross) * 100 * 100) / 100;
+      }
+      return {
+        productId: l.productId, sku: l.sku, name: l.name, unit: l.unit || "unit",
+        orderedQty: Number(l.quantity) || 0,
+        unitPrice: Number(l.unitPrice) || 0,
+        discountPct,
+        gstRate: l.gstRate ?? null,
+        notes: l.notes || null,
+      };
+    });
+    const so = await GoodsSO.create({
+      clientId,
+      orderDate: db.todayDate(),
+      customerId: q.customerId, customerName: q.customerName,
+      contactPerson: q.contactPerson, billingAddress: q.billingAddress, deliveryAddress: q.deliveryAddress,
+      salespersonId: q.salespersonId, salespersonName: q.salespersonName,
+      paymentTerms: q.paymentTerms, expectedDeliveryDate: q.expectedDeliveryDate,
+      freight: q.freight,
+      linkedQuotationId: q.id, linkedQuotationNumber: q.quotationNumber,
+      notes: q.notes ? `Converted from quotation ${q.quotationNumber}. ${q.notes}` : `Converted from quotation ${q.quotationNumber}`,
+      documents: q.documents || [],
+      status: "draft", lines,
+    });
+    const updated = await Quotation.update(q.id, { status: "converted_to_so", linkedGoodsSoId: so.id });
+    res.status(201).json({ quotation: updated, salesOrder: so });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ===================== GOODS DISPATCHES (sales-side of GRN) =====================
+// Lifecycle: draft (no stock) → confirm (DEBITS stock with the dispatched
+// quantity, folds dispatched qty into the SO) → cancelled (reversing credit
+// entries only if stock had already been debited).
+// The dispatch note is the ONLY document that debits inventory for sales
+// orders — SOs, proformas and sales invoices never touch stock.
+
+function assertSODispatchable(so: any) {
+  if (so.status === "cancelled") throw new Error("Cannot dispatch against a cancelled sales order");
+  if (so.status === "draft") throw new Error("Confirm the sales order before dispatching goods");
+  if (so.status === "fully_dispatched") throw new Error("Sales order is already fully dispatched");
+}
+
+/**
+ * Validate dispatch lines against the SO (ordered/pending limits) and snapshot
+ * them onto the dispatch note. The over-dispatch gate applies to the
+ * dispatched quantity — that is what counts toward the SO and leaves stock.
+ */
+function validateDispatchLines(so: any, rawLines: any[], allowOverDispatch: boolean) {
+  const lines: any[] = [];
+  if (!Array.isArray(rawLines) || rawLines.length === 0) throw new Error("At least one dispatched line required");
+  // Accumulate per-product dispatched quantities so duplicate lines can't each
+  // pass the pending check and collectively over-dispatch.
+  const seen = new Map<string, number>();
+  for (const ln of rawLines) {
+    const soLine = (so.lines ?? []).find((l: any) => l.productId === ln.productId);
+    if (!soLine) throw new Error("A dispatch line references a product that is not on this sales order");
+    const dispatchedQty = Number(ln.dispatchedQty);
+    if (!Number.isFinite(dispatchedQty) || dispatchedQty <= 0) throw new Error(`Dispatched quantity must be greater than zero for ${soLine.name}`);
+    const already = seen.get(soLine.productId) ?? 0;
+    const pending = soLine.orderedQty - (soLine.dispatchedQty ?? 0) - already;
+    if (dispatchedQty > pending && !allowOverDispatch) {
+      throw new Error(`Dispatching ${dispatchedQty} for ${soLine.name} exceeds the ${Math.max(0, pending)} pending. Over-dispatch requires checker/admin approval.`);
+    }
+    seen.set(soLine.productId, already + dispatchedQty);
+    lines.push({
+      productId: soLine.productId, sku: soLine.sku, name: soLine.name,
+      unit: soLine.unit ?? "unit",
+      orderedQty: soLine.orderedQty, dispatchedQty,
+      unitPrice: Number(ln.unitPrice ?? soLine.unitPrice) || 0,
+      discountPct: soLine.discountPct ?? null,
+      gstRate: soLine.gstRate ?? null,
+      lineValue: Math.round(dispatchedQty * (Number(ln.unitPrice ?? soLine.unitPrice) || 0) * (1 - (soLine.discountPct ?? 0) / 100) * 100) / 100,
+      notes: ln.notes || null,
+    });
+  }
+  return lines;
+}
+
+/** Quantity that was debited for a line — the dispatched quantity. */
+function debitedQty(l: any): number {
+  return Number(l.dispatchedQty) || 0;
+}
+
+/** Available stock per product (confirmed credits − confirmed debits). */
+async function stockBalanceByProduct(clientId: string): Promise<Map<string, number>> {
+  const movements = await StockMovement.list(clientId);
+  const balance = new Map<string, number>();
+  for (const m of movements) {
+    if (!m.productId || m.status !== "confirmed") continue;
+    balance.set(m.productId, (balance.get(m.productId) ?? 0) + (m.direction === "in" ? m.quantity : -m.quantity));
+  }
+  return balance;
+}
+
+/** Debit inventory for every dispatch line and fold dispatched qty into the SO. */
+async function debitSalesOrder(clientId: string, dispatch: any, so: any) {
+  const unitByProduct = new Map<string, string>(
+    (so.lines ?? []).map((l: any) => [String(l.productId), String(l.unit ?? "unit")] as [string, string])
+  );
+  for (const ln of dispatch.lines ?? []) {
+    const qty = debitedQty(ln);
+    if (!(qty > 0)) continue;
+    let unitCost = ln.unitPrice;
+    try {
+      const prod = await Product.get(ln.productId);
+      if (prod && prod.unitCost != null) unitCost = prod.unitCost;
+    } catch { /* keep the dispatch snapshot */ }
+    await StockMovement.create({
+      clientId, productId: ln.productId, direction: "out", itemName: ln.name, sku: ln.sku,
+      quantity: qty, unit: unitByProduct.get(ln.productId) || ln.unit || "unit",
+      unitCost,
+      warehouse: dispatch.warehouse || null,
+      reason: "Dispatch",
+      linkedDocumentType: "Dispatch",
+      linkedDocumentNumber: dispatch.dispatchNumber,
+      status: "confirmed",
+      notes: `Dispatch ${dispatch.dispatchNumber} for SO ${dispatch.soNumber ?? ""}`.trim(),
+      movementDate: dispatch.dispatchDate, goodsDispatchId: dispatch.id,
+      salesOrderId: dispatch.goodsSalesOrderId,
+      createdById: dispatch.dispatchedById, createdByName: dispatch.dispatchedBy,
+      confirmedById: dispatch.debitedBy, confirmedByName: dispatch.debitedBy, confirmedAt: dispatch.debitedAt,
+    });
+  }
+  await GoodsSO.recordDispatch(dispatch.goodsSalesOrderId, (dispatch.lines ?? []).map((l: any) => ({ productId: l.productId, dispatchedQty: debitedQty(l) })));
+}
+
+/** Create reversing credit (stock-in) entries for a confirmed dispatch and revoke its SO quantities. */
+async function reverseDispatch(clientId: string, dispatch: any, so: any) {
+  const unitByProduct = new Map<string, string>(
+    (so?.lines ?? []).map((l: any) => [String(l.productId), String(l.unit ?? "unit")] as [string, string])
+  );
+  for (const ln of dispatch.lines ?? []) {
+    const qty = debitedQty(ln);
+    if (!(qty > 0)) continue;
+    let unitCost = ln.unitPrice;
+    try {
+      const prod = await Product.get(ln.productId);
+      if (prod && prod.unitCost != null) unitCost = prod.unitCost;
+    } catch { /* keep the dispatch snapshot */ }
+    await StockMovement.create({
+      clientId, productId: ln.productId, direction: "in", itemName: ln.name, sku: ln.sku,
+      quantity: qty, unit: unitByProduct.get(ln.productId) || ln.unit || "unit",
+      unitCost,
+      warehouse: dispatch.warehouse || null,
+      reason: "Stock adjustment",
+      linkedDocumentType: "Dispatch",
+      linkedDocumentNumber: dispatch.dispatchNumber,
+      status: "confirmed",
+      notes: `Dispatch ${dispatch.dispatchNumber} cancelled — reversal`,
+      movementDate: db.todayDate(), goodsDispatchId: dispatch.id,
+      salesOrderId: dispatch.goodsSalesOrderId,
+      createdById: dispatch.cancelledBy, createdByName: dispatch.cancelledBy,
+      confirmedById: dispatch.cancelledBy, confirmedByName: dispatch.cancelledBy, confirmedAt: db.nowISO(),
+    });
+  }
+  await GoodsSO.revokeDispatch(dispatch.goodsSalesOrderId, (dispatch.lines ?? []).map((l: any) => ({ productId: l.productId, dispatchedQty: debitedQty(l) })));
+}
+
+router.get("/goods-dispatches", authMiddleware, async (req, res) => {
+  try { res.json(await GoodsDispatch.list(req.user!.userId)); } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /goods-dispatches — create a DRAFT dispatch note. No stock impact. */
+router.post("/goods-dispatches", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const body = req.body || {};
+    if (!body.goodsSalesOrderId) return res.status(400).json({ error: "goodsSalesOrderId required" });
+    const so = await GoodsSO.get(body.goodsSalesOrderId);
+    if (!so) return res.status(404).json({ error: "Sales order not found" });
+    if (so.status === "cancelled") return res.status(400).json({ error: "Cannot create a dispatch against a cancelled sales order" });
+    // A draft may be prepared against any open SO; the dispatchable/over-dispatch
+    // checks run at CONFIRM time (the moment stock actually gets debited).
+    let lines: any[];
+    try { lines = validateDispatchLines(so, body.lines, false); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+    // Resolve linked-document numbers for display snapshots.
+    let linkedProformaNumber: string | null = body.linkedCustomerProformaNumber ?? null;
+    if (body.linkedCustomerProformaId && !linkedProformaNumber) {
+      const pf = await PurchaseOrder.get(body.linkedCustomerProformaId);
+      linkedProformaNumber = pf ? (pf.proformaNumber ?? pf.poNumber) : null;
+    }
+    let linkedInvoiceNumber: string | null = body.linkedSalesInvoiceNumber ?? null;
+    if (body.linkedSalesInvoiceId && !linkedInvoiceNumber) {
+      const inv = await Invoice.get(body.linkedSalesInvoiceId);
+      linkedInvoiceNumber = inv ? inv.invoiceNumber : null;
+    }
+    const dispatch = await GoodsDispatch.create({
+      clientId, goodsSalesOrderId: so.id, soNumber: so.soNumber,
+      customerId: body.customerId ?? so.customerId, customerName: body.customerName ?? so.customerName,
+      contactPerson: body.contactPerson ?? so.contactPerson,
+      deliveryAddress: body.deliveryAddress ?? so.deliveryAddress,
+      warehouse: body.warehouse ?? null,
+      dispatchDate: body.dispatchDate || null,
+      transporterName: body.transporterName || null,
+      trackingNumber: body.trackingNumber || null,
+      deliveryChallanNumber: body.deliveryChallanNumber || null,
+      linkedCustomerProformaId: body.linkedCustomerProformaId || null,
+      linkedCustomerProformaNumber: linkedProformaNumber,
+      linkedSalesInvoiceId: body.linkedSalesInvoiceId || null,
+      linkedSalesInvoiceNumber: linkedInvoiceNumber,
+      dispatchedById: req.user!.userId, dispatchedBy: req.user!.email,
+      notes: body.notes || null, documents: body.documents || [],
+      status: "draft", lines,
+    });
+    res.status(201).json(dispatch);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /goods-dispatches/:id/confirm — debit stock (idempotent, race-safe). */
+router.post("/goods-dispatches/:id/confirm", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const dispatch = await GoodsDispatch.get(req.params.id);
+    if (!dispatch) return res.status(404).json({ error: "Dispatch note not found" });
+    if (dispatch.status === "cancelled") return res.status(400).json({ error: "Cannot confirm a cancelled dispatch" });
+    const allowOver = !!req.body?.allowOverDispatch && (req.user!.roles?.includes("factor_admin") || req.user!.roles?.includes("checker"));
+    const so = await GoodsSO.get(dispatch.goodsSalesOrderId);
+    if (!so) return res.status(404).json({ error: "Sales order not found" });
+    try { assertSODispatchable(so); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+    // Re-validate at confirm time — the SO may have been dispatched further in
+    // the meantime, so pending is checked against the live SO.
+    try { validateDispatchLines(so, dispatch.lines, allowOver); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+    // Soft stock check: warn (don't block) when available stock is short.
+    const balance = await stockBalanceByProduct(clientId);
+    const warnings: string[] = [];
+    for (const ln of dispatch.lines ?? []) {
+      const qty = debitedQty(ln);
+      if (!(qty > 0)) continue;
+      const available = balance.get(ln.productId) ?? 0;
+      if (qty > available) {
+        warnings.push(`${ln.name}: dispatching ${qty} but only ${Math.max(0, available)} in stock`);
+      }
+    }
+    // Atomic draft → confirmed flip: exactly one concurrent confirm wins and
+    // debits stock; the others get alreadyConfirmed and debit nothing.
+    const flipped = await GoodsDispatch.flipToConfirmed(dispatch.id, req.user!.email);
+    if (!flipped) return res.json({ ...dispatch, alreadyConfirmed: true });
+    await debitSalesOrder(clientId, flipped, so);
+    recomputeForecast(clientId);
+    res.json({ ...flipped, stockWarnings: warnings });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /goods-dispatches/:id/cancel — reversing credit entries only if stock was debited. */
+router.post("/goods-dispatches/:id/cancel", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const dispatch = await GoodsDispatch.get(req.params.id);
+    if (!dispatch) return res.status(404).json({ error: "Dispatch note not found" });
+    if (dispatch.status === "cancelled") return res.json({ ...dispatch, alreadyCancelled: true });
+    if (dispatch.status === "returned") {
+      return res.status(400).json({ error: "Cannot cancel a returned dispatch — the return has already credited stock back" });
+    }
+    // Atomic → cancelled flip: only the winner performs the reversal.
+    const flipped = await GoodsDispatch.flipToCancelled(dispatch.id, req.user!.email);
+    if (!flipped) return res.json({ ...dispatch, alreadyCancelled: true });
+    const wasDebited = flipped.stockDebited === true;
+    if (wasDebited) {
+      const so = await GoodsSO.get(dispatch.goodsSalesOrderId);
+      if (so) await reverseDispatch(clientId, dispatch, so);
+    }
+    recomputeForecast(clientId);
+    res.json(flipped);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** PUT /goods-dispatches/:id — edit a DRAFT only (no stock impact). */
+router.put("/goods-dispatches/:id", authMiddleware, async (req, res) => {
+  try {
+    const dispatch = await GoodsDispatch.get(req.params.id);
+    if (!dispatch) return res.status(404).json({ error: "Dispatch note not found" });
+    if (dispatch.status !== "draft") return res.status(400).json({ error: "Only draft dispatch notes can be edited — confirm or cancel first" });
+    const body = req.body || {};
+    const so = await GoodsSO.get(dispatch.goodsSalesOrderId);
+    if (!so) return res.status(404).json({ error: "Sales order not found" });
+    let lines = dispatch.lines;
+    if (body.lines !== undefined) {
+      try { lines = validateDispatchLines(so, body.lines, false); } catch (e: any) { return res.status(400).json({ error: e.message }); }
+    }
+    const updated = await GoodsDispatch.update(dispatch.id, {
+      dispatchDate: body.dispatchDate ?? dispatch.dispatchDate,
+      warehouse: body.warehouse ?? dispatch.warehouse,
+      notes: body.notes ?? dispatch.notes,
+      documents: body.documents ?? dispatch.documents,
+      lines,
+    });
+    res.json(updated);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** DELETE /goods-dispatches/:id — delete a DRAFT only. Confirmed dispatches must be cancelled first. */
+router.delete("/goods-dispatches/:id", authMiddleware, async (req, res) => {
+  try {
+    const dispatch = await GoodsDispatch.get(req.params.id);
+    if (!dispatch) return res.status(404).json({ error: "Dispatch note not found" });
+    if (dispatch.status !== "draft") {
+      return res.status(400).json({ error: "Only draft dispatch notes can be deleted — cancel confirmed dispatches instead" });
+    }
+    await GoodsDispatch.remove(dispatch.id);
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+router.get("/goods-dispatches/:id", authMiddleware, async (req, res) => {
+  try {
+    const item = await GoodsDispatch.get(req.params.id);
+    if (!item) return res.status(404).json({ error: "Dispatch note not found" });
+    res.json(item);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /goods-dispatches/:id/deliver — record per-line delivered qty + delivery date. No stock impact. */
+router.post("/goods-dispatches/:id/deliver", authMiddleware, async (req, res) => {
+  try {
+    const dispatch = await GoodsDispatch.get(req.params.id);
+    if (!dispatch) return res.status(404).json({ error: "Dispatch note not found" });
+    if (["draft", "cancelled", "returned"].includes(dispatch.status)) {
+      return res.status(400).json({ error: `Cannot mark a ${dispatch.status} dispatch as delivered` });
+    }
+    if (dispatch.status === "delivered") {
+      return res.status(400).json({ error: "Dispatch is already fully delivered" });
+    }
+    const rawLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+    if (rawLines.length === 0) return res.status(400).json({ error: "Enter a delivered quantity for at least one line" });
+    // Accumulate per-product delivered quantities so duplicate lines can't collectively over-deliver.
+    const seen = new Map<string, number>();
+    const delivered: Array<{ productId: string; deliveredQty: number }> = [];
+    for (const ln of rawLines) {
+      const dLine = (dispatch.lines ?? []).find((l: any) => l.productId === ln.productId);
+      if (!dLine) return res.status(400).json({ error: "A delivery line references a product that is not on this dispatch" });
+      const qty = Number(ln.deliveredQty);
+      if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: `Delivered quantity must be greater than zero for ${dLine.name}` });
+      const already = seen.get(dLine.productId) ?? 0;
+      const remaining = dLine.dispatchedQty - (dLine.deliveredQty ?? 0);
+      if (qty > remaining - already) {
+        return res.status(400).json({ error: `Delivered quantity for ${dLine.name} exceeds the ${Math.max(0, remaining - already)} not yet delivered` });
+      }
+      seen.set(dLine.productId, already + qty);
+      delivered.push({ productId: dLine.productId, deliveredQty: qty });
+    }
+    const updated = await GoodsDispatch.markDelivered(dispatch.id, delivered, req.body.deliveryDate || null, req.user!.email);
+    res.json(updated);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /goods-dispatches/:id/return — record per-line returns, credit stock back, revoke SO dispatched qty. */
+router.post("/goods-dispatches/:id/return", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const dispatch = await GoodsDispatch.get(req.params.id);
+    if (!dispatch) return res.status(404).json({ error: "Dispatch note not found" });
+    if (["draft", "cancelled", "returned"].includes(dispatch.status)) {
+      return res.status(400).json({ error: `Cannot record a return on a ${dispatch.status} dispatch` });
+    }
+    const rawLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
+    const returned: Array<{ productId: string; returnedQty: number }> = [];
+    const seen = new Map<string, number>();
+    // No lines → return everything not yet returned (full return).
+    if (rawLines.length === 0) {
+      for (const dLine of dispatch.lines ?? []) {
+        const remaining = dLine.dispatchedQty - (dLine.returnedQty ?? 0);
+        if (remaining > 0) returned.push({ productId: dLine.productId, returnedQty: remaining });
+      }
+    } else {
+      for (const ln of rawLines) {
+        const dLine = (dispatch.lines ?? []).find((l: any) => l.productId === ln.productId);
+        if (!dLine) return res.status(400).json({ error: "A return line references a product that is not on this dispatch" });
+        const qty = Number(ln.returnedQty);
+        if (!Number.isFinite(qty) || qty <= 0) return res.status(400).json({ error: `Returned quantity must be greater than zero for ${dLine.name}` });
+        const already = seen.get(dLine.productId) ?? 0;
+        const remaining = dLine.dispatchedQty - (dLine.returnedQty ?? 0);
+        if (qty > remaining - already) {
+          return res.status(400).json({ error: `Returned quantity for ${dLine.name} exceeds the ${Math.max(0, remaining - already)} not yet returned` });
+        }
+        seen.set(dLine.productId, already + qty);
+        returned.push({ productId: dLine.productId, returnedQty: qty });
+      }
+    }
+    if (returned.length === 0) return res.status(400).json({ error: "Nothing to return — all quantities already returned" });
+    const so = await GoodsSO.get(dispatch.goodsSalesOrderId);
+    // Credit the returned quantity back into stock (system-created reversal).
+    for (const r of returned) {
+      const dLine = (dispatch.lines ?? []).find((l: any) => l.productId === r.productId);
+      if (!dLine) continue;
+      let unitCost = dLine.unitPrice;
+      try {
+        const prod = await Product.get(dLine.productId);
+        if (prod && prod.unitCost != null) unitCost = prod.unitCost;
+      } catch { /* keep the dispatch snapshot */ }
+      await StockMovement.create({
+        clientId, productId: dLine.productId, direction: "in", itemName: dLine.name, sku: dLine.sku,
+        quantity: r.returnedQty, unit: dLine.unit || "unit", unitCost,
+        warehouse: dispatch.warehouse || null,
+        reason: "Customer return",
+        linkedDocumentType: "Dispatch",
+        linkedDocumentNumber: dispatch.dispatchNumber,
+        status: "confirmed",
+        notes: `Dispatch ${dispatch.dispatchNumber} returned — stock-in`,
+        movementDate: db.todayDate(), goodsDispatchId: dispatch.id,
+        salesOrderId: dispatch.goodsSalesOrderId,
+        createdById: req.user!.userId, createdByName: req.user!.email,
+        confirmedById: req.user!.userId, confirmedByName: req.user!.email, confirmedAt: db.nowISO(),
+      });
+    }
+    const updated = await GoodsDispatch.recordReturned(dispatch.id, returned, req.user!.email);
+    if (so) {
+      await GoodsSO.revokeDispatch(so.id, returned.map((r) => ({ productId: r.productId, dispatchedQty: r.returnedQty })));
+    }
+    recomputeForecast(clientId);
+    res.json(updated);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 

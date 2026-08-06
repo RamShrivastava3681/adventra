@@ -35,6 +35,8 @@ import {
   Briefcase,
   ClipboardList,
   PackageCheck,
+  ShoppingBag,
+  ScrollText,
 } from "lucide-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -71,6 +73,9 @@ const TRANSACTIONS_ITEMS: NavItem[] = [
   { to: "/app/purchases", label: "Purchase invoices", icon: ShoppingCart },
   { to: "/app/purchase-orders", label: "Purchase orders", icon: ClipboardList },
   { to: "/app/grn", label: "Goods received (GRN)", icon: PackageCheck },
+  { to: "/app/quotations", label: "Quotations", icon: ScrollText },
+  { to: "/app/sales-orders", label: "Sales orders", icon: ShoppingBag },
+  { to: "/app/dispatches", label: "Dispatch", icon: Truck },
   { to: "/app/invoices", label: "Sales invoices", icon: FileText },
   { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
   { to: "/app/debtors", label: "Debtors", icon: Building2 },
@@ -145,6 +150,7 @@ function buildNavSections(roles: string[]): NavSection[] {
         icon: Users,
         items: [
           { to: "/app/crm", label: "Leads", icon: Users },
+          { to: "/app/quotations", label: "Quotations", icon: ScrollText },
           { to: "/app/debtors", label: "Debtors", icon: Building2 },
           { to: "/app/suppliers", label: "Suppliers", icon: Truck },
         ],
@@ -195,6 +201,7 @@ function buildNavSections(roles: string[]): NavSection[] {
         icon: Users,
         items: [
           { to: "/app/crm", label: "Leads", icon: Users },
+          { to: "/app/quotations", label: "Quotations", icon: ScrollText },
           { to: "/app/debtors", label: "Debtors", icon: Building2 },
           { to: "/app/suppliers", label: "Suppliers", icon: Truck },
         ],
@@ -296,13 +303,25 @@ function AppLayout() {
       "/app/invoices",
       "/app/purchases",
       "/app/purchase-orders",
+      "/app/quotations",
+      "/app/quotation",
+      "/app/sales-orders",
+      "/app/dispatches",
+      "/app/challan",
       "/app/grn",
       "/app/proformas",
       "/app/advances",
       "/app/expenses",
       "/app/notes",
     ];
-    const salesmanAllowed = ["/app/dashboard", "/app/crm", "/app/debtors", "/app/suppliers"];
+    const salesmanAllowed = [
+      "/app/dashboard",
+      "/app/crm",
+      "/app/quotations",
+      "/app/quotation",
+      "/app/debtors",
+      "/app/suppliers",
+    ];
 
     if (isAdmin) return; // admin goes anywhere
 

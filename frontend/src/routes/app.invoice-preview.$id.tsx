@@ -32,11 +32,31 @@ function PreviewPage() {
 
   const i = invQ.data as Record<string, unknown> & { debtor?: Record<string, unknown> };
   const tpl = (tplQ.data as Record<string, unknown> | null) ?? {};
-  const lines: PreviewLine[] = Array.isArray(i.line_items) ? (i.line_items as PreviewLine[]) : [];
-  const amount = Number(i.amount ?? 0);
-  const taxRate = Number(i.tax_rate ?? 0);
-  const taxAmount = Number(i.tax_amount ?? 0);
-  const subtotal = Number(i.subtotal ?? Math.max(0, amount - taxAmount));
+
+  // Goods-invoice lines (catalogue-backed) — fall back to legacy line_items.
+  const goodsLines = Array.isArray(i.lines) ? (i.lines as any[]) : [];
+  const legacyLines = Array.isArray(i.line_items) ? (i.line_items as any[]) : [];
+  const lines: PreviewLine[] = (goodsLines.length ? goodsLines : legacyLines).map((l) => ({
+    description: l.name ?? l.description ?? "Item",
+    quantity: Number(l.quantity ?? l.qty ?? 0),
+    unit_price: Number(l.unit_price ?? 0),
+    line_total: Number(l.line_total ?? 0),
+    sku: l.sku ?? null,
+    discount_pct: l.discount_pct ?? null,
+    gst_rate: l.gst_rate ?? null,
+  }));
+
+  const grandTotal = Number(i.grand_total ?? i.amount ?? 0);
+  const advanceDeducted = Number(i.advance_deducted ?? 0);
+  // `amount` is the net receivable (grand total − advances) — the document
+  // total that prints stays the full value with the advance shown separately.
+  const netAmount = Number(i.amount ?? Math.max(0, grandTotal - advanceDeducted));
+  const subtotal = Number(i.subtotal_goods ?? i.subtotal ?? Math.max(0, grandTotal - Number(i.tax_amount ?? 0)));
+  const totalDiscount = Number(i.total_discount ?? 0);
+  const gstTotal = Number(i.gst_total ?? i.tax_amount ?? 0);
+  const freight = Number(i.freight ?? 0);
+  const amountReceived = Number(i.amount_received ?? 0);
+  const balanceOutstanding = Math.max(0, netAmount - amountReceived);
 
   const debtor = i.debtor ?? {};
   const partyAddress = [debtor.address_line, debtor.city, debtor.country].filter(Boolean).join(", ");
@@ -71,11 +91,20 @@ function PreviewPage() {
         party_phone: (debtor.contact_phone as string) || "",
         po_number: i.po_number ? String(i.po_number) : null,
         po_date: i.po_date ? String(i.po_date) : null,
+        so_number: i.goods_sales_order_number ? String(i.goods_sales_order_number) : null,
+        billing_address: i.billing_address ? String(i.billing_address) : null,
+        delivery_address: i.delivery_address ? String(i.delivery_address) : null,
         line_items: lines,
         subtotal,
-        tax_rate: taxRate,
-        tax_amount: taxAmount,
-        total: amount,
+        tax_rate: Number(i.tax_rate ?? 0),
+        tax_amount: gstTotal,
+        total: grandTotal,
+        total_discount: totalDiscount,
+        gst_total: gstTotal,
+        freight,
+        advance_deducted: advanceDeducted,
+        amount_received: amountReceived,
+        balance_outstanding: balanceOutstanding,
         notes: (i.notes as string) || null,
       }}
     />

@@ -207,8 +207,13 @@ function CheckerPage() {
 
   const rows: Row[] = [
     ...((salesQ.data ?? []) as Array<Record<string, any>>).map((i): Row => {
-      const adv = advFor("sales", i.po_number);
-      const amt = Number(i.amount);
+      // Goods invoices now store the net amount (grand total − advances) and
+      // the deducted advance. Fall back to the legacy PO-number lookup for
+      // invoices created before those fields existed.
+      const storedAdv = Number(i.advance_deducted ?? 0);
+      const adv = storedAdv > 0 ? storedAdv : advFor("sales", i.po_number);
+      const amt = Number(i.amount ?? i.grand_total ?? 0);
+      const net = storedAdv > 0 ? amt : Math.max(0, amt - adv);
       return {
         kind: "sale",
         id: i.id,
@@ -216,7 +221,7 @@ function CheckerPage() {
         amount: amt,
         po_number: i.po_number,
         advance: adv,
-        net: Math.max(0, amt - adv),
+        net,
         issue_date: i.issue_date,
         due_date: i.due_date,
         party: i.debtor?.name ?? "—",
@@ -227,8 +232,13 @@ function CheckerPage() {
       };
     }),
     ...((purchasesQ.data ?? []) as Array<Record<string, any>>).map((p): Row => {
-      const adv = advFor("purchase", p.po_number);
-      const amt = Number(p.grand_total ?? p.amount);
+      // Purchase invoices now store the net payable (grand total − advances)
+      // and the deducted advance. Fall back to the legacy PO-number lookup for
+      // invoices created before those fields existed.
+      const storedAdv = Number(p.advance_deducted ?? 0);
+      const adv = storedAdv > 0 ? storedAdv : advFor("purchase", p.po_number);
+      const amt = Number(p.amount ?? p.grand_total ?? 0);
+      const net = storedAdv > 0 ? amt : Math.max(0, amt - adv);
       return {
         kind: "purchase",
         id: p.id,
@@ -236,7 +246,7 @@ function CheckerPage() {
         amount: amt,
         po_number: p.goods_po_number ?? p.po_number,
         advance: adv,
-        net: Math.max(0, amt - adv),
+        net,
         issue_date: p.issue_date,
         due_date: p.due_date,
         party: p.supplier_name ?? p.vendor?.name ?? "—",

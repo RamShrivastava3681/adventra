@@ -167,6 +167,11 @@ export async function update(id: string, updates: Partial<GoodsReceipt>) {
  * Atomic draft → confirmed flip. Returns the updated item, or null if the GRN
  * was already confirmed (or is cancelled) — callers must only credit stock when
  * this returns a value, so concurrent confirm requests can't double-credit.
+ *
+ * NOTE: the condition only checks the status. `attribute_not_exists(creditedAt)`
+ * is intentionally NOT used here — create() stores `creditedAt: null` (a NULL
+ * DynamoDB attribute still exists), which would make that check always fail and
+ * silently turn every confirm into a no-op.
  */
 export async function flipToConfirmed(id: string, creditedBy: string) {
   return db.updateItemIf(
@@ -179,7 +184,7 @@ export async function flipToConfirmed(id: string, creditedBy: string) {
       creditedBy,
       updatedAt: db.nowISO(),
     },
-    "#status = :draft AND attribute_not_exists(creditedAt)",
+    "#status = :draft",
     { ":draft": "draft" },
     true,
     { "#status": "status" },
@@ -190,6 +195,10 @@ export async function flipToConfirmed(id: string, creditedBy: string) {
  * Atomic → cancelled flip. Returns the updated item, or null if already
  * cancelled. Callers decide whether to reverse stock based on the prior status
  * (confirmed/received = credited).
+ *
+ * NOTE: like flipToConfirmed, the condition only checks the status — the old
+ * `attribute_not_exists(cancelledAt)` guard never passed because create()
+ * stores `cancelledAt: null`, silently breaking every cancel.
  */
 export async function flipToCancelled(id: string, cancelledBy: string) {
   return db.updateItemIf(
@@ -201,7 +210,7 @@ export async function flipToCancelled(id: string, cancelledBy: string) {
       cancelledBy,
       updatedAt: db.nowISO(),
     },
-    "#status <> :cancelled AND attribute_not_exists(cancelledAt)",
+    "#status <> :cancelled",
     { ":cancelled": "cancelled" },
     true,
     { "#status": "status" },

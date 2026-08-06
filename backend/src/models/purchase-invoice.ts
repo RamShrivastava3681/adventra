@@ -55,12 +55,22 @@ export interface PurchaseInvoice {
   /** Linked goods PO (catalogue-backed purchase order). */
   goodsPurchaseOrderId: string | null;
   goodsPoNumber: string | null;
+  /** Linked supplier proforma (purchase side) — optional. */
+  linkedSupplierProformaId: string | null;
+  linkedSupplierProformaNumber: string | null;
   /** Linked GRN — created after the invoice; back-filled by the GRN routes. */
   linkedGoodsReceiptId: string | null;
   linkedGoodsReceiptNumber: string | null;
   /** Catalogue lines (from the linked PO). */
   lines: PurchaseInvoiceLine[];
   subtotal: number; gstTotal: number; freight: number; grandTotal: number;
+  /**
+   * System-calculated: advances already paid to the supplier against the
+   * linked proforma, deducted from the document total. The invoice `amount`
+   * (net payable to the supplier) is grandTotal − advanceDeducted, never
+   * negative.
+   */
+  advanceDeducted: number;
   amountPaid: number; balanceDue: number;
   /** Explanations for quantity/price differences vs GRN/PO. */
   differenceNotes: string | null;
@@ -165,6 +175,10 @@ export async function create(data: Partial<PurchaseInvoice> & { clientId: string
   const lines = computeLineTotals((data.lines ?? []) as PurchaseInvoiceLine[]);
   const totals = computeTotals(lines, data.freight ?? 0);
   const grandTotal = totals.grandTotal;
+  // Advances already paid to the supplier against the linked proforma reduce
+  // the net payable — the `amount` the funding pipeline reads.
+  const advanceDeducted = Math.min(grandTotal, Math.max(0, round2(Number(data.advanceDeducted) || 0)));
+  const amount = round2(Math.max(0, grandTotal - advanceDeducted));
   const amountPaid = Number(data.amountPaid) || 0;
   const item: PurchaseInvoice = {
     pk: `PURCHASE_INVOICE#${id}`, sk: `PURCHASE_INVOICE#${id}`,
@@ -172,7 +186,7 @@ export async function create(data: Partial<PurchaseInvoice> & { clientId: string
     entityType: "PurchaseInvoice", id, clientId: data.clientId, vendorId: data.vendorId,
     supplierName: data.supplierName || null,
     invoiceNumber: data.invoiceNumber,
-    amount: grandTotal,
+    amount,
     poNumber: data.poNumber || null, poDate: data.poDate || null, poAmount: data.poAmount || null,
     issueDate: data.issueDate || db.todayDate(), receivedDate: data.receivedDate || null,
     dueDate: data.dueDate || null, paidDate: null,
@@ -180,12 +194,15 @@ export async function create(data: Partial<PurchaseInvoice> & { clientId: string
     notes: data.notes || null,
     goodsPurchaseOrderId: data.goodsPurchaseOrderId || null,
     goodsPoNumber: data.goodsPoNumber || null,
+    linkedSupplierProformaId: data.linkedSupplierProformaId || null,
+    linkedSupplierProformaNumber: data.linkedSupplierProformaNumber || null,
     linkedGoodsReceiptId: data.linkedGoodsReceiptId || null,
     linkedGoodsReceiptNumber: data.linkedGoodsReceiptNumber || null,
     lines,
     ...totals,
+    advanceDeducted,
     amountPaid,
-    balanceDue: round2(Math.max(0, grandTotal - amountPaid)),
+    balanceDue: round2(Math.max(0, amount - amountPaid)),
     differenceNotes: data.differenceNotes || null,
     lastOverdueReminderDate: null,
     advanceRate: data.advanceRate ?? 0.80, advancePaidDate: null,
@@ -207,10 +224,15 @@ export async function update(id: string, updates: Partial<PurchaseInvoice>) {
     "linkedGoodsReceiptId", "linkedGoodsReceiptNumber",
     "lines", "subtotal", "gstTotal", "freight", "grandTotal",
     "amountPaid", "balanceDue", "differenceNotes",
+    "linkedSupplierProformaId", "linkedSupplierProformaNumber", "advanceDeducted",
   ];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
 
-  const needsTotals = updates.lines !== undefined || updates.freight !== undefined;
+  const needsTotals =
+    updates.lines !== undefined ||
+    updates.freight !== undefined ||
+    updates.advanceDeducted !== undefined ||
+    updates.linkedSupplierProformaId !== undefined;
   const needsPayment = updates.amountPaid !== undefined || updates.amount !== undefined;
   const current = needsTotals || needsPayment ? await get(id) : null;
 
@@ -225,17 +247,29 @@ export async function update(id: string, updates: Partial<PurchaseInvoice>) {
     const freight =
       updates.freight !== undefined ? Number(updates.freight) || 0 : current?.freight ?? 0;
     Object.assign(patch, computeTotals(lines, freight));
-    // Keep the payable `amount` in sync with the new gross total UNLESS a
-    // manual adjustment exists (e.g. a credit/debit note reduced the payable).
-    // Otherwise the GRN sync (which rewrites lines to back-fill received
-    // quantities) would silently wipe note adjustments.
+    // Recompute the advance deduction and keep the payable `amount` in sync
+    // with the NET total (grand total − advances) UNLESS a manual adjustment
+    // exists (e.g. a credit/debit note reduced the payable). Otherwise the
+    // GRN sync (which rewrites lines to back-fill received quantities) would
+    // silently wipe note adjustments.
+    const grand = Number(patch.grandTotal) || 0;
+    const advance = Math.min(
+      grand,
+      Math.max(0, round2(Number(updates.advanceDeducted ?? current?.advanceDeducted ?? 0))),
+    );
+    patch.advanceDeducted = round2(advance);
+    const expectedNet = round2(Math.max(0, grand - advance));
     if (updates.amount === undefined && current) {
       const prevGrand = Number(current.grandTotal) || 0;
+      const prevAdvance = Math.max(0, Number(current.advanceDeducted) || 0);
+      const prevExpected = round2(Math.max(0, prevGrand - prevAdvance));
       const storedAmount = Number(current.amount) || 0;
       patch.amount =
-        prevGrand > 0 && Math.abs(storedAmount - prevGrand) > 1e-9
+        prevExpected > 0 && Math.abs(storedAmount - prevExpected) > 1e-9
           ? storedAmount
-          : patch.grandTotal;
+          : expectedNet;
+    } else if (updates.amount === undefined) {
+      patch.amount = expectedNet;
     }
   }
 

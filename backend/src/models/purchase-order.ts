@@ -23,6 +23,11 @@ export interface PurchaseOrder {
   side: "sales" | "purchase";
   status: string; currency: string;
   debtorId: string | null; vendorId: string | null;
+  // ── Sales-side (customer proforma) fields ──
+  /** Debtor contact person — auto-filled from the debtor master, editable. */
+  debtorContact: string | null;
+  /** Debtor GSTIN (India) — optional. */
+  debtorGstin: string | null;
   issueDate: string; expectedDate: string | null;
   proformaNumber: string | null; proformaStatus: string;
   proformaDate: string | null;
@@ -51,6 +56,8 @@ export interface PurchaseOrder {
   grandTotal: number;
   /** The goods Purchase Order this proforma was converted to (if any). */
   linkedGoodsPoId: string | null;
+  /** The goods Sales Order this sales proforma was converted to (if any). */
+  linkedGoodsSoId: string | null;
   createdAt: string; updatedAt: string;
 }
 
@@ -96,6 +103,7 @@ export async function create(data: Partial<PurchaseOrder> & { clientId: string; 
     amount: data.amount || 0, poAmount: data.poAmount ?? null,
     side: data.side, status: data.status || "draft", currency: data.currency || "USD",
     debtorId: data.debtorId || null, vendorId: data.vendorId || null,
+    debtorContact: data.debtorContact || null, debtorGstin: data.debtorGstin || null,
     issueDate: data.issueDate || db.todayDate(), expectedDate: data.expectedDate || null,
     proformaNumber: data.proformaNumber || null,
     proformaStatus: data.proformaStatus || "draft",
@@ -114,6 +122,7 @@ export async function create(data: Partial<PurchaseOrder> & { clientId: string; 
     lines,
     ...totals,
     linkedGoodsPoId: data.linkedGoodsPoId || null,
+    linkedGoodsSoId: data.linkedGoodsSoId || null,
     createdAt: now, updatedAt: now,
   };
   await db.putItem(item);
@@ -126,8 +135,8 @@ export async function update(id: string, updates: Partial<PurchaseOrder>) {
     "amount","poAmount","status","side","poNumber","debtorId","vendorId","issueDate","expectedDate","currency",
     "proformaNumber","proformaStatus","proformaDate","proformaFundedAmount","proformaFundedAt","proformaFundedBy",
     "proformaFundingReference","proformaReviewedAt","proformaReviewedBy","proformaReviewComments","notes",
-    "supplierContact","supplierGstin","validUntil","paymentTerms","expectedDeliveryDate","documents",
-    "lines","subtotal","gstTotal","freight","grandTotal","linkedGoodsPoId",
+    "supplierContact","supplierGstin","debtorContact","debtorGstin","validUntil","paymentTerms","expectedDeliveryDate","documents",
+    "lines","subtotal","gstTotal","freight","grandTotal","linkedGoodsPoId","linkedGoodsSoId",
   ];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   // Recompute line totals + document totals whenever lines/freight change.
