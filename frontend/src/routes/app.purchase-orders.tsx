@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
@@ -501,6 +501,16 @@ type LineDraft = {
   received_qty: number;
 };
 
+type PiLineDraft = {
+  product_id: string;
+  name: string;
+  sku: string | null;
+  ordered_qty: number;
+  invoice_qty: string;
+  unit_price: string;
+  gst_rate: string;
+};
+
 function POModal({
   userId,
   email,
@@ -555,10 +565,12 @@ function POModal({
   );
   const [docs, setDocs] = useState<DocMeta[]>(po?.documents ?? []);
 
-  // ── "Create purchase proforma from this PO" section ──
-  // All entries (supplier, lines, terms) are copied from the PO; only the
-  // proforma header fields + advance % are asked for here.
-  const [makeProforma, setMakeProforma] = useState(false);
+  // ── "Create document from this PO" section ──
+  // Exactly ONE of {none, proforma, purchase_invoice} can be selected — the
+  // proforma and the purchase invoice are mutually exclusive. All entries
+  // (supplier, lines, terms) are copied from the PO; only the document header
+  // fields are asked for here.
+  const [docChoice, setDocChoice] = useState<"none" | "proforma" | "purchase_invoice">("none");
   const [pfForm, setPfForm] = useState({
     proforma_number: "",
     proforma_date: new Date().toISOString().slice(0, 10),
@@ -571,6 +583,26 @@ function POModal({
     expected_delivery_date: po?.expected_delivery_date ?? "",
     advance_pct: "",
   });
+  const [piForm, setPiForm] = useState({
+    invoice_number: "",
+    invoice_date: new Date().toISOString().slice(0, 10),
+    received_date: "",
+    due_date: "",
+    freight: po?.freight != null ? String(po.freight) : "",
+    notes: "",
+  });
+  // Purchase-invoice lines follow the PO lines until the user edits them.
+  const [piLines, setPiLines] = useState<PiLineDraft[]>([]);
+
+  // Select the document to create (radio — mutually exclusive). When picking
+  // the purchase invoice, seed its freight from the PO header unless the user
+  // has already typed one.
+  const chooseDoc = (value: "none" | "proforma" | "purchase_invoice") => {
+    setDocChoice(value);
+    if (value === "purchase_invoice") {
+      setPiForm((p) => (p.freight === "" ? { ...p, freight: f.freight } : p));
+    }
+  };
 
   const setLine = (i: number, patch: Partial<LineDraft>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -634,8 +666,48 @@ function POModal({
 
   // Advance to be paid on the proforma = proforma total × advance %.
   const advancePctN = Number(pfForm.advance_pct) || 0;
-  const advanceAmount =
-    advancePctN > 0 ? round2((totals.grandTotal * advancePctN) / 100) : 0;
+  const advanceAmount = advancePctN > 0 ? round2((totals.grandTotal * advancePctN) / 100) : 0;
+
+  // Purchase-invoice lines follow the PO lines until the user edits them.
+  useEffect(() => {
+    if (docChoice !== "purchase_invoice") return;
+    const poIds = lines.map((l) => l.product_id);
+    const needsSync =
+      poIds.length !== piLines.length || poIds.some((pid, i) => piLines[i]?.product_id !== pid);
+    if (!needsSync) return;
+    setPiLines(
+      lines.map((l) => ({
+        product_id: l.product_id,
+        name: l.name,
+        sku: l.sku,
+        ordered_qty: Number(l.ordered_qty) || 0,
+        invoice_qty: String(Number(l.ordered_qty) || 0),
+        unit_price: String(Number(l.unit_price) || 0),
+        gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
+      })),
+    );
+  }, [docChoice, lines, piLines]);
+
+  // Invoice totals (billed qty × price from the supplier invoice + freight).
+  const piTotals = useMemo(() => {
+    let subtotal = 0;
+    let gst = 0;
+    for (const l of piLines) {
+      const qty = Number(l.invoice_qty) || 0;
+      const price = Number(l.unit_price) || 0;
+      const rate = Number(l.gst_rate) || 0;
+      const lt = round2(qty * price);
+      subtotal += lt;
+      gst += round2((lt * rate) / 100);
+    }
+    const freight = Number(piForm.freight) || 0;
+    return {
+      subtotal: round2(subtotal),
+      gst: round2(gst),
+      freight: round2(freight),
+      grandTotal: round2(subtotal + gst + freight),
+    };
+  }, [piLines, piForm.freight]);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -654,11 +726,30 @@ function POModal({
         if (!(l.ordered_qty > 0)) throw new Error("Ordered quantity must be greater than zero");
         if (l.unit_price < 0) throw new Error("Unit price must be greater than or equal to zero");
       }
-      // Validate the proforma up front so the PO isn't saved only for the
-      // proforma step to fail afterwards.
-      if (makeProforma) {
+      // Validate the document step up front so the PO isn't saved only for the
+      // document step to fail afterwards.
+      if (docChoice === "proforma") {
         if (!pfForm.supplier_id) throw new Error("Select a supplier for the proforma");
         if (!pfForm.proforma_number.trim()) throw new Error("Proforma invoice number is required");
+      }
+      if (docChoice === "purchase_invoice") {
+        if (!f.supplier_id)
+          throw new Error("Select a supplier on the PO — it is used for the purchase invoice");
+        if (piLines.length === 0)
+          throw new Error("Add at least one line from the linked purchase order");
+        if (!piForm.invoice_number.trim()) throw new Error("Supplier invoice number is required");
+        for (const l of piLines) {
+          if (!(Number(l.invoice_qty) > 0)) {
+            throw new Error(
+              `Invoice quantity must be greater than zero for ${l.name || l.product_id}`,
+            );
+          }
+          if ((Number(l.unit_price) || 0) < 0) {
+            throw new Error(
+              `Unit price must be greater than or equal to zero for ${l.name || l.product_id}`,
+            );
+          }
+        }
       }
       const payload = {
         po_date: f.po_date,
@@ -683,13 +774,14 @@ function POModal({
         savedPo = await api.goodsPurchaseOrders.create({ ...payload, client_id: userId });
       }
 
-      // Create the purchase proforma from this PO — saved in the Proforma
-      // invoices tab and submitted to the checker (pending_review). The PO is
-      // already saved by this point, so a proforma failure must not look like
-      // the whole save failed (that would tempt a retry and duplicate the PO)
-      // — it is surfaced as a distinct warning instead.
-      let proformaError = "";
-      if (makeProforma) {
+      // Create the selected document from this PO — either a purchase proforma
+      // (saved in the Proforma invoices tab, submitted to the checker) or a
+      // purchase invoice (recorded in the Purchase invoices tab as a draft).
+      // The PO is already saved by this point, so a document failure must not
+      // look like the whole save failed (that would tempt a retry and
+      // duplicate the PO) — it is surfaced as a distinct warning instead.
+      let docError = "";
+      if (docChoice === "proforma") {
         try {
           await api.purchaseOrders.create({
             clientId: userId,
@@ -720,29 +812,71 @@ function POModal({
               gst_rate: l.gst_rate ? Number(l.gst_rate) : null,
             })),
           });
-        } catch (e: any) {
-          proformaError = e?.message ?? "unknown error";
+        } catch (e) {
+          docError = e instanceof Error ? e.message : "unknown error";
+        }
+      } else if (docChoice === "purchase_invoice" && status !== "draft") {
+        // The backend only allows invoicing an approved & sent PO — for a
+        // draft PO the invoice step is skipped (the inline warning says so).
+        try {
+          await api.purchaseInvoices.create({
+            clientId: userId,
+            vendorId: f.supplier_id,
+            supplierName: suppliers.find((s) => s.id === f.supplier_id)?.name ?? null,
+            invoiceNumber: piForm.invoice_number.trim(),
+            issueDate: piForm.invoice_date,
+            receivedDate: piForm.received_date || null,
+            dueDate: piForm.due_date || null,
+            goodsPurchaseOrderId: savedPo.id,
+            goodsPoNumber: savedPo?.po_number ?? null,
+            // PO reference lets the backend auto-link an existing purchase
+            // proforma for this PO and deduct its agreed advance.
+            poNumber: savedPo?.po_number ?? null,
+            freight: Number(piForm.freight) || 0,
+            notes: piForm.notes.trim() || null,
+            lines: piLines.map((l) => ({
+              productId: l.product_id,
+              invoiceQty: Number(l.invoice_qty) || 0,
+              unitPrice: Number(l.unit_price) || 0,
+              gstRate: l.gst_rate !== "" ? Number(l.gst_rate) : null,
+              grnReceivedQty: 0,
+            })),
+            status: "draft",
+          });
+        } catch (e) {
+          docError = e instanceof Error ? e.message : "unknown error";
         }
       }
-      return proformaError;
+      return docError;
     },
-    onSuccess: (proformaError: string) => {
+    onSuccess: (docError: string) => {
       onSaved();
       qc.invalidateQueries({ queryKey: ["goods-receipts"] }); // last-price lookup
       qc.invalidateQueries({ queryKey: ["proformas"] });
-      if (proformaError) {
+      qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      if (docError) {
         toast.warning(
-          `Purchase order ${isEdit ? "updated" : "created"} — but the proforma could not be created: ${proformaError}`,
+          `Purchase order ${isEdit ? "updated" : "created"} — but the ${
+            docChoice === "purchase_invoice" ? "purchase invoice" : "proforma"
+          } could not be created: ${docError}`,
+        );
+      } else if (docChoice === "purchase_invoice" && status === "draft") {
+        toast.success(
+          `${isEdit ? "Purchase order updated" : "Purchase order created"} — approve & send the PO to create the purchase invoice`,
         );
       } else {
         toast.success(
-          makeProforma
+          docChoice === "proforma"
             ? isEdit
               ? "Purchase order updated — proforma created & sent to checker"
               : "Purchase order created — proforma created & sent to checker"
-            : isEdit
-              ? "Purchase order updated"
-              : "Purchase order created",
+            : docChoice === "purchase_invoice"
+              ? isEdit
+                ? "Purchase order updated — purchase invoice recorded"
+                : "Purchase order created — purchase invoice recorded"
+              : isEdit
+                ? "Purchase order updated"
+                : "Purchase order created",
         );
       }
       onClose();
@@ -827,7 +961,7 @@ function POModal({
                   onChange={(v) => {
                     setF({ ...f, supplier_id: v });
                     // Keep the proforma supplier in sync with the PO supplier.
-                    if (makeProforma) setPfForm((p) => ({ ...p, supplier_id: v }));
+                    if (docChoice === "proforma") setPfForm((p) => ({ ...p, supplier_id: v }));
                   }}
                   placeholder="Select supplier…"
                   disabled={!editable}
@@ -1083,34 +1217,64 @@ function POModal({
             </div>
           </div>
 
-          {/* Create purchase proforma from this PO */}
+          {/* Create proforma / purchase invoice from this PO — mutually exclusive */}
           <fieldset className="rounded-lg border border-dashed border-primary/40 p-4">
             <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              Purchase proforma invoice
+              Create document from this PO
             </legend>
-            <label className="flex cursor-pointer items-start gap-2.5 text-sm">
-              <input
-                type="checkbox"
-                checked={makeProforma}
-                onChange={(e) => setMakeProforma(e.target.checked)}
-                disabled={!editable}
-                className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
-              />
-              <span>
-                Create a purchase proforma invoice from this PO — it is saved in the{" "}
-                <span className="font-medium">Proforma invoices</span> tab and sent to the{" "}
-                <span className="font-medium">checker</span> for approval.
-              </span>
-            </label>
-            {makeProforma && (
+            <div className="grid gap-2 sm:grid-cols-3">
+              {(
+                [
+                  {
+                    value: "none",
+                    title: "Save the PO only",
+                    desc: "No proforma or invoice is created.",
+                  },
+                  {
+                    value: "proforma",
+                    title: "Purchase proforma",
+                    desc: "Saved in the Proforma invoices tab and sent to the checker.",
+                  },
+                  {
+                    value: "purchase_invoice",
+                    title: "Purchase invoice",
+                    desc: "Recorded in the Purchase invoices tab — never touches stock.",
+                  },
+                ] as const
+              ).map((opt) => (
+                <label
+                  key={opt.value}
+                  className={`flex cursor-pointer items-start gap-2 rounded-md border p-3 text-xs transition ${
+                    docChoice === opt.value
+                      ? "border-primary bg-primary/10"
+                      : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="po-doc-choice"
+                    checked={docChoice === opt.value}
+                    onChange={() => chooseDoc(opt.value)}
+                    disabled={!editable}
+                    className="mt-0.5 h-3.5 w-3.5 accent-primary"
+                  />
+                  <span>
+                    <span className="block font-medium">{opt.title}</span>
+                    <span className="block text-[10px] leading-snug">{opt.desc}</span>
+                  </span>
+                </label>
+              ))}
+            </div>
+
+            {docChoice === "proforma" && (
               <div className="mt-4 space-y-3">
                 <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
                   Supplier and line items are copied from this PO.{" "}
                   {advancePctN > 0 ? (
                     <>
                       Calculated advance:{" "}
-                      <span className="font-medium text-primary">{fmtMoney(advanceAmount)}</span>{" "}
-                      ({advancePctN}% of {fmtMoney(totals.grandTotal)}).
+                      <span className="font-medium text-primary">{fmtMoney(advanceAmount)}</span> (
+                      {advancePctN}% of {fmtMoney(totals.grandTotal)}).
                     </>
                   ) : (
                     "Enter an advance % to calculate the advance amount."
@@ -1227,6 +1391,200 @@ function POModal({
                     <div className="inp font-mono tabular-nums text-primary">
                       {fmtMoney(advanceAmount)}
                     </div>
+                  </L>
+                </div>
+              </div>
+            )}
+
+            {docChoice === "purchase_invoice" && (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+                  Supplier and line items are copied from this PO. The invoice is recorded as a{" "}
+                  <span className="font-medium text-foreground">draft</span> in the{" "}
+                  <span className="font-medium">Purchase invoices</span> tab — it never creates
+                  stock (only a confirmed GRN does).
+                </div>
+                {status === "draft" && (
+                  <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+                    This PO is still a <b>draft</b> — an invoice can only be created once the PO is
+                    approved &amp; sent. If it stays a draft, only the PO is saved and you can
+                    create the invoice later from the Purchase invoices tab.
+                  </div>
+                )}
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                  <L label="Supplier invoice number *">
+                    <input
+                      className="inp"
+                      value={piForm.invoice_number}
+                      onChange={(e) => setPiForm({ ...piForm, invoice_number: e.target.value })}
+                      placeholder="INV-2026-0142"
+                      disabled={!editable}
+                    />
+                  </L>
+                  <L label="Invoice date *">
+                    <input
+                      type="date"
+                      className="inp"
+                      value={piForm.invoice_date}
+                      onChange={(e) => setPiForm({ ...piForm, invoice_date: e.target.value })}
+                      disabled={!editable}
+                    />
+                  </L>
+                  <L label="Invoice received date">
+                    <input
+                      type="date"
+                      className="inp"
+                      value={piForm.received_date}
+                      onChange={(e) => setPiForm({ ...piForm, received_date: e.target.value })}
+                      disabled={!editable}
+                    />
+                  </L>
+                  <L label="Payment due date">
+                    <input
+                      type="date"
+                      className="inp"
+                      value={piForm.due_date}
+                      onChange={(e) => setPiForm({ ...piForm, due_date: e.target.value })}
+                      disabled={!editable}
+                    />
+                  </L>
+                  <L label="Supplier (from PO)">
+                    <div className="inp truncate">
+                      {f.supplier_id
+                        ? (suppliers.find((s) => s.id === f.supplier_id)?.name ?? f.supplier_id)
+                        : "Select a supplier on the PO first"}
+                    </div>
+                  </L>
+                  <L label="Freight / charges">
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      className="inp"
+                      value={piForm.freight}
+                      onChange={(e) => setPiForm({ ...piForm, freight: e.target.value })}
+                      disabled={!editable}
+                    />
+                  </L>
+                </div>
+
+                <div className="rounded-md border border-border/60 p-3">
+                  <div className="mb-2 text-[10px] uppercase tracking-widest text-muted-foreground">
+                    Invoice lines — billed qty &amp; price from the supplier invoice (editable)
+                  </div>
+                  {piLines.length === 0 ? (
+                    <div className="text-xs text-muted-foreground">
+                      Add at least one product line to the PO above.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <div className="hidden grid-cols-12 gap-2 text-[9px] uppercase tracking-widest text-muted-foreground md:grid">
+                        <div className="col-span-5">Product</div>
+                        <div className="col-span-2">Invoice qty</div>
+                        <div className="col-span-2">Unit price</div>
+                        <div className="col-span-1">GST %</div>
+                        <div className="col-span-2 text-right">Line total</div>
+                      </div>
+                      {piLines.map((l, i) => {
+                        const qty = Number(l.invoice_qty) || 0;
+                        const price = Number(l.unit_price) || 0;
+                        const lineTotal = round2(qty * price);
+                        return (
+                          <div
+                            key={i}
+                            className="grid grid-cols-2 items-end gap-2 rounded-md border border-border/50 p-2 md:grid-cols-12"
+                          >
+                            <div className="col-span-2 md:col-span-5">
+                              <div className="text-xs font-medium">{l.name}</div>
+                              {l.sku && (
+                                <div className="font-mono text-[10px] text-muted-foreground">
+                                  {l.sku}
+                                </div>
+                              )}
+                            </div>
+                            <div className="md:col-span-2">
+                              <L label="Qty">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.001"
+                                  className="inp"
+                                  value={l.invoice_qty}
+                                  onChange={(e) =>
+                                    setPiLines((ls) =>
+                                      ls.map((x, idx) =>
+                                        idx === i ? { ...x, invoice_qty: e.target.value } : x,
+                                      ),
+                                    )
+                                  }
+                                  disabled={!editable}
+                                />
+                              </L>
+                            </div>
+                            <div className="md:col-span-2">
+                              <L label="Price">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  className="inp"
+                                  value={l.unit_price}
+                                  onChange={(e) =>
+                                    setPiLines((ls) =>
+                                      ls.map((x, idx) =>
+                                        idx === i ? { ...x, unit_price: e.target.value } : x,
+                                      ),
+                                    )
+                                  }
+                                  disabled={!editable}
+                                />
+                              </L>
+                            </div>
+                            <div className="md:col-span-1">
+                              <L label="GST">
+                                <input
+                                  className="inp"
+                                  value={l.gst_rate ? `${l.gst_rate}%` : "0%"}
+                                  disabled
+                                />
+                              </L>
+                            </div>
+                            <div className="text-right md:col-span-2">
+                              <L label="Line total">
+                                <div className="inp text-right font-mono tabular-nums">
+                                  {fmtMoney(lineTotal)}
+                                </div>
+                              </L>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
+                  <Row label="Subtotal" value={fmtMoney(piTotals.subtotal)} />
+                  <Row label="GST total" value={fmtMoney(piTotals.gst)} />
+                  <Row label="Freight / charges" value={fmtMoney(piTotals.freight)} />
+                  <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
+                    <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                      Grand total
+                    </span>
+                    <span className="num text-base">{fmtMoney(piTotals.grandTotal)}</span>
+                  </div>
+                </div>
+
+                <div>
+                  <L label="Notes">
+                    <textarea
+                      rows={2}
+                      className="inp resize-y"
+                      value={piForm.notes}
+                      onChange={(e) => setPiForm({ ...piForm, notes: e.target.value })}
+                      placeholder="Payment terms, delivery remarks…"
+                      disabled={!editable}
+                    />
                   </L>
                 </div>
               </div>
