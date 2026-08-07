@@ -391,9 +391,9 @@ function PurchasesPage() {
                                 onClick={() => setStatus.mutate({ id: p.id, status: "verified" })}
                                 disabled={setStatus.isPending}
                                 className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
-                                title="I confirm the invoice is correct and ready for checker review"
+                                title="Review the invoice and send it to the checker"
                               >
-                                <CheckCircle2 className="h-3 w-3" /> Verify
+                                <CheckCircle2 className="h-3 w-3" /> Review
                               </button>
                             )}
                             {canCreate && p.status === "verified" && (
@@ -427,29 +427,6 @@ function PurchasesPage() {
                                   <Mail className="h-3 w-3" /> Remind
                                 </button>
                               )}
-                            {p.status === "verified" && (
-                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                                Awaiting checker
-                              </span>
-                            )}
-                            {["approved_for_payment", "partially_paid"].includes(p.status) && (
-                              <Link
-                                to="/app/queue"
-                                className="text-[10px] uppercase tracking-widest text-primary hover:underline"
-                              >
-                                In funding queue →
-                              </Link>
-                            )}
-                            {p.status === "paid" && (
-                              <span className="text-[10px] uppercase tracking-widest text-success">
-                                Closed
-                              </span>
-                            )}
-                            {p.status === "cancelled" && (
-                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                                Cancelled
-                              </span>
-                            )}
                           </div>
                         </td>
                       </tr>

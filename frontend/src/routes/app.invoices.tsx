@@ -19,7 +19,6 @@ import {
   Copy,
   Eye,
   Mail,
-  Banknote,
   FileCheck,
   Ban,
   Trash2,
@@ -112,14 +111,11 @@ const DOC_LABELS: Record<string, string> = {
 
 function InvoicesPage() {
   const { isAdmin, isChecker, isClient, isTreasury, user } = useAuth();
-  const canReview = isAdmin || isChecker;
   const canCreate = isAdmin || (isClient && !isChecker && !isTreasury);
-  const canRecordPayment = isAdmin || isTreasury;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Inv | null>(null);
   const [viewing, setViewing] = useState<Inv | null>(null);
-  const [paying, setPaying] = useState<Inv | null>(null);
   const [filter, setFilter] = useState<string>("all");
 
   const invoicesQ = useQuery({
@@ -175,11 +171,11 @@ function InvoicesPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to send reminder"),
   });
 
-  const issue = useMutation({
+  const review = useMutation({
     mutationFn: async (id: string) => api.invoices.issue(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["invoices"] });
-      toast.success("Invoice issued — submitted for review");
+      toast.success("Invoice reviewed — sent to the checker");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -219,7 +215,7 @@ function InvoicesPage() {
       <PageHeader
         eyebrow="Invoices"
         title={isAdmin ? "Invoice queue" : "Your invoices"}
-        description="Sales invoices bill the customer after goods are dispatched. Creating an invoice never reduces stock — only a confirmed dispatch debits inventory. Drafts are issued into the checker review, then the funding queue."
+        description="Sales invoices bill the customer after goods are dispatched. Creating an invoice never reduces stock — only a confirmed dispatch debits inventory. Drafts are reviewed and sent to the checker, then the funding queue."
         breadcrumbs={[{ label: "Dashboard", href: "/app/dashboard" }, { label: "Invoices" }]}
         actions={
           canCreate ? (
@@ -390,30 +386,14 @@ function InvoicesPage() {
                               )}
                             {canCreate && i.status === "draft" && (
                               <button
-                                onClick={() => issue.mutate(i.id)}
-                                disabled={issue.isPending}
+                                onClick={() => review.mutate(i.id)}
+                                disabled={review.isPending}
                                 className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                                title="Review the invoice and send it to the checker"
                               >
-                                <FileCheck className="h-3 w-3" /> Issue
+                                <FileCheck className="h-3 w-3" /> Review
                               </button>
                             )}
-                            <Link
-                              to="/app/invoice-preview/$id"
-                              params={{ id: i.id }}
-                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                              title="Preview & download PDF"
-                            >
-                              <Eye className="h-3 w-3" /> Preview
-                            </Link>
-                            {canRecordPayment &&
-                              !["paid", "cancelled", "rejected"].includes(i.status) && (
-                                <button
-                                  onClick={() => setPaying(i)}
-                                  className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2 py-1 text-[10px] text-success hover:bg-success/10"
-                                >
-                                  <Banknote className="h-3 w-3" /> Record payment
-                                </button>
-                              )}
                             {isAdmin &&
                               i.status !== "paid" &&
                               i.status !== "rejected" &&
@@ -444,28 +424,6 @@ function InvoicesPage() {
                                 <Copy className="h-3 w-3" /> Copy NOA link
                               </button>
                             )}
-                            {isAdmin &&
-                              i.status === "pending" &&
-                              (canReview ? (
-                                <Link
-                                  to="/app/checker"
-                                  className="text-[10px] uppercase tracking-widest text-primary hover:underline"
-                                >
-                                  Review →
-                                </Link>
-                              ) : (
-                                <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                                  Awaiting checker
-                                </span>
-                              ))}
-                            {isAdmin &&
-                              (i.status === "approved" ||
-                                i.status === "advanced" ||
-                                i.status === "funded") && (
-                                <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                                  In funding queue
-                                </span>
-                              )}
                             {canCreate &&
                               ["draft", "pending"].includes(i.status) &&
                               i.status !== "cancelled" && (
@@ -513,7 +471,6 @@ function InvoicesPage() {
         />
       )}
       {viewing && <InvoiceDetailModal invoice={viewing} onClose={() => setViewing(null)} />}
-      {paying && <PaymentModal invoice={paying} onClose={() => setPaying(null)} />}
     </div>
   );
 }
@@ -1344,7 +1301,7 @@ function NewInvoiceModal({
               ) : (
                 <FileCheck className="h-4 w-4" />
               )}
-              {isEdit ? "Save & issue" : "Create & issue"}
+              {isEdit ? "Save & review" : "Create & review"}
             </button>
           </div>
         </form>
@@ -1363,125 +1320,6 @@ function NewInvoiceModal({
           <option value="20" />
         </datalist>
         <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
-      </div>
-    </div>
-  );
-}
-
-// ─── Record payment modal ────────────────────────────────────────────────
-function PaymentModal({ invoice, onClose }: { invoice: Inv; onClose: () => void }) {
-  const qc = useQueryClient();
-  const grandTotal = Number(invoice.grand_total ?? invoice.amount ?? 0);
-  const advance = Number(invoice.advance_deducted ?? 0);
-  const netAmount = Number(invoice.amount ?? Math.max(0, grandTotal - advance));
-  const received = Number(invoice.amount_received ?? 0);
-  const balance = Math.max(0, round2(netAmount - received));
-  const [amount, setAmount] = useState(balance > 0 ? String(balance) : "");
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
-
-  const pay = useMutation({
-    mutationFn: async () => {
-      const amt = Number(amount);
-      if (!amt || amt <= 0) throw new Error("Amount must be greater than zero");
-      if (amt > balance + 0.005)
-        throw new Error(`Cannot exceed the outstanding balance of ${fmtMoney(balance)}`);
-      await api.invoices.recordPayment(invoice.id, { amountReceived: amt, receiptDate: date });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["invoices"] });
-      toast.success("Payment recorded");
-      onClose();
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="w-full max-w-md rounded-xl border border-border bg-card shadow-vault"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">Record payment · {invoice.invoice_number}</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            pay.mutate();
-          }}
-          className="space-y-4 p-5 text-sm"
-        >
-          <div className="rounded-md border border-border/60 bg-muted/20 p-3 text-xs">
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Grand total</span>
-              <span className="num">{fmtMoney(grandTotal)}</span>
-            </div>
-            {advance > 0 && (
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Less advance</span>
-                <span className="num text-destructive">−{fmtMoney(advance)}</span>
-              </div>
-            )}
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Net amount</span>
-              <span className="num">{fmtMoney(netAmount)}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-muted-foreground">Already received</span>
-              <span className="num text-success">{fmtMoney(received)}</span>
-            </div>
-            <div className="flex justify-between border-t border-border pt-1 font-medium">
-              <span>Balance outstanding</span>
-              <span className="num text-warning">{fmtMoney(balance)}</span>
-            </div>
-          </div>
-          <L label="Amount received (USD)">
-            <input
-              required
-              type="number"
-              step="0.01"
-              min="0"
-              className="inp"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-            />
-          </L>
-          <L label="Receipt date">
-            <input
-              required
-              type="date"
-              className="inp"
-              value={date}
-              onChange={(e) => setDate(e.target.value)}
-            />
-          </L>
-          <p className="text-[10px] text-muted-foreground">
-            Paying the full balance flips the invoice to Paid; a partial amount marks it Partially
-            Paid.
-          </p>
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md border border-border px-4 py-2 text-sm"
-            >
-              Cancel
-            </button>
-            <button
-              disabled={pay.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-success px-4 py-2 text-sm font-medium text-success-foreground disabled:opacity-60"
-            >
-              {pay.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              <Banknote className="h-4 w-4" /> Record payment
-            </button>
-          </div>
-        </form>
       </div>
     </div>
   );
