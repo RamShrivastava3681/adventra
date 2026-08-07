@@ -13,7 +13,6 @@ import {
   computePricingStrategy,
   recomputeTimeline,
   type ForecastResult,
-  type CalculationBreakdown,
   type MomentumTag,
   type VelocityTag,
   type PricingStrategyResult,
@@ -48,8 +47,6 @@ import {
   ResponsiveContainer,
   Area,
   AreaChart,
-  BarChart,
-  Bar,
 } from "recharts";
 import { toast } from "sonner";
 
@@ -966,28 +963,11 @@ function ForecastRow({
           <TrendCell f={f} />
         </td>
 
-        {/* Monthly forecast */}
+        {/* Monthly forecast — shows the exact value from the forecast formula */}
         <td className="px-5 py-3 text-right">
           <div className="font-mono text-sm font-semibold tabular-nums">
             {nextMonthQty.toLocaleString()}
-            {f.adjustmentFactor !== 1 && (
-              <>
-                <span className="text-muted-foreground/40"> → </span>
-                <span className="text-primary">{f.adjustedNextForecast.toLocaleString()}</span>
-              </>
-            )}
           </div>
-          {f.adjustmentFactor !== 1 && (
-            <div className="text-[9px] font-semibold text-amber-600 dark:text-amber-400 flex items-center justify-end gap-0.5">
-              {f.adjustmentFactor > 1 ? (
-                <TrendingUp className="h-2.5 w-2.5" />
-              ) : (
-                <TrendingDown className="h-2.5 w-2.5" />
-              )}
-              live {Math.round((f.adjustmentFactor - 1) * 100) > 0 ? "+" : ""}
-              {Math.round((f.adjustmentFactor - 1) * 100)}%
-            </div>
-          )}
           <div className="text-[9px] text-muted-foreground/60">
             next 6mo: {next6Total.toLocaleString()}
           </div>
@@ -1120,9 +1100,7 @@ function ForecastRow({
           <td colSpan={12} className="px-5 py-0">
             <ExpandedForecastDetail
               product={product}
-              stock={stock}
               f={f}
-              velocityTag={velocityTag}
               pricingStrategy={pricingStrategy}
               defaultMargin={defaultMargin}
             />
@@ -1329,16 +1307,12 @@ function CoverGauge({ days, leadTime }: { days: number; leadTime: number }) {
 
 function ExpandedForecastDetail({
   product,
-  stock,
   f,
-  velocityTag,
   pricingStrategy,
   defaultMargin,
 }: {
   product: Product;
-  stock: number;
   f: ForecastResult;
-  velocityTag: VelocityTag;
   pricingStrategy: PricingStrategyResult | null;
   defaultMargin: number;
 }) {
@@ -1374,13 +1348,55 @@ function ExpandedForecastDetail({
     return data;
   }, [f]);
 
-  const coverVsLead =
-    f.daysOfCover === Infinity ? 999 : f.daysOfCover / Math.max(product.lead_time_days, 1);
+  const imgSrc = useSignedImageUrl(product.image_url);
+  const next6Total = f.forecast.reduce((a, b) => a + b.qty, 0);
 
   return (
     <div className="py-6 animate-in fade-in slide-in-from-top-2 duration-300">
+      {/* Item header */}
+      <div className="mb-5 flex flex-wrap items-center gap-3">
+        {product.image_url && imgSrc ? (
+          <img
+            src={imgSrc}
+            alt={product.name}
+            className="h-10 w-10 shrink-0 rounded-lg border border-border object-cover"
+          />
+        ) : (
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-border/60 bg-muted/30 text-[10px] font-bold text-muted-foreground">
+            {product.sku.slice(0, 2).toUpperCase() || "?"}
+          </div>
+        )}
+        <div>
+          <div className="font-mono text-[11px] text-muted-foreground leading-none mb-0.5">
+            {product.sku}
+          </div>
+          <div className="text-base font-semibold leading-tight">{product.name}</div>
+          {product.category && (
+            <div className="text-[10px] text-muted-foreground/60 mt-0.5">{product.category}</div>
+          )}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-1.5 text-right">
+            <div className="text-[8px] uppercase tracking-widest text-muted-foreground">
+              Unit price
+            </div>
+            <div className="font-mono text-sm font-semibold tabular-nums">
+              ${Number(product.unit_price || 0).toFixed(2)}
+            </div>
+          </div>
+          <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-1.5 text-right">
+            <div className="text-[8px] uppercase tracking-widest text-muted-foreground">
+              Unit cost
+            </div>
+            <div className="font-mono text-sm font-semibold tabular-nums">
+              ${Number(product.unit_cost || 0).toFixed(2)}
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
-        {/* LEFT: Chart area (3/5 width) */}
+        {/* LEFT: Chart + 6-month forecast (3/5 width) */}
         <div className="lg:col-span-3 space-y-4">
           {/* Demand trend chart */}
           <div className="rounded-xl border border-border/50 bg-card p-4">
@@ -1509,107 +1525,73 @@ function ExpandedForecastDetail({
             </div>
           </div>
 
-          {/* Monthly breakdown bars */}
+          {/* 6-month forecast table */}
           <div className="rounded-xl border border-border/50 bg-card p-4">
-            <h4 className="text-xs uppercase tracking-widest text-muted-foreground mb-3">
-              6-month forecast breakdown
-            </h4>
-            <div className="h-40">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={f.forecast} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="hsl(var(--border) / 0.3)"
-                    vertical={false}
-                  />
-                  <XAxis
-                    dataKey="monthName"
-                    tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                    tickFormatter={(v: string) => v.slice(0, 3)}
-                    tickLine={false}
-                    axisLine={false}
-                  />
-                  <YAxis
-                    tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-                    tickLine={false}
-                    axisLine={false}
-                    tickFormatter={(v: number) => v.toLocaleString()}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: "12px",
-                      border: "1px solid hsl(var(--border) / 0.6)",
-                      background: "hsl(var(--popover))",
-                      boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
-                      fontSize: "12px",
-                    }}
-                    formatter={(value: any, name: string) => [
-                      value !== null ? value.toLocaleString() : "—",
-                      name === "qty" ? "Forecast" : name === "baseline" ? "Baseline" : "",
-                    ]}
-                    labelFormatter={(label) => label}
-                  />
-                  <Bar
-                    dataKey="qty"
-                    name="qty"
-                    radius={[4, 4, 0, 0]}
-                    fill="hsl(var(--primary))"
-                    fillOpacity={0.8}
-                  />
-                  <Bar
-                    dataKey="baseline"
-                    name="baseline"
-                    radius={[4, 4, 0, 0]}
-                    fill="hsl(var(--muted-foreground))"
-                    fillOpacity={0.3}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="flex justify-end gap-4 mt-2 text-[10px] text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <span className="h-2.5 w-2.5 rounded-sm bg-primary/80" />
-                Forecast demand
-              </span>
-              <span className="flex items-center gap-1">
-                <span className="h-2.5 w-2.5 rounded-sm bg-muted-foreground/30" />
-                Baseline
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-xs uppercase tracking-widest text-muted-foreground">
+                Next 6-month forecast
+              </h4>
+              <span className="text-[10px] text-muted-foreground/60">
+                {f.forecast.length} months ·{" "}
+                <span className="font-mono font-semibold text-primary">
+                  {next6Total.toLocaleString()}
+                </span>{" "}
+                units total
               </span>
             </div>
+            <table className="table-premium w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/70 text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                  <th className="py-2.5 text-left font-medium">Month</th>
+                  <th className="py-2.5 text-right font-medium">Forecast (units)</th>
+                  <th className="py-2.5 text-right font-medium">Daily rate</th>
+                </tr>
+              </thead>
+              <tbody>
+                {f.forecast.map((m, i) => (
+                  <tr
+                    key={m.month}
+                    className={`border-b border-border/40 transition-colors ${
+                      i === 0 ? "bg-primary/[0.05]" : "hover:bg-muted/20"
+                    }`}
+                  >
+                    <td className="py-2.5 text-left">
+                      <div className="text-xs font-semibold">
+                        {i === 0 && (
+                          <span className="mr-1 rounded-full bg-primary/10 px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-widest text-primary">
+                            Next
+                          </span>
+                        )}
+                        {m.monthName}
+                      </div>
+                      <div className="text-[9px] text-muted-foreground/50">{m.month}</div>
+                    </td>
+                    <td className="py-2.5 text-right font-mono text-sm font-semibold tabular-nums">
+                      {m.qty.toLocaleString()}
+                    </td>
+                    <td className="py-2.5 text-right font-mono text-xs tabular-nums text-muted-foreground">
+                      {m.dailyRate.toFixed(1)}/d
+                    </td>
+                  </tr>
+                ))}
+                <tr>
+                  <td className="pt-3 text-xs font-semibold text-foreground/70">
+                    {f.forecast.length}-month total
+                  </td>
+                  <td className="pt-3 text-right font-mono text-base font-bold tabular-nums text-primary">
+                    {next6Total.toLocaleString()}
+                  </td>
+                  <td className="pt-3 text-right text-[9px] text-muted-foreground/60">
+                    forecast demand
+                  </td>
+                </tr>
+              </tbody>
+            </table>
           </div>
         </div>
 
-        {/* RIGHT: Timeline & KPIs (2/5 width) */}
+        {/* RIGHT: Pricing (2/5 width) */}
         <div className="lg:col-span-2 space-y-4">
-          {/* Month-by-month stock requirement table */}
-          <div className="rounded-xl border border-border/50 bg-card p-4">
-            <h4 className="text-xs uppercase tracking-widest text-muted-foreground mb-3">
-              Stock requirements by month
-            </h4>
-            <div className="space-y-1.5">
-              {f.forecast.map((m, i) => (
-                <MonthRequirementRow key={i} month={m} index={i} />
-              ))}
-            </div>
-          </div>
-
-          {/* Stockout timeline visualization */}
-          <div className="rounded-xl border border-border/50 bg-card p-4">
-            <h4 className="text-xs uppercase tracking-widest text-muted-foreground mb-3">
-              Stockout timeline
-            </h4>
-            <StockoutTimeline
-              stock={stock}
-              dailyForecast={f.dailyForecast}
-              estimatedStockoutDate={f.estimatedStockoutDate}
-              reorderByDate={f.reorderByDate}
-              nextRefillDate={f.nextRefillDate}
-              leadTimeDays={product.lead_time_days}
-              daysOfCover={f.daysOfCover}
-              stockoutUrgency={f.stockoutUrgency}
-            />
-          </div>
-
           {/* Pricing strategy — enhanced visual card */}
           {pricingStrategy &&
             (() => {
@@ -1871,408 +1853,11 @@ function ExpandedForecastDetail({
             pricingStrategy={pricingStrategy}
             defaultMargin={defaultMargin}
           />
-
-          {/* Risk indicators */}
-          <div className="rounded-xl border border-border/50 bg-card p-4">
-            <h4 className="text-xs uppercase tracking-widest text-muted-foreground mb-3">
-              Risk assessment
-            </h4>
-            <div className="space-y-2.5">
-              <RiskBar
-                label="Stockout risk"
-                level={f.stockoutRisk}
-                color={
-                  f.stockoutRisk === "high"
-                    ? "rose"
-                    : f.stockoutRisk === "medium"
-                      ? "amber"
-                      : "emerald"
-                }
-              />
-              <RiskBar
-                label="Overstock risk"
-                level={f.overstockRisk}
-                color={
-                  f.overstockRisk === "high"
-                    ? "rose"
-                    : f.overstockRisk === "medium"
-                      ? "amber"
-                      : "emerald"
-                }
-              />
-              <RiskBar
-                label="Coverage ratio"
-                level={coverVsLead < 1 ? "high" : coverVsLead < 1.5 ? "medium" : "low"}
-                color={coverVsLead < 1 ? "rose" : coverVsLead < 1.5 ? "amber" : "emerald"}
-                detail={`${f.daysOfCover === Infinity ? "∞" : f.daysOfCover}d cover / ${product.lead_time_days}d lead`}
-              />
-            </div>
-          </div>
-
-          {/* KPI grid */}
-          <div className="rounded-xl border border-border/50 bg-card p-4">
-            <h4 className="text-xs uppercase tracking-widest text-muted-foreground mb-3">
-              Key metrics
-            </h4>
-            <div className="grid grid-cols-2 gap-2">
-              <KpiSquare label="Monthly avg" value={f.avgMonthly.toLocaleString()} />
-              <KpiSquare
-                label="Trend"
-                value={`${f.trend > 0 ? "+" : ""}${f.trend}/mo`}
-                tone={f.trend > 0 ? "success" : f.trend < 0 ? "destructive" : undefined}
-              />
-              <KpiSquare
-                label="Trend strength"
-                value={`${Math.round(f.trendStrength * 100)}%`}
-                tone={f.trendStrength > 0.7 ? "primary" : undefined}
-              />
-              <KpiSquare label="Seasonality" value={`×${f.seasonalityFactor.toFixed(2)}`} />
-              <KpiSquare label="Daily demand" value={`${f.dailyForecast.toFixed(1)}/d`} />
-              <KpiSquare
-                label="Recommended qty"
-                value={f.recommendedReorder.toLocaleString()}
-                tone="primary"
-              />
-              <KpiSquare
-                label="Reorder value"
-                value={fmtMoney(f.recommendedReorder * Number(product.unit_cost))}
-              />
-              <KpiSquare label="Next month" value={f.finalForecast.toLocaleString()} />
-              <KpiSquare
-                label="Adjusted next mo"
-                value={f.adjustmentFactor !== 1 ? f.adjustedNextForecast.toLocaleString() : "—"}
-                tone={f.adjustmentFactor !== 1 ? "primary" : undefined}
-              />
-              <KpiSquare
-                label="In stock value"
-                value={fmtMoney(stock * Number(product.unit_cost))}
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Calculation details section — shows every formula with numbers */}
-      <CalculationDetails breakdown={f.calculationBreakdown} />
-    </div>
-  );
-}
-
-// --------------- Stockout Timeline Visualization ---------------
-
-function StockoutTimeline({
-  stock,
-  dailyForecast,
-  estimatedStockoutDate,
-  reorderByDate,
-  nextRefillDate,
-  leadTimeDays,
-  daysOfCover,
-  stockoutUrgency,
-}: {
-  stock: number;
-  dailyForecast: number;
-  estimatedStockoutDate: string | null;
-  reorderByDate: string | null;
-  nextRefillDate: string;
-  leadTimeDays: number;
-  daysOfCover: number;
-  stockoutUrgency: string;
-}) {
-  const today = new Date();
-  const todayStr = today.toISOString().slice(0, 10);
-  const refillDate = nextRefillDate;
-  const outDate = estimatedStockoutDate ?? "N/A";
-
-  // Calculate relative positions for the timeline bar (0% = today, 100% = refill date or stockout, whichever is later)
-  const endDate = outDate !== "N/A" ? (refillDate > outDate ? refillDate : outDate) : refillDate;
-  const totalDays = daysRemaining(endDate);
-  const safeTotal = Math.max(totalDays, 1);
-
-  const reorderPct = reorderByDate ? (daysRemaining(reorderByDate) / safeTotal) * 100 : 100;
-  const outPct = outDate !== "N/A" ? (daysRemaining(outDate) / safeTotal) * 100 : 100;
-  const refillPct = (daysRemaining(refillDate) / safeTotal) * 100;
-
-  return (
-    <div className="space-y-3">
-      {/* Timeline bar */}
-      <div className="relative h-7">
-        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-2 rounded-full bg-muted">
-          {/* Stock cover segment */}
-          <div
-            className={`absolute inset-y-0 left-0 rounded-full transition-all duration-700 ${
-              stockoutUrgency === "critical"
-                ? "bg-gradient-to-r from-rose-500 to-rose-300"
-                : stockoutUrgency === "warning"
-                  ? "bg-gradient-to-r from-amber-500 to-amber-300"
-                  : "bg-gradient-to-r from-emerald-500 to-emerald-300"
-            }`}
-            style={{ width: `${Math.min(Math.max(outPct, 5), 100)}%` }}
-          />
-        </div>
-        {/* Markers */}
-        {reorderByDate && (
-          <div
-            className="absolute top-0"
-            style={{ left: `${Math.min(Math.max(reorderPct, 3), 97)}%` }}
-          >
-            <div className="w-0.5 h-7 bg-amber-400 rounded-full" />
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[8px] font-semibold text-amber-500 whitespace-nowrap">
-              ⚑ Order
-            </div>
-          </div>
-        )}
-        {outDate !== "N/A" && (
-          <div className="absolute top-0" style={{ left: `${Math.min(Math.max(outPct, 3), 97)}%` }}>
-            <div className="w-0.5 h-7 bg-rose-500 rounded-full" />
-            <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[8px] font-semibold text-rose-500 whitespace-nowrap">
-              ✕ Out
-            </div>
-          </div>
-        )}
-        <div
-          className="absolute top-0"
-          style={{ left: `${Math.min(Math.max(refillPct, 3), 97)}%` }}
-        >
-          <div className="w-0.5 h-7 bg-primary rounded-full" />
-          <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[8px] font-semibold text-primary whitespace-nowrap">
-            ✓ In
-          </div>
-        </div>
-      </div>
-
-      {/* Timeline labels */}
-      <div className="space-y-1.5">
-        <TimelineRow
-          label="Today"
-          value={todayStr}
-          icon={<Clock className="h-3 w-3" />}
-          color="text-foreground"
-        />
-        {reorderByDate && (
-          <TimelineRow
-            label="Reorder by"
-            value={reorderByDate}
-            detail={`${daysRemaining(reorderByDate) > 0 ? `${daysRemaining(reorderByDate)} days` : "OVERDUE"}`}
-            icon={<Clock className="h-3 w-3" />}
-            color={
-              stockoutUrgency === "critical"
-                ? "text-rose-500"
-                : stockoutUrgency === "warning"
-                  ? "text-amber-500"
-                  : "text-muted-foreground"
-            }
-          />
-        )}
-        <TimelineRow
-          label="Refill arrives"
-          value={refillDate}
-          detail={`${daysRemaining(refillDate)} days`}
-          icon={<Truck className="h-3 w-3" />}
-          color="text-primary"
-        />
-        <TimelineRow
-          label="Stockout"
-          value={outDate}
-          detail={outDate !== "N/A" ? `${daysRemaining(outDate)} days away` : "No stockout risk"}
-          icon={<AlertTriangle className="h-3 w-3" />}
-          color={
-            stockoutUrgency === "critical"
-              ? "text-rose-500"
-              : stockoutUrgency === "warning"
-                ? "text-amber-500"
-                : "text-emerald-500"
-          }
-        />
-      </div>
-    </div>
-  );
-}
-
-// --------------- Risk Bar ---------------
-
-function RiskBar({
-  label,
-  level,
-  color,
-  detail,
-}: {
-  label: string;
-  level: string;
-  color: "rose" | "amber" | "emerald";
-  detail?: string;
-}) {
-  const pct = level === "high" ? 100 : level === "medium" ? 60 : 20;
-  const barColor =
-    color === "rose" ? "bg-rose-500" : color === "amber" ? "bg-amber-500" : "bg-emerald-500";
-  const textColor =
-    color === "rose" ? "text-rose-600" : color === "amber" ? "text-amber-600" : "text-emerald-600";
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-[11px] font-medium text-muted-foreground">{label}</span>
-        <span className={`text-[10px] font-semibold uppercase ${textColor}`}>{level}</span>
-      </div>
-      <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-      {detail && <div className="text-[9px] text-muted-foreground/60 mt-0.5">{detail}</div>}
-    </div>
-  );
-}
-
-// --------------- Supporting components ---------------
-
-function TimelineRow({
-  label,
-  value,
-  detail,
-  icon,
-  color,
-}: {
-  label: string;
-  value: string;
-  detail?: string;
-  icon: React.ReactNode;
-  color: string;
-}) {
-  return (
-    <div className="flex items-center gap-2 py-0.5">
-      <div className={`${color} flex-shrink-0`}>{icon}</div>
-      <div className="flex-1 min-w-0 flex items-baseline justify-between gap-2">
-        <span className="text-[9px] uppercase tracking-wider text-muted-foreground">{label}</span>
-        <span className={`text-xs font-semibold tabular-nums ${color}`}>{value}</span>
-      </div>
-      {detail && <span className="text-[9px] text-muted-foreground/50">{detail}</span>}
-    </div>
-  );
-}
-
-// --------------- Month-by-month stock requirement row ---------------
-
-function MonthRequirementRow({
-  month,
-  index,
-}: {
-  month: ForecastResult["forecast"][0];
-  index: number;
-}) {
-  const isNext = index === 0;
-  const isNextNext = index === 1;
-
-  return (
-    <div
-      className={`flex items-center gap-3 py-2 px-3 rounded-lg transition-all ${
-        isNext
-          ? "bg-primary/5 border border-primary/15"
-          : isNextNext
-            ? "bg-muted/30 border border-border/30"
-            : ""
-      }`}
-    >
-      {/* Month badge */}
-      <div className="flex-shrink-0 w-20">
-        <div className="text-[10px] font-semibold uppercase tracking-wide">
-          {isNext && <span className="text-primary">Next · </span>}
-          {month.monthName}
-        </div>
-        <div className="text-[8px] text-muted-foreground/50">{month.month}</div>
-      </div>
-
-      {/* Demand bar */}
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between mb-0.5">
-          <span className="text-[9px] text-muted-foreground">Demand</span>
-          <span className="font-mono text-xs font-semibold tabular-nums">
-            {month.qty.toLocaleString()}
-          </span>
-        </div>
-        <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-          <div
-            className="h-full rounded-full bg-primary/60"
-            style={{ width: `${Math.min((month.qty / 100) * 100, 100)}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Stock required */}
-      <div className="flex-shrink-0 text-right min-w-[70px]">
-        <div className="text-[9px] text-muted-foreground">Stock req</div>
-        <div className="font-mono text-xs font-semibold tabular-nums">
-          {month.stockRequired.toLocaleString()}
-        </div>
-      </div>
-
-      {/* Projected after */}
-      <div className="flex-shrink-0 text-right min-w-[70px]">
-        <div className="text-[9px] text-muted-foreground">After demand</div>
-        <div
-          className={`font-mono text-xs font-semibold tabular-nums ${
-            month.projectedStockAfter <= 0
-              ? "text-rose-500"
-              : month.projectedStockAfter < month.stockRequired * 0.3
-                ? "text-amber-500"
-                : "text-emerald-500"
-          }`}
-        >
-          {month.projectedStockAfter.toLocaleString()}
-        </div>
-      </div>
-
-      {/* Suggested order */}
-      <div className="flex-shrink-0 text-right min-w-[75px]">
-        <div className="text-[9px] text-muted-foreground">Order if short</div>
-        <div
-          className={`font-mono text-xs font-semibold tabular-nums ${
-            month.suggestedOrder > 0 ? "text-primary" : "text-muted-foreground/40"
-          }`}
-        >
-          {month.suggestedOrder > 0 ? month.suggestedOrder.toLocaleString() : "—"}
-        </div>
-      </div>
-
-      {/* Daily rate */}
-      <div className="flex-shrink-0 text-right min-w-[55px] hidden md:block">
-        <div className="text-[9px] text-muted-foreground">/day</div>
-        <div className="font-mono text-[11px] tabular-nums text-muted-foreground">
-          {month.dailyRate.toFixed(1)}
         </div>
       </div>
     </div>
   );
 }
-
-function KpiSquare({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: "success" | "destructive" | "primary" | "warning";
-}) {
-  const t =
-    tone === "success"
-      ? "text-emerald-500"
-      : tone === "destructive"
-        ? "text-rose-500"
-        : tone === "primary"
-          ? "text-primary"
-          : tone === "warning"
-            ? "text-amber-500"
-            : "text-foreground";
-  return (
-    <div className="rounded-lg border border-border/40 bg-muted/20 p-2.5 hover:bg-muted/40 transition-colors">
-      <div className="text-[8px] uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div className={`font-semibold text-sm tabular-nums ${t}`}>{value}</div>
-    </div>
-  );
-}
-
 function StatTile({
   label,
   value,
@@ -2354,544 +1939,6 @@ function ConditionChip({
     <div className={`rounded-lg border ${bg} px-2.5 py-1.5`}>
       <div className="text-[8px] uppercase tracking-widest text-muted-foreground/70">{label}</div>
       <div className={`text-[11px] font-semibold tabular-nums ${txt}`}>{value}</div>
-    </div>
-  );
-}
-
-// ===========================================================================
-// Calculation Details — shows every intermediate variable with actual numbers
-// ===========================================================================
-
-function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) {
-  const [openSection, setOpenSection] = useState<string | null>(null);
-
-  const toggle = (id: string) => setOpenSection(openSection === id ? null : id);
-
-  return (
-    <div className="mt-6 border-t border-border/30 pt-6 space-y-3">
-      <div className="flex items-center gap-2 mb-2">
-        <div className="h-4 w-1 rounded-full bg-primary" />
-        <h4 className="text-xs uppercase tracking-widest text-foreground/70 font-semibold">
-          Full calculation breakdown
-        </h4>
-        <div className="text-[9px] text-muted-foreground/40">
-          — every variable with actual numbers
-        </div>
-      </div>
-
-      {/* 1. Input Data */}
-      <CalcSection id="input" label="① Input data" open={openSection} onToggle={toggle}>
-        <div className="text-[10px] text-muted-foreground mb-2">
-          Historical monthly demand values (corrected for stockouts):
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
-          {breakdown.inputData.values.map((v, i) => (
-            <CalcVar key={i} name={breakdown.inputData.monthLabels[i] ?? `M${i}`} value={v} />
-          ))}
-        </div>
-      </CalcSection>
-
-      {/* 2. Average (simple) */}
-      <CalcSection
-        id="wavg"
-        label="② Weighted average (12 months · 3/2/1 weights)"
-        open={openSection}
-        onToggle={toggle}
-      >
-        <Formula formula={breakdown.weightedAverage.formula} />
-        <CalcTable
-          headers={["Month", "Demand"]}
-          rows={breakdown.weightedAverage.values.map((v, i) => [
-            breakdown.inputData.monthLabels[i] ?? `M${i}`,
-            String(v),
-          ])}
-        />
-        <div className="mt-2 space-y-1 text-[11px]">
-          <CalcLine
-            label="Σ (demand × weight)"
-            value={String(breakdown.weightedAverage.weightedSum)}
-          />
-          <CalcLine label="Σ weights" value={String(breakdown.weightedAverage.weightSum)} />
-          <CalcLine
-            label="Weighted avg"
-            value={String(breakdown.weightedAverage.result)}
-            highlight
-            formula={`${breakdown.weightedAverage.weightedSum} ÷ ${breakdown.weightedAverage.weightSum} = ${breakdown.weightedAverage.result}`}
-          />
-        </div>
-      </CalcSection>
-
-      {/* 3. Trend Analysis */}
-      <CalcSection
-        id="trend"
-        label="③ Trend analysis (linear regression)"
-        open={openSection}
-        onToggle={toggle}
-      >
-        <Formula formula={breakdown.trendAnalysis.formula} />
-        <div className="grid grid-cols-2 gap-2 mt-2">
-          <CalcVar name="ΣX (month idx)" value={breakdown.trendAnalysis.sumX ?? 0} />
-          <CalcVar name="ΣY (sales)" value={breakdown.trendAnalysis.sumY ?? 0} />
-          <CalcVar name="ΣXY" value={breakdown.trendAnalysis.sumXY ?? 0} />
-          <CalcVar name="ΣX²" value={breakdown.trendAnalysis.sumX2 ?? 0} />
-          <CalcVar name="Numerator" value={breakdown.trendAnalysis.numerator ?? 0} />
-          <CalcVar name="Denominator" value={breakdown.trendAnalysis.denominator ?? 0} />
-          <CalcVar name="Slope" value={breakdown.trendAnalysis.slope} highlight />
-          <CalcVar name="SS Residual" value={breakdown.trendAnalysis.ssRes} />
-          <CalcVar name="SS Total" value={breakdown.trendAnalysis.ssTot} />
-          <CalcVar name="R² (strength)" value={breakdown.trendAnalysis.rSquared} highlight />
-          <CalcVar name="Direction threshold" value={breakdown.trendAnalysis.threshold} />
-          <CalcVar name="Direction" value={breakdown.trendAnalysis.direction} />
-        </div>
-      </CalcSection>
-
-      {/* 4. Seasonality Factors */}
-      <CalcSection
-        id="seas"
-        label="④ Seasonality factors (raw, no smoothing)"
-        open={openSection}
-        onToggle={toggle}
-      >
-        <Formula formula={breakdown.seasonality.formula} />
-        <div className="text-[10px] text-muted-foreground mb-1">
-          Overall average:{" "}
-          <span className="font-mono font-semibold">{breakdown.seasonality.overallAvg}</span>
-        </div>
-        <CalcTable
-          headers={["Month", "Avg", "Raw", "Prev", "Next", "Factor", "Clamped"]}
-          rows={breakdown.seasonality.perMonthBreakdown.map((m) => [
-            m.monthName.slice(0, 3),
-            String(m.monthAvg),
-            String(m.rawFactor),
-            String(m.prevRawFactor),
-            String(m.nextRawFactor),
-            String(m.smoothedFactor),
-            String(m.clampedFactor),
-          ])}
-        />
-        <div className="mt-1 text-[9px] text-muted-foreground/60">
-          Formula: clamp(targetAvg ÷ overallAvg, 0.5, 2.0) — raw factor, no neighbor smoothing
-        </div>
-      </CalcSection>
-
-      {/* 5. Per-Month Forecast */}
-      <CalcSection
-        id="monthly"
-        label="⑤ Month-by-month forecast calculation"
-        open={openSection}
-        onToggle={toggle}
-      >
-        <div className="space-y-4">
-          {breakdown.monthlyDetail.map((m, i) => (
-            <div
-              key={i}
-              className={`rounded-lg border p-3 ${
-                i === 0 ? "border-primary/20 bg-primary/[0.03]" : "border-border/40"
-              }`}
-            >
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs font-bold uppercase tracking-wide">{m.monthName}</span>
-                {i === 0 && (
-                  <span className="text-[9px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
-                    Next month
-                  </span>
-                )}
-              </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-x-3 gap-y-1 text-[10px]">
-                <CalcVar name="Trend contrib" value={m.trendContribution} />
-                <CalcVar name="Weighted baseline + trend" value={m.avgPlusTrend} />
-                <CalcVar name="Seas factor" value={m.seasonalityFactor} />
-                <CalcVar name="Weighted baseline + trend contrib" value={m.avgPlusTrend} />
-                <CalcVar name="Baseline (× seasonality)" value={m.baseline} />
-                <CalcVar name="Factors ×" value={m.factorsMultiplied} />
-                <CalcVar name="Clamp [low, high]" value={`[${m.clampLow}, ${m.clampHigh}]`} />
-                <CalcVar name="Final forecast" value={m.finalForecast} highlight />
-                <CalcVar name="Days in month" value={m.daysInMonth} />
-                <CalcVar name="Daily rate" value={m.dailyRate} />
-                <CalcVar name="Running stock (start)" value={m.runningStockBefore} />
-                <CalcVar name="Stock required" value={m.stockRequired} />
-                <CalcVar name="Safety stock days" value={m.safetyStockDays} />
-                <CalcVar name="Safety stock (units)" value={m.monthlySafetyStock} />
-                <CalcVar name="Stock shortfall" value={m.stockShortfall} />
-                <CalcVar
-                  name="Suggested order"
-                  value={m.suggestedOrder}
-                  highlight={m.suggestedOrder > 0}
-                />
-                <CalcVar name="80% CI low" value={m.predictionIntervalLow} />
-                <CalcVar name="80% CI high" value={m.predictionIntervalHigh} />
-                <CalcVar name="Projected stock after" value={m.projectedStockAfter} />
-              </div>
-              <div className="mt-1.5 text-[9px] text-muted-foreground/50">
-                baseline = {m.avgPlusTrend} × {m.seasonalityFactor} = {m.baseline} · final = clamp(
-                {m.baseline} × {m.factorsMultiplied}, {m.clampLow}, {m.clampHigh}) ={" "}
-                {m.finalForecast} · daily = {m.finalForecast} ÷ {m.daysInMonth}d = {m.dailyRate}/d
-              </div>
-            </div>
-          ))}
-        </div>
-      </CalcSection>
-
-      {/* 6. Reorder Calculation */}
-      <CalcSection id="reorder" label="⑥ Reorder calculation" open={openSection} onToggle={toggle}>
-        <div className="space-y-2 text-[11px]">
-          <div className="font-medium text-xs mb-1">Daily average — last 3 completed months</div>
-          <CalcTable
-            headers={["Month", "Corrected demand", "Days"]}
-            rows={breakdown.reorder.lastThreeMonths.map((m) => [
-              m.monthName,
-              String(m.demand),
-              String(m.days),
-            ])}
-          />
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-            <CalcVar name="Total demand" value={String(breakdown.reorder.totalDemand)} />
-            <CalcVar name="Calendar days" value={String(breakdown.reorder.totalDays)} />
-            <CalcVar
-              name="Daily avg demand"
-              value={breakdown.reorder.dailyAverage}
-              highlight
-              formula={`${breakdown.reorder.totalDemand} ÷ ${breakdown.reorder.totalDays} = ${breakdown.reorder.dailyAverage}`}
-            />
-          </div>
-
-          <div className="font-medium text-xs mt-3 mb-1">
-            Required stock (daily avg × (lead + safety))
-          </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-            <CalcVar name="Supplier lead days" value={breakdown.reorder.supplierLeadDays} />
-            <CalcVar name="Safety stock days" value={breakdown.reorder.safetyStockDays} />
-            <CalcVar name="Safety stock" value={breakdown.reorder.safetyStockUnits} />
-            <CalcVar
-              name="Required stock"
-              value={breakdown.reorder.requiredStock}
-              highlight
-              formula={`${breakdown.reorder.dailyAverage} × (${breakdown.reorder.supplierLeadDays} + ${breakdown.reorder.safetyStockDays}) = ${breakdown.reorder.requiredStock}`}
-            />
-          </div>
-          {breakdown.reorder.safetyStockFormula && (
-            <div className="text-[9px] text-muted-foreground/60 font-mono">
-              safety stock = {breakdown.reorder.safetyStockFormula} ={" "}
-              {breakdown.reorder.safetyStockUnits}
-            </div>
-          )}
-
-          <div className="font-medium text-xs mt-3 mb-1">Recommended order qty</div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1">
-            <CalcVar name="Inventory position" value={breakdown.reorder.inventoryPosition} />
-            <CalcVar
-              name="Before caps"
-              value={breakdown.reorder.recommendedBeforeCaps}
-              formula={`max(0, ${breakdown.reorder.requiredStock} - ${breakdown.reorder.inventoryPosition})`}
-            />
-            {breakdown.reorder.maxCoverDays && (
-              <>
-                <CalcVar name="Max cover days" value={breakdown.reorder.maxCoverDays} />
-                <CalcVar name="Max stock" value={breakdown.reorder.maxStock ?? 0} />
-                <CalcVar name="Headroom" value={breakdown.reorder.headroom ?? 0} />
-              </>
-            )}
-            {breakdown.reorder.minimumOrderQty && (
-              <CalcVar name="Min order qty" value={breakdown.reorder.minimumOrderQty} />
-            )}
-            {breakdown.reorder.orderMultiple && (
-              <CalcVar name="Order multiple" value={breakdown.reorder.orderMultiple} />
-            )}
-            <CalcVar
-              name="Final recommended"
-              value={breakdown.reorder.finalRecommended}
-              highlight
-            />
-          </div>
-        </div>
-      </CalcSection>
-
-      {/* 7. Live Pace Adjustment */}
-      <CalcSection
-        id="pace"
-        label="⑦ Live pace adjustment (next month)"
-        open={openSection}
-        onToggle={toggle}
-      >
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
-          <CalcVar
-            name="Current mo. base forecast"
-            value={breakdown.paceAdjustment.currentMonthBaseForecast}
-          />
-          <CalcVar
-            name="Next mo. base forecast"
-            value={breakdown.paceAdjustment.nextMonthBaseForecast}
-          />
-          <CalcVar name="Days elapsed" value={breakdown.paceAdjustment.daysElapsed} />
-          <CalcVar name="Days in month" value={breakdown.paceAdjustment.daysInMonth} />
-          <CalcVar
-            name="Expected sales to date"
-            value={breakdown.paceAdjustment.expectedSalesToDate}
-            formula={`${breakdown.paceAdjustment.currentMonthBaseForecast} × ${breakdown.paceAdjustment.daysElapsed} ÷ ${breakdown.paceAdjustment.daysInMonth} = ${breakdown.paceAdjustment.expectedSalesToDate}`}
-          />
-          <CalcVar name="Actual sales to date" value={breakdown.paceAdjustment.actualSalesToDate} />
-          <CalcVar
-            name="Sales pace ratio"
-            value={breakdown.paceAdjustment.salesPaceRatio ?? "—"}
-            formula={
-              breakdown.paceAdjustment.salesPaceRatio != null
-                ? `${breakdown.paceAdjustment.actualSalesToDate} ÷ ${breakdown.paceAdjustment.expectedSalesToDate} = ${breakdown.paceAdjustment.salesPaceRatio}`
-                : undefined
-            }
-          />
-          <CalcVar
-            name="Adjustment factor"
-            value={breakdown.paceAdjustment.adjustmentFactor}
-            highlight
-            formula={
-              breakdown.paceAdjustment.salesPaceRatio != null
-                ? `1 + 0.30 × (${breakdown.paceAdjustment.salesPaceRatio} − 1), clamped to [0.80, 1.20]`
-                : "no adjustment applies"
-            }
-          />
-          <CalcVar
-            name="Adjusted next month"
-            value={breakdown.paceAdjustment.adjustedNextForecast}
-            highlight
-            formula={`${breakdown.paceAdjustment.nextMonthBaseForecast} × ${breakdown.paceAdjustment.adjustmentFactor} = ${breakdown.paceAdjustment.adjustedNextForecast}`}
-          />
-        </div>
-        <div className="mt-2 rounded-lg bg-muted/30 border border-border/30 px-3 py-2 text-[10px] text-muted-foreground">
-          <span className="text-muted-foreground/60">Reason: </span>
-          {breakdown.paceAdjustment.reason}
-        </div>
-      </CalcSection>
-
-      {/* 8. Days of Cover & Velocity */}
-      <CalcSection
-        id="cover"
-        label="⑧ Days of cover & velocity"
-        open={openSection}
-        onToggle={toggle}
-      >
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
-          <CalcVar name="Inventory position" value={breakdown.daysOfCover.inventoryPosition} />
-          <CalcVar name="Daily forecast" value={breakdown.daysOfCover.dailyForecast} />
-          <CalcVar
-            name="Days of cover"
-            value={
-              breakdown.daysOfCover.daysOfCover === Infinity
-                ? "∞"
-                : breakdown.daysOfCover.daysOfCover
-            }
-            highlight
-            formula={
-              breakdown.daysOfCover.recentDaily > 0
-                ? `${breakdown.daysOfCover.inventoryPosition} ÷ ${breakdown.daysOfCover.recentDaily} (last 3-mo daily avg) = ${breakdown.daysOfCover.daysOfCover}`
-                : "No demand in the last 3 months → ∞"
-            }
-          />
-          <CalcVar name="Last 3-mo demand" value={breakdown.daysOfCover.totalDemand} />
-          <CalcVar name="Last 3-mo days" value={breakdown.daysOfCover.totalDays} />
-          <CalcVar
-            name="Last 3-mo daily avg"
-            value={breakdown.daysOfCover.recentDaily}
-            formula={
-              breakdown.daysOfCover.totalDays > 0
-                ? `${breakdown.daysOfCover.totalDemand} ÷ ${breakdown.daysOfCover.totalDays} days = ${breakdown.daysOfCover.recentDaily}`
-                : undefined
-            }
-          />
-          <CalcVar name="Last 3-mo avg (monthly)" value={breakdown.daysOfCover.recent3MonthAvg} />
-          <CalcVar
-            name="Velocity"
-            value={breakdown.momentum.result}
-            highlight
-            formula={
-              breakdown.momentum.recent3MonthAvg >= breakdown.momentum.threshold120pct
-                ? `${breakdown.momentum.recent3MonthAvg} ≥ ${breakdown.momentum.threshold120pct} → accelerating`
-                : breakdown.momentum.recent3MonthAvg >= breakdown.momentum.threshold60pct
-                  ? `${breakdown.momentum.recent3MonthAvg} ≥ ${breakdown.momentum.threshold60pct} → stable`
-                  : breakdown.momentum.recent3MonthAvg > 0
-                    ? `${breakdown.momentum.recent3MonthAvg} < ${breakdown.momentum.threshold60pct} → declining`
-                    : `0 → dead`
-            }
-          />
-        </div>
-      </CalcSection>
-
-      {/* 9. Risk & Timeline */}
-      <CalcSection
-        id="risk"
-        label="⑨ Risk assessment & timeline"
-        open={openSection}
-        onToggle={toggle}
-      >
-        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
-          <CalcVar
-            name="Cover / Lead ratio"
-            value={breakdown.risk.coverVsLead}
-            formula={`${breakdown.daysOfCover.daysOfCover} ÷ ${breakdown.reorder.supplierLeadDays} = ${breakdown.risk.coverVsLead}`}
-          />
-          <CalcVar name="Stockout risk" value={breakdown.risk.stockoutRisk} highlight />
-          <CalcVar name="Max cover days" value={breakdown.risk.maxCoverDays} />
-          <CalcVar name="Overstock risk" value={breakdown.risk.overstockRisk} />
-          <CalcVar
-            name="Days until stockout"
-            value={breakdown.timeline.daysUntilStockout ?? "N/A"}
-          />
-          <CalcVar name="Stockout date" value={breakdown.timeline.estimatedStockoutDate ?? "—"} />
-          <CalcVar name="Reorder by date" value={breakdown.timeline.reorderByDate ?? "—"} />
-          <CalcVar name="Next refill date" value={breakdown.timeline.nextRefillDate} />
-          <CalcVar name="Stockout urgency" value={breakdown.timeline.stockoutUrgency} highlight />
-        </div>
-      </CalcSection>
-    </div>
-  );
-}
-
-// --------------- Calculation Details Sub-components ---------------
-
-function CalcSection({
-  id,
-  label,
-  open,
-  onToggle,
-  children,
-}: {
-  id: string;
-  label: string;
-  open: string | null;
-  onToggle: (id: string) => void;
-  children: React.ReactNode;
-}) {
-  const isOpen = open === id;
-  return (
-    <div className="rounded-xl border border-border/40 overflow-hidden transition-all duration-200">
-      <button
-        onClick={() => onToggle(id)}
-        className="w-full flex items-center justify-between px-4 py-2.5 text-left hover:bg-muted/20 transition-colors text-xs font-medium"
-      >
-        <span>{label}</span>
-        <svg
-          className={`w-3.5 h-3.5 text-muted-foreground transition-transform duration-200 ${
-            isOpen ? "rotate-180" : ""
-          }`}
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-          strokeWidth={2}
-        >
-          <path d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-      {isOpen && <div className="px-4 pb-4 pt-1 border-t border-border/20">{children}</div>}
-    </div>
-  );
-}
-
-function Formula({ formula }: { formula: string }) {
-  return (
-    <div className="mb-2 p-2 rounded-lg bg-muted/30 border border-border/20 text-[10px] font-mono text-primary/80">
-      <span className="text-[8px] uppercase tracking-widest text-muted-foreground mr-2">
-        Formula:
-      </span>
-      {formula}
-    </div>
-  );
-}
-
-function CalcVar({
-  name,
-  value,
-  highlight,
-  formula,
-}: {
-  name: string;
-  value: string | number;
-  highlight?: boolean;
-  formula?: string;
-}) {
-  return (
-    <div
-      className={`rounded-lg px-2.5 py-1.5 border ${
-        highlight ? "border-primary/30 bg-primary/5" : "border-border/20 bg-muted/15"
-      }`}
-    >
-      <div className="text-[8px] uppercase tracking-wider text-muted-foreground/70">{name}</div>
-      <div
-        className={`font-mono text-xs tabular-nums ${
-          highlight ? "text-primary font-bold" : "text-foreground/80"
-        }`}
-      >
-        {typeof value === "number" ? value.toLocaleString() : value}
-      </div>
-      {formula && (
-        <div className="text-[8px] text-muted-foreground/40 font-mono mt-0.5 truncate">
-          {formula}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CalcLine({
-  label,
-  value,
-  highlight,
-  formula,
-}: {
-  label: string;
-  value: string;
-  highlight?: boolean;
-  formula?: string;
-}) {
-  return (
-    <div
-      className={`flex items-center justify-between px-2.5 py-1 rounded ${
-        highlight ? "bg-primary/5 border border-primary/20" : ""
-      }`}
-    >
-      <span className="text-[10px] text-muted-foreground">{label}</span>
-      <div className="text-right">
-        <span
-          className={`font-mono text-xs font-semibold tabular-nums ${
-            highlight ? "text-primary" : "text-foreground/80"
-          }`}
-        >
-          {value}
-        </span>
-        {formula && (
-          <div className="text-[8px] text-muted-foreground/40 font-mono mt-0.5">{formula}</div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function CalcTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="table-premium w-full text-[10px]">
-        <thead>
-          <tr className="border-b border-border/20">
-            {headers.map((h, i) => (
-              <th
-                key={i}
-                className="text-left font-medium text-muted-foreground/60 py-1 pr-3 whitespace-nowrap"
-              >
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, ri) => (
-            <tr key={ri} className="border-b border-border/10">
-              {row.map((cell, ci) => (
-                <td key={ci} className="font-mono text-foreground/70 py-1 pr-3 whitespace-nowrap">
-                  {cell}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }
