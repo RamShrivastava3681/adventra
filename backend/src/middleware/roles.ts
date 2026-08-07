@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { logSecurityEvent } from "./security.js";
 
 export function requireRole(...roles: string[]) {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -7,6 +8,11 @@ export function requireRole(...roles: string[]) {
     }
     const hasRole = roles.some((r) => req.user!.roles.includes(r));
     if (!hasRole) {
+      logSecurityEvent("access.denied", req, {
+        requiredRoles: roles,
+        hasRoles: req.user!.roles,
+        route: req.originalUrl,
+      });
       return res.status(403).json({ error: `Requires one of: ${roles.join(", ")}` });
     }
     next();

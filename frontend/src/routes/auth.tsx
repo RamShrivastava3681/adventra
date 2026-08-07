@@ -34,8 +34,9 @@ function AuthPage() {
         toast.success("Account created. You can now sign in.");
         setMode("signin");
       } else {
-        const result = await api.auth.login(email, password);
-        api.auth.setToken(result.token);
+        // The server sets the session as an httpOnly cookie on success —
+        // nothing to store client-side.
+        await api.auth.login(email, password);
         toast.success("Welcome back.");
         // Re-check auth context so AppLayout sees the user immediately
         await refreshAuth();

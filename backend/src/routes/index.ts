@@ -1,9 +1,22 @@
 import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
-import jwt from "jsonwebtoken";
 import { v4 as uuid } from "uuid";
 import { config } from "../config.js";
-import { authMiddleware, AuthPayload } from "../middleware/auth.js";
+import {
+  authMiddleware,
+  AuthPayload,
+  verifyToken,
+  getTokenFromRequest,
+  clearAuthCookie,
+} from "../middleware/auth.js";
+import {
+  loginLimiter,
+  accountLoginLimiter,
+  signupLimiter,
+  publicTokenLimiter,
+  authSlowDown,
+} from "../middleware/rate-limit.js";
+import { detectFileType, sanitizeS3Key, auditAdminAction, logSecurityEvent } from "../middleware/security.js";
 import { requireAdmin, requireChecker } from "../middleware/roles.js";
 import { requireRole } from "../middleware/roles.js";
 import * as User from "../models/user.js";
@@ -26,12 +39,12 @@ const viewAsMiddleware = async (req: Request, res: Response, next: NextFunction)
   try {
     // Resolve the requester identity (authMiddleware hasn't run yet at this stage)
     if (!req.user) {
-      const header = req.headers.authorization || "";
-      if (!header.startsWith("Bearer ")) {
+      const token = getTokenFromRequest(req);
+      if (!token) {
         return res.status(401).json({ error: "No token provided" });
       }
       try {
-        const payload = jwt.verify(header.replace("Bearer ", ""), config.jwt.secret) as AuthPayload;
+        const payload = verifyToken(token) as AuthPayload;
         req.user = { userId: payload.userId, email: payload.email, roles: payload.roles || [] };
       } catch {
         return res.status(401).json({ error: "Invalid or expired token" });
@@ -40,6 +53,7 @@ const viewAsMiddleware = async (req: Request, res: Response, next: NextFunction)
 
     // Verify the requester is a reporting_manager
     if (!req.user.roles?.includes("reporting_manager")) {
+      logSecurityEvent("view_as.denied", req, { targetUserId: viewAsUserId });
       return res.status(403).json({ error: "Only reporting managers can use view-as" });
     }
 
@@ -87,17 +101,22 @@ const router = Router();
 router.use(viewAsMiddleware);
 
 // ===================== AUTH =====================
-router.post("/auth/signup", (req, res) => User.signup(req, res));
-router.post("/auth/login", (req, res) => User.login(req, res));
+router.post("/auth/signup", signupLimiter, authSlowDown, (req, res) => User.signup(req, res));
+router.post("/auth/login", loginLimiter, accountLoginLimiter, authSlowDown, (req, res) => User.login(req, res));
+// Logout — clears the httpOnly session cookie. Unauthenticated calls are fine.
+router.post("/auth/logout", (req, res) => {
+  clearAuthCookie(res);
+  res.json({ success: true });
+});
 router.get("/auth/me", authMiddleware, (req, res) => User.getProfile(req, res));
 router.put("/auth/profile", authMiddleware, (req, res) => User.updateProfile(req, res));
 
 // ===================== ADMIN =====================
 router.get("/admin/users", authMiddleware, requireAdmin, (req, res) => User.getUsers(req, res));
-router.post("/admin/users/create", authMiddleware, requireAdmin, (req, res) => User.adminCreateUser(req, res));
-router.put("/admin/users/role", authMiddleware, requireAdmin, (req, res) => User.updateUserRole(req, res));
+router.post("/admin/users/create", authMiddleware, requireAdmin, auditAdminAction, (req, res) => User.adminCreateUser(req, res));
+router.put("/admin/users/role", authMiddleware, requireAdmin, auditAdminAction, (req, res) => User.updateUserRole(req, res));
 router.get("/admin/users/managers", authMiddleware, requireAdmin, (req, res) => User.listManagers(req, res));
-router.put("/admin/users/:userId/assign-manager", authMiddleware, requireAdmin, (req, res) => User.assignManager(req, res));
+router.put("/admin/users/:userId/assign-manager", authMiddleware, requireAdmin, auditAdminAction, (req, res) => User.assignManager(req, res));
 router.get("/admin/users/:managerId/reports", authMiddleware, (req, res, next) => {
   // Allow admins OR the reporting manager themself to fetch reports
   if (req.user?.roles?.includes("factor_admin") || req.user?.userId === req.params.managerId) {
@@ -486,7 +505,7 @@ router.delete("/suppliers/:id", authMiddleware, async (req, res) => {
 // ===================== INVOICES (Sales) =====================
 
 // Public token-authenticated endpoint: send reminder to debtor (clicked from admin email)
-router.get("/invoices/:id/remind-debtor/:token", async (req, res) => {
+router.get("/invoices/:id/remind-debtor/:token", publicTokenLimiter, async (req, res) => {
   try {
     const { sendReminderToDebtor } = await import("../invoice-reminder.js");
     const result = await sendReminderToDebtor(req.params.id, req.params.token);
@@ -496,7 +515,8 @@ router.get("/invoices/:id/remind-debtor/:token", async (req, res) => {
       res.status(400).send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Error</title><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#f4f5f7;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;padding:16px;} .card{background:#fff;border-radius:12px;padding:32px;max-width:480px;box-shadow:0 1px 3px rgba(0,0,0,0.08);text-align:center;} h1{font-size:20px;color:#dc2626;margin:0 0 8px;} p{font-size:14px;color:#64748b;margin:0 0 4px;line-height:1.5;} .emoji{font-size:48px;margin-bottom:12px;}</style></head><body><div class="card"><div class="emoji">❌</div><h1>Could Not Send Reminder</h1><p>${result.message}</p></div></body></html>`);
     }
   } catch (err: any) {
-    res.status(500).send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Error</title></head><body><h1>Error</h1><p>${err.message}</p></body></html>`);
+    console.error("[remind-debtor] Failed to send reminder:", err);
+    res.status(500).send(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Error</title></head><body><h1>Error</h1><p>Something went wrong. Please try again later.</p></body></html>`);
   }
 });
 
@@ -2340,7 +2360,7 @@ router.get("/alerts", authMiddleware, async (req, res) => {
 router.put("/alerts/:id/read", authMiddleware, async (req, res) => {
   try { res.json(await Alert.markRead(req.params.id)); } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
-router.post("/alerts/generate", authMiddleware, requireAdmin, async (req, res) => {
+router.post("/alerts/generate", authMiddleware, requireAdmin, auditAdminAction, async (req, res) => {
   try {
     const invoices = await Invoice.list();
     const alerts: Array<{ message: string; type: string }> = [];
@@ -2513,7 +2533,7 @@ router.get("/reminder-logs", authMiddleware, async (req, res) => {
 });
 
 // Manually send a reminder for a specific sales invoice
-router.post("/invoices/:id/send-reminder", authMiddleware, requireAdmin, async (req, res) => {
+router.post("/invoices/:id/send-reminder", authMiddleware, requireAdmin, auditAdminAction, async (req, res) => {
   try {
     const { sendReminderForInvoice } = await import("../invoice-reminder.js");
     const result = await sendReminderForInvoice(req.params.id, "sales");
@@ -2526,7 +2546,7 @@ router.post("/invoices/:id/send-reminder", authMiddleware, requireAdmin, async (
 });
 
 // Manually send a reminder for a specific purchase invoice
-router.post("/purchase-invoices/:id/send-reminder", authMiddleware, requireAdmin, async (req, res) => {
+router.post("/purchase-invoices/:id/send-reminder", authMiddleware, requireAdmin, auditAdminAction, async (req, res) => {
   try {
     const { sendReminderForInvoice } = await import("../invoice-reminder.js");
     const result = await sendReminderForInvoice(req.params.id, "purchase");
@@ -2539,7 +2559,7 @@ router.post("/purchase-invoices/:id/send-reminder", authMiddleware, requireAdmin
 });
 
 // Manually trigger the full reminder scheduler
-router.post("/reminders/run", authMiddleware, requireAdmin, async (req, res) => {
+router.post("/reminders/run", authMiddleware, requireAdmin, auditAdminAction, async (req, res) => {
   try {
     const { runDueDateReminders } = await import("../invoice-reminder.js");
     const result = await runDueDateReminders();
@@ -2646,7 +2666,7 @@ router.get("/requests", authMiddleware, (req, res) => Submission.listTeamRequest
 router.put("/requests/:id/status", authMiddleware, (req, res) => Submission.updateRequestStatus(req, res));
 
 // ===================== NOA (Notification of Assignment) =====================
-router.get("/noa/:token", async (req, res) => {
+router.get("/noa/:token", publicTokenLimiter, async (req, res) => {
   try {
     const invoice = await Invoice.getByNOAToken(req.params.token);
     if (!invoice) return res.status(404).json({ error: "Not found" });
@@ -2655,9 +2675,15 @@ router.get("/noa/:token", async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-router.post("/noa/:token/respond", async (req, res) => {
+router.post("/noa/:token/respond", publicTokenLimiter, async (req, res) => {
   try {
-    const { decision, comments } = req.body;
+    const { decision, comments } = req.body || {};
+    if (typeof decision !== "string" || !decision.trim() || decision.length > 30) {
+      return res.status(400).json({ error: "A valid decision is required" });
+    }
+    if (comments !== undefined && (typeof comments !== "string" || comments.length > 2000)) {
+      return res.status(400).json({ error: "Comments are too long" });
+    }
     const invoice = await Invoice.getByNOAToken(req.params.token);
     if (!invoice) return res.status(404).json({ error: "Not found" });
     const updates: any = { noaStatus: decision, noaRespondedAt: new Date().toISOString() };
@@ -2671,7 +2697,7 @@ router.post("/noa/:token/respond", async (req, res) => {
 // In-memory multipart parser — 15 MB cap, matching the frontend uploaders.
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 },
+  limits: { fileSize: 15 * 1024 * 1024, files: 1, fields: 4, parts: 6 },
 });
 
 /**
@@ -2683,18 +2709,31 @@ const upload = multer({
 router.post("/upload", authMiddleware, upload.single("file"), async (req, res) => {
   try {
     const file = req.file;
-    if (!file) return res.status(400).json({ error: "No file provided (multipart field name: file)" });
+    if (!file) {
+      return res.status(400).json({ error: "No file provided (multipart field name: file)" });
+    }
     const { path, scope } = (req.body || {}) as { path?: string; scope?: string };
-    const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]+/g, "_");
-    const safePath = (path || `${req.user!.userId}/${scope || "misc"}/${Date.now()}-${safeName}`).replace(/^\/+/, "");
-    // Every key lives under the requester's own folder — never accept a path
-    // that points into another account's data.
+    // 1) Magic-byte validation — the content type is derived from the file
+    //    contents, never trusted from the client. This blocks HTML/SVG uploads
+    //    (stored XSS served from the S3 origin) and executable files, while
+    //    allowing images, PDFs, office docs (docx/xlsx/…) and plain text.
+    const detected = detectFileType(file.buffer);
+    if (!detected) {
+      return res.status(415).json({ error: "Unsupported file type. Allowed: JPEG, PNG, WebP, GIF, PDF, office documents and text files." });
+    }
+    // 2) Keep the client-supplied path (sanitized) — the frontend stores this
+    //    exact key locally and uses it to open/delete the object. Only the
+    //    S3 Content-Type comes from the detected file contents.
+    const safePath = sanitizeS3Key(
+      path || `${req.user!.userId}/${scope || "misc"}/${Date.now()}-${uuid().slice(0, 8)}.bin`
+    );
+    // Every key must live under the requester's own folder.
     if (!safePath.startsWith(`${req.user!.userId}/`)) {
       return res.status(403).json({ error: "Upload key must be scoped to your account" });
     }
     const { uploadFile } = await import("../s3.js");
-    const result = await uploadFile(safePath, file.buffer, file.mimetype || "application/octet-stream");
-    res.status(201).json({ path: safePath, url: result.url, name: file.originalname, size: file.size, type: file.mimetype });
+    const result = await uploadFile(safePath, file.buffer, detected.mime);
+    res.status(201).json({ path: safePath, url: result.url, name: file.originalname, size: file.size, type: detected.mime });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 

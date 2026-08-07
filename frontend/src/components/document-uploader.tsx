@@ -21,10 +21,6 @@ type Props = {
   hint?: string;
 };
 
-function getToken(): string | null {
-  return localStorage.getItem("auth_token");
-}
-
 export function DocumentUploader({
   userId,
   scope,
@@ -54,10 +50,10 @@ export function DocumentUploader({
         formData.append("path", path);
         formData.append("scope", scope);
 
-        const token = getToken();
+        // Session auth rides on the httpOnly cookie.
         const res = await fetch(`${API_URL}/upload`, {
           method: "POST",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
           body: formData,
         });
         if (!res.ok) {
@@ -80,11 +76,10 @@ export function DocumentUploader({
   };
 
   const remove = async (d: DocMeta) => {
-    // Remove via backend API
-    const token = getToken();
+    // Remove via backend API (httpOnly cookie carries the session)
     await fetch(`${API_URL}/upload/${encodeURIComponent(d.path)}`, {
       method: "DELETE",
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
     }).catch(() => {});
     onChange(docs.filter((x) => x.path !== d.path));
   };
@@ -155,9 +150,8 @@ export function DocumentList({ docs }: { docs: DocMeta[] }) {
   const open = async (d: DocMeta) => {
     setBusyPath(d.path);
     try {
-      const token = getToken();
       const res = await fetch(`${API_URL}/upload/${encodeURIComponent(d.path)}/url`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
       });
       if (!res.ok) {
         toast.error("Could not open");

@@ -1,7 +1,6 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import api from "@/lib/api-client";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRouter } from "@tanstack/react-router";
 
 export type AppRole =
   | "client"
@@ -23,7 +22,6 @@ export type AuthUser = {
 
 type AuthState = {
   user: AuthUser | null;
-  token: string | null;
   roles: AppRole[];
   loading: boolean;
   isAdmin: boolean;
@@ -42,38 +40,26 @@ const Ctx = createContext<AuthState | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AuthUser | null>(null);
-  const [token, setToken] = useState<string | null>(null);
   const [roles, setRoles] = useState<AppRole[]>([]);
   const [loading, setLoading] = useState(true);
   const qc = useQueryClient();
-  const router = useRouter();
 
-  const loadRoles = async (uid: string | undefined) => {
-    if (!uid) {
-      setRoles([]);
-      return;
-    }
-    try {
-      const data = await api.auth.me();
-      setRoles((data.roles ?? []) as AppRole[]);
-    } catch (err) {
-      console.error("[Auth] loadRoles error:", err);
-      setRoles([]);
-    }
-  };
+  // Migration: drop any JWT left in localStorage by the old bearer-token flow.
+  // Sessions are now httpOnly cookies; anything in localStorage is stale.
+  useEffect(() => {
+    localStorage.removeItem("auth_token");
+  }, []);
+
+  // Monotonic guard for concurrent checkAuth() runs (login page, refreshAuth).
+  // A stale /auth/me response must never overwrite a newer session.
+  const checkSeq = useRef(0);
 
   const checkAuth = async () => {
-    const storedToken = localStorage.getItem("auth_token");
-    if (!storedToken) {
-      setUser(null);
-      setToken(null);
-      setRoles([]);
-      setLoading(false);
-      return;
-    }
-    setToken(storedToken);
+    const seq = ++checkSeq.current;
     try {
       const data = await api.auth.me();
+      // A newer auth check superseded this one — drop the stale result.
+      if (seq !== checkSeq.current) return;
       const authUser: AuthUser = {
         id: data.id,
         email: data.email,
@@ -84,27 +70,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(authUser);
       setRoles((data.roles ?? []) as AppRole[]);
     } catch (err) {
+      if (seq !== checkSeq.current) return;
+      // 401 (no/invalid cookie) or a network failure → signed out.
       console.error("[Auth] checkAuth /auth/me failed:", err);
-      localStorage.removeItem("auth_token");
-      setToken(null);
       setUser(null);
       setRoles([]);
     } finally {
-      setLoading(false);
+      if (seq === checkSeq.current) setLoading(false);
     }
   };
 
-  // Listen for storage changes (login/logout from other tabs)
   useEffect(() => {
     checkAuth();
-    const handler = (e: StorageEvent) => {
-      if (e.key === "auth_token") {
-        setLoading(true);
-        checkAuth();
-      }
-    };
-    window.addEventListener("storage", handler);
-    return () => window.removeEventListener("storage", handler);
   }, []);
 
   // Expose a way to re-check auth without page reload
@@ -125,7 +102,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const value: AuthState = {
     user,
-    token,
     roles,
     loading,
     isAdmin,
@@ -136,15 +112,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isOperations,
     isReportingManager,
     signOut: () => {
-      localStorage.removeItem("auth_token");
+      // Best-effort server-side logout (clears the httpOnly cookie).
+      api.auth.logout().catch(() => {});
+      // Bump the sequence guard so an in-flight /auth/me can't resurrect the
+      // session after the user has signed out.
+      checkSeq.current++;
       setUser(null);
-      setToken(null);
       setRoles([]);
       qc.clear();
     },
-    refreshRoles: () => loadRoles(user?.id),
+    refreshRoles: async () => {
+      try {
+        const data = await api.auth.me();
+        setRoles((data.roles ?? []) as AppRole[]);
+      } catch (err) {
+        console.error("[Auth] loadRoles error:", err);
+      }
+    },
     refreshAuth,
   };
+
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

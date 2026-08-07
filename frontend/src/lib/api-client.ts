@@ -5,17 +5,11 @@
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
-function getToken(): string | null {
-  return localStorage.getItem("auth_token");
-}
-
 async function request<T = any>(path: string, options: RequestInit = {}): Promise<T> {
-  const token = getToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
   };
-  if (token) headers["Authorization"] = `Bearer ${token}`;
 
   // Auto-forward viewAsUserId from browser URL search params to API calls
   // This enables the reporting manager's view-as mode to work across all API requests
@@ -32,6 +26,8 @@ async function request<T = any>(path: string, options: RequestInit = {}): Promis
   const res = await fetch(`${API_URL}${apiPath}`, {
     ...options,
     headers,
+    // Send the httpOnly session cookie (JWT is never in localStorage).
+    credentials: "include",
   });
 
   if (!res.ok) {
@@ -60,20 +56,20 @@ const api = {
     request<T>(path, { method: "PUT", body: body ? JSON.stringify(body) : undefined }),
   delete: <T = any>(path: string) => request<T>(path, { method: "DELETE" }),
 
-  // Auth
+  // Auth — the session JWT is held in an httpOnly cookie set by the server;
+  // client JS never sees or stores it.
   auth: {
     login: (email: string, password: string) =>
-      api.post<{ token: string; user: any }>("/auth/login", { email, password }),
+      api.post<{ user: any }>("/auth/login", { email, password }),
     signup: (data: {
       email: string;
       password: string;
       companyName?: string;
       contactName?: string;
-    }) => api.post<{ token: string; user: any }>("/auth/signup", data),
+    }) => api.post<{ user: any }>("/auth/signup", data),
     me: () => api.get<any>("/auth/me"),
     updateProfile: (data: any) => api.put<any>("/auth/profile", data),
-    setToken: (token: string) => localStorage.setItem("auth_token", token),
-    clearToken: () => localStorage.removeItem("auth_token"),
+    logout: () => api.post<{ success: boolean }>("/auth/logout"),
   },
 
   // Products

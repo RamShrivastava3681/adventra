@@ -58,7 +58,19 @@ export function camelCaseToSnakeCase(req: Request, res: Response, next: NextFunc
   const originalJson = res.json.bind(res);
   res.json = function (body: unknown) {
     if (body !== null && body !== undefined) {
-      return originalJson(deepTransformKeys(body, camelToSnake));
+      // Security: never leak internal error details to clients on 5xx. Many
+      // route handlers respond with `err.message`, which can expose database
+      // errors, stack traces or file paths. Errors below 500 (validation,
+      // 4xx) are intentionally kept — they carry user-facing messages.
+      let safe = body;
+      if (
+        res.statusCode >= 500 &&
+        typeof body === "object" &&
+        (body as Record<string, unknown> | null)?.error !== undefined
+      ) {
+        safe = { ...(body as Record<string, unknown>), error: "Internal server error" };
+      }
+      return originalJson(deepTransformKeys(safe, camelToSnake));
     }
     return originalJson(body);
   } as typeof res.json;

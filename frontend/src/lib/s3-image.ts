@@ -18,10 +18,10 @@ export function s3KeyFromUrl(url: string | null | undefined): string | null {
 // bucket is private, so the stored public URL 403s — this is the only way the
 // browser can actually load the image.
 async function fetchSignedUrl(key: string): Promise<string | null> {
-  const token = localStorage.getItem("auth_token");
   try {
+    // Session auth rides on the httpOnly cookie.
     const res = await fetch(`${API_URL}/upload/${encodeURIComponent(key)}/url`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
     });
     if (!res.ok) return null;
     const data = await res.json();

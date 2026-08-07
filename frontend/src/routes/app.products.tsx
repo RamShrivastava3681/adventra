@@ -1055,10 +1055,10 @@ function ImageField({
       formData.append("file", file);
       formData.append("path", path);
       formData.append("scope", "products");
-      const token = localStorage.getItem("auth_token");
+      // Session auth rides on the httpOnly cookie.
       const res = await fetch(`${API_URL}/upload`, {
         method: "POST",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: "include",
         body: formData,
       });
       if (!res.ok) {
@@ -1080,10 +1080,9 @@ function ImageField({
     const key = s3KeyFromUrl(value);
     if (key) {
       try {
-        const token = localStorage.getItem("auth_token");
         await fetch(`${API_URL}/upload/${encodeURIComponent(key)}`, {
           method: "DELETE",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          credentials: "include",
         });
       } catch {
         /* ignore */

@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import cookieParser from "cookie-parser";
 import bcrypt from "bcryptjs";
 import { config } from "./config.js";
 import routes from "./routes/index.js";
@@ -8,43 +9,109 @@ import * as db from "./dynamodb.js";
 import { v4 as uuid } from "uuid";
 import { startReminderScheduler } from "./invoice-reminder.js";
 import { snakeCaseToCamelCase, camelCaseToSnakeCase } from "./middleware/transform.js";
+import {
+  requestLogger,
+  sanitizeInput,
+  noStore,
+  apiErrorHandler,
+  csrfOriginGuard,
+} from "./middleware/security.js";
+import { apiLimiter } from "./middleware/rate-limit.js";
+
+// ─── Production startup guards ───────────────────────────────────────────────
+// Refuse to boot with a guessable JWT secret or no secret at all.
+if (config.isProduction) {
+  const secret = process.env.JWT_SECRET || "";
+  if (!secret || secret.length < 32 || secret === "dev-secret-change-in-production") {
+    throw new Error(
+      "Refusing to start in production: JWT_SECRET must be set to a random value of at least 32 characters."
+    );
+  }
+}
 
 const app = express();
+app.disable("x-powered-by");
 
-// Middleware
-app.use(helmet());
-const allowedOrigins = process.env.CORS_ORIGIN
-  ? process.env.CORS_ORIGIN.split(",")
-  : ["http://localhost:3000", "http://localhost:8080"];
+// Trust X-Forwarded-For only when the immediate peer is loopback (nginx in
+// front, or dev on localhost). Direct clients can never spoof the header, so
+// rate limiting sees the real client IP instead of one shared "127.0.0.1"
+// bucket when deployed behind the bundled nginx config.
+app.set("trust proxy", (ip: string) => ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1");
+
+// ─── Security headers (Helmet) ───────────────────────────────────────────────
+// HSTS is enabled only in production (the API is served over HTTP in dev).
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      "default-src": "'none'",
+      "script-src": "'none'",
+      "style-src": "'unsafe-inline'",
+      "img-src": "'self' data:",
+      "font-src": "'self'",
+      "connect-src": "'self'",
+      "object-src": "'none'",
+      "base-uri": "'none'",
+      "frame-ancestors": "'none'",
+      "form-action": "'self'",
+    },
+  },
+  strictTransportSecurity: config.isProduction
+    ? { maxAge: 31536000, includeSubDomains: true, preload: true }
+    : false,
+  referrerPolicy: { policy: "no-referrer" },
+  crossOriginResourcePolicy: { policy: "same-site" },
+}));
+
+// Permissions-Policy (removed from helmet v7 — set explicitly).
+app.use((_req, res, next) => {
+  res.setHeader(
+    "Permissions-Policy",
+    "camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()"
+  );
+  next();
+});
+
+// ─── CORS ────────────────────────────────────────────────────────────────────
+const allowedOrigins = config.corsOrigins;
 
 app.use(cors({
   origin: allowedOrigins,
   credentials: true,
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "Accept", "Origin"],
+  maxAge: 86400,
 }));
-app.use(express.json({ limit: "10mb" }));
+
+// Parse the httpOnly session cookie so auth middleware can read it.
+app.use(cookieParser());
+
+// ─── Request limits ──────────────────────────────────────────────────────────
+app.use(express.json({ limit: config.security.jsonBodyLimit }));
+app.use(express.urlencoded({ extended: true, limit: config.security.urlencodedLimit }));
+
+// ─── Access log + input sanitization ────────────────────────────────────────
+app.use(requestLogger);
+app.use(sanitizeInput);
 
 // Field-name transformation: frontend sends snake_case, backend uses camelCase
 app.use(snakeCaseToCamelCase);
 app.use(camelCaseToSnakeCase);
 
-// Health check
+// Health check (public, no cache)
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", timestamp: new Date().toISOString() });
 });
 
-// API routes
-app.use("/api", routes);
+// ─── API routes (CSRF origin guard + rate-limited backstop + no-cache) ───────
+app.use("/api", csrfOriginGuard(allowedOrigins), apiLimiter, noStore, routes);
 
 // 404 handler
 app.use((_req, res) => {
   res.status(404).json({ error: "Not found" });
 });
 
-// Error handler
-app.use((err: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  console.error(err);
-  res.status(500).json({ error: err.message || "Internal server error" });
-});
+// Centralized error handler — generic to clients, detailed in server logs
+app.use(apiErrorHandler);
 
 // ---------------------------------------------------------------------------
 // Admin seed — auto-create the admin user from .env credentials on startup

@@ -4,6 +4,60 @@ import jwt from "jsonwebtoken";
 import { v4 as uuid } from "uuid";
 import { config } from "../config.js";
 import * as db from "../dynamodb.js";
+import { TOKEN_ISSUER, TOKEN_AUDIENCE, setAuthCookie } from "../middleware/auth.js";
+import { logSecurityEvent } from "../middleware/security.js";
+
+// ---- Input validation helpers ----
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const MAX_EMAIL = 254;
+const MAX_PASSWORD = 128;
+const MIN_PASSWORD = 6;
+const KNOWN_ROLES = [
+  "client",
+  "sales_rep",
+  "operations",
+  "checker",
+  "treasury",
+  "reporting_manager",
+  "factor_admin",
+];
+
+function validateEmail(value: unknown): string | null {
+  if (typeof value !== "string") return "Email is required";
+  const email = value.trim();
+  if (!email || email.length > MAX_EMAIL || !EMAIL_RE.test(email)) {
+    return "A valid email address is required";
+  }
+  return null;
+}
+
+function validatePassword(value: unknown): string | null {
+  if (typeof value !== "string") return "Password is required";
+  if (value.length < MIN_PASSWORD) return `Password must be at least ${MIN_PASSWORD} characters`;
+  if (value.length > MAX_PASSWORD) return `Password must be at most ${MAX_PASSWORD} characters`;
+  return null;
+}
+
+function clampString(value: unknown, max: number): string | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "string") return "Must be a string";
+  if (value.length > max) return `Must be at most ${max} characters`;
+  return null;
+}
+
+function issueToken(user: { id: string; email: string; roles: string[] }): string {
+  return jwt.sign(
+    { userId: user.id, email: user.email, roles: user.roles },
+    config.jwt.secret,
+    {
+      expiresIn: config.jwt.expiresIn as any,
+      issuer: TOKEN_ISSUER,
+      audience: TOKEN_AUDIENCE,
+      jwtid: uuid(),
+    }
+  );
+}
 
 // ---- Types ----
 
@@ -33,14 +87,23 @@ export interface UserProfile {
 
 export async function signup(req: Request, res: Response) {
   try {
-    const { email, password, companyName, contactName } = req.body;
-    if (!email || !password) {
-      return res.status(400).json({ error: "Email and password required" });
-    }
+    const { email, password, companyName, contactName } = req.body || {};
+
+    // Strict input validation (types, formats, lengths) before any work.
+    const emailErr = validateEmail(email);
+    if (emailErr) return res.status(400).json({ error: emailErr });
+    const passwordErr = validatePassword(password);
+    if (passwordErr) return res.status(400).json({ error: passwordErr });
+    const companyErr = clampString(companyName, 200);
+    if (companyErr) return res.status(400).json({ error: `companyName ${companyErr}` });
+    const contactErr = clampString(contactName, 200);
+    if (contactErr) return res.status(400).json({ error: `contactName ${contactErr}` });
+
+    const normalizedEmail = email.trim().toLowerCase();
 
     // Check if exists
     const existing = await db.scanByType("User");
-    const found = existing.find((u: any) => u.email === email);
+    const found = existing.find((u: any) => String(u.email || "").toLowerCase() === normalizedEmail);
     if (found) {
       return res.status(409).json({ error: "Email already registered" });
     }
@@ -58,7 +121,7 @@ export async function signup(req: Request, res: Response) {
       gsi2sk: `User#${id}`,
       entityType: "User",
       id,
-      email,
+      email: normalizedEmail,
       passwordHash,
       companyName: companyName || "",
       contactName: contactName || null,
@@ -73,17 +136,12 @@ export async function signup(req: Request, res: Response) {
 
     await db.putItem(user);
 
-    const token = jwt.sign(
-      { userId: id, email, roles: user.roles },
-      config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn as any }
-    );
-
+    // Signup does NOT create a session — the user signs in explicitly, so no
+    // token and no cookie is issued here (matches the current UI flow).
     return res.status(201).json({
-      token,
       user: {
         id,
-        email,
+        email: normalizedEmail,
         companyName: user.companyName,
         contactName: user.contactName,
         roles: user.roles,
@@ -91,38 +149,40 @@ export async function signup(req: Request, res: Response) {
     });
   } catch (err: any) {
     console.error("[Auth] Signup error:", err);
-    return res.status(500).json({ error: err.message || "Signup failed" });
+    return res.status(500).json({ error: "Signup failed" });
   }
 }
 
 export async function login(req: Request, res: Response) {
   try {
-    const { email, password } = req.body;
-    if (!email || !password) {
+    const { email, password } = req.body || {};
+    if (typeof email !== "string" || typeof password !== "string") {
       return res.status(400).json({ error: "Email and password required" });
+    }
+    if (email.length > MAX_EMAIL || password.length > MAX_PASSWORD) {
+      // Opaque response — never reveal why a login was rejected.
+      return res.status(401).json({ error: "Invalid credentials" });
     }
 
     const users = await db.scanByType("User");
-    const user = users.find((u: any) => u.email === email) as UserProfile | undefined;
+    const user = users.find((u: any) => String(u.email || "").toLowerCase() === email.trim().toLowerCase()) as UserProfile | undefined;
     if (!user) {
-      console.warn(`[Auth] Login failed: user not found for email: ${email}`);
+      logSecurityEvent("auth.login_failed", req, { reason: "user_not_found" });
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
     const valid = await bcrypt.compare(password, user.passwordHash);
     if (!valid) {
-      console.warn(`[Auth] Login failed: wrong password for email: ${email}`);
+      logSecurityEvent("auth.login_failed", req, { reason: "wrong_password" });
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    const token = jwt.sign(
-      { userId: user.id, email: user.email, roles: user.roles },
-      config.jwt.secret,
-      { expiresIn: config.jwt.expiresIn as any }
-    );
+    const token = issueToken(user);
+    // The JWT lives in an httpOnly, SameSite=Strict cookie — client JS can
+    // never read it, so XSS cannot exfiltrate the session.
+    setAuthCookie(res, token);
 
     return res.json({
-      token,
       user: {
         id: user.id,
         email: user.email,
@@ -133,7 +193,7 @@ export async function login(req: Request, res: Response) {
     });
   } catch (err: any) {
     console.error("[Auth] Login error:", err);
-    return res.status(500).json({ error: err.message || "Login failed" });
+    return res.status(500).json({ error: "Login failed" });
   }
 }
 
@@ -150,19 +210,38 @@ export async function getProfile(req: Request, res: Response) {
 
 export async function updateProfile(req: Request, res: Response) {
   try {
+    const body = req.body || {};
     const allowed = ["companyName", "contactName", "email", "photoUrl", "address", "phone"];
     const updates: Record<string, any> = {};
     for (const key of allowed) {
-      if (req.body[key] !== undefined) updates[key] = req.body[key];
+      if (body[key] !== undefined) updates[key] = body[key];
     }
-    updates.updatedAt = db.nowISO();
     // Accept snake_case from frontend too
-    if (req.body.photo_url !== undefined) updates.photoUrl = req.body.photo_url;
+    if (body.photo_url !== undefined) updates.photoUrl = body.photo_url;
+
+    // Validate anything that is actually changing.
+    if (updates.email !== undefined) {
+      const errMsg = validateEmail(updates.email);
+      if (errMsg) return res.status(400).json({ error: errMsg });
+      updates.email = String(updates.email).trim().toLowerCase();
+      // NOTE: JWTs are stateless, so previously issued tokens remain valid after
+      // an email change. Full revocation requires a token-version/denylist check
+      // (see SECURITY-AUDIT.md); this event is recorded for manual review.
+      logSecurityEvent("auth.email_changed", req, { userId: req.user!.userId });
+    }
+    for (const key of ["companyName", "contactName", "address", "phone", "photoUrl"] as const) {
+      if (updates[key] !== undefined) {
+        const errMsg = clampString(updates[key], 500);
+        if (errMsg) return res.status(400).json({ error: `${key} ${errMsg}` });
+      }
+    }
+
+    updates.updatedAt = db.nowISO();
     const result = await db.updateItem(`USER#${req.user!.userId}`, `USER#${req.user!.userId}`, updates);
     const { passwordHash, ...safe } = result as any;
     return res.json(safe);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Failed to update profile" });
   }
 }
 
@@ -174,17 +253,22 @@ export async function adminCreateUser(req: Request, res: Response) {
     if (!email || !password) {
       return res.status(400).json({ error: "Email and password required" });
     }
+    const emailErr = validateEmail(email);
+    if (emailErr) return res.status(400).json({ error: emailErr });
+    const passwordErr = validatePassword(password);
+    if (passwordErr) return res.status(400).json({ error: passwordErr });
+
+    const normalizedEmail = email.trim().toLowerCase();
 
     // Check if exists
     const existing = await db.scanByType("User");
-    const found = existing.find((u: any) => u.email === email);
+    const found = existing.find((u: any) => String(u.email || "").toLowerCase() === normalizedEmail);
     if (found) {
       return res.status(409).json({ error: "Email already registered" });
     }
 
     // Validate role
-    const validRoles = ["sales_rep", "operations", "checker", "treasury", "reporting_manager", "factor_admin"];
-    const assignedRole = validRoles.includes(role) ? role : "client";
+    const assignedRole = KNOWN_ROLES.includes(role) ? role : "client";
 
     // Validate managerId if provided
     if (req.body.managerId) {
@@ -211,7 +295,7 @@ export async function adminCreateUser(req: Request, res: Response) {
       gsi2sk: `User#${id}`,
       entityType: "User",
       id,
-      email,
+      email: normalizedEmail,
       passwordHash,
       companyName: contactName || "",
       contactName: contactName || null,
@@ -320,6 +404,9 @@ export async function getViewAsTarget(managerUserId: string, targetUserId: strin
 export async function updateUserRole(req: Request, res: Response) {
   try {
     const { userId, role, add } = req.body;
+    if (!KNOWN_ROLES.includes(role)) {
+      return res.status(400).json({ error: `Unknown role: ${role}` });
+    }
     const item = await db.getItem(`USER#${userId}`);
     if (!item) return res.status(404).json({ error: "User not found" });
 
@@ -333,6 +420,6 @@ export async function updateUserRole(req: Request, res: Response) {
     const result = await db.updateItem(`USER#${userId}`, `USER#${userId}`, { roles, updatedAt: db.nowISO() });
     return res.json(result);
   } catch (err: any) {
-    return res.status(500).json({ error: err.message });
+    return res.status(500).json({ error: "Failed to update user role" });
   }
 }

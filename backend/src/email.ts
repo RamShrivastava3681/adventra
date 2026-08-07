@@ -13,6 +13,11 @@ function getTransporter(): nodemailer.Transporter {
         user: config.smtp.user,
         pass: config.smtp.pass,
       },
+      // Hardening (GHSA-p6gq-j5cr-w38f): never allow message content to read
+      // local files or fetch URLs — blocks SSRF / arbitrary file read via
+      // user-influenced message fields.
+      disableFileAccess: true,
+      disableUrlAccess: true,
     });
   }
   return transporter;
