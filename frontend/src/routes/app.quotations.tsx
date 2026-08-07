@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TableSkeleton } from "@/components/skeletons";
 
 export const Route = createFileRoute("/app/quotations")({
@@ -36,6 +37,7 @@ type QLine = {
   unit: string;
   quantity: number;
   unit_price: number;
+  updated_unit_price: number | null;
   discount_type: "pct" | "amount" | null;
   discount_value: number | null;
   gst_rate: number | null;
@@ -67,6 +69,11 @@ type Q = {
   freight: number;
   grand_total: number;
   linked_goods_so_id: string | null;
+  approval_status: string | null;
+  approval_requested_at: string | null;
+  approval_reviewed_by: string | null;
+  approval_reviewed_at: string | null;
+  approval_comments: string | null;
 };
 
 type CatalogueProduct = {
@@ -114,6 +121,19 @@ const Q_STATUS_TONES: Record<string, string> = {
   rejected: "bg-destructive/10 text-destructive border-destructive/30",
   expired: "bg-amber-500/10 text-amber-600 border-amber-500/30",
   converted_to_so: "bg-teal-500/10 text-teal-600 border-teal-500/30",
+};
+
+// Maker–checker price approval (separate from the quotation lifecycle status).
+const Q_APPROVAL_LABELS: Record<string, string> = {
+  pending_review: "Awaiting checker",
+  approved: "Checker approved",
+  rejected: "Price revision needed",
+};
+
+const Q_APPROVAL_TONES: Record<string, string> = {
+  pending_review: "bg-amber-500/10 text-amber-600 border-amber-500/30",
+  approved: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  rejected: "bg-destructive/10 text-destructive border-destructive/30",
 };
 
 const PAYMENT_TERMS = [
@@ -321,6 +341,15 @@ function QuotationsPage() {
                             label={Q_STATUS_LABELS[q.status] ?? q.status}
                             tone={Q_STATUS_TONES[q.status]}
                           />
+                          {q.approval_status && (
+                            <div className="mt-1">
+                              <StatusPill
+                                status={q.approval_status}
+                                label={Q_APPROVAL_LABELS[q.approval_status] ?? q.approval_status}
+                                tone={Q_APPROVAL_TONES[q.approval_status]}
+                              />
+                            </div>
+                          )}
                         </td>
                         <td className="px-5 py-3 text-right">
                           <div className="flex justify-end gap-1">
@@ -406,6 +435,7 @@ type LineDraft = {
   unit: string;
   quantity: string;
   unit_price: string;
+  updated_unit_price: string;
   discount_type: "pct" | "amount" | null;
   discount_value: string;
   gst_rate: string;
@@ -434,8 +464,17 @@ function QModal({
   const qc = useQueryClient();
   const isEdit = !!q;
   const status = q?.status ?? "draft";
-  // Lines can only be edited while the quotation is still a draft.
-  const editable = !isEdit || status === "draft";
+  const approval = q?.approval_status ?? null;
+  // Lines (and the updated prices) can be edited while the quotation is a
+  // draft or sent but not yet submitted for approval, or after the checker has
+  // rejected the prices and sent it back. Once an approval is in flight — or
+  // after it is approved — lines are frozen.
+  const editable =
+    !isEdit ||
+    approval === "rejected" ||
+    (["draft", "sent"].includes(status) &&
+      approval !== "pending_review" &&
+      approval !== "approved");
 
   const [f, setF] = useState({
     quotation_date: (q?.quotation_date ?? todayStr()).slice(0, 10),
@@ -458,6 +497,7 @@ function QModal({
       unit: l.unit,
       quantity: String(l.quantity),
       unit_price: String(l.unit_price),
+      updated_unit_price: l.updated_unit_price != null ? String(l.updated_unit_price) : "",
       discount_type: l.discount_type,
       discount_value: l.discount_value != null ? String(l.discount_value) : "",
       gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
@@ -497,6 +537,7 @@ function QModal({
       sku: p?.sku ?? null,
       unit: p?.unit_of_measure ?? "piece",
       unit_price: p?.unit_price != null ? String(p.unit_price) : "",
+      updated_unit_price: "",
       gst_rate: p?.gst_rate != null ? String(p.gst_rate) : "",
     });
   };
@@ -511,6 +552,7 @@ function QModal({
         unit: "piece",
         quantity: "",
         unit_price: "",
+        updated_unit_price: "",
         discount_type: null,
         discount_value: "",
         gst_rate: "",
@@ -520,8 +562,16 @@ function QModal({
 
   const removeLine = (i: number) => setLines((ls) => ls.filter((_, idx) => idx !== i));
 
+  // The maker's revised price wins once set; otherwise the original unit price.
+  const effPrice = (l: LineDraft): number => {
+    const base = Number(l.unit_price) || 0;
+    if (l.updated_unit_price === "") return base;
+    const up = Number(l.updated_unit_price);
+    return Number.isFinite(up) && up >= 0 ? up : base;
+  };
+
   const lineDiscount = (l: LineDraft) => {
-    const gross = (Number(l.quantity) || 0) * (Number(l.unit_price) || 0);
+    const gross = (Number(l.quantity) || 0) * effPrice(l);
     const value = Number(l.discount_value) || 0;
     if (l.discount_type === "pct") return (gross * Math.min(100, value)) / 100;
     if (l.discount_type === "amount") return Math.min(value, gross);
@@ -530,7 +580,7 @@ function QModal({
 
   const totals = useMemo(() => {
     const lineTotals = lines.map((l) =>
-      round2((Number(l.quantity) || 0) * (Number(l.unit_price) || 0) - lineDiscount(l)),
+      round2((Number(l.quantity) || 0) * effPrice(l) - lineDiscount(l)),
     );
     const subtotal = round2(lineTotals.reduce((s, t) => s + t, 0));
     const totalDiscount = round2(lines.reduce((s, l) => s + lineDiscount(l), 0));
@@ -556,6 +606,7 @@ function QModal({
         unit: l.unit || "piece",
         quantity: Number(l.quantity) || 0,
         unit_price: Number(l.unit_price) || 0,
+        updated_unit_price: l.updated_unit_price === "" ? null : Number(l.updated_unit_price),
         discount_type: l.discount_type,
         discount_value: l.discount_value ? Number(l.discount_value) : null,
         gst_rate: l.gst_rate ? Number(l.gst_rate) : null,
@@ -565,6 +616,12 @@ function QModal({
         if (!l.product_id) throw new Error("Every line must select a product from the catalogue");
         if (!(l.quantity > 0)) throw new Error("Quantity must be greater than zero");
         if (l.unit_price < 0) throw new Error("Unit selling price must be greater than or equal to zero");
+        if (
+          l.updated_unit_price !== null &&
+          (!Number.isFinite(l.updated_unit_price) || l.updated_unit_price < 0)
+        ) {
+          throw new Error("Updated unit price must be greater than or equal to zero");
+        }
         if (l.discount_type === "pct" && (l.discount_value! < 0 || l.discount_value! > 100)) {
           throw new Error("Percentage discount must be between 0 and 100");
         }
@@ -613,6 +670,26 @@ function QModal({
     }
   };
 
+  // Maker submits the (revised) prices to the checker for approval.
+  const submitForApproval = async () => {
+    if (!q) return;
+    if (lines.length === 0) {
+      toast.error("Add at least one product line before submitting for approval");
+      return;
+    }
+    try {
+      await api.quotations.update(q.id, {
+        status: "sent",
+        approval_status: "pending_review",
+      });
+      onSaved();
+      toast.success("Submitted for checker approval");
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  };
+
   const convert = useMutation({
     mutationFn: async () => {
       if (!q) throw new Error("No quotation selected");
@@ -642,12 +719,19 @@ function QModal({
               {isEdit ? `Quotation ${q.quotation_number}` : "New quotation"}
             </h3>
             {isEdit && (
-              <div className="mt-0.5">
+              <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                 <StatusPill
                   status={status}
                   label={Q_STATUS_LABELS[status] ?? status}
                   tone={Q_STATUS_TONES[status]}
                 />
+                {approval && (
+                  <StatusPill
+                    status={approval}
+                    label={Q_APPROVAL_LABELS[approval] ?? approval}
+                    tone={Q_APPROVAL_TONES[approval]}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -696,19 +780,13 @@ function QModal({
                 />
               </L>
               <L label="Customer">
-                <select
-                  className="inp"
+                <SearchableSelect
                   value={f.customer_id}
-                  onChange={(e) => pickCustomer(e.target.value)}
+                  onChange={pickCustomer}
+                  placeholder="Select customer…"
                   disabled={!editable}
-                >
-                  <option value="">Select customer…</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                  options={customers.map((c) => ({ value: c.id, label: c.name }))}
+                />
               </L>
               <L label="Or prospect name">
                 <input
@@ -814,14 +892,14 @@ function QModal({
                 <div className="hidden grid-cols-12 gap-2 text-[9px] uppercase tracking-widest text-muted-foreground md:grid">
                   <div className="col-span-3">SKU / Product</div>
                   <div className="col-span-1">Qty</div>
-                  <div className="col-span-2">Unit price</div>
+                  <div className="col-span-2">Unit / updated price</div>
                   <div className="col-span-2">Discount</div>
                   <div className="col-span-1">GST %</div>
                   <div className="col-span-2 text-right">Line total</div>
                   <div className="col-span-1"></div>
                 </div>
                 {lines.map((l, i) => {
-                  const gross = (Number(l.quantity) || 0) * (Number(l.unit_price) || 0);
+                  const gross = (Number(l.quantity) || 0) * effPrice(l);
                   const lineTotal = round2(gross - lineDiscount(l));
                   return (
                     <div
@@ -831,20 +909,16 @@ function QModal({
                       <div className="grid grid-cols-2 items-end gap-2 md:grid-cols-12">
                         <div className="col-span-2 md:col-span-3">
                           <L label="Product">
-                            <select
-                              className="inp"
+                            <SearchableSelect
                               value={l.product_id}
-                              onChange={(e) => pickProduct(i, e.target.value)}
+                              onChange={(v) => pickProduct(i, v)}
+                              placeholder="Select product…"
                               disabled={!editable}
-                            >
-                              <option value="">Select product…</option>
-                              {products.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  {p.sku ? `${p.sku} · ` : ""}
-                                  {p.name}
-                                </option>
-                              ))}
-                            </select>
+                              options={products.map((p) => ({
+                                value: p.id,
+                                label: p.sku ? `${p.sku} · ${p.name}` : p.name,
+                              }))}
+                            />
                           </L>
                           {l.name && (
                             <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
@@ -863,19 +937,43 @@ function QModal({
                             />
                           </L>
                         </div>
-                        <div className="md:col-span-2">
-                          <L label="Unit price">
+                        <div className="md:col-span-2 space-y-1.5">
+                          <L label={l.updated_unit_price !== "" ? "Unit price (original)" : "Unit price"}>
                             <input
                               type="number"
                               min="0"
                               step="0.01"
-                              className="inp"
+                              className={`inp ${l.updated_unit_price !== "" ? "!text-muted-foreground line-through decoration-muted-foreground/40" : ""}`}
                               value={l.unit_price}
                               onChange={(e) => setLine(i, { unit_price: e.target.value })}
                               disabled={!editable}
                               placeholder="Selling price"
                             />
                           </L>
+                          <L label="Updated price">
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className={`inp ${l.updated_unit_price !== "" ? "!border-primary/50 text-primary font-medium" : ""}`}
+                              value={l.updated_unit_price}
+                              onChange={(e) => setLine(i, { updated_unit_price: e.target.value })}
+                              disabled={!editable}
+                              placeholder="Same as unit price"
+                            />
+                          </L>
+                          {l.updated_unit_price !== "" && editable && (
+                            <div className="flex items-center justify-between text-[9px] text-muted-foreground">
+                              <span className="font-medium text-primary">Revision pending checker</span>
+                              <button
+                                type="button"
+                                onClick={() => setLine(i, { updated_unit_price: "" })}
+                                className="hover:text-destructive"
+                              >
+                                Clear
+                              </button>
+                            </div>
+                          )}
                         </div>
                         <div className="md:col-span-2">
                           <L label="Discount">
@@ -1003,8 +1101,8 @@ function QModal({
 
           {/* Status actions + save */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
-            <div className="flex flex-wrap gap-2">
-              {isEdit && canWrite && status === "draft" && (
+            <div className="flex flex-wrap items-center gap-2">
+              {isEdit && canWrite && status === "draft" && approval !== "pending_review" && approval !== "approved" && (
                 <button
                   type="button"
                   onClick={() => changeStatus("sent", "Quotation sent")}
@@ -1013,7 +1111,22 @@ function QModal({
                   <Send className="h-3.5 w-3.5" /> Send to customer
                 </button>
               )}
-              {isEdit && canWrite && status === "sent" && (
+              {/* Maker → checker price approval. Available while the quote can
+                  still change (draft / rejected / sent without a decision). */}
+              {isEdit &&
+                canWrite &&
+                status !== "converted_to_so" &&
+                !["pending_review", "approved"].includes(approval ?? "") && (
+                  <button
+                    type="button"
+                    onClick={submitForApproval}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+                    title="Send the updated prices to the checker for approval before converting to a sales order"
+                  >
+                    <Send className="h-3.5 w-3.5" /> Submit for approval
+                  </button>
+                )}
+              {isEdit && canWrite && status === "sent" && approval !== "pending_review" && approval !== "approved" && (
                 <>
                   <button
                     type="button"
@@ -1038,7 +1151,8 @@ function QModal({
                   </button>
                 </>
               )}
-              {isEdit && canWrite && ["sent", "accepted"].includes(status) && (
+              {/* Convert is only possible after the checker approved the prices. */}
+              {isEdit && canWrite && approval === "approved" && status !== "converted_to_so" && (
                 <button
                   type="button"
                   onClick={() => convert.mutate()}
@@ -1052,6 +1166,24 @@ function QModal({
                   )}
                   Convert to sales order
                 </button>
+              )}
+              {approval === "pending_review" && (
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-amber-600">
+                  <Clock4 className="h-3 w-3" /> Waiting for the checker to review the updated
+                  prices…
+                </span>
+              )}
+              {approval === "approved" && status !== "converted_to_so" && (
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-emerald-600">
+                  <CheckCircle2 className="h-3 w-3" /> Prices approved — you can now convert to a
+                  sales order.
+                </span>
+              )}
+              {approval === "rejected" && (
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-destructive">
+                  <Ban className="h-3 w-3" /> Checker requested price revisions — update the
+                  updated prices and resubmit.
+                </span>
               )}
               <p className="w-full text-[10px] text-muted-foreground md:w-auto md:self-center">
                 Quotations never affect inventory or accounting — stock moves only after a

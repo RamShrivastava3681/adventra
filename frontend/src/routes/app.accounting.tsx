@@ -7,6 +7,7 @@ import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import { Plus, Trash2, X, Loader2, BookOpen, Wallet, ListTree, FileText, Scale } from "lucide-react";
 import { toast } from "sonner";
 import { BalanceSheetEntries } from "@/components/balance-sheet/BalanceSheetEntries";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 export const Route = createFileRoute("/app/accounting")({
   component: AccountingPage,
@@ -357,10 +358,16 @@ function ManualJournal({ userId }: { userId?: string }) {
             {lines.map((l, i) => (
               <tr key={i} className="border-b border-border/50">
                 <td className="py-1">
-                  <select value={l.account_id} onChange={(e) => updateLine(i, { account_id: e.target.value })} className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm">
-                    <option value="">Select account…</option>
-                    {(coa.data ?? []).map((a: any) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-                  </select>
+                  <SearchableSelect
+                    value={l.account_id}
+                    onChange={(v) => updateLine(i, { account_id: v })}
+                    placeholder="Select account…"
+                    options={(coa.data ?? []).map((a: any) => ({
+                      value: a.id,
+                      label: `${a.code} — ${a.name}`,
+                      hint: a.type ?? undefined,
+                    }))}
+                  />
                 </td>
                 <td className="py-1">
                   <input value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm" />
@@ -518,10 +525,19 @@ function AccountTransactions() {
     <Card title="Account transactions">
       <div className="mb-4 max-w-md">
         <label className="text-xs text-muted-foreground">Account</label>
-        <select value={account} onChange={(e) => setAccount(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
-          <option value="">Choose an account…</option>
-          {(coa.data ?? []).map((a: any) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-        </select>
+        <SearchableSelect
+          value={account}
+          onChange={setAccount}
+          placeholder="Choose an account…"
+          options={[
+            { value: "", label: "Choose an account…" },
+            ...(coa.data ?? []).map((a: any) => ({
+              value: a.id,
+              label: `${a.code} — ${a.name}`,
+              hint: a.type ?? undefined,
+            })),
+          ]}
+        />
       </div>
       {account && (
         <div className="overflow-x-auto">

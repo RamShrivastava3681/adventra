@@ -8,6 +8,7 @@ import { Plus, Trash2, X, Loader2, Link2, Paperclip } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, DocumentList, type DocMeta } from "@/components/document-uploader";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 export const Route = createFileRoute("/app/expenses")({
   component: ExpensesPage,
@@ -255,6 +256,7 @@ function NewExpenseModal({ userId, onClose, onCreated }: { userId: string; onClo
   const create = useMutation({
     mutationFn: async () => {
       if (!form.amount || Number(form.amount) <= 0) throw new Error("Amount must be > 0");
+      if (form.link_kind !== "none" && !form.link_id) throw new Error("Select the linked invoice");
       const payload: any = {
         client_id: userId,
         category: form.category,
@@ -305,12 +307,16 @@ function NewExpenseModal({ userId, onClose, onCreated }: { userId: string; onClo
           </L>
           {form.link_kind !== "none" && (
             <L label={form.link_kind === "sale" ? "Sales invoice" : "Purchase invoice"}>
-              <select className="inp" value={form.link_id} onChange={(e) => setForm({ ...form, link_id: e.target.value })} required>
-                <option value="">Select…</option>
-                {linkOptions.map((o: any) => (
-                  <option key={o.id} value={o.id}>{o.invoice_number} · {fmtMoney(Number(o.amount))}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={form.link_id}
+                onChange={(v) => setForm({ ...form, link_id: v })}
+                placeholder="Select…"
+                options={linkOptions.map((o: any) => ({
+                  value: o.id,
+                  label: o.invoice_number,
+                  hint: fmtMoney(Number(o.amount)),
+                }))}
+              />
             </L>
           )}
           <L label="Description">

@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import { Plus, X, Loader2, Link2, Trash2 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/advances")({
@@ -249,28 +250,32 @@ function NewAdvanceModal({ side, userId, onClose }: { side: "sales" | "purchase"
           </div>
           {linkType === "po" ? (
             <L label="Purchase order *">
-              <select required className="inp" value={form.purchase_order_id} onChange={(e) => setForm({ ...form, purchase_order_id: e.target.value })}>
-                <option value="">Select PO…</option>
-                {(ordersQ.data ?? []).map((o: any) => (
-                  <option key={o.id} value={o.id}>
-                    {o.po_number} · {(o.debtor?.name ?? o.vendor?.name) ?? ""} · {fmtMoney(o.amount)}
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={form.purchase_order_id}
+                onChange={(v) => setForm({ ...form, purchase_order_id: v })}
+                placeholder="Select PO…"
+                options={(ordersQ.data ?? []).map((o: any) => ({
+                  value: o.id,
+                  label: o.po_number,
+                  hint: `${(o.debtor?.name ?? o.vendor?.name) ?? ""} · ${fmtMoney(o.amount)}`,
+                }))}
+              />
               {(ordersQ.data ?? []).length === 0 && (
                 <p className="mt-1 text-[10px] text-warning">No open {side} proformas yet. Raise one in Proforma invoices first.</p>
               )}
             </L>
           ) : (
             <L label={side === "sales" ? "Sales invoice *" : "Purchase invoice *"}>
-              <select required className="inp" value={side === "sales" ? form.invoice_id : form.purchase_invoice_id} onChange={(e) => setForm({ ...form, [side === "sales" ? "invoice_id" : "purchase_invoice_id"]: e.target.value })}>
-                <option value="">Select…</option>
-                {(invoicesQ.data ?? []).map((i: any) => (
-                  <option key={i.id} value={i.id}>
-                    {i.invoice_number} · {(i.debtor?.name ?? i.vendor?.name) ?? ""} · {fmtMoney(i.amount)}
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={side === "sales" ? form.invoice_id : form.purchase_invoice_id}
+                onChange={(v) => setForm({ ...form, [side === "sales" ? "invoice_id" : "purchase_invoice_id"]: v })}
+                placeholder="Select…"
+                options={(invoicesQ.data ?? []).map((i: any) => ({
+                  value: i.id,
+                  label: i.invoice_number,
+                  hint: `${(i.debtor?.name ?? i.vendor?.name) ?? ""} · ${fmtMoney(i.amount)}`,
+                }))}
+              />
             </L>
           )}
           <div className="grid grid-cols-2 gap-3">

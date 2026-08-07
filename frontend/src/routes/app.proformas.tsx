@@ -4,10 +4,11 @@ import { useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Trash2, Link2, PackageOpen, Ban, CheckCircle2 } from "lucide-react";
+import { Plus, X, Loader2, Trash2, Link2, PackageOpen, Ban, CheckCircle2, Send } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 export const Route = createFileRoute("/app/proformas")({
   component: ProformasPage,
@@ -50,6 +51,7 @@ type PF = {
   valid_until: string | null;
   payment_terms: string | null;
   expected_delivery_date: string | null;
+  advance_pct: number | null;
   documents: DocMeta[];
   lines: PFLine[];
   subtotal: number;
@@ -241,6 +243,19 @@ function ProformasPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  // After a checker rejection the maker can fix the proforma and send it back
+  // into the approval pipeline (backend allows pending_review from rejected).
+  const resubmit = useMutation({
+    mutationFn: async (id: string) => {
+      await api.purchaseOrders.update(id, { proforma_status: "pending_review" });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      toast.success("Submitted for checker approval again");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
   const setDocStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
       await api.purchaseOrders.update(id, { status });
@@ -354,7 +369,7 @@ function ProformasPage() {
 
         <Card>
           {listQ.isLoading ? (
-            <TableSkeleton rows={5} cols={7} />
+            <TableSkeleton rows={5} cols={8} />
           ) : rows.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">No proformas yet.</div>
           ) : (
@@ -366,9 +381,8 @@ function ProformasPage() {
                     <th className="px-5 py-2 text-left font-normal">PO #</th>
                     <th className="px-5 py-2 text-left font-normal">Counterparty</th>
                     <th className="px-5 py-2 text-left font-normal">Side</th>
-                    <th className="px-5 py-2 text-right font-normal">
-                      {tab === "purchase" ? "Quotation total" : "Advance amount"}
-                    </th>
+                    <th className="px-5 py-2 text-right font-normal">Invoice amount</th>
+                    <th className="px-5 py-2 text-right font-normal">Advance</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
                     <th className="px-5 py-2 text-right font-normal"></th>
                   </tr>
@@ -388,6 +402,20 @@ function ProformasPage() {
                       p.side === "purchase"
                         ? ["received", "reviewed"].includes(p.status)
                         : ["received", "reviewed", "proforma"].includes(p.status);
+                    // Once submitted for review (or approved) the maker can no
+                    // longer change the proforma — the checker/treasury own it.
+                    const underReview = ["pending_review", "approved"].includes(
+                      p.proforma_status,
+                    );
+                    // The proforma invoice amount (total) and the advance due on
+                    // it: PO-created purchase proformas carry advance_pct (×
+                    // po_amount); manually entered proformas use `amount` as the
+                    // advance requested.
+                    const pfTotal =
+                      p.grand_total != null && p.grand_total > 0
+                        ? p.grand_total
+                        : p.amount;
+                    const pfAdvance = proformaAdvanceForDisplay(p);
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3">
@@ -420,9 +448,21 @@ function ProformasPage() {
                           {p.side}
                         </td>
                         <td className="px-5 py-3 text-right num">
-                          {p.grand_total != null && p.grand_total > 0
-                            ? fmtMoney(p.grand_total)
-                            : fmtMoney(p.amount)}
+                          <div>{fmtMoney(pfTotal)}</div>
+                          {p.advance_pct != null && p.advance_pct > 0 && (
+                            <div className="text-[10px] text-muted-foreground">
+                              {p.advance_pct}% of proforma
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-right num">
+                          <div>{fmtMoney(pfAdvance)}</div>
+                          {p.proforma_funded_amount != null &&
+                            p.proforma_funded_amount > 0 && (
+                              <div className="text-[10px] text-success">
+                                Paid {fmtMoney(p.proforma_funded_amount)}
+                              </div>
+                            )}
                         </td>
                         <td className="px-5 py-3">
                           <div className="flex flex-col items-start gap-1">
@@ -464,6 +504,7 @@ function ProformasPage() {
                               View
                             </button>
                             {canCreate &&
+                              !underReview &&
                               p.proforma_status !== "funded" &&
                               p.status !== "invoiced" &&
                               p.status !== "cancelled" &&
@@ -475,9 +516,12 @@ function ProformasPage() {
                                   Edit
                                 </button>
                               )}
+                            {/* Conversion to a PO/SO only unlocks after the checker
+                                approves the proforma (enforced server-side too). */}
                             {canCreate &&
                               p.side === "purchase" &&
-                              ["received", "reviewed"].includes(p.status) && (
+                              ["received", "reviewed"].includes(p.status) &&
+                              p.proforma_status === "approved" && (
                                 <button
                                   onClick={() => setConvertFor(p)}
                                   className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10"
@@ -486,8 +530,20 @@ function ProformasPage() {
                                 </button>
                               )}
                             {canCreate &&
+                              p.side === "purchase" &&
+                              ["received", "reviewed"].includes(p.status) &&
+                              p.proforma_status === "pending_review" && (
+                                <span
+                                  className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground"
+                                  title="Conversion unlocks after the checker approves this proforma"
+                                >
+                                  Awaiting approval
+                                </span>
+                              )}
+                            {canCreate &&
                               p.side === "sales" &&
-                              ["received", "reviewed"].includes(p.status) && (
+                              ["received", "reviewed"].includes(p.status) &&
+                              p.proforma_status === "approved" && (
                                 <button
                                   onClick={() => convertSo.mutate(p.id)}
                                   disabled={convertSo.isPending}
@@ -495,6 +551,17 @@ function ProformasPage() {
                                 >
                                   <PackageOpen className="h-3 w-3" /> Convert to SO
                                 </button>
+                              )}
+                            {canCreate &&
+                              p.side === "sales" &&
+                              ["received", "reviewed"].includes(p.status) &&
+                              p.proforma_status === "pending_review" && (
+                                <span
+                                  className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground"
+                                  title="Conversion unlocks after the checker approves this proforma"
+                                >
+                                  Awaiting approval
+                                </span>
                               )}
                             {canCreate && p.status === "received" && (
                               <button
@@ -519,12 +586,24 @@ function ProformasPage() {
                               )}
                             {(isChecker || isAdmin) &&
                               !docClosed &&
-                              p.proforma_status === "pending_review" && (
+                              p.proforma_status === "pending_review" &&
+                              (isAdmin || p.client_id !== user?.id) && (
                                 <button
                                   onClick={() => setReviewFor(p)}
                                   className="rounded-md border border-warning/50 px-2 py-0.5 text-[10px] text-warning hover:bg-warning/10"
                                 >
                                   Review
+                                </button>
+                              )}
+                            {canCreate &&
+                              !docClosed &&
+                              p.proforma_status === "rejected" && (
+                                <button
+                                  onClick={() => resubmit.mutate(p.id)}
+                                  disabled={resubmit.isPending}
+                                  className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
+                                >
+                                  <Send className="h-3 w-3" /> Resubmit for approval
                                 </button>
                               )}
                             {(isTreasury || isAdmin) &&
@@ -883,26 +962,19 @@ function SalesProformaModal({
               />
             </L>
             <L label="Debtor *">
-              <select
-                required
-                className="inp"
+              <SearchableSelect
                 value={f.party_id}
-                onChange={(e) => {
-                  const d = (partiesQ.data ?? []).find((x) => x.id === e.target.value);
+                onChange={(v) => {
+                  const d = (partiesQ.data ?? []).find((x) => x.id === v);
                   setF({
                     ...f,
-                    party_id: e.target.value,
+                    party_id: v,
                     debtor_contact: d?.contact ?? f.debtor_contact,
                   });
                 }}
-              >
-                <option value="">Select debtor…</option>
-                {(partiesQ.data ?? []).map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
+                placeholder="Select debtor…"
+                options={(partiesQ.data ?? []).map((p) => ({ value: p.id, label: p.name }))}
+              />
             </L>
             <L label="Debtor contact">
               <input
@@ -964,18 +1036,19 @@ function SalesProformaModal({
               />
             </L>
             <L label="Linked sales order (optional)">
-              <select
-                className="inp"
+              <SearchableSelect
                 value={f.linked_so_id}
-                onChange={(e) => setF({ ...f, linked_so_id: e.target.value })}
-              >
-                <option value="">None</option>
-                {(sosQ.data ?? []).map((so: any) => (
-                  <option key={so.id} value={so.id}>
-                    {so.so_number ?? so.id} · {so.customer_name ?? "—"}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => setF({ ...f, linked_so_id: v })}
+                placeholder="None"
+                options={[
+                  { value: "", label: "None" },
+                  ...(sosQ.data ?? []).map((so: any) => ({
+                    value: so.id,
+                    label: so.so_number ?? so.id,
+                    hint: so.customer_name ?? undefined,
+                  })),
+                ]}
+              />
             </L>
           </div>
           <div className="mt-3">
@@ -1030,19 +1103,15 @@ function SalesProformaModal({
                   >
                     <div className="col-span-2 md:col-span-4">
                       <L label="Product">
-                        <select
-                          className="inp"
+                        <SearchableSelect
                           value={l.product_id}
-                          onChange={(e) => pickProduct(i, e.target.value)}
-                        >
-                          <option value="">Select product…</option>
-                          {products.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.sku ? `${p.sku} · ` : ""}
-                              {p.name}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(v) => pickProduct(i, v)}
+                          placeholder="Select product…"
+                          options={products.map((p) => ({
+                            value: p.id,
+                            label: p.sku ? `${p.sku} · ${p.name}` : p.name,
+                          }))}
+                        />
                       </L>
                       {l.name && (
                         <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
@@ -1397,26 +1466,19 @@ function PurchaseProformaModal({
               />
             </L>
             <L label="Supplier *">
-              <select
-                required
-                className="inp"
+              <SearchableSelect
                 value={f.supplier_id}
-                onChange={(e) => {
-                  const s = suppliers.find((x) => x.id === e.target.value);
+                onChange={(v) => {
+                  const s = suppliers.find((x) => x.id === v);
                   setF({
                     ...f,
-                    supplier_id: e.target.value,
+                    supplier_id: v,
                     supplier_contact: s?.contact ?? f.supplier_contact,
                   });
                 }}
-              >
-                <option value="">Select supplier…</option>
-                {suppliers.map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </select>
+                placeholder="Select supplier…"
+                options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+              />
             </L>
             <L label="Supplier contact">
               <input
@@ -1530,19 +1592,15 @@ function PurchaseProformaModal({
                   >
                     <div className="col-span-2 md:col-span-4">
                       <L label="Product">
-                        <select
-                          className="inp"
+                        <SearchableSelect
                           value={l.product_id}
-                          onChange={(e) => pickProduct(i, e.target.value)}
-                        >
-                          <option value="">Select product…</option>
-                          {products.map((p) => (
-                            <option key={p.id} value={p.id}>
-                              {p.sku ? `${p.sku} · ` : ""}
-                              {p.name}
-                            </option>
-                          ))}
-                        </select>
+                          onChange={(v) => pickProduct(i, v)}
+                          placeholder="Select product…"
+                          options={products.map((p) => ({
+                            value: p.id,
+                            label: p.sku ? `${p.sku} · ${p.name}` : p.name,
+                          }))}
+                        />
                       </L>
                       {l.name && (
                         <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
@@ -1864,10 +1922,35 @@ function ReviewModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose:
   );
 }
 
+/**
+ * Advance amount for a proforma that carries an advance % (purchase side):
+ * proforma total × advance %. Returns null when no % is set.
+ */
+function proformaAdvanceAmount(
+  pf: Pick<PF, "advance_pct" | "po_amount" | "amount">,
+): number | null {
+  if (pf.advance_pct == null || pf.advance_pct <= 0) return null;
+  return Math.round(((pf.po_amount ?? pf.amount ?? 0) * pf.advance_pct) / 100 * 100) / 100;
+}
+
+/**
+ * The advance to display / pre-fill for any proforma: PO-created purchase
+ * proformas carry advance_pct (× po_amount); manually entered proformas use
+ * `amount` as the advance requested. Never null.
+ */
+function proformaAdvanceForDisplay(
+  pf: Pick<PF, "advance_pct" | "po_amount" | "amount">,
+): number {
+  return proformaAdvanceAmount(pf) ?? (pf.po_amount == null ? pf.amount : 0);
+}
+
 function FundModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: () => void }) {
   const qc = useQueryClient();
+  // When the proforma carries an advance % (e.g. created from a purchase
+  // order), pre-fill the funding amount with the calculated advance.
+  const suggestedAdvance = proformaAdvanceAmount(pf);
   const [form, setForm] = useState({
-    amount: String(pf.amount ?? ""),
+    amount: String(proformaAdvanceForDisplay(pf) || ""),
     reference: "",
     advance_date: new Date().toISOString().slice(0, 10),
   });
@@ -1927,6 +2010,12 @@ function FundModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: (
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
           />
         </L>
+        {suggestedAdvance != null && (
+          <p className="text-[10px] text-muted-foreground">
+            Advance {pf.advance_pct}% of {fmtMoney(pf.po_amount ?? pf.amount ?? 0)} — amount
+            pre-filled from the proforma.
+          </p>
+        )}
         <L label="Date *">
           <input
             required
@@ -1987,6 +2076,14 @@ function ProformaDetailModal({ pf, onClose }: { pf: PF; onClose: () => void }) {
           {pf.proforma_status && pf.proforma_status !== "none" && (
             <D label="Funding stage" value={pf.proforma_status} />
           )}
+          {pf.advance_pct != null && pf.advance_pct > 0 ? (
+            <D
+              label="Advance"
+              value={`${pf.advance_pct}% — ${fmtMoney(proformaAdvanceForDisplay(pf))}`}
+            />
+          ) : proformaAdvanceForDisplay(pf) > 0 ? (
+            <D label="Advance" value={fmtMoney(proformaAdvanceForDisplay(pf))} />
+          ) : null}
           <div className="col-span-2">
             <D label="Notes" value={pf.notes ?? "—"} />
           </div>

@@ -25,6 +25,7 @@ type Product = {
   safety_stock_days: number;
   unit_price: number; unit_cost: number;
   minimum_gross_margin_percentage: number | null; status: string;
+  image_url: string | null;
 };
 
 type Analysis = { product: Product; stock: number; forecast: ForecastResult; velocityTag: VelocityTag; pricingStrategy: PricingStrategyResult | null };
@@ -72,6 +73,7 @@ function ForecastPage() {
         unit_cost: p.unitCost ?? p.unit_cost,
         minimum_gross_margin_percentage: p.minimumGrossMarginPercentage ?? p.minimum_gross_margin_percentage ?? null,
         status: p.status,
+        image_url: p.imageUrl ?? p.image_url ?? null,
       })).sort((a: any, b: any) => a.sku?.localeCompare(b.sku ?? "") ?? 0);
     },
     refetchInterval: 60_000, // keep SKU data current (lead times, prices, …)
@@ -135,6 +137,7 @@ function ForecastPage() {
           unit_cost: p.unitCost ?? p.unit_cost ?? 0,
           minimum_gross_margin_percentage: p.minimumGrossMarginPercentage ?? p.minimum_gross_margin_percentage ?? null,
           status: p.status ?? "active",
+          image_url: p.imageUrl ?? p.image_url ?? null,
         });
       }
 
@@ -628,13 +631,23 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, defaultM
         {/* SKU / Name */}
         <td className="px-5 py-3.5">
           <div className="flex items-center gap-3">
-            <div className={`flex h-8 w-8 items-center justify-center rounded-lg border text-[10px] font-bold transition-colors ${
-              isCritical ? "border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-400"
-              : isWarning ? "border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400"
-              : "border-border/60 bg-muted/30 text-muted-foreground"
-            }`}>
-              {product.sku.slice(0, 2).toUpperCase() || "?"}
-            </div>
+            {product.image_url ? (
+              <img
+                src={product.image_url}
+                alt={product.name}
+                className={`h-9 w-9 shrink-0 rounded-lg border object-cover ${
+                  isCritical ? "border-rose-300 dark:border-rose-800" : isWarning ? "border-amber-300 dark:border-amber-800" : "border-border"
+                }`}
+              />
+            ) : (
+              <div className={`flex h-8 w-8 items-center justify-center rounded-lg border text-[10px] font-bold transition-colors ${
+                isCritical ? "border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-400"
+                : isWarning ? "border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400"
+                : "border-border/60 bg-muted/30 text-muted-foreground"
+              }`}>
+                {product.sku.slice(0, 2).toUpperCase() || "?"}
+              </div>
+            )}
             <div>
               <div className="font-mono text-[11px] text-muted-foreground leading-none mb-0.5">{product.sku}</div>
               <div className="text-sm font-medium leading-tight">{product.name}</div>

@@ -538,6 +538,7 @@ async function resolveProformaForInvoice(
   const linkName = side === "sales" ? "customer proforma" : "supplier proforma";
   let pfId: string | null = formalId || null;
   let pfNumber: string | null = null;
+  let pf: any = null;
   if (!pfId) {
     const needle = String(poNumber ?? "").trim();
     if (!needle) return null;
@@ -552,21 +553,32 @@ async function resolveProformaForInvoice(
       return { proformaId: null, proformaNumber: null, advanceDeducted: 0 };
     }
     pfId = matches[0].id;
+    pf = matches[0];
     pfNumber = matches[0].proformaNumber ?? matches[0].poNumber ?? null;
   } else {
-    const pf = await PurchaseOrder.get(pfId);
+    pf = await PurchaseOrder.get(pfId);
     if (!pf) throw new Error(`Linked ${linkName} not found`);
     if (pf.side !== side) throw new Error(`The linked proforma is not a ${side} proforma`);
     pfNumber = pf.proformaNumber ?? pf.poNumber ?? null;
   }
   const advances = await Advance.list(clientId);
-  const deducted = (advances as any[])
+  const paid = (advances as any[])
     .filter((a) => a.side === side && a.purchaseOrderId === pfId && a.status !== "refunded")
     .reduce((s: number, a: any) => s + (Number(a.amount) || 0), 0);
+  // The proforma's agreed advance % (set when it was created from a purchase
+  // order) drives the deduction too — it covers the expected advance even
+  // before treasury has funded it. Whichever is larger (agreed % vs the
+  // amount actually paid) is what is deducted.
+  const pctAdvance =
+    Number(pf?.advancePct) > 0
+      ? Math.round(
+          ((Number(pf.poAmount) || Number(pf.amount) || 0) * Number(pf.advancePct)) / 100 * 100,
+        ) / 100
+      : 0;
   return {
     proformaId: pfId,
     proformaNumber: pfNumber,
-    advanceDeducted: Math.round(deducted * 100) / 100,
+    advanceDeducted: Math.round(Math.max(paid, pctAdvance) * 100) / 100,
   };
 }
 
@@ -1157,6 +1169,17 @@ router.post("/purchase-orders", authMiddleware, async (req, res) => {
       try { body.lines = await validateProformaLines(req.user!.userId, body.lines); }
       catch (e: any) { return res.status(400).json({ error: e.message }); }
     }
+    // Advance % must be a sane 0–100 value (drives the calculated advance).
+    if (
+      body.advancePct !== undefined &&
+      body.advancePct !== null &&
+      (Number(body.advancePct) < 0 || Number(body.advancePct) > 100)
+    ) {
+      return res.status(400).json({ error: "Advance percentage must be between 0 and 100" });
+    }
+    // Recording a proforma always submits it to the checker for review — the
+    // funding workflow is maker → checker approval → treasury funding.
+    body.proformaStatus = "pending_review";
     const item = await PurchaseOrder.create({ ...body, clientId: req.user!.userId });
     res.status(201).json(item);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
@@ -1164,6 +1187,97 @@ router.post("/purchase-orders", authMiddleware, async (req, res) => {
 router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
   try {
     const body = req.body || {};
+    const current = await PurchaseOrder.get(req.params.id);
+    if (!current) return res.status(404).json({ error: "Proforma not found" });
+
+    // ── Maker–checker–treasury funding workflow (enforced server-side) ──
+    // pending_review (maker) → approved/rejected (checker) → funded (treasury).
+    if (body.proformaStatus !== undefined) {
+      const roles: string[] = req.user!.roles || [];
+      const isAdmin = roles.includes("factor_admin");
+      const isChecker = roles.includes("checker");
+      const isTreasury = roles.includes("treasury");
+      switch (body.proformaStatus) {
+        case "approved":
+        case "rejected": {
+          if (!isAdmin && !isChecker) {
+            return res.status(403).json({ error: "Only the checker (or admin) can approve or reject proformas" });
+          }
+          if (!isAdmin && current.clientId === req.user!.userId) {
+            return res.status(403).json({ error: "You cannot review a proforma you created (segregation of duties)" });
+          }
+          if (current.proformaStatus === "funded") {
+            return res.status(400).json({ error: "This proforma is already funded" });
+          }
+          body.proformaReviewedBy = req.user!.userId;
+          body.proformaReviewedAt = db.nowISO();
+          break;
+        }
+        case "funded": {
+          if (!isAdmin && !isTreasury) {
+            return res.status(403).json({ error: "Only treasury (or admin) can fund proformas" });
+          }
+          // Funding is the terminal step of the workflow — it requires the
+          // checker's approval first.
+          if (current.proformaStatus !== "approved") {
+            return res.status(400).json({ error: "Proforma must be approved by the checker before it can be funded" });
+          }
+          if (body.proformaFundedBy === undefined) body.proformaFundedBy = req.user!.userId;
+          if (body.proformaFundedAt === undefined) body.proformaFundedAt = db.nowISO();
+          break;
+        }
+        case "pending_review": {
+          // Maker (re-)submits — allowed from draft or after a rejection.
+          if (["approved", "funded"].includes(current.proformaStatus)) {
+            return res.status(400).json({ error: "This proforma is already approved or funded" });
+          }
+          break;
+        }
+        default:
+          return res.status(400).json({ error: "proformaStatus must be pending_review, approved, rejected or funded" });
+      }
+    }
+
+    // Converting to a purchase order or sales order requires the checker's
+    // approval first (both conversion statuses are gated — `status` is not
+    // part of the frozen content, so this is the only guard on it).
+    if (
+      (body.status === "converted_to_po" || body.status === "converted_to_so") &&
+      current.proformaStatus !== "approved"
+    ) {
+      return res.status(400).json({ error: "Proforma must be approved by the checker before converting to a purchase or sales order" });
+    }
+
+    // Content (lines, amounts, parties, attachments…) is frozen once the
+    // proforma enters the review pipeline (or is approved/funded) — only
+    // workflow transitions may touch the document then. This holds even when
+    // the payload carries a proformaStatus decision, so a checker's
+    // approve/reject (or treasury's fund) cannot smuggle content edits through.
+    // A checker rejection reopens it for the maker to fix and resubmit.
+    const contentKeys = [
+      "lines", "amount", "poAmount", "freight", "documents", "proformaNumber",
+      "proformaDate", "debtorId", "vendorId", "issueDate", "expectedDate",
+      "validUntil", "paymentTerms", "expectedDeliveryDate", "notes", "debtorContact",
+      "debtorGstin", "supplierContact", "supplierGstin", "poNumber",
+      "linkedGoodsPoId", "linkedGoodsSoId", "advancePct",
+    ];
+    const frozen = ["pending_review", "approved", "funded"].includes(current.proformaStatus ?? "");
+    // Converting an approved proforma carries its linked PO/SO id along with
+    // the status transition — that link is part of the conversion, not a
+    // content edit, so it is exempt from the freeze.
+    const converting =
+      body.status === "converted_to_po" || body.status === "converted_to_so";
+    const freezeBlocked = contentKeys.some(
+      (k) =>
+        (body as any)[k] !== undefined &&
+        !(converting && (k === "linkedGoodsPoId" || k === "linkedGoodsSoId")),
+    );
+    if (frozen && freezeBlocked) {
+      return res.status(400).json({
+        error: "Proforma is under review or already approved — content cannot be edited until the checker decides (a rejection reopens it for changes)",
+      });
+    }
+
     if (body.lines !== undefined) {
       try { body.lines = await validateProformaLines(req.user!.userId, body.lines); }
       catch (e: any) { return res.status(400).json({ error: e.message }); }
@@ -1194,6 +1308,10 @@ router.post("/purchase-orders/:id/convert-to-so", authMiddleware, async (req, re
     }
     if (!["received", "reviewed"].includes(pf.status)) {
       return res.status(400).json({ error: "Only received or reviewed proformas can be converted to a sales order" });
+    }
+    // Conversion is gated on the checker's approval (same as the purchase side).
+    if (pf.proformaStatus !== "approved") {
+      return res.status(400).json({ error: "Proforma must be approved by the checker before converting to a sales order" });
     }
     const lines: any[] = (pf.lines ?? []).map((l: any) => ({
       productId: l.productId,
@@ -1636,6 +1754,17 @@ async function validateQuotationLines(clientId: string, rawLines: any[]) {
     if (!catalogueIds.has(l.productId)) throw new Error("Every SKU must come from the product catalogue");
     if (!(Number(l.quantity) > 0)) throw new Error("Quantity must be greater than zero");
     if (Number(l.unitPrice) < 0) throw new Error("Unit selling price must be greater than or equal to zero");
+    if (
+      l.updatedUnitPrice !== undefined &&
+      l.updatedUnitPrice !== null &&
+      l.updatedUnitPrice !== "" &&
+      (!Number.isFinite(Number(l.updatedUnitPrice)) || Number(l.updatedUnitPrice) < 0)
+    ) {
+      throw new Error("Updated unit price must be a number greater than or equal to zero");
+    }
+    // An empty-string "updated price" means no revision — normalize to null so
+    // the model (typed number | null) never sees a string.
+    if (l.updatedUnitPrice === "") l.updatedUnitPrice = null;
     if (l.discountType !== undefined && l.discountType !== null && !["pct", "amount"].includes(l.discountType)) {
       throw new Error("Discount type must be 'pct' or 'amount'");
     }
@@ -1675,6 +1804,50 @@ router.post("/quotations", authMiddleware, async (req, res) => {
 router.put("/quotations/:id", authMiddleware, async (req, res) => {
   try {
     const body = req.body || {};
+    const current = await Quotation.get(req.params.id);
+    if (!current) return res.status(404).json({ error: "Quotation not found" });
+
+    // ── Maker–checker price approval ──
+    if (body.approvalStatus !== undefined) {
+      if (body.approvalStatus === "approved" || body.approvalStatus === "rejected") {
+        // Only the checker (or admin) may decide, and never on their own quote.
+        const roles: string[] = req.user!.roles || [];
+        const isAdmin = roles.includes("factor_admin");
+        const isChecker = roles.includes("checker");
+        if (!isAdmin && !isChecker) {
+          return res.status(403).json({ error: "Only the checker (or admin) can approve or reject quotations" });
+        }
+        if (!isAdmin && current.clientId === req.user!.userId) {
+          return res.status(403).json({ error: "You cannot review a quotation you created (segregation of duties)" });
+        }
+        if (current.status === "converted_to_so") {
+          return res.status(400).json({ error: "This quotation is already converted to a sales order" });
+        }
+        body.approvalReviewedBy = req.user!.userId;
+        body.approvalReviewedAt = db.nowISO();
+      } else if (body.approvalStatus === "pending_review") {
+        // Maker submits for approval. Content must be settled first.
+        if (current.approvalStatus === "approved") {
+          return res.status(400).json({ error: "This quotation is already approved" });
+        }
+        if (current.status === "converted_to_so") {
+          return res.status(400).json({ error: "This quotation is already converted to a sales order" });
+        }
+        body.status = body.status ?? "sent";
+        body.approvalRequestedAt = db.nowISO();
+      } else {
+        return res.status(400).json({ error: "approvalStatus must be pending_review, approved or rejected" });
+      }
+    }
+
+    // Lines are frozen once an approval is in flight (or after approval) — not
+    // even a checker's decision may smuggle line edits through. After a
+    // rejection the maker can edit again and resubmit.
+    const underReview = ["pending_review", "approved"].includes(current.approvalStatus ?? "");
+    if (underReview && body.lines !== undefined) {
+      return res.status(400).json({ error: "Quotation is under review — lines cannot be edited until the checker decides" });
+    }
+
     if (body.lines !== undefined) {
       let lines: any[];
       try { lines = await validateQuotationLines(req.user!.userId, body.lines); } catch (e: any) { return res.status(400).json({ error: e.message }); }
@@ -1706,17 +1879,25 @@ router.post("/quotations/:id/convert", authMiddleware, async (req, res) => {
     if (!["sent", "accepted"].includes(q.status)) {
       return res.status(400).json({ error: "Only sent or accepted quotations can be converted to a sales order" });
     }
+    // Maker–checker gate: the updated prices must be approved before the quote
+    // can become a sales order.
+    if (q.approvalStatus !== "approved") {
+      return res.status(400).json({ error: "Quotation must be approved by the checker before converting to a sales order" });
+    }
     const lines: any[] = (q.lines ?? []).map((l: any) => {
+      // The approved effective price — the maker's updated price when set,
+      // otherwise the original quoted price.
+      const unitPrice = Number(l.updatedUnitPrice ?? l.unitPrice) || 0;
       let discountPct: number | null = null;
       if (l.discountType === "pct") discountPct = Number(l.discountValue) || 0;
       else if (l.discountType === "amount") {
-        const gross = (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0);
+        const gross = (Number(l.quantity) || 0) * unitPrice;
         if (gross > 0) discountPct = Math.round(((Number(l.discountValue) || 0) / gross) * 100 * 100) / 100;
       }
       return {
         productId: l.productId, sku: l.sku, name: l.name, unit: l.unit || "unit",
         orderedQty: Number(l.quantity) || 0,
-        unitPrice: Number(l.unitPrice) || 0,
+        unitPrice,
         discountPct,
         gstRate: l.gstRate ?? null,
         notes: l.notes || null,

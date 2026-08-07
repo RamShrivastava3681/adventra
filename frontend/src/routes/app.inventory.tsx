@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Plus,
   X,
@@ -132,6 +133,28 @@ function InventoryPage() {
     },
   });
 
+  // Product images — joined onto movement rows via product_id so the catalogue
+  // thumbnails show up next to each item. Keyed separately from the modal's
+  // "products-mini" query so the two shapes never collide.
+  const productsQ = useQuery({
+    queryKey: ["products-inventory"],
+    queryFn: async () => {
+      const data = await api.products.list();
+      return data.map((p: any) => ({
+        id: p.id,
+        image_url: p.imageUrl ?? p.image_url ?? null,
+      }));
+    },
+  });
+
+  const productImages = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const p of productsQ.data ?? []) {
+      if (p.image_url) m.set(p.id, p.image_url);
+    }
+    return m;
+  }, [productsQ.data]);
+
   const rows = (movementsQ.data ?? []).filter(
     (m: Movement) =>
       (dirFilter === "all" || m.direction === dirFilter) &&
@@ -142,13 +165,27 @@ function InventoryPage() {
   const balances = useMemo(() => {
     const m = new Map<
       string,
-      { item: string; unit: string; sku: string | null; qty: number; value: number }
+      {
+        item: string;
+        unit: string;
+        sku: string | null;
+        productId: string | null;
+        qty: number;
+        value: number;
+      }
     >();
     for (const r of (movementsQ.data ?? []) as Movement[]) {
       if (r.status !== "confirmed") continue;
       const key = r.sku ?? r.product_id ?? `${r.item_name}|${r.unit}`;
       const sign = r.direction === "in" ? 1 : -1;
-      const cur = m.get(key) ?? { item: r.item_name, unit: r.unit, sku: r.sku, qty: 0, value: 0 };
+      const cur = m.get(key) ?? {
+        item: r.item_name,
+        unit: r.unit,
+        sku: r.sku,
+        productId: r.product_id,
+        qty: 0,
+        value: 0,
+      };
       cur.qty += sign * Number(r.quantity);
       cur.value += sign * Number(r.quantity) * Number(r.unit_cost ?? 0);
       m.set(key, cur);
@@ -224,7 +261,22 @@ function InventoryPage() {
                 <tbody>
                   {balances.map((b) => (
                     <tr key={`${b.sku ?? b.item}`} className="border-b border-border/60">
-                      <td className="px-5 py-2.5">{b.item}</td>
+                      <td className="px-5 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          {b.productId && productImages.get(b.productId) ? (
+                            <img
+                              src={productImages.get(b.productId)!}
+                              alt={b.item}
+                              className="h-8 w-8 shrink-0 rounded-md border border-border object-cover"
+                            />
+                          ) : (
+                            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border/60 bg-muted/60 text-muted-foreground">
+                              <Package className="h-3.5 w-3.5" />
+                            </span>
+                          )}
+                          <span>{b.item}</span>
+                        </div>
+                      </td>
                       <td className="px-5 py-2.5 text-muted-foreground">{b.sku ?? "—"}</td>
                       <td
                         className={`px-5 py-2.5 text-right num ${b.qty < 0 ? "text-destructive" : ""}`}
@@ -325,10 +377,25 @@ function InventoryPage() {
                         <DirBadge direction={m.direction} />
                       </td>
                       <td className="px-5 py-3">
-                        <div>{m.item_name}</div>
-                        {m.sku && (
-                          <div className="text-[10px] text-muted-foreground">SKU {m.sku}</div>
-                        )}
+                        <div className="flex items-center gap-2.5">
+                          {m.product_id && productImages.get(m.product_id) ? (
+                            <img
+                              src={productImages.get(m.product_id)!}
+                              alt={m.item_name}
+                              className="h-9 w-9 shrink-0 rounded-md border border-border object-cover"
+                            />
+                          ) : (
+                            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border/60 bg-muted/60 text-muted-foreground">
+                              <Package className="h-4 w-4" />
+                            </span>
+                          )}
+                          <div>
+                            <div>{m.item_name}</div>
+                            {m.sku && (
+                              <div className="text-[10px] text-muted-foreground">SKU {m.sku}</div>
+                            )}
+                          </div>
+                        </div>
                       </td>
                       <td className="px-5 py-3 text-right num">
                         {Number(m.quantity).toLocaleString()}{" "}
@@ -823,18 +890,15 @@ function MovementModal({
             </div>
 
             <L label="Product (SKU · name)">
-              <select
-                className="inp"
+              <SearchableSelect
                 value={form.productId}
-                onChange={(e) => pickProduct(e.target.value)}
-              >
-                <option value="">— Select product —</option>
-                {(productsQ.data ?? []).map((p: any) => (
-                  <option key={p.id} value={p.id}>
-                    {p.sku} · {p.name}
-                  </option>
-                ))}
-              </select>
+                onChange={pickProduct}
+                placeholder="— Select product —"
+                options={(productsQ.data ?? []).map((p: any) => ({
+                  value: p.id,
+                  label: p.sku ? `${p.sku} · ${p.name}` : p.name,
+                }))}
+              />
             </L>
 
             {selected ? (

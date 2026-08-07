@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { TableSkeleton } from "@/components/skeletons";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 export const Route = createFileRoute("/app/dispatches")({
   component: DispatchesPage,
@@ -283,18 +284,22 @@ function DispatchesPage() {
               {s === "all" ? "All" : DISPATCH_STATUS_LABELS[s]}
             </button>
           ))}
-          <select
-            value={soFilterSel}
-            onChange={(e) => setSoFilter(e.target.value)}
-            className="ml-auto rounded-md border border-border bg-card px-2 py-1.5 text-xs"
-          >
-            <option value="">All sales orders</option>
-            {(sosQ.data ?? []).map((s: SO) => (
-              <option key={s.id} value={s.id}>
-                {s.so_number}
-              </option>
-            ))}
-          </select>
+          <div className="ml-auto w-56">
+            <SearchableSelect
+              value={soFilterSel}
+              onChange={setSoFilter}
+              placeholder="All sales orders"
+              searchPlaceholder="Search orders…"
+              options={[
+                { value: "", label: "All sales orders" },
+                ...(sosQ.data ?? []).map((s: SO) => ({
+                  value: s.id,
+                  label: s.so_number,
+                  hint: s.customer_name ?? undefined,
+                })),
+              ]}
+            />
+          </div>
         </div>
 
         <Card>
@@ -610,19 +615,20 @@ function DispatchCreateModal({
             </legend>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               <L label="Linked sales order">
-                <select
-                  className="inp"
+                <SearchableSelect
                   value={soId}
-                  onChange={(e) => pickSo(e.target.value)}
+                  onChange={pickSo}
+                  placeholder="Select sales order…"
                   disabled={!!preselectSoId}
-                >
-                  <option value="">Select sales order…</option>
-                  {sos.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.so_number} · {s.customer_name ?? ""}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: "", label: "Select sales order…" },
+                    ...sos.map((s) => ({
+                      value: s.id,
+                      label: s.so_number,
+                      hint: s.customer_name ?? undefined,
+                    })),
+                  ]}
+                />
               </L>
               <L label="Dispatch date">
                 <input
@@ -665,35 +671,33 @@ function DispatchCreateModal({
                 />
               </L>
               <L label="Linked customer proforma">
-                <select
-                  className="inp"
+                <SearchableSelect
                   value={f.linked_customer_proforma_id}
-                  onChange={(e) =>
-                    setF({ ...f, linked_customer_proforma_id: e.target.value })
-                  }
-                >
-                  <option value="">None</option>
-                  {proformas.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.number}
-                      {p.customer ? ` · ${p.customer}` : ""}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => setF({ ...f, linked_customer_proforma_id: v })}
+                  placeholder="None"
+                  options={[
+                    { value: "", label: "None" },
+                    ...proformas.map((p: any) => ({
+                      value: p.id,
+                      label: p.number,
+                      hint: p.customer ?? undefined,
+                    })),
+                  ]}
+                />
               </L>
               <L label="Linked sales invoice">
-                <select
-                  className="inp"
+                <SearchableSelect
                   value={f.linked_sales_invoice_id}
-                  onChange={(e) => setF({ ...f, linked_sales_invoice_id: e.target.value })}
-                >
-                  <option value="">None</option>
-                  {invoices.map((i) => (
-                    <option key={i.id} value={i.id}>
-                      {i.number}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => setF({ ...f, linked_sales_invoice_id: v })}
+                  placeholder="None"
+                  options={[
+                    { value: "", label: "None" },
+                    ...invoices.map((i: any) => ({
+                      value: i.id,
+                      label: i.number,
+                    })),
+                  ]}
+                />
               </L>
               <div className="col-span-2 md:col-span-1">
                 <L label="Customer">

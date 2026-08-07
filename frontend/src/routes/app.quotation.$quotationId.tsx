@@ -135,7 +135,20 @@ function QuotationPage() {
                       <td className="py-2 pr-2">{l.name}</td>
                       <td className="py-2 pr-2 text-right">{l.quantity.toLocaleString()}</td>
                       <td className="py-2 pr-2 text-right">{l.unit}</td>
-                      <td className="py-2 pr-2 text-right">{fmtMoney(l.unit_price)}</td>
+                      <td className="py-2 pr-2 text-right">
+                        {l.updated_unit_price != null ? (
+                          <>
+                            <span className="text-slate-400 line-through">
+                              {fmtMoney(l.unit_price)}
+                            </span>{" "}
+                            <span className="font-semibold">
+                              {fmtMoney(l.updated_unit_price)}
+                            </span>
+                          </>
+                        ) : (
+                          fmtMoney(l.unit_price)
+                        )}
+                      </td>
                       <td className="py-2 pr-2 text-right">{discountLabel}</td>
                       <td className="py-2 pr-2 text-right">{l.gst_rate ?? "—"}</td>
                       <td className="py-2 text-right">{fmtMoney(l.line_total)}</td>

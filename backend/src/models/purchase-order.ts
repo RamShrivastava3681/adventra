@@ -46,6 +46,9 @@ export interface PurchaseOrder {
   paymentTerms: string | null;
   /** Expected delivery date. */
   expectedDeliveryDate: string | null;
+  /** Advance amount as a % of the proforma total (purchase side) — used to
+   *  calculate the advance paid when treasury funds the proforma. */
+  advancePct: number | null;
   /** Attached supplier quotation / proforma (PDF/image). */
   documents: any[];
   /** Catalogue product lines (purchase side). */
@@ -118,6 +121,7 @@ export async function create(data: Partial<PurchaseOrder> & { clientId: string; 
     validUntil: data.validUntil || null,
     paymentTerms: data.paymentTerms || null,
     expectedDeliveryDate: data.expectedDeliveryDate || null,
+    advancePct: data.advancePct ?? null,
     documents: data.documents || [],
     lines,
     ...totals,
@@ -135,7 +139,7 @@ export async function update(id: string, updates: Partial<PurchaseOrder>) {
     "amount","poAmount","status","side","poNumber","debtorId","vendorId","issueDate","expectedDate","currency",
     "proformaNumber","proformaStatus","proformaDate","proformaFundedAmount","proformaFundedAt","proformaFundedBy",
     "proformaFundingReference","proformaReviewedAt","proformaReviewedBy","proformaReviewComments","notes",
-    "supplierContact","supplierGstin","debtorContact","debtorGstin","validUntil","paymentTerms","expectedDeliveryDate","documents",
+    "supplierContact","supplierGstin","debtorContact","debtorGstin","validUntil","paymentTerms","expectedDeliveryDate","advancePct","documents",
     "lines","subtotal","gstTotal","freight","grandTotal","linkedGoodsPoId","linkedGoodsSoId",
   ];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }

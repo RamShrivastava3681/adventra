@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TableSkeleton } from "@/components/skeletons";
 
 export const Route = createFileRoute("/app/sales-orders")({
@@ -730,19 +731,13 @@ function SOModal({
                 />
               </L>
               <L label="Customer">
-                <select
-                  className="inp"
+                <SearchableSelect
                   value={f.customer_id}
-                  onChange={(e) => pickCustomer(e.target.value)}
+                  onChange={pickCustomer}
+                  placeholder="Select customer…"
                   disabled={!editable}
-                >
-                  <option value="">Select customer…</option>
-                  {customers.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </select>
+                  options={customers.map((c) => ({ value: c.id, label: c.name }))}
+                />
               </L>
               <L label="Contact person">
                 <input
@@ -777,11 +772,9 @@ function SOModal({
                 <input className="inp" value={so?.salesperson_name ?? "You"} disabled />
               </L>
               <L label="Linked quotation">
-                <select
-                  className="inp"
+                <SearchableSelect
                   value={f.linked_quotation_id}
-                  onChange={(e) => {
-                    const id = e.target.value;
+                  onChange={(id) => {
                     const qt = quotations.find((x) => x.id === id);
                     setF({
                       ...f,
@@ -789,16 +782,17 @@ function SOModal({
                       linked_quotation_number: qt?.quotation_number ?? "",
                     });
                   }}
+                  placeholder="None"
                   disabled={!editable}
-                >
-                  <option value="">None</option>
-                  {quotations.map((qt) => (
-                    <option key={qt.id} value={qt.id}>
-                      {qt.quotation_number}
-                      {qt.customer_name ? ` · ${qt.customer_name}` : ""}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: "", label: "None" },
+                    ...quotations.map((qt) => ({
+                      value: qt.id,
+                      label: qt.quotation_number,
+                      hint: qt.customer_name ?? undefined,
+                    })),
+                  ]}
+                />
               </L>
               <L label="Payment terms">
                 <input
@@ -892,20 +886,16 @@ function SOModal({
                       <div className="grid grid-cols-2 items-end gap-2 md:grid-cols-12">
                         <div className="col-span-2 md:col-span-4">
                           <L label="Product">
-                            <select
-                              className="inp"
+                            <SearchableSelect
                               value={l.product_id}
-                              onChange={(e) => pickProduct(i, e.target.value)}
+                              onChange={(v) => pickProduct(i, v)}
+                              placeholder="Select product…"
                               disabled={!editable}
-                            >
-                              <option value="">Select product…</option>
-                              {products.map((p) => (
-                                <option key={p.id} value={p.id}>
-                                  {p.sku ? `${p.sku} · ` : ""}
-                                  {p.name}
-                                </option>
-                              ))}
-                            </select>
+                              options={products.map((p) => ({
+                                value: p.id,
+                                label: p.sku ? `${p.sku} · ${p.name}` : p.name,
+                              }))}
+                            />
                           </L>
                           {l.name && (
                             <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>

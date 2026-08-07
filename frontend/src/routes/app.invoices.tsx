@@ -8,6 +8,7 @@ import { Plus, X, Loader2, Send, Copy, Eye, Mail, Banknote, FileCheck, Ban, Tras
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 export const Route = createFileRoute("/app/invoices")({
   component: InvoicesPage,
@@ -763,14 +764,19 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
               Create from Sales Order
             </legend>
             <L label="Linked sales order * (mandatory — auto-fills lines, customer, terms)">
-              <select required className="inp" value={soSource} onChange={(e) => pickSo(e.target.value)}>
-                <option value="">Select a confirmed sales order…</option>
-                {soOptions.map((so: any) => (
-                  <option key={so.id} value={so.id}>
-                    {so.so_number} · {so.customer_name ?? "—"} · {so.status}
-                  </option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={soSource}
+                onChange={pickSo}
+                placeholder="Select a confirmed sales order…"
+                options={[
+                  { value: "", label: "Select a confirmed sales order…" },
+                  ...soOptions.map((so: any) => ({
+                    value: so.id,
+                    label: so.so_number,
+                    hint: `${so.customer_name ?? "—"} · ${so.status}`,
+                  })),
+                ]}
+              />
             </L>
             <p className="mt-1 text-[10px] text-muted-foreground">
               Every invoice must be linked to a confirmed sales order — its customer and lines are checked against it. An invoice never reduces stock; only a confirmed dispatch debits inventory.
@@ -790,10 +796,12 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
                 <input required type="date" className="inp" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} />
               </L>
               <L label="Customer *">
-                <select required className="inp" value={form.debtor_id} onChange={(e) => setForm({ ...form, debtor_id: e.target.value })}>
-                  <option value="">Select debtor</option>
-                  {debtors.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
-                </select>
+                <SearchableSelect
+                  value={form.debtor_id}
+                  onChange={(v) => setForm({ ...form, debtor_id: v })}
+                  placeholder="Select debtor"
+                  options={debtors.map((d: any) => ({ value: d.id, label: d.name }))}
+                />
               </L>
               <L label="Customer contact">
                 <input className="inp" value={form.customer_contact} onChange={(e) => setForm({ ...form, customer_contact: e.target.value })} placeholder="Name · email · phone" />
@@ -844,12 +852,15 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
                   <div key={i} className="grid grid-cols-2 items-end gap-2 rounded-md border border-border/50 p-2 md:grid-cols-12">
                     <div className="col-span-2 md:col-span-3">
                       <L label="Product">
-                        <select className="inp" value={l.product_id} onChange={(e) => pickProduct(i, e.target.value)}>
-                          <option value="">Select product…</option>
-                          {(productsQ.data ?? []).map((p: any) => (
-                            <option key={p.id} value={p.id}>{p.sku ? `${p.sku} · ` : ""}{p.name}</option>
-                          ))}
-                        </select>
+                        <SearchableSelect
+                          value={l.product_id}
+                          onChange={(v) => pickProduct(i, v)}
+                          placeholder="Select product…"
+                          options={(productsQ.data ?? []).map((p: any) => ({
+                            value: p.id,
+                            label: p.sku ? `${p.sku} · ${p.name}` : p.name,
+                          }))}
+                        />
                       </L>
                       {l.name && <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>}
                     </div>
@@ -931,19 +942,19 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
             </legend>
             <div className="space-y-3">
               <L label="Linked customer proforma (optional — deducts received advances)">
-                <select
-                  className="inp"
+                <SearchableSelect
                   value={form.linked_customer_proforma_id}
-                  onChange={(e) => pickProforma(e.target.value)}
-                >
-                  <option value="">None — manual PO entry</option>
-                  {(proformasQ.data ?? []).map((p: any) => (
-                    <option key={p.id} value={p.id}>
-                      {p.proforma_number ?? p.po_number ?? p.id}
-                      {p.debtor?.name ? ` · ${p.debtor.name}` : ""}
-                    </option>
-                  ))}
-                </select>
+                  onChange={pickProforma}
+                  placeholder="None — manual PO entry"
+                  options={[
+                    { value: "", label: "None — manual PO entry" },
+                    ...(proformasQ.data ?? []).map((p: any) => ({
+                      value: p.id,
+                      label: p.proforma_number ?? p.po_number ?? p.id,
+                      hint: p.debtor?.name ?? undefined,
+                    })),
+                  ]}
+                />
               </L>
               <div className="grid grid-cols-3 gap-3">
                 <L label="PO / proforma number"><input className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="PO-2026-001" /></L>

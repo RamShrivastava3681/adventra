@@ -7,6 +7,7 @@ import { useViewAsUserId } from "@/lib/view-as";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import { Plus, X, Loader2, Users, Target, PhoneCall, Mail, Calendar, CheckCircle2, Trash2 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/crm")({
@@ -433,10 +434,19 @@ function OppModal({ userId, onClose }: { userId: string; onClose: () => void }) 
         <div className="grid grid-cols-2 gap-3">
           <L label="Deal name *"><input required className="inp" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} /></L>
           <L label="Account"><input className="inp" value={f.account_name} onChange={(e) => setF({ ...f, account_name: e.target.value })} /></L>
-          <L label="Linked lead"><select className="inp" value={f.lead_id} onChange={(e) => setF({ ...f, lead_id: e.target.value })}>
-            <option value="">— None —</option>
-            {(leadsQ.data ?? []).map((l: any) => <option key={l.id} value={l.id}>{l.name}{l.company ? ` · ${l.company}` : ""}</option>)}
-          </select></L>
+          <L label="Linked lead"><SearchableSelect
+            value={f.lead_id}
+            onChange={(v) => setF({ ...f, lead_id: v })}
+            placeholder="— None —"
+            options={[
+              { value: "", label: "— None —" },
+              ...(leadsQ.data ?? []).map((l: any) => ({
+                value: l.id,
+                label: l.name,
+                hint: l.company ?? undefined,
+              })),
+            ]}
+          /></L>
           <L label="Stage"><select className="inp" value={f.stage} onChange={(e) => setF({ ...f, stage: e.target.value })}>{OPP_STAGES.map((s) => <option key={s} value={s}>{s.replace("_", " ")}</option>)}</select></L>
           <L label="Amount"><input type="number" step="0.01" className="inp" value={f.amount} onChange={(e) => setF({ ...f, amount: e.target.value })} /></L>
           <L label="Expected close"><input type="date" className="inp" value={f.expected_close_date} onChange={(e) => setF({ ...f, expected_close_date: e.target.value })} /></L>
@@ -484,14 +494,24 @@ function ActivityModal({ userId, onClose }: { userId: string; onClose: () => voi
           <L label="Type"><select className="inp" value={f.activity_type} onChange={(e) => setF({ ...f, activity_type: e.target.value })}>{ACTIVITY_TYPES.map((s) => <option key={s} value={s}>{s}</option>)}</select></L>
           <L label="Due date"><input type="date" className="inp" value={f.due_date} onChange={(e) => setF({ ...f, due_date: e.target.value })} /></L>
           <div className="col-span-2"><L label="Subject *"><input required className="inp" value={f.subject} onChange={(e) => setF({ ...f, subject: e.target.value })} /></L></div>
-          <L label="Linked lead"><select className="inp" value={f.lead_id} onChange={(e) => setF({ ...f, lead_id: e.target.value })}>
-            <option value="">— None —</option>
-            {(leadsQ.data ?? []).map((l: any) => <option key={l.id} value={l.id}>{l.name}</option>)}
-          </select></L>
-          <L label="Linked opportunity"><select className="inp" value={f.opportunity_id} onChange={(e) => setF({ ...f, opportunity_id: e.target.value })}>
-            <option value="">— None —</option>
-            {(oppsQ.data ?? []).map((o: any) => <option key={o.id} value={o.id}>{o.name}</option>)}
-          </select></L>
+          <L label="Linked lead"><SearchableSelect
+            value={f.lead_id}
+            onChange={(v) => setF({ ...f, lead_id: v })}
+            placeholder="— None —"
+            options={[
+              { value: "", label: "— None —" },
+              ...(leadsQ.data ?? []).map((l: any) => ({ value: l.id, label: l.name })),
+            ]}
+          /></L>
+          <L label="Linked opportunity"><SearchableSelect
+            value={f.opportunity_id}
+            onChange={(v) => setF({ ...f, opportunity_id: v })}
+            placeholder="— None —"
+            options={[
+              { value: "", label: "— None —" },
+              ...(oppsQ.data ?? []).map((o: any) => ({ value: o.id, label: o.name })),
+            ]}
+          /></L>
         </div>
         <L label="Description"><textarea rows={3} className="inp" value={f.description} onChange={(e) => setF({ ...f, description: e.target.value })} /></L>
         <SaveRow onClose={onClose} pending={create.isPending} />

@@ -4,13 +4,32 @@ import { useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { ClipboardCheck, Check, X, Lock, FileMinus, FilePlus } from "lucide-react";
+import { ClipboardCheck, Check, X, Lock, FileMinus, FilePlus, ScrollText } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/checker")({
   component: CheckerPage,
 });
+
+/** Grand total a quotation would have using ONLY its original unit prices (before the maker's updated prices). */
+function originalGrandTotal(q: any): number {
+  let subtotal = 0;
+  let gst = 0;
+  for (const l of q.lines ?? []) {
+    const gross = (Number(l.quantity) || 0) * (Number(l.unit_price) || 0);
+    const disc =
+      l.discount_type === "pct"
+        ? (gross * Math.min(100, Number(l.discount_value) || 0)) / 100
+        : l.discount_type === "amount"
+          ? Math.min(Number(l.discount_value) || 0, gross)
+          : 0;
+    const lineTotal = Math.round((gross - disc) * 100) / 100;
+    subtotal += lineTotal;
+    gst += (lineTotal * (Number(l.gst_rate) || 0)) / 100;
+  }
+  return Math.round((subtotal + gst + (Number(q.freight) || 0)) * 100) / 100;
+}
 
 type Row = {
   kind: "sale" | "purchase";
@@ -157,6 +176,30 @@ function CheckerPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  // Quotations whose updated prices await the checker's approval. Once
+  // approved, the maker can convert the quotation into a sales order.
+  const quotationsQ = useQuery({
+    queryKey: ["checker-quotations"],
+    queryFn: async () => {
+      const data = await api.quotations.list();
+      return data.filter((q: any) => q.approval_status === "pending_review");
+    },
+  });
+
+  const reviewQuotation = useMutation({
+    mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "rejected" }) => {
+      // The backend stamps the reviewer + timestamp.
+      await api.quotations.update(id, { approval_status: decision });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["checker-quotations"] });
+      qc.invalidateQueries({ queryKey: ["quotations"] });
+      qc.invalidateQueries({ queryKey: ["quotations-for-so"] });
+      toast.success("Quotation decision recorded");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
   // Build PO -> open advance total lookup per side (DB is source of truth)
   const saleIds = (salesQ.data ?? []).map((i: any) => i.id);
   const purIds = (purchasesQ.data ?? []).map((p: any) => p.id);
@@ -274,7 +317,7 @@ function CheckerPage() {
       />
 
       <div className="space-y-6 p-6 md:p-10">
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-4">
           <Card title="Pending sales invoices">
             <div className="num text-3xl text-primary">{pendingSales}</div>
             <div className="mt-1 text-xs text-muted-foreground">
@@ -291,6 +334,12 @@ function CheckerPage() {
             <div className="num text-3xl text-primary">{(proformasQ.data ?? []).length}</div>
             <div className="mt-1 text-xs text-muted-foreground">
               Awaiting approval before funding
+            </div>
+          </Card>
+          <Card title="Pending quotation approvals">
+            <div className="num text-3xl text-primary">{(quotationsQ.data ?? []).length}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Updated prices awaiting approval
             </div>
           </Card>
         </div>
@@ -508,6 +557,132 @@ function CheckerPage() {
                                 <button
                                   onClick={() =>
                                     reviewProforma.mutate({ id: p.id, decision: "rejected" })
+                                  }
+                                  className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
+                                >
+                                  <X className="h-3 w-3" /> Reject
+                                </button>
+                              </div>
+                            )
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+                              <Lock className="h-3 w-3" /> Checker only
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        <Card title="Quotations awaiting price approval">
+          {quotationsQ.isLoading ? (
+            <TableSkeleton rows={3} cols={8} />
+          ) : (quotationsQ.data ?? []).length === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              No quotations awaiting approval.
+            </div>
+          ) : (
+            <div className="-mx-5 overflow-x-auto">
+              <table className="table-premium w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">Quotation</th>
+                    {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
+                    <th className="px-5 py-2 text-left font-normal">Customer</th>
+                    <th className="px-5 py-2 text-right font-normal">Lines revised</th>
+                    <th className="px-5 py-2 text-right font-normal">Original total</th>
+                    <th className="px-5 py-2 text-right font-normal">Updated total</th>
+                    <th className="px-5 py-2 text-left font-normal">Requested</th>
+                    <th className="px-5 py-2 text-right font-normal">Decision</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(quotationsQ.data ?? []).map((q: any) => {
+                    const selfCreated = q.client_id === user?.id && !isAdmin;
+                    const revised = (q.lines ?? []).filter(
+                      (l: any) => l.updated_unit_price != null,
+                    ).length;
+                    const origTotal = originalGrandTotal(q);
+                    const newTotal = Number(q.grand_total ?? 0);
+                    const changed = Math.abs(origTotal - newTotal) > 0.005;
+                    return (
+                      <tr key={q.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2">
+                            <ScrollText className="h-3.5 w-3.5 shrink-0 text-primary" />
+                            <div>
+                              <div className="font-mono text-xs">
+                                {q.quotation_number}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground">
+                                {fmtDate(q.quotation_date)}
+                              </div>
+                            </div>
+                          </div>
+                        </td>
+                        {isAdmin && (
+                          <td className="px-5 py-3 text-muted-foreground">
+                            {q.client?.company_name ?? "—"}
+                          </td>
+                        )}
+                        <td className="px-5 py-3">{q.customer_name ?? "—"}</td>
+                        <td className="px-5 py-3 text-right num">
+                          <span
+                            className={`inline-block rounded-full px-2 py-0.5 text-[10px] tabular-nums ${revised > 0 ? "bg-primary/10 text-primary" : "bg-muted/40 text-muted-foreground"}`}
+                          >
+                            {revised} / {(q.lines ?? []).length} lines
+                          </span>
+                        </td>
+                        <td className="px-5 py-3 text-right num text-muted-foreground">
+                          {fmtMoney(origTotal)}
+                        </td>
+                        <td
+                          className={`px-5 py-3 text-right num font-medium ${changed ? "text-primary" : ""}`}
+                        >
+                          {fmtMoney(newTotal)}
+                          {changed && (
+                            <div className="text-[9px] font-semibold text-muted-foreground">
+                              {newTotal > origTotal ? "▲" : "▼"}{" "}
+                              {fmtMoney(Math.abs(newTotal - origTotal))}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-sm">
+                          {fmtDate(q.approval_requested_at)}
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          {canReview ? (
+                            selfCreated ? (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground"
+                                title="Segregation of duties: you cannot review a quotation you created"
+                              >
+                                <Lock className="h-3 w-3" /> Self-created
+                              </span>
+                            ) : (
+                              <div className="inline-flex gap-1">
+                                <button
+                                  onClick={() =>
+                                    reviewQuotation.mutate({
+                                      id: q.id,
+                                      decision: "approved",
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10"
+                                >
+                                  <Check className="h-3 w-3" /> Approve
+                                </button>
+                                <button
+                                  onClick={() =>
+                                    reviewQuotation.mutate({
+                                      id: q.id,
+                                      decision: "rejected",
+                                    })
                                   }
                                   className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
                                 >

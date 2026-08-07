@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   Plus,
   X,
@@ -192,6 +193,7 @@ function ProductsPage() {
       // too — refresh every surface that shows them.
       qc.invalidateQueries({ queryKey: ["products"] });
       qc.invalidateQueries({ queryKey: ["products-forecast"] });
+      qc.invalidateQueries({ queryKey: ["products-inventory"] });
       qc.invalidateQueries({ queryKey: ["stock_movements"] });
       qc.invalidateQueries({ queryKey: ["stock_movements_all"] });
       qc.invalidateQueries({ queryKey: ["movements-forecast"] });
@@ -346,20 +348,20 @@ function ProductsPage() {
                     const out = stock <= 0;
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3 font-mono text-xs">
-                          <div className="flex items-center gap-2">
+                        <td className="px-5 py-3">
+                          <div className="flex items-center gap-2.5">
                             {p.image_url ? (
                               <img
                                 src={p.image_url}
-                                alt=""
-                                className="h-6 w-6 rounded object-cover"
+                                alt={p.name}
+                                className="h-9 w-9 shrink-0 rounded-lg border border-border object-cover shadow-sm"
                               />
                             ) : (
-                              <span className="grid h-6 w-6 place-items-center rounded bg-muted/60 text-muted-foreground">
-                                <Package className="h-3 w-3" />
+                              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-border/60 bg-muted/60 text-muted-foreground">
+                                <Package className="h-4 w-4" />
                               </span>
                             )}
-                            <span>{p.sku}</span>
+                            <span className="font-mono text-xs">{p.sku}</span>
                           </div>
                         </td>
                         <td className="px-5 py-3">
@@ -635,6 +637,8 @@ function ProductModal({
       // (which recomputes pricing strategy from unit cost / margin) stay in sync.
       qc.invalidateQueries({ queryKey: ["products"] });
       qc.invalidateQueries({ queryKey: ["products-forecast"] });
+      // Inventory shows product thumbnails — keep those fresh too.
+      qc.invalidateQueries({ queryKey: ["products-inventory"] });
       toast.success(isEdit ? "Updated" : "Created");
       onClose();
     },
@@ -857,18 +861,15 @@ function ProductModal({
                 />
               </L>
               <L label="Preferred supplier">
-                <select
-                  className="inp"
+                <SearchableSelect
                   value={f.supplier_id}
-                  onChange={(e) => setF({ ...f, supplier_id: e.target.value })}
-                >
-                  <option value="">—</option>
-                  {suppliers.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.company_name ?? s.companyName ?? s.id}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => setF({ ...f, supplier_id: v })}
+                  placeholder="—"
+                  options={suppliers.map((s: any) => ({
+                    value: s.id,
+                    label: s.company_name ?? s.companyName ?? s.id,
+                  }))}
+                />
               </L>
               <L label="Supplier product code (optional)">
                 <input
@@ -1053,7 +1054,9 @@ function ImageField({
     setBusy(true);
     try {
       const safe = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
-      const path = `products/${userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe}`;
+      // S3 keys must live under the user's own folder — the backend rejects any
+      // path that doesn't start with the user id — so scope goes INSIDE it.
+      const path = `${userId}/products/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe}`;
       const formData = new FormData();
       formData.append("file", file);
       formData.append("path", path);

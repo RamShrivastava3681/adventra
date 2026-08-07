@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, DocumentList, type DocMeta } from "@/components/document-uploader";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TableSkeleton } from "@/components/skeletons";
 
 export const Route = createFileRoute("/app/grn")({
@@ -746,19 +747,20 @@ function GrnModal({
                 />
               </L>
               <L label="Linked purchase order *">
-                <select
-                  className="inp"
+                <SearchableSelect
                   value={f.po_id}
-                  onChange={(e) => pickPo(e.target.value)}
+                  onChange={pickPo}
+                  placeholder="Select PO…"
                   disabled={isEdit}
-                >
-                  <option value="">Select PO…</option>
-                  {pos.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.po_number} · {p.supplier_name ?? "—"}
-                    </option>
-                  ))}
-                </select>
+                  options={[
+                    { value: "", label: "Select PO…" },
+                    ...pos.map((p: any) => ({
+                      value: p.id,
+                      label: p.po_number,
+                      hint: p.supplier_name ?? undefined,
+                    })),
+                  ]}
+                />
               </L>
               <L label="Supplier">
                 <input
@@ -784,20 +786,19 @@ function GrnModal({
                 />
               </L>
               <L label="Linked purchase invoice">
-                <select
-                  className="inp"
+                <SearchableSelect
                   value={f.purchase_invoice_id}
-                  onChange={(e) => setF({ ...f, purchase_invoice_id: e.target.value })}
-                >
-                  <option value="">None (optional)</option>
-                  {linkedPiCandidates.map((pi) => (
-                    <option key={pi.id} value={pi.id}>
-                      {pi.invoice_number}
-                      {pi.supplier_name || pi.vendor_name ? ` · ${pi.supplier_name ?? pi.vendor_name}` : ""}
-                      {pi.goods_po_number ? ` · PO ${pi.goods_po_number}` : ""}
-                    </option>
-                  ))}
-                </select>
+                  onChange={(v) => setF({ ...f, purchase_invoice_id: v })}
+                  placeholder="None (optional)"
+                  options={[
+                    { value: "", label: "None (optional)" },
+                    ...linkedPiCandidates.map((pi: any) => ({
+                      value: pi.id,
+                      label: pi.invoice_number,
+                      hint: [pi.supplier_name ?? pi.vendor_name, pi.goods_po_number ? `PO ${pi.goods_po_number}` : ""].filter(Boolean).join(" · ") || undefined,
+                    })),
+                  ]}
+                />
               </L>
               <L label="Received by">
                 <input className="inp" value={userId} disabled />

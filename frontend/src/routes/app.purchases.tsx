@@ -8,6 +8,7 @@ import { Plus, X, Loader2, Link2, Mail, AlertTriangle, CheckCircle2 } from "luci
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 export const Route = createFileRoute("/app/purchases")({
   component: PurchasesPage,
@@ -494,10 +495,26 @@ function NewPurchaseModal({
       : bySupplier;
   }, [pos, form.vendor_id, form.goods_po_id]);
 
+  // Purchase proformas available to formally link (drives the advance deduction).
+  const proformasQ = useQuery({
+    queryKey: ["purchase-proformas-for-pi"],
+    queryFn: async () => {
+      const data = await api.purchaseOrders.list();
+      return (data ?? []).filter((p: any) => p.side === "purchase");
+    },
+  });
+
   const pickPo = (id: string) => {
     const po = pos.find((p) => p.id === id);
-    setForm((f) => ({ ...f, goods_po_id: id, goods_po_number: po?.po_number ?? "" }));
     if (!po) {
+      setForm((f) => ({
+        ...f,
+        goods_po_id: id,
+        goods_po_number: "",
+        po_number: "",
+        linked_supplier_proforma_id: "",
+        linked_supplier_proforma_number: "",
+      }));
       setLines([]);
       return;
     }
@@ -515,6 +532,25 @@ function NewPurchaseModal({
         gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
       })),
     );
+    // When this PO was turned into a purchase proforma, link that proforma
+    // automatically — its advance % drives the deduction and its details
+    // (supplier contact, GSTIN, terms…) are fetched into the section below.
+    // Only auto-link when the PO number maps to exactly one proforma (the
+    // backend refuses ambiguous number matches too).
+    const pfMatches = (proformasQ.data ?? []).filter(
+      (p: any) =>
+        p.side === "purchase" &&
+        (p.po_number === po.po_number || p.proforma_number === po.po_number),
+    );
+    const pf = pfMatches.length === 1 ? pfMatches[0] : null;
+    setForm((f) => ({
+      ...f,
+      goods_po_id: id,
+      goods_po_number: po.po_number,
+      po_number: pf ? (pf.po_number ?? pf.proforma_number ?? po.po_number) : po.po_number,
+      linked_supplier_proforma_id: pf?.id ?? "",
+      linked_supplier_proforma_number: pf ? (pf.proforma_number ?? pf.po_number ?? "") : "",
+    }));
   };
 
   const setLine = (i: number, patch: Partial<LineDraft>) =>
@@ -558,15 +594,6 @@ function NewPurchaseModal({
     return diffs;
   }, [lines]);
 
-  // Purchase proformas available to formally link (drives the advance deduction).
-  const proformasQ = useQuery({
-    queryKey: ["purchase-proformas-for-pi"],
-    queryFn: async () => {
-      const data = await api.purchaseOrders.list();
-      return (data ?? []).filter((p: any) => p.side === "purchase");
-    },
-  });
-
   // Lookup advances paid against the linked purchase proforma by PO number.
   const advLookupQ = useQuery({
     queryKey: ["pi-adv-lookup", form.po_number],
@@ -597,6 +624,22 @@ function NewPurchaseModal({
     0,
   );
 
+  // The proforma linked to the PO carries the agreed advance % — its advance
+  // (proforma total × %) is deducted even before treasury has funded it.
+  // Whichever is larger (agreed % vs actually paid) is what's deducted — this
+  // mirrors the backend resolveProformaForInvoice logic.
+  const linkedPf = (proformasQ.data ?? []).find(
+    (p: any) => p.id === form.linked_supplier_proforma_id,
+  );
+  const pctAdvance =
+    linkedPf?.advance_pct != null && Number(linkedPf.advance_pct) > 0
+      ? round2(
+          ((Number(linkedPf.po_amount ?? linkedPf.amount) || 0) * Number(linkedPf.advance_pct)) /
+            100,
+        )
+      : 0;
+  const advanceToDeduct = round2(Math.max(advancesTotal, pctAdvance));
+
   // Pick a linked proforma → set the formal link and PO reference.
   const pickProforma = (id: string) => {
     const pf = (proformasQ.data ?? []).find((p: any) => p.id === id) as any;
@@ -626,7 +669,7 @@ function NewPurchaseModal({
   }, [advLookupQ.data, form.linked_supplier_proforma_id]);
 
   const amountPaid = Number(invoice?.amount_paid) || 0;
-  const netPayable = round2(Math.max(0, totals.grand - advancesTotal));
+  const netPayable = round2(Math.max(0, totals.grand - advanceToDeduct));
   const balanceDue = round2(Math.max(0, netPayable - amountPaid));
 
   const save = useMutation({
@@ -701,21 +744,22 @@ function NewPurchaseModal({
             <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">Invoice header</legend>
             <div className="grid gap-3 md:grid-cols-3">
               <L label="Supplier *">
-                <select required className="inp" value={form.vendor_id} onChange={(e) => {
-                  const v = e.target.value;
-                  const po = pos.find((p) => p.id === form.goods_po_id);
-                  if (po && po.supplier_id !== v) {
-                    // The linked PO belongs to a different supplier — clear it
-                    // so invoice lines can't come from the wrong PO.
-                    setForm((f) => ({ ...f, vendor_id: v, goods_po_id: "", goods_po_number: "" }));
-                    setLines([]);
-                  } else {
-                    setForm((f) => ({ ...f, vendor_id: v }));
-                  }
-                }}>
-                  <option value="">Select supplier</option>
-                  {vendors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
-                </select>
+                <SearchableSelect
+                  value={form.vendor_id}
+                  onChange={(v) => {
+                    const po = pos.find((p) => p.id === form.goods_po_id);
+                    if (po && po.supplier_id !== v) {
+                      // The linked PO belongs to a different supplier — clear it
+                      // so invoice lines can't come from the wrong PO.
+                      setForm((f) => ({ ...f, vendor_id: v, goods_po_id: "", goods_po_number: "" }));
+                      setLines([]);
+                    } else {
+                      setForm((f) => ({ ...f, vendor_id: v }));
+                    }
+                  }}
+                  placeholder="Select supplier"
+                  options={vendors.map((v: any) => ({ value: v.id, label: v.name }))}
+                />
               </L>
               <L label="Supplier invoice number *">
                 <input required maxLength={80} className="inp" value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} placeholder="INV-2026-0142" />
@@ -738,12 +782,20 @@ function NewPurchaseModal({
               Linked purchase order & item lines
             </legend>
             <L label="Linked purchase order *">
-              <select required className="inp" value={form.goods_po_id} onChange={(e) => pickPo(e.target.value)} disabled={isEdit && !!invoice?.linked_goods_receipt_id}>
-                <option value="">Select purchase order…</option>
-                {eligiblePos.map((p) => (
-                  <option key={p.id} value={p.id}>{p.po_number} · {p.supplier_name ?? "—"} · {p.status.replace(/_/g, " ")}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={form.goods_po_id}
+                onChange={pickPo}
+                placeholder="Select purchase order…"
+                disabled={isEdit && !!invoice?.linked_goods_receipt_id}
+                options={[
+                  { value: "", label: "Select purchase order…" },
+                  ...eligiblePos.map((p: any) => ({
+                    value: p.id,
+                    label: p.po_number,
+                    hint: `${p.supplier_name ?? "—"} · ${p.status.replace(/_/g, " ")}`,
+                  })),
+                ]}
+              />
             </L>
             <p className="mt-1 text-[10px] text-muted-foreground">
               Every purchase invoice must link to a purchase order — picking it auto-fills the product
@@ -843,20 +895,46 @@ function NewPurchaseModal({
             </legend>
             <div className="space-y-3">
               <L label="Linked supplier proforma (optional — deducts advances already paid)">
-                <select
-                  className="inp"
+                <SearchableSelect
                   value={form.linked_supplier_proforma_id}
-                  onChange={(e) => pickProforma(e.target.value)}
-                >
-                  <option value="">None — manual PO reference</option>
-                  {(proformasQ.data ?? []).map((p: any) => (
-                    <option key={p.id} value={p.id}>
-                      {p.proforma_number ?? p.po_number ?? p.id}
-                      {p.debtor?.name ? ` · ${p.debtor.name}` : ""}
-                    </option>
-                  ))}
-                </select>
+                  onChange={pickProforma}
+                  placeholder="None — manual PO reference"
+                  options={[
+                    { value: "", label: "None — manual PO reference" },
+                    ...(proformasQ.data ?? []).map((p: any) => ({
+                      value: p.id,
+                      label: p.proforma_number ?? p.po_number ?? p.id,
+                      hint: p.debtor?.name ?? undefined,
+                    })),
+                  ]}
+                />
               </L>
+              {linkedPf && (
+                <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
+                  <div className="mb-1 font-medium uppercase tracking-widest text-primary">
+                    Proforma {linkedPf.proforma_number ?? linkedPf.po_number ?? ""}
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
+                    {linkedPf.proforma_date && <div>Date · {fmtDate(linkedPf.proforma_date)}</div>}
+                    <div>Total · {fmtMoney(linkedPf.amount)}</div>
+                    {pctAdvance > 0 && (
+                      <div>
+                        Advance · {linkedPf.advance_pct}% ={" "}
+                        <span className="font-medium text-primary">{fmtMoney(pctAdvance)}</span>
+                      </div>
+                    )}
+                    {linkedPf.supplier_contact && (
+                      <div>Contact · {linkedPf.supplier_contact}</div>
+                    )}
+                    {linkedPf.supplier_gstin && <div>GSTIN · {linkedPf.supplier_gstin}</div>}
+                    {linkedPf.payment_terms && <div>Terms · {linkedPf.payment_terms}</div>}
+                    {linkedPf.valid_until && <div>Valid until · {fmtDate(linkedPf.valid_until)}</div>}
+                    {linkedPf.expected_delivery_date && (
+                      <div>Expected delivery · {fmtDate(linkedPf.expected_delivery_date)}</div>
+                    )}
+                  </div>
+                </div>
+              )}
               <L label="PO / proforma number (optional)">
                 <input className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="e.g. PF-2026-004" />
               </L>
@@ -869,7 +947,11 @@ function NewPurchaseModal({
                   {advLookupQ.isFetching ? (
                     <div className="text-muted-foreground">Looking up…</div>
                   ) : (advLookupQ.data?.advances ?? []).length === 0 ? (
-                    <div className="text-muted-foreground">No advances recorded for this PO number on the purchase side — full amount applies.</div>
+                    <div className="text-muted-foreground">
+                      {pctAdvance > 0
+                        ? `No cash advances recorded yet — deducting the agreed advance (${linkedPf?.advance_pct}% of the proforma).`
+                        : "No advances recorded for this PO number on the purchase side — full amount applies."}
+                    </div>
                   ) : (
                     <ul className="space-y-0.5">
                       {((advLookupQ.data?.advances ?? []) as any[]).map((a) => (
@@ -906,10 +988,14 @@ function NewPurchaseModal({
                 <span className="text-xs uppercase tracking-widest text-muted-foreground">Grand total</span>
                 <span className="num text-base">{fmtMoney(totals.grand)}</span>
               </div>
-              {advancesTotal > 0 && (
+              {advanceToDeduct > 0 && (
                 <div className="flex items-center justify-between">
-                  <span className="text-xs uppercase tracking-widest text-muted-foreground">Less advance paid</span>
-                  <span className="num text-destructive">−{fmtMoney(advancesTotal)}</span>
+                  <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                    {pctAdvance > 0
+                      ? `Less advance (${linkedPf?.advance_pct}% of proforma)`
+                      : "Less advance paid"}
+                  </span>
+                  <span className="num text-destructive">−{fmtMoney(advanceToDeduct)}</span>
                 </div>
               )}
               <div className="flex items-center justify-between">

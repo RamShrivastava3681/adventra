@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TableSkeleton } from "@/components/skeletons";
 
 export const Route = createFileRoute("/app/purchase-orders")({
@@ -140,6 +141,8 @@ const PAYMENT_TERMS = [
   "Cash on delivery",
   "Letter of credit",
 ];
+
+const PF_CURRENCIES = ["USD", "INR", "EUR", "GBP", "AED"];
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -450,6 +453,7 @@ function PurchaseOrdersPage() {
           onClose={() => setOpen(false)}
           onSaved={() => {
             qc.invalidateQueries({ queryKey: ["goods-pos"] });
+            qc.invalidateQueries({ queryKey: ["proformas"] });
           }}
         />
       )}
@@ -551,6 +555,23 @@ function POModal({
   );
   const [docs, setDocs] = useState<DocMeta[]>(po?.documents ?? []);
 
+  // ── "Create purchase proforma from this PO" section ──
+  // All entries (supplier, lines, terms) are copied from the PO; only the
+  // proforma header fields + advance % are asked for here.
+  const [makeProforma, setMakeProforma] = useState(false);
+  const [pfForm, setPfForm] = useState({
+    proforma_number: "",
+    proforma_date: new Date().toISOString().slice(0, 10),
+    supplier_id: po?.supplier_id ?? "",
+    supplier_contact: "",
+    supplier_gstin: "",
+    valid_until: "",
+    currency: "USD",
+    payment_terms: po?.payment_terms ?? "",
+    expected_delivery_date: po?.expected_delivery_date ?? "",
+    advance_pct: "",
+  });
+
   const setLine = (i: number, patch: Partial<LineDraft>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
 
@@ -611,6 +632,11 @@ function POModal({
     return { subtotal, gstTotal, freight, grandTotal: round2(subtotal + gstTotal + freight) };
   }, [lines, f.freight]);
 
+  // Advance to be paid on the proforma = proforma total × advance %.
+  const advancePctN = Number(pfForm.advance_pct) || 0;
+  const advanceAmount =
+    advancePctN > 0 ? round2((totals.grandTotal * advancePctN) / 100) : 0;
+
   const save = useMutation({
     mutationFn: async () => {
       if (lines.length === 0) throw new Error("Add at least one product line");
@@ -628,6 +654,12 @@ function POModal({
         if (!(l.ordered_qty > 0)) throw new Error("Ordered quantity must be greater than zero");
         if (l.unit_price < 0) throw new Error("Unit price must be greater than or equal to zero");
       }
+      // Validate the proforma up front so the PO isn't saved only for the
+      // proforma step to fail afterwards.
+      if (makeProforma) {
+        if (!pfForm.supplier_id) throw new Error("Select a supplier for the proforma");
+        if (!pfForm.proforma_number.trim()) throw new Error("Proforma invoice number is required");
+      }
       const payload = {
         po_date: f.po_date,
         supplier_id: f.supplier_id || null,
@@ -643,16 +675,76 @@ function POModal({
         documents: docs,
         lines: payloadLines,
       };
+      let savedPo: any;
       if (isEdit && po) {
         await api.goodsPurchaseOrders.update(po.id, payload);
+        savedPo = po;
       } else {
-        await api.goodsPurchaseOrders.create({ ...payload, client_id: userId });
+        savedPo = await api.goodsPurchaseOrders.create({ ...payload, client_id: userId });
       }
+
+      // Create the purchase proforma from this PO — saved in the Proforma
+      // invoices tab and submitted to the checker (pending_review). The PO is
+      // already saved by this point, so a proforma failure must not look like
+      // the whole save failed (that would tempt a retry and duplicate the PO)
+      // — it is surfaced as a distinct warning instead.
+      let proformaError = "";
+      if (makeProforma) {
+        try {
+          await api.purchaseOrders.create({
+            clientId: userId,
+            side: "purchase",
+            status: "received",
+            proformaStatus: "pending_review",
+            proformaNumber: pfForm.proforma_number.trim(),
+            proformaDate: pfForm.proforma_date,
+            vendorId: pfForm.supplier_id,
+            supplierContact: pfForm.supplier_contact.trim() || null,
+            supplierGstin: pfForm.supplier_gstin.trim() || null,
+            validUntil: pfForm.valid_until || null,
+            currency: pfForm.currency,
+            paymentTerms: pfForm.payment_terms.trim() || null,
+            expectedDeliveryDate: pfForm.expected_delivery_date || null,
+            poNumber: savedPo?.po_number ?? null,
+            amount: totals.grandTotal,
+            poAmount: totals.grandTotal,
+            advancePct: advancePctN > 0 ? advancePctN : null,
+            freight: Number(f.freight) || 0,
+            lines: payloadLines.map((l) => ({
+              product_id: l.product_id,
+              sku: l.sku,
+              name: l.name,
+              unit: l.unit || "piece",
+              quantity: Number(l.ordered_qty) || 0,
+              unit_price: Number(l.unit_price) || 0,
+              gst_rate: l.gst_rate ? Number(l.gst_rate) : null,
+            })),
+          });
+        } catch (e: any) {
+          proformaError = e?.message ?? "unknown error";
+        }
+      }
+      return proformaError;
     },
-    onSuccess: () => {
+    onSuccess: (proformaError: string) => {
       onSaved();
       qc.invalidateQueries({ queryKey: ["goods-receipts"] }); // last-price lookup
-      toast.success(isEdit ? "Purchase order updated" : "Purchase order created");
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      if (proformaError) {
+        toast.warning(
+          `Purchase order ${isEdit ? "updated" : "created"} — but the proforma could not be created: ${proformaError}`,
+        );
+      } else {
+        toast.success(
+          makeProforma
+            ? isEdit
+              ? "Purchase order updated — proforma created & sent to checker"
+              : "Purchase order created — proforma created & sent to checker"
+            : isEdit
+              ? "Purchase order updated"
+              : "Purchase order created",
+        );
+      }
       onClose();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -730,19 +822,17 @@ function POModal({
                 />
               </L>
               <L label="Supplier">
-                <select
-                  className="inp"
+                <SearchableSelect
                   value={f.supplier_id}
-                  onChange={(e) => setF({ ...f, supplier_id: e.target.value })}
+                  onChange={(v) => {
+                    setF({ ...f, supplier_id: v });
+                    // Keep the proforma supplier in sync with the PO supplier.
+                    if (makeProforma) setPfForm((p) => ({ ...p, supplier_id: v }));
+                  }}
+                  placeholder="Select supplier…"
                   disabled={!editable}
-                >
-                  <option value="">Select supplier…</option>
-                  {suppliers.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
+                  options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+                />
               </L>
               <L label="Delivery warehouse / store">
                 <input
@@ -844,20 +934,16 @@ function POModal({
                     >
                       <div className="col-span-2 md:col-span-4">
                         <L label="Product">
-                          <select
-                            className="inp"
+                          <SearchableSelect
                             value={l.product_id}
-                            onChange={(e) => pickProduct(i, e.target.value)}
+                            onChange={(v) => pickProduct(i, v)}
+                            placeholder="Select product…"
                             disabled={!editable}
-                          >
-                            <option value="">Select product…</option>
-                            {products.map((p) => (
-                              <option key={p.id} value={p.id}>
-                                {p.sku ? `${p.sku} · ` : ""}
-                                {p.name}
-                              </option>
-                            ))}
-                          </select>
+                            options={products.map((p) => ({
+                              value: p.id,
+                              label: p.sku ? `${p.sku} · ${p.name}` : p.name,
+                            }))}
+                          />
                         </L>
                         {l.name && (
                           <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
@@ -996,6 +1082,156 @@ function POModal({
               <span className="num text-base">{fmtMoney(totals.grandTotal)}</span>
             </div>
           </div>
+
+          {/* Create purchase proforma from this PO */}
+          <fieldset className="rounded-lg border border-dashed border-primary/40 p-4">
+            <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              Purchase proforma invoice
+            </legend>
+            <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+              <input
+                type="checkbox"
+                checked={makeProforma}
+                onChange={(e) => setMakeProforma(e.target.checked)}
+                disabled={!editable}
+                className="mt-0.5 h-4 w-4 rounded border-border accent-primary"
+              />
+              <span>
+                Create a purchase proforma invoice from this PO — it is saved in the{" "}
+                <span className="font-medium">Proforma invoices</span> tab and sent to the{" "}
+                <span className="font-medium">checker</span> for approval.
+              </span>
+            </label>
+            {makeProforma && (
+              <div className="mt-4 space-y-3">
+                <div className="rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+                  Supplier and line items are copied from this PO.{" "}
+                  {advancePctN > 0 ? (
+                    <>
+                      Calculated advance:{" "}
+                      <span className="font-medium text-primary">{fmtMoney(advanceAmount)}</span>{" "}
+                      ({advancePctN}% of {fmtMoney(totals.grandTotal)}).
+                    </>
+                  ) : (
+                    "Enter an advance % to calculate the advance amount."
+                  )}
+                </div>
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                  <L label="Proforma invoice number *">
+                    <input
+                      className="inp"
+                      value={pfForm.proforma_number}
+                      onChange={(e) => setPfForm({ ...pfForm, proforma_number: e.target.value })}
+                      placeholder="PF-2026-001"
+                      disabled={!editable}
+                    />
+                  </L>
+                  <L label="Proforma invoice date">
+                    <input
+                      type="date"
+                      className="inp"
+                      value={pfForm.proforma_date}
+                      onChange={(e) => setPfForm({ ...pfForm, proforma_date: e.target.value })}
+                      disabled={!editable}
+                    />
+                  </L>
+                  <L label="Supplier *">
+                    <SearchableSelect
+                      value={pfForm.supplier_id}
+                      onChange={(v) => setPfForm({ ...pfForm, supplier_id: v })}
+                      placeholder="Select supplier…"
+                      disabled={!editable}
+                      options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
+                    />
+                  </L>
+                  <L label="Supplier contact">
+                    <input
+                      className="inp"
+                      value={pfForm.supplier_contact}
+                      onChange={(e) => setPfForm({ ...pfForm, supplier_contact: e.target.value })}
+                      placeholder="Name · email · phone"
+                      disabled={!editable}
+                    />
+                  </L>
+                  <L label="Supplier GSTIN (optional)">
+                    <input
+                      className="inp"
+                      value={pfForm.supplier_gstin}
+                      onChange={(e) => setPfForm({ ...pfForm, supplier_gstin: e.target.value })}
+                      placeholder="e.g. 27ABCDE1234F1Z5"
+                      disabled={!editable}
+                    />
+                  </L>
+                  <L label="Valid until">
+                    <input
+                      type="date"
+                      className="inp"
+                      value={pfForm.valid_until}
+                      onChange={(e) => setPfForm({ ...pfForm, valid_until: e.target.value })}
+                      disabled={!editable}
+                    />
+                  </L>
+                  <L label="Currency">
+                    <select
+                      className="inp"
+                      value={pfForm.currency}
+                      onChange={(e) => setPfForm({ ...pfForm, currency: e.target.value })}
+                      disabled={!editable}
+                    >
+                      {PF_CURRENCIES.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </L>
+                  <L label="Payment terms">
+                    <input
+                      className="inp"
+                      value={pfForm.payment_terms}
+                      onChange={(e) => setPfForm({ ...pfForm, payment_terms: e.target.value })}
+                      placeholder="Net 30"
+                      disabled={!editable}
+                    />
+                  </L>
+                  <L label="Expected delivery date">
+                    <input
+                      type="date"
+                      className="inp"
+                      value={pfForm.expected_delivery_date}
+                      onChange={(e) =>
+                        setPfForm({ ...pfForm, expected_delivery_date: e.target.value })
+                      }
+                      disabled={!editable}
+                    />
+                  </L>
+                </div>
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                  <L label="Advance amount %">
+                    <input
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="0.01"
+                      className="inp"
+                      value={pfForm.advance_pct}
+                      onChange={(e) => setPfForm({ ...pfForm, advance_pct: e.target.value })}
+                      placeholder="e.g. 30"
+                      disabled={!editable}
+                    />
+                  </L>
+                  <L label="Proforma total (from PO)">
+                    <div className="inp font-mono tabular-nums">{fmtMoney(totals.grandTotal)}</div>
+                  </L>
+                  <L label="Calculated advance">
+                    <div className="inp font-mono tabular-nums text-primary">
+                      {fmtMoney(advanceAmount)}
+                    </div>
+                  </L>
+                </div>
+              </div>
+            )}
+          </fieldset>
 
           {/* Status actions + save */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">

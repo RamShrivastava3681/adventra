@@ -17,15 +17,22 @@ export interface QuotationLine {
   /** Unit of measure from the catalogue (piece, pair, carton…). */
   unit: string;
   quantity: number;
-  /** Unit selling price offered to the customer. */
+  /** Unit selling price offered to the customer (the original price). */
   unitPrice: number;
+  /**
+   * Maker's revised unit price — requires checker approval before the
+   * quotation can be converted into a sales order. When set (non-null) it
+   * becomes the effective price: line totals, document totals and the
+   * converted sales order all use it; `unitPrice` is kept for comparison.
+   */
+  updatedUnitPrice: number | null;
   /** Discount kind — percentage or flat amount (optional). */
   discountType: QuotationDiscountType;
   /** Discount value: percent (0–100) when discountType="pct", amount when "amount". */
   discountValue: number | null;
   /** GST rate as a percentage (0–99), from the catalogue or overridden. */
   gstRate: number | null;
-  /** System-calculated: quantity × unitPrice − discount, before GST. */
+  /** System-calculated: quantity × effectivePrice − discount, before GST. */
   lineTotal: number;
   notes: string | null;
 }
@@ -65,6 +72,12 @@ export interface Quotation {
   grandTotal: number;
   /** Set when the quotation is converted to a sales order. */
   linkedGoodsSoId: string | null;
+  /** Maker–checker price approval. null = not submitted. */
+  approvalStatus: string | null;
+  approvalRequestedAt: string | null;
+  approvalReviewedBy: string | null;
+  approvalReviewedAt: string | null;
+  approvalComments: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -77,6 +90,8 @@ export const QUOTATION_STATUSES = [
   "expired",
   "converted_to_so",
 ] as const;
+
+export const QUOTATION_APPROVAL_STATUSES = ["pending_review", "approved", "rejected"] as const;
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -97,19 +112,36 @@ function discountAmount(l: Pick<QuotationLine, "quantity" | "unitPrice" | "disco
   return round2(Math.min(value, gross));
 }
 
+/** Effective unit price — the revised price wins once the maker sets it. */
+function effectivePrice(l: Pick<QuotationLine, "unitPrice" | "updatedUnitPrice">): number {
+  if (l.updatedUnitPrice !== undefined && l.updatedUnitPrice !== null) {
+    const n = Number(l.updatedUnitPrice);
+    if (Number.isFinite(n)) return n;
+  }
+  return Number(l.unitPrice) || 0;
+}
+
 function computeLineTotals(lines: QuotationLine[]): QuotationLine[] {
   return lines.map((l) => {
     const quantity = Number(l.quantity) || 0;
     const unitPrice = Number(l.unitPrice) || 0;
+    // Empty-string "updated price" is normalized to null by the route
+    // validation, so only numbers/null reach the model.
+    const updatedUnitPrice =
+      l.updatedUnitPrice === undefined || l.updatedUnitPrice === null
+        ? null
+        : Number(l.updatedUnitPrice);
+    const eff = effectivePrice({ unitPrice, updatedUnitPrice });
     const normalized: QuotationLine = {
       ...l,
       quantity,
       unitPrice,
+      updatedUnitPrice,
       unit: l.unit || "unit",
       discountType:
         l.discountType === "pct" || l.discountType === "amount" ? l.discountType : null,
       discountValue: l.discountValue === undefined || l.discountValue === null ? null : Number(l.discountValue) || 0,
-      lineTotal: round2(grossValue({ quantity, unitPrice }) - discountAmount({ ...l, quantity, unitPrice })),
+      lineTotal: round2(grossValue({ quantity, unitPrice: eff }) - discountAmount({ ...l, quantity, unitPrice: eff })),
       notes: l.notes || null,
     };
     return normalized;
@@ -119,7 +151,9 @@ function computeLineTotals(lines: QuotationLine[]): QuotationLine[] {
 export function computeTotals(lines: QuotationLine[], freight: number) {
   const normalized = computeLineTotals(lines);
   const subtotal = round2(normalized.reduce((s, l) => s + l.lineTotal, 0));
-  const totalDiscount = round2(normalized.reduce((s, l) => s + discountAmount(l), 0));
+  const totalDiscount = round2(
+    normalized.reduce((s, l) => s + discountAmount({ ...l, unitPrice: effectivePrice(l) }), 0),
+  );
   const gstTotal = round2(normalized.reduce((s, l) => s + (l.lineTotal * (l.gstRate ?? 0)) / 100, 0));
   const f = Number(freight) || 0;
   return { subtotal, totalDiscount, gstTotal, freight: round2(f), grandTotal: round2(subtotal + gstTotal + f) };
@@ -166,6 +200,11 @@ export async function create(data: Partial<Quotation> & { clientId: string }) {
     lines,
     ...totals,
     linkedGoodsSoId: data.linkedGoodsSoId || null,
+    approvalStatus: data.approvalStatus || null,
+    approvalRequestedAt: data.approvalRequestedAt || null,
+    approvalReviewedBy: data.approvalReviewedBy || null,
+    approvalReviewedAt: data.approvalReviewedAt || null,
+    approvalComments: data.approvalComments || null,
     createdAt: now,
     updatedAt: now,
   };
@@ -180,6 +219,8 @@ export async function update(id: string, updates: Partial<Quotation>) {
     "contactPerson", "billingAddress", "deliveryAddress", "salespersonId", "salespersonName",
     "paymentTerms", "expectedDeliveryDate", "notes", "documents", "status",
     "lines", "subtotal", "totalDiscount", "gstTotal", "freight", "grandTotal", "linkedGoodsSoId",
+    "approvalStatus", "approvalRequestedAt", "approvalReviewedBy", "approvalReviewedAt",
+    "approvalComments",
   ];
   for (const k of allowed) {
     if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k];

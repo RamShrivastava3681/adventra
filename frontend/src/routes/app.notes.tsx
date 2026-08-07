@@ -8,6 +8,7 @@ import { Plus, Trash2, X, Loader2, Link2, Paperclip, FileMinus, FilePlus, Eye } 
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, DocumentList, type DocMeta } from "@/components/document-uploader";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 export const Route = createFileRoute("/app/notes")({
   component: NotesPage,
@@ -360,6 +361,7 @@ function NewNoteModal({ userId, onClose, onCreated }: { userId: string; onClose:
   const create = useMutation({
     mutationFn: async () => {
       if (!form.note_number.trim()) throw new Error("Note number is required");
+      if (form.link_kind !== "none" && !form.link_id) throw new Error("Select the linked invoice");
       const cleanLines = lines
         .filter((l) => l.description.trim() && Number(l.quantity) > 0)
         .map((l) => ({
@@ -494,12 +496,16 @@ function NewNoteModal({ userId, onClose, onCreated }: { userId: string; onClose:
           </L>
           {form.link_kind !== "none" && (
             <L label={form.link_kind === "sale" ? "Sales invoice" : "Purchase invoice"}>
-              <select className="inp" value={form.link_id} onChange={(e) => setForm({ ...form, link_id: e.target.value })} required>
-                <option value="">Select…</option>
-                {linkOptions.map((o: any) => (
-                  <option key={o.id} value={o.id}>{o.invoice_number} · {fmtMoney(Number(o.amount))}</option>
-                ))}
-              </select>
+              <SearchableSelect
+                value={form.link_id}
+                onChange={(v) => setForm({ ...form, link_id: v })}
+                placeholder="Select…"
+                options={linkOptions.map((o: any) => ({
+                  value: o.id,
+                  label: o.invoice_number,
+                  hint: fmtMoney(Number(o.amount)),
+                }))}
+              />
             </L>
           )}
           <L label="Reason">

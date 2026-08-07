@@ -5,6 +5,7 @@ import api from "@/lib/api-client";
 import { PageHeader, Card, fmtAccounting, fmtDate } from "@/components/ledger-ui";
 import { useAuth } from "@/lib/auth-context";
 import { AlertTriangle, Download, FileSpreadsheet, Plus, Printer, Trash2, X } from "lucide-react";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/balance-sheet")({
@@ -743,10 +744,18 @@ function ManualEntryModal({ section, entry, clientId, onClose, onEdit }: { secti
             <Field label="Amount *"><input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-right font-mono" /></Field>
             <Field label="Date"><input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm" /></Field>
             <Field label="Account (optional)">
-              <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm">
-                <option value="">— None —</option>
-                {(coa.data ?? []).map((a: any) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
-              </select>
+              <SearchableSelect
+                value={accountId}
+                onChange={setAccountId}
+                placeholder="— None —"
+                options={[
+                  { value: "", label: "— None —" },
+                  ...(coa.data ?? []).map((a: any) => ({
+                    value: a.id,
+                    label: `${a.code} — ${a.name}`,
+                  })),
+                ]}
+              />
             </Field>
             <Field label="Description" className="md:col-span-2"><input value={description} onChange={(e) => setDescription(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm" /></Field>
             <Field label="Notes" className="md:col-span-2"><textarea value={notes} onChange={(e) => setNotes(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm" rows={2} /></Field>
