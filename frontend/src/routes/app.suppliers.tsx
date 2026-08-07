@@ -64,7 +64,11 @@ function SuppliersPage() {
     queryKey: ["invoices-by-supplier"],
     queryFn: async () => {
       const data = await api.invoices.list();
-      return data.map((i: any) => ({ supplier_id: i.supplierId ?? i.supplier_id, amount: i.amount, status: i.status }));
+      return data.map((i: any) => ({
+        supplier_id: i.supplierId ?? i.supplier_id,
+        amount: i.amount,
+        status: i.status,
+      }));
     },
     enabled: isAdmin,
   });
@@ -190,7 +194,8 @@ function SuppliersPage() {
             <TableSkeleton rows={5} cols={5} />
           ) : suppliers.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
-              No suppliers yet. Click <span className="text-foreground">Onboard supplier</span> to add the first one.
+              No suppliers yet. Click <span className="text-foreground">Onboard supplier</span> to
+              add the first one.
             </div>
           ) : (
             <div className="overflow-x-auto">
@@ -213,12 +218,16 @@ function SuppliersPage() {
                           <div className="font-medium">{s.company_name}</div>
                           <div className="text-xs text-muted-foreground">{s.industry ?? "—"}</div>
                           {(s.city || s.country) && (
-                            <div className="text-xs text-muted-foreground/70">{[s.city, s.country].filter(Boolean).join(", ")}</div>
+                            <div className="text-xs text-muted-foreground/70">
+                              {[s.city, s.country].filter(Boolean).join(", ")}
+                            </div>
                           )}
                         </td>
                         <td className="px-3 py-3">
                           <div>{s.contact_name ?? "—"}</div>
-                          <div className="text-xs text-muted-foreground">{s.contact_email ?? ""}</div>
+                          <div className="text-xs text-muted-foreground">
+                            {s.contact_email ?? ""}
+                          </div>
                         </td>
                         <td className="px-3 py-3 text-right num">{fmtMoney(exposure)}</td>
                         <td className="px-3 py-3">
@@ -257,50 +266,110 @@ function SuppliersPage() {
         </Card>
       </div>
 
-      {viewing && <SupplierDetailModal supplier={viewing} exposure={exposureBy(viewing.id)} onClose={() => setViewing(null)} />}
+      {viewing && (
+        <SupplierDetailModal
+          supplier={viewing}
+          exposure={exposureBy(viewing.id)}
+          onClose={() => setViewing(null)}
+        />
+      )}
 
       {open && (
-        <div className="fixed inset-0 z-50 grid place-items-center bg-background/80 p-4 backdrop-blur-sm" onClick={() => setOpen(false)}>
+        <div
+          className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+          onClick={() => setOpen(false)}
+        >
           <div
             className="w-full max-w-2xl rounded-xl border border-border bg-card shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <h3 className="font-display text-lg">{editing ? "Edit supplier" : "Onboard new supplier"}</h3>
-              <button onClick={() => setOpen(false)} className="text-muted-foreground hover:text-foreground" aria-label="Close">
+            <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+              <h3 className="font-display text-lg">
+                {editing ? "Edit supplier" : "Onboard new supplier"}
+              </h3>
+              <button
+                onClick={() => setOpen(false)}
+                className="text-muted-foreground hover:text-foreground"
+                aria-label="Close"
+              >
                 <X className="h-4 w-4" />
               </button>
             </div>
             <div className="grid gap-4 p-5 md:grid-cols-2">
               <F label="Company name *">
-                <input className="inp" value={form.company_name} onChange={(e) => setForm({ ...form, company_name: e.target.value })} />
+                <input
+                  className="inp"
+                  value={form.company_name}
+                  onChange={(e) => setForm({ ...form, company_name: e.target.value })}
+                />
               </F>
               <F label="Industry">
-                <input className="inp" value={form.industry} onChange={(e) => setForm({ ...form, industry: e.target.value })} />
+                <input
+                  className="inp"
+                  value={form.industry}
+                  onChange={(e) => setForm({ ...form, industry: e.target.value })}
+                />
               </F>
               <F label="Address" full>
-                <input maxLength={300} className="inp" value={form.address_line} onChange={(e) => setForm({ ...form, address_line: e.target.value })} />
+                <input
+                  maxLength={300}
+                  className="inp"
+                  value={form.address_line}
+                  onChange={(e) => setForm({ ...form, address_line: e.target.value })}
+                />
               </F>
               <F label="City">
-                <input maxLength={100} className="inp" value={form.city} onChange={(e) => setForm({ ...form, city: e.target.value })} />
+                <input
+                  maxLength={100}
+                  className="inp"
+                  value={form.city}
+                  onChange={(e) => setForm({ ...form, city: e.target.value })}
+                />
               </F>
               <F label="Country">
-                <input maxLength={100} className="inp" value={form.country} onChange={(e) => setForm({ ...form, country: e.target.value })} />
+                <input
+                  maxLength={100}
+                  className="inp"
+                  value={form.country}
+                  onChange={(e) => setForm({ ...form, country: e.target.value })}
+                />
               </F>
               <F label="PIN / Postal code">
-                <input maxLength={20} className="inp" value={form.postal_code} onChange={(e) => setForm({ ...form, postal_code: e.target.value })} />
+                <input
+                  maxLength={20}
+                  className="inp"
+                  value={form.postal_code}
+                  onChange={(e) => setForm({ ...form, postal_code: e.target.value })}
+                />
               </F>
               <F label="Contact name">
-                <input className="inp" value={form.contact_name} onChange={(e) => setForm({ ...form, contact_name: e.target.value })} />
+                <input
+                  className="inp"
+                  value={form.contact_name}
+                  onChange={(e) => setForm({ ...form, contact_name: e.target.value })}
+                />
               </F>
               <F label="Contact email">
-                <input type="email" className="inp" value={form.contact_email} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} />
+                <input
+                  type="email"
+                  className="inp"
+                  value={form.contact_email}
+                  onChange={(e) => setForm({ ...form, contact_email: e.target.value })}
+                />
               </F>
               <F label="Contact phone">
-                <input className="inp" value={form.contact_phone} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} />
+                <input
+                  className="inp"
+                  value={form.contact_phone}
+                  onChange={(e) => setForm({ ...form, contact_phone: e.target.value })}
+                />
               </F>
               <F label="Status">
-                <select className="inp" value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value as SupplierStatus })}>
+                <select
+                  className="inp"
+                  value={form.status}
+                  onChange={(e) => setForm({ ...form, status: e.target.value as SupplierStatus })}
+                >
                   <option value="prospect">Prospect</option>
                   <option value="active">Active</option>
                   <option value="suspended">Suspended</option>
@@ -308,17 +377,31 @@ function SuppliersPage() {
                 </select>
               </F>
               <F label="Notes" full>
-                <textarea rows={3} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+                <textarea
+                  rows={3}
+                  className="inp"
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                />
               </F>
             </div>
-            <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-4">
-              <button onClick={() => setOpen(false)} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
+            <div className="flex items-center justify-end gap-2 border-t border-border px-5 py-3">
+              <button
+                onClick={() => setOpen(false)}
+                className="rounded-md border border-border px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
               <button
                 onClick={() => save.mutate()}
                 disabled={save.isPending}
                 className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
               >
-                {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                {save.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
                 {editing ? "Save changes" : "Onboard"}
               </button>
             </div>
@@ -331,23 +414,55 @@ function SuppliersPage() {
   );
 }
 
-function F({ label, full, children }: { label: string; full?: boolean; children: React.ReactNode }) {
+function F({
+  label,
+  full,
+  children,
+}: {
+  label: string;
+  full?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <label className={`block ${full ? "md:col-span-2" : ""}`}>
-      <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>
+      <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+        {label}
+      </span>
       {children}
     </label>
   );
 }
 
-function SupplierDetailModal({ supplier, exposure, onClose }: { supplier: Supplier; exposure: number; onClose: () => void }) {
-  const address = [supplier.address_line, supplier.city, supplier.country, supplier.postal_code].filter(Boolean).join(", ");
+function SupplierDetailModal({
+  supplier,
+  exposure,
+  onClose,
+}: {
+  supplier: Supplier;
+  exposure: number;
+  onClose: () => void;
+}) {
+  const address = [supplier.address_line, supplier.city, supplier.country, supplier.postal_code]
+    .filter(Boolean)
+    .join(", ");
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-xl border border-border bg-card shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">{supplier.company_name}</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground" aria-label="Close"><X className="h-4 w-4" /></button>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label="Close"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
         <div className="space-y-4 p-5 text-sm">
           <div className="grid grid-cols-2 gap-3">
@@ -356,12 +471,21 @@ function SupplierDetailModal({ supplier, exposure, onClose }: { supplier: Suppli
             <Detail label="Contact name" value={supplier.contact_name ?? "—"} />
             <Detail label="Contact email" value={supplier.contact_email ?? "—"} />
             <Detail label="Contact phone" value={supplier.contact_phone ?? "—"} />
-            <Detail label="Open exposure" value={<span className="num">{fmtMoney(exposure)}</span>} />
-            <div className="col-span-2"><Detail label="Address" value={address || "—"} /></div>
-            <div className="col-span-2"><Detail label="Notes" value={supplier.notes ?? "—"} /></div>
+            <Detail
+              label="Open exposure"
+              value={<span className="num">{fmtMoney(exposure)}</span>}
+            />
+            <div className="col-span-2">
+              <Detail label="Address" value={address || "—"} />
+            </div>
+            <div className="col-span-2">
+              <Detail label="Notes" value={supplier.notes ?? "—"} />
+            </div>
           </div>
           <div className="flex justify-end border-t border-border pt-3">
-            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Close</button>
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
+              Close
+            </button>
           </div>
         </div>
       </div>

@@ -429,49 +429,49 @@ function InventoryPage() {
                               !m.invoice_id &&
                               !m.purchase_invoice_id &&
                               !m.goods_dispatch_id && (
-                              <>
-                                {m.status !== "cancelled" && (
-                                  <button
-                                    onClick={() => setEditing(m)}
-                                    title="Edit movement"
-                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
-                                  >
-                                    <Pencil className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                                {m.status === "draft" && (
-                                  <button
-                                    onClick={() => confirmMut.mutate(m.id)}
-                                    title="Confirm movement"
-                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-success/10 hover:text-success"
-                                  >
-                                    <Check className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                                {m.status !== "cancelled" && (
-                                  <button
-                                    onClick={() =>
-                                      setPendingAction({ kind: "cancel", movement: m })
-                                    }
-                                    title="Cancel movement"
-                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-warning/10 hover:text-warning"
-                                  >
-                                    <Ban className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                                {m.status !== "confirmed" && (
-                                  <button
-                                    onClick={() =>
-                                      setPendingAction({ kind: "delete", movement: m })
-                                    }
-                                    title="Delete"
-                                    className="rounded-md p-1.5 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                              </>
-                            )}
+                                <>
+                                  {m.status !== "cancelled" && (
+                                    <button
+                                      onClick={() => setEditing(m)}
+                                      title="Edit movement"
+                                      className="rounded-md p-1.5 text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
+                                    >
+                                      <Pencil className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                  {m.status === "draft" && (
+                                    <button
+                                      onClick={() => confirmMut.mutate(m.id)}
+                                      title="Confirm movement"
+                                      className="rounded-md p-1.5 text-muted-foreground transition hover:bg-success/10 hover:text-success"
+                                    >
+                                      <Check className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                  {m.status !== "cancelled" && (
+                                    <button
+                                      onClick={() =>
+                                        setPendingAction({ kind: "cancel", movement: m })
+                                      }
+                                      title="Cancel movement"
+                                      className="rounded-md p-1.5 text-muted-foreground transition hover:bg-warning/10 hover:text-warning"
+                                    >
+                                      <Ban className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                  {m.status !== "confirmed" && (
+                                    <button
+                                      onClick={() =>
+                                        setPendingAction({ kind: "delete", movement: m })
+                                      }
+                                      title="Delete"
+                                      className="rounded-md p-1.5 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                                </>
+                              )}
                           </div>
                         )}
                       </td>
@@ -737,9 +737,7 @@ function MovementModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">
-            {movement ? "Edit movement" : "New movement"}
-          </h3>
+          <h3 className="font-display text-lg">{movement ? "Edit movement" : "New movement"}</h3>
           <button
             onClick={onClose}
             className="text-muted-foreground transition hover:text-foreground"
@@ -764,9 +762,7 @@ function MovementModal({
               <div>
                 <L label="Movement number">
                   <div className="flex h-[38px] items-center rounded-md border border-dashed border-border bg-muted/30 px-3 text-xs text-muted-foreground">
-                    <span className="font-mono">
-                      {movement?.movement_number ?? "MOV-XXXXXXXX"}
-                    </span>
+                    <span className="font-mono">{movement?.movement_number ?? "MOV-XXXXXXXX"}</span>
                   </div>
                 </L>
               </div>
@@ -813,7 +809,8 @@ function MovementModal({
                     setForm((f) => ({
                       ...f,
                       direction: "in",
-                      unitCost: f.direction !== "in" && selected ? autoValue(selected, "in") : f.unitCost,
+                      unitCost:
+                        f.direction !== "in" && selected ? autoValue(selected, "in") : f.unitCost,
                     }))
                   }
                   className={`rounded-md border px-3 py-2 text-sm transition ${form.direction === "in" ? "border-success bg-success/10 text-success" : "border-border text-muted-foreground hover:text-foreground"}`}
@@ -827,7 +824,8 @@ function MovementModal({
                     setForm((f) => ({
                       ...f,
                       direction: "out",
-                      unitCost: f.direction !== "out" && selected ? autoValue(selected, "out") : f.unitCost,
+                      unitCost:
+                        f.direction !== "out" && selected ? autoValue(selected, "out") : f.unitCost,
                     }))
                   }
                   className={`rounded-md border px-3 py-2 text-sm transition ${form.direction === "out" ? "border-warning bg-warning/10 text-warning" : "border-border text-muted-foreground hover:text-foreground"}`}
@@ -930,7 +928,7 @@ function MovementModal({
               </div>
             ) : (
               <div className="rounded-md border border-dashed border-border bg-muted/20 px-3 py-4 text-center text-xs text-muted-foreground">
-                <Package className="mx-auto mb-1 h-5 w-5 opacity-50" />
+                <Package className="mx-auto mb-3 h-6 w-6 opacity-50" />
                 Select or scan a product — SKU, name and unit are auto-filled from the catalogue.
               </div>
             )}

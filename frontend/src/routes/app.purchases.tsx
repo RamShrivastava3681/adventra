@@ -3,7 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
+import {
+  PageHeader,
+  Card,
+  StatusPill,
+  fmtMoney,
+  fmtDate,
+  daysBetween,
+} from "@/components/ledger-ui";
 import { Plus, X, Loader2, Link2, Mail, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -111,8 +118,16 @@ function PurchasesPage() {
       // the supplier dropdown is never empty when suppliers exist in the platform.
       const [suppliers, vendors] = await Promise.all([api.suppliers.list(), api.vendors.list()]);
       return [
-        ...suppliers.map((s: any) => ({ id: s.id, name: s.company_name ?? s.companyName ?? s.name, payment_terms_days: s.paymentTermsDays ?? s.payment_terms_days ?? 30 })),
-        ...vendors.map((v: any) => ({ id: v.id, name: v.name, payment_terms_days: v.paymentTermsDays ?? v.payment_terms_days ?? 30 })),
+        ...suppliers.map((s: any) => ({
+          id: s.id,
+          name: s.company_name ?? s.companyName ?? s.name,
+          payment_terms_days: s.paymentTermsDays ?? s.payment_terms_days ?? 30,
+        })),
+        ...vendors.map((v: any) => ({
+          id: v.id,
+          name: v.name,
+          payment_terms_days: v.paymentTermsDays ?? v.payment_terms_days ?? 30,
+        })),
       ].sort((a: any, b: any) => a.name?.localeCompare(b.name ?? "") ?? 0);
     },
   });
@@ -134,17 +149,27 @@ function PurchasesPage() {
     queryKey: ["invoices-by-pi"],
     queryFn: async () => {
       const data = await api.invoices.list();
-      return data.map((s: any) => ({ id: s.id, invoice_number: s.invoiceNumber ?? s.invoice_number, amount: s.amount, status: s.status, purchase_invoice_id: s.purchaseInvoiceId ?? s.purchase_invoice_id }));
+      return data.map((s: any) => ({
+        id: s.id,
+        invoice_number: s.invoiceNumber ?? s.invoice_number,
+        amount: s.amount,
+        status: s.status,
+        purchase_invoice_id: s.purchaseInvoiceId ?? s.purchase_invoice_id,
+      }));
     },
   });
 
-  const linkedSales = (piId: string) => (salesQ.data ?? []).filter((s: any) => s.purchase_invoice_id === piId);
+  const linkedSales = (piId: string) =>
+    (salesQ.data ?? []).filter((s: any) => s.purchase_invoice_id === piId);
 
   const setStatus = useMutation({
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
       await api.purchaseInvoices.update(id, { status });
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["purchase_invoices"] }); toast.success("Updated"); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      toast.success("Updated");
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -166,7 +191,8 @@ function PurchasesPage() {
     (a: any, p: any) => {
       const amt = Number(p.grand_total ?? p.amount) || 0;
       a.all += amt;
-      if (!["paid", "cancelled"].includes(p.status)) a.open += Math.max(0, Number(p.balance_due ?? p.amount) || 0);
+      if (!["paid", "cancelled"].includes(p.status))
+        a.open += Math.max(0, Number(p.balance_due ?? p.amount) || 0);
       return a;
     },
     { all: 0, open: 0 },
@@ -186,7 +212,10 @@ function PurchasesPage() {
         description="Invoices you receive from suppliers, linked to the purchase order they bill. A purchase invoice records the supplier payable — it never touches stock. Only a confirmed GRN credits inventory."
         actions={
           canCreate ? (
-            <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+            <button
+              onClick={() => setOpen(true)}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            >
               <Plus className="h-4 w-4" /> New purchase invoice
             </button>
           ) : (
@@ -199,17 +228,32 @@ function PurchasesPage() {
 
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-3">
-          <Card title="Total purchases"><div className="num text-3xl">{fmtMoney(totals.all)}</div></Card>
-          <Card title="Open payables"><div className="num text-3xl text-warning">{fmtMoney(totals.open)}</div></Card>
-          <Card title="Suppliers used"><div className="num text-3xl">{new Set((piQ.data ?? []).map((p: any) => p.vendor_id)).size}</div></Card>
+          <Card title="Total purchases">
+            <div className="num text-3xl">{fmtMoney(totals.all)}</div>
+          </Card>
+          <Card title="Open payables">
+            <div className="num text-3xl text-warning">{fmtMoney(totals.open)}</div>
+          </Card>
+          <Card title="Suppliers used">
+            <div className="num text-3xl">
+              {new Set((piQ.data ?? []).map((p: any) => p.vendor_id)).size}
+            </div>
+          </Card>
         </div>
 
         <div className="flex flex-wrap gap-2">
           {["all", ...PI_STATUSES].map((s) => (
-            <button key={s} onClick={() => setFilter(s)}
+            <button
+              key={s}
+              onClick={() => setFilter(s)}
               className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                filter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-              }`}>{s === "all" ? "All" : PI_STATUS_LABELS[s] ?? s}</button>
+                filter === s
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {s === "all" ? "All" : (PI_STATUS_LABELS[s] ?? s)}
+            </button>
           ))}
         </div>
 
@@ -217,7 +261,9 @@ function PurchasesPage() {
           {piQ.isLoading ? (
             <TableSkeleton rows={6} cols={9} />
           ) : filtered.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">No purchase invoices.</div>
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              No purchase invoices.
+            </div>
           ) : (
             <div className="-mx-5 overflow-x-auto">
               <table className="table-premium w-full text-sm">
@@ -236,7 +282,10 @@ function PurchasesPage() {
                 </thead>
                 <tbody>
                   {filtered.map((p: any) => {
-                    const dpd = p.due_date && !["paid", "cancelled"].includes(p.status) ? daysBetween(p.due_date) : 0;
+                    const dpd =
+                      p.due_date && !["paid", "cancelled"].includes(p.status)
+                        ? daysBetween(p.due_date)
+                        : 0;
                     let lateDays = Math.max(0, dpd);
                     if (p.status === "paid" && p.due_date && p.paid_date) {
                       const ms = new Date(p.paid_date).getTime() - new Date(p.due_date).getTime();
@@ -250,34 +299,55 @@ function PurchasesPage() {
                         <td className="px-5 py-3">
                           <div className="font-mono text-xs">{p.invoice_number}</div>
                           {Number(p.advance_deducted ?? 0) > 0 && (
-                            <div className="text-[10px] text-muted-foreground">Less advance {fmtMoney(p.advance_deducted)}</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              Less advance {fmtMoney(p.advance_deducted)}
+                            </div>
                           )}
                         </td>
                         <td className="px-5 py-3">{p.supplier_name ?? p.vendor?.name ?? "—"}</td>
                         <td className="px-5 py-3">
-                          {p.goods_po_number ?? p.po_number ? (
+                          {(p.goods_po_number ?? p.po_number) ? (
                             <div>
-                              <div className="font-mono text-xs">{p.goods_po_number ?? p.po_number}</div>
-                              {p.po_date ? <div className="text-[10px] text-muted-foreground">{fmtDate(p.po_date)}</div> : null}
+                              <div className="font-mono text-xs">
+                                {p.goods_po_number ?? p.po_number}
+                              </div>
+                              {p.po_date ? (
+                                <div className="text-[10px] text-muted-foreground">
+                                  {fmtDate(p.po_date)}
+                                </div>
+                              ) : null}
                             </div>
-                          ) : <span className="text-muted-foreground">—</span>}
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </td>
                         <td className="px-5 py-3">
                           {p.linked_goods_receipt_number ? (
                             <div>
-                              <div className="font-mono text-xs">{p.linked_goods_receipt_number}</div>
+                              <div className="font-mono text-xs">
+                                {p.linked_goods_receipt_number}
+                              </div>
                               {grn && grn.status === "confirmed" ? (
                                 <div className="text-[10px] text-success">Stock credited</div>
                               ) : (
-                                <div className="text-[10px] text-muted-foreground">{grn?.status ?? ""}</div>
+                                <div className="text-[10px] text-muted-foreground">
+                                  {grn?.status ?? ""}
+                                </div>
                               )}
                             </div>
-                          ) : <span className="text-muted-foreground">—</span>}
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(p.grand_total ?? p.amount)}</td>
+                        <td className="px-5 py-3 text-right num">
+                          {fmtMoney(p.grand_total ?? p.amount)}
+                        </td>
                         <td className="px-5 py-3 text-sm">{fmtDate(p.due_date)}</td>
                         <td className="px-5 py-3">
-                          <StatusPill status={p.status} label={PI_STATUS_LABELS[p.status] ?? p.status} />
+                          <StatusPill
+                            status={p.status}
+                            label={PI_STATUS_LABELS[p.status] ?? p.status}
+                          />
                         </td>
                         <td className="px-5 py-3">
                           {links.length === 0 ? (
@@ -285,9 +355,16 @@ function PurchasesPage() {
                           ) : (
                             <div className="space-y-0.5">
                               {links.map((s: any) => (
-                                <Link key={s.id} to="/app/invoices" className="flex items-center gap-1 text-xs text-primary hover:underline">
-                                  <Link2 className="h-3 w-3" />{s.invoice_number}
-                                  <span className="text-muted-foreground">→ {s.debtor?.name ?? "?"}</span>
+                                <Link
+                                  key={s.id}
+                                  to="/app/invoices"
+                                  className="flex items-center gap-1 text-xs text-primary hover:underline"
+                                >
+                                  <Link2 className="h-3 w-3" />
+                                  {s.invoice_number}
+                                  <span className="text-muted-foreground">
+                                    → {s.debtor?.name ?? "?"}
+                                  </span>
                                 </Link>
                               ))}
                             </div>
@@ -295,9 +372,19 @@ function PurchasesPage() {
                         </td>
                         <td className="px-5 py-3 text-right">
                           <div className="inline-flex flex-wrap justify-end gap-1">
-                            <button onClick={() => setViewing(p)} className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">View</button>
+                            <button
+                              onClick={() => setViewing(p)}
+                              className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                            >
+                              View
+                            </button>
                             {canEdit && (
-                              <button onClick={() => setEditing(p)} className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">Edit</button>
+                              <button
+                                onClick={() => setEditing(p)}
+                                className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                              >
+                                Edit
+                              </button>
                             )}
                             {canCreate && p.status === "draft" && (
                               <button
@@ -328,27 +415,40 @@ function PurchasesPage() {
                                 Cancel
                               </button>
                             )}
-                            {isAdmin && !["paid", "rejected", "cancelled"].includes(p.status) && p.due_date && (
-                              <button
-                                onClick={() => sendReminder.mutate(p.id)}
-                                disabled={sendReminder.isPending}
-                                className="inline-flex items-center gap-1 rounded-md border border-amber-400/50 px-2 py-1 text-[10px] text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/20 disabled:opacity-50"
-                                title="Send reminder email for this purchase invoice"
-                              >
-                                <Mail className="h-3 w-3" /> Remind
-                              </button>
-                            )}
+                            {isAdmin &&
+                              !["paid", "rejected", "cancelled"].includes(p.status) &&
+                              p.due_date && (
+                                <button
+                                  onClick={() => sendReminder.mutate(p.id)}
+                                  disabled={sendReminder.isPending}
+                                  className="inline-flex items-center gap-1 rounded-md border border-amber-400/50 px-2 py-1 text-[10px] text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/20 disabled:opacity-50"
+                                  title="Send reminder email for this purchase invoice"
+                                >
+                                  <Mail className="h-3 w-3" /> Remind
+                                </button>
+                              )}
                             {p.status === "verified" && (
-                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Awaiting checker</span>
+                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                                Awaiting checker
+                              </span>
                             )}
                             {["approved_for_payment", "partially_paid"].includes(p.status) && (
-                              <Link to="/app/queue" className="text-[10px] uppercase tracking-widest text-primary hover:underline">In funding queue →</Link>
+                              <Link
+                                to="/app/queue"
+                                className="text-[10px] uppercase tracking-widest text-primary hover:underline"
+                              >
+                                In funding queue →
+                              </Link>
                             )}
                             {p.status === "paid" && (
-                              <span className="text-[10px] uppercase tracking-widest text-success">Closed</span>
+                              <span className="text-[10px] uppercase tracking-widest text-success">
+                                Closed
+                              </span>
                             )}
                             {p.status === "cancelled" && (
-                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Cancelled</span>
+                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                                Cancelled
+                              </span>
                             )}
                           </div>
                         </td>
@@ -425,8 +525,11 @@ function NewPurchaseModal({
   const [form, setForm] = useState({
     vendor_id: invoice?.vendor_id ?? "",
     invoice_number: invoice?.invoice_number ?? "",
-    issue_date: (invoice?.issue_date ?? new Date().toISOString().slice(0, 10))?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
-    received_date: (invoice?.received_date ?? new Date().toISOString().slice(0, 10))?.slice(0, 10) ?? "",
+    issue_date:
+      (invoice?.issue_date ?? new Date().toISOString().slice(0, 10))?.slice(0, 10) ??
+      new Date().toISOString().slice(0, 10),
+    received_date:
+      (invoice?.received_date ?? new Date().toISOString().slice(0, 10))?.slice(0, 10) ?? "",
     due_date: (invoice?.due_date ?? "")?.slice(0, 10) ?? "",
     goods_po_id: invoice?.goods_purchase_order_id ?? "",
     goods_po_number: invoice?.goods_po_number ?? "",
@@ -463,9 +566,13 @@ function NewPurchaseModal({
   useEffect(() => {
     if (!linkedGrn) return;
     const qtyByProduct = new Map<string, number>();
-    for (const l of linkedGrn.lines ?? []) qtyByProduct.set(l.product_id, Number(l.accepted_qty ?? l.received_qty) || 0);
+    for (const l of linkedGrn.lines ?? [])
+      qtyByProduct.set(l.product_id, Number(l.accepted_qty ?? l.received_qty) || 0);
     setLines((ls) =>
-      ls.map((l) => ({ ...l, grn_received_qty: qtyByProduct.get(l.product_id) ?? l.grn_received_qty ?? 0 })),
+      ls.map((l) => ({
+        ...l,
+        grn_received_qty: qtyByProduct.get(l.product_id) ?? l.grn_received_qty ?? 0,
+      })),
     );
   }, [linkedGrn]);
 
@@ -483,12 +590,8 @@ function NewPurchaseModal({
     // Only POs that can actually be billed (sent / partially received) are
     // selectable — but the invoice's own linked PO is always kept so an
     // existing invoice remains viewable/editable even after it's fully received.
-    const open = pos.filter((p) =>
-      ["approved", "sent", "partially_received"].includes(p.status),
-    );
-    const bySupplier = form.vendor_id
-      ? open.filter((p) => p.supplier_id === form.vendor_id)
-      : open;
+    const open = pos.filter((p) => ["approved", "sent", "partially_received"].includes(p.status));
+    const bySupplier = form.vendor_id ? open.filter((p) => p.supplier_id === form.vendor_id) : open;
     const linked = pos.find((p) => p.id === form.goods_po_id);
     return linked && !bySupplier.some((p) => p.id === linked.id)
       ? [linked, ...bySupplier]
@@ -578,7 +681,12 @@ function NewPurchaseModal({
 
   // Quantity vs GRN + price vs PO differences — shown clearly (warn-only).
   const differences = useMemo(() => {
-    const diffs: Array<{ name: string; type: "qty" | "price"; invoiceValue: number; referenceValue: number }> = [];
+    const diffs: Array<{
+      name: string;
+      type: "qty" | "price";
+      invoiceValue: number;
+      referenceValue: number;
+    }> = [];
     for (const l of lines) {
       const qty = Number(l.invoice_qty) || 0;
       const grn = Number(l.grn_received_qty) || 0;
@@ -676,8 +784,10 @@ function NewPurchaseModal({
     mutationFn: async () => {
       if (!form.vendor_id) throw new Error("Add a supplier first.");
       if (!form.invoice_number.trim()) throw new Error("Supplier invoice number required");
-      if (!form.goods_po_id) throw new Error("Link a purchase order — it supplies the invoice lines");
-      if (lines.length === 0) throw new Error("Add at least one line from the linked purchase order");
+      if (!form.goods_po_id)
+        throw new Error("Link a purchase order — it supplies the invoice lines");
+      if (lines.length === 0)
+        throw new Error("Add at least one line from the linked purchase order");
       const payloadLines = lines.map((l) => ({
         product_id: l.product_id,
         invoice_qty: Number(l.invoice_qty) || 0,
@@ -721,18 +831,35 @@ function NewPurchaseModal({
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <div>
-            <h3 className="font-display text-lg">{isEdit ? "Edit purchase invoice" : "New purchase invoice"}</h3>
+            <h3 className="font-display text-lg">
+              {isEdit ? "Edit purchase invoice" : "New purchase invoice"}
+            </h3>
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              Records the supplier payable — it never creates stock. The GRN (created later) credits inventory.
+              Records the supplier payable — it never creates stock. The GRN (created later) credits
+              inventory.
             </div>
           </div>
-          <button onClick={onClose}><X className="h-4 w-4" /></button>
+          <button onClick={onClose}>
+            <X className="h-4 w-4" />
+          </button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); save.mutate(); }} className="space-y-5 p-5">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate();
+          }}
+          className="space-y-5 p-5"
+        >
           {vendors.length === 0 && (
             <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
               Add a supplier first in the Suppliers tab.
@@ -741,7 +868,9 @@ function NewPurchaseModal({
 
           {/* ── Header ── */}
           <fieldset className="rounded-lg border border-border/60 p-4">
-            <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">Invoice header</legend>
+            <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              Invoice header
+            </legend>
             <div className="grid gap-3 md:grid-cols-3">
               <L label="Supplier *">
                 <SearchableSelect
@@ -751,7 +880,12 @@ function NewPurchaseModal({
                     if (po && po.supplier_id !== v) {
                       // The linked PO belongs to a different supplier — clear it
                       // so invoice lines can't come from the wrong PO.
-                      setForm((f) => ({ ...f, vendor_id: v, goods_po_id: "", goods_po_number: "" }));
+                      setForm((f) => ({
+                        ...f,
+                        vendor_id: v,
+                        goods_po_id: "",
+                        goods_po_number: "",
+                      }));
                       setLines([]);
                     } else {
                       setForm((f) => ({ ...f, vendor_id: v }));
@@ -762,16 +896,39 @@ function NewPurchaseModal({
                 />
               </L>
               <L label="Supplier invoice number *">
-                <input required maxLength={80} className="inp" value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} placeholder="INV-2026-0142" />
+                <input
+                  required
+                  maxLength={80}
+                  className="inp"
+                  value={form.invoice_number}
+                  onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
+                  placeholder="INV-2026-0142"
+                />
               </L>
               <L label="Payment due date">
-                <input type="date" className="inp" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
+                <input
+                  type="date"
+                  className="inp"
+                  value={effectiveDue}
+                  onChange={(e) => setForm({ ...form, due_date: e.target.value })}
+                />
               </L>
               <L label="Invoice date">
-                <input required type="date" className="inp" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} />
+                <input
+                  required
+                  type="date"
+                  className="inp"
+                  value={form.issue_date}
+                  onChange={(e) => setForm({ ...form, issue_date: e.target.value })}
+                />
               </L>
               <L label="Invoice received date">
-                <input type="date" className="inp" value={form.received_date} onChange={(e) => setForm({ ...form, received_date: e.target.value })} />
+                <input
+                  type="date"
+                  className="inp"
+                  value={form.received_date}
+                  onChange={(e) => setForm({ ...form, received_date: e.target.value })}
+                />
               </L>
             </div>
           </fieldset>
@@ -798,17 +955,20 @@ function NewPurchaseModal({
               />
             </L>
             <p className="mt-1 text-[10px] text-muted-foreground">
-              Every purchase invoice must link to a purchase order — picking it auto-fills the product
-              lines, units and PO prices. Edit the billed quantity and price from the supplier invoice.
+              Every purchase invoice must link to a purchase order — picking it auto-fills the
+              product lines, units and PO prices. Edit the billed quantity and price from the
+              supplier invoice.
             </p>
-
             {isEdit && invoice?.linked_goods_receipt_number && (
               <div className="mt-2 rounded-md border border-success/30 bg-success/5 p-2 text-xs text-success">
-                Linked GRN {invoice.linked_goods_receipt_number} — GRN received quantities are shown per line below.
+                Linked GRN {invoice.linked_goods_receipt_number} — GRN received quantities are shown
+                per line below.
               </div>
-            )}              {lines.length === 0 ? (
+            )}{" "}
+            {lines.length === 0 ? (
               <div className="mt-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
-                Select a linked purchase order above — its product lines are required and auto-filled here.
+                Select a linked purchase order above — its product lines are required and
+                auto-filled here.
               </div>
             ) : (
               <div className="mt-3 space-y-2">
@@ -827,17 +987,24 @@ function NewPurchaseModal({
                   const qty = Number(l.invoice_qty) || 0;
                   const price = Number(l.unit_price) || 0;
                   const lineTotal = round2(qty * price);
-                  const qtyDiff = Number(l.grn_received_qty) > 0 && Math.abs(qty - Number(l.grn_received_qty)) > 1e-9;
+                  const qtyDiff =
+                    Number(l.grn_received_qty) > 0 &&
+                    Math.abs(qty - Number(l.grn_received_qty)) > 1e-9;
                   const priceDiff =
                     l.po_unit_price != null &&
                     Number.isFinite(l.po_unit_price) &&
                     l.po_unit_price >= 0 &&
                     Math.abs(price - l.po_unit_price) > 1e-9;
                   return (
-                    <div key={i} className="grid grid-cols-2 items-end gap-2 rounded-md border border-border/50 p-2 md:grid-cols-12">
+                    <div
+                      key={i}
+                      className="grid grid-cols-2 items-end gap-2 rounded-md border border-border/50 p-2 md:grid-cols-12"
+                    >
                       <div className="col-span-2 md:col-span-3">
                         <div className="text-xs font-medium">{l.name}</div>
-                        {l.sku && <div className="font-mono text-[10px] text-muted-foreground">{l.sku}</div>}
+                        {l.sku && (
+                          <div className="font-mono text-[10px] text-muted-foreground">{l.sku}</div>
+                        )}
                         {(qtyDiff || priceDiff) && (
                           <div className="mt-1 flex flex-wrap gap-1">
                             {qtyDiff && (
@@ -853,31 +1020,72 @@ function NewPurchaseModal({
                           </div>
                         )}
                       </div>
-                      <div><L label="Unit"><input className="inp" value={l.unit} disabled /></L></div>
-                      <div><L label="Ordered"><input className="inp" value={String(l.ordered_qty)} disabled /></L></div>
-                      <div><L label="GRN recv"><input className="inp" value={String(l.grn_received_qty)} disabled /></L></div>
+                      <div>
+                        <L label="Unit">
+                          <input className="inp" value={l.unit} disabled />
+                        </L>
+                      </div>
+                      <div>
+                        <L label="Ordered">
+                          <input className="inp" value={String(l.ordered_qty)} disabled />
+                        </L>
+                      </div>
+                      <div>
+                        <L label="GRN recv">
+                          <input className="inp" value={String(l.grn_received_qty)} disabled />
+                        </L>
+                      </div>
                       <div>
                         <L label="Invoice qty">
-                          <input type="number" min="0" step="0.001" className="inp" value={l.invoice_qty} onChange={(e) => setLine(i, { invoice_qty: e.target.value })} />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.001"
+                            className="inp"
+                            value={l.invoice_qty}
+                            onChange={(e) => setLine(i, { invoice_qty: e.target.value })}
+                          />
                         </L>
                       </div>
                       <div>
                         <L label="Unit price">
-                          <input type="number" min="0" step="0.01" className="inp" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="inp"
+                            value={l.unit_price}
+                            onChange={(e) => setLine(i, { unit_price: e.target.value })}
+                          />
                         </L>
                       </div>
                       <div>
                         <L label="GST %">
-                          <input type="number" min="0" max="99" step="0.01" className="inp" value={l.gst_rate} onChange={(e) => setLine(i, { gst_rate: e.target.value })} placeholder="0" />
+                          <input
+                            type="number"
+                            min="0"
+                            max="99"
+                            step="0.01"
+                            className="inp"
+                            value={l.gst_rate}
+                            onChange={(e) => setLine(i, { gst_rate: e.target.value })}
+                            placeholder="0"
+                          />
                         </L>
                       </div>
                       <div className="text-right">
                         <L label="Line total">
-                          <div className="inp text-right font-mono tabular-nums">{fmtMoney(lineTotal)}</div>
+                          <div className="inp text-right font-mono tabular-nums">
+                            {fmtMoney(lineTotal)}
+                          </div>
                         </L>
                       </div>
                       <div className="flex items-end justify-end pb-1">
-                        <button type="button" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))} className="rounded p-1 text-muted-foreground hover:text-destructive">
+                        <button
+                          type="button"
+                          onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}
+                          className="rounded p-1 text-muted-foreground hover:text-destructive"
+                        >
                           <X className="h-3.5 w-3.5" />
                         </button>
                       </div>
@@ -923,12 +1131,12 @@ function NewPurchaseModal({
                         <span className="font-medium text-primary">{fmtMoney(pctAdvance)}</span>
                       </div>
                     )}
-                    {linkedPf.supplier_contact && (
-                      <div>Contact · {linkedPf.supplier_contact}</div>
-                    )}
+                    {linkedPf.supplier_contact && <div>Contact · {linkedPf.supplier_contact}</div>}
                     {linkedPf.supplier_gstin && <div>GSTIN · {linkedPf.supplier_gstin}</div>}
                     {linkedPf.payment_terms && <div>Terms · {linkedPf.payment_terms}</div>}
-                    {linkedPf.valid_until && <div>Valid until · {fmtDate(linkedPf.valid_until)}</div>}
+                    {linkedPf.valid_until && (
+                      <div>Valid until · {fmtDate(linkedPf.valid_until)}</div>
+                    )}
                     {linkedPf.expected_delivery_date && (
                       <div>Expected delivery · {fmtDate(linkedPf.expected_delivery_date)}</div>
                     )}
@@ -936,14 +1144,23 @@ function NewPurchaseModal({
                 </div>
               )}
               <L label="PO / proforma number (optional)">
-                <input className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="e.g. PF-2026-004" />
+                <input
+                  className="inp"
+                  value={form.po_number}
+                  onChange={(e) => setForm({ ...form, po_number: e.target.value })}
+                  placeholder="e.g. PF-2026-004"
+                />
               </L>
               <p className="text-[10px] text-muted-foreground">
-                Advances already paid to the supplier against the linked proforma are deducted from the invoice total — the net amount is what you owe. If no proforma, the full amount applies.
+                Advances already paid to the supplier against the linked proforma are deducted from
+                the invoice total — the net amount is what you owe. If no proforma, the full amount
+                applies.
               </p>
               {form.po_number.trim() && (
                 <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
-                  <div className="mb-1 uppercase tracking-widest text-primary">Advances paid against {form.po_number}</div>
+                  <div className="mb-1 uppercase tracking-widest text-primary">
+                    Advances paid against {form.po_number}
+                  </div>
                   {advLookupQ.isFetching ? (
                     <div className="text-muted-foreground">Looking up…</div>
                   ) : (advLookupQ.data?.advances ?? []).length === 0 ? (
@@ -956,14 +1173,17 @@ function NewPurchaseModal({
                     <ul className="space-y-0.5">
                       {((advLookupQ.data?.advances ?? []) as any[]).map((a) => (
                         <li key={a.id} className="flex justify-between">
-                          <span className="text-muted-foreground">{fmtDate(a.advance_date)} {a.reference ? `· ${a.reference}` : ""}</span>
+                          <span className="text-muted-foreground">
+                            {fmtDate(a.advance_date)} {a.reference ? `· ${a.reference}` : ""}
+                          </span>
                           <span className="num text-primary">{fmtMoney(a.amount)}</span>
                         </li>
                       ))}
                     </ul>
                   )}
                   <div className="mt-2 flex justify-between border-t border-border pt-2 font-medium">
-                    <span>Balance outstanding</span><span className="num">{fmtMoney(netPayable)}</span>
+                    <span>Balance outstanding</span>
+                    <span className="num">{fmtMoney(netPayable)}</span>
                   </div>
                 </div>
               )}
@@ -976,16 +1196,22 @@ function NewPurchaseModal({
               <Row label="Subtotal" value={fmtMoney(totals.subtotal)} />
               <Row label="GST total" value={fmtMoney(totals.gst)} />
               <div className="flex items-center justify-between">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Freight / other</span>
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Freight / other
+                </span>
                 <input
-                  type="number" min="0" step="0.01"
+                  type="number"
+                  min="0"
+                  step="0.01"
                   className="w-28 rounded-md border border-border bg-background px-2 py-1 text-right text-sm"
                   value={form.freight}
                   onChange={(e) => setForm({ ...form, freight: e.target.value })}
                 />
               </div>
               <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Grand total</span>
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Grand total
+                </span>
                 <span className="num text-base">{fmtMoney(totals.grand)}</span>
               </div>
               {advanceToDeduct > 0 && (
@@ -999,25 +1225,46 @@ function NewPurchaseModal({
                 </div>
               )}
               <div className="flex items-center justify-between">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Net payable</span>
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Net payable
+                </span>
                 <span className="num">{fmtMoney(netPayable)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Amount paid</span>
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Amount paid
+                </span>
                 <span className="num text-success">{fmtMoney(amountPaid)}</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Balance due</span>
-                <span className={`num font-medium ${balanceDue > 0 ? "text-warning" : "text-success"}`}>{fmtMoney(balanceDue)}</span>
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Balance due
+                </span>
+                <span
+                  className={`num font-medium ${balanceDue > 0 ? "text-warning" : "text-success"}`}
+                >
+                  {fmtMoney(balanceDue)}
+                </span>
               </div>
             </div>
 
             <div className="space-y-3">
               <L label="Notes">
-                <textarea rows={3} className="inp resize-y" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} placeholder="Payment terms, delivery remarks…" />
+                <textarea
+                  rows={3}
+                  className="inp resize-y"
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                  placeholder="Payment terms, delivery remarks…"
+                />
               </L>
-              <DocumentUploader userId={userId} scope="purchase_invoices" docs={docs} onChange={setDocs}
-                hint="Attach the supplier invoice PDF/image or other supporting paperwork." />
+              <DocumentUploader
+                userId={userId}
+                scope="purchase_invoices"
+                docs={docs}
+                onChange={setDocs}
+                hint="Attach the supplier invoice PDF/image or other supporting paperwork."
+              />
             </div>
           </div>
 
@@ -1025,17 +1272,28 @@ function NewPurchaseModal({
           {differences.length > 0 && (
             <div className="rounded-lg border border-warning/40 bg-warning/5 p-4">
               <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-warning">
-                <AlertTriangle className="h-4 w-4" /> {differences.length} difference{differences.length === 1 ? "" : "s"} vs PO / GRN
+                <AlertTriangle className="h-4 w-4" /> {differences.length} difference
+                {differences.length === 1 ? "" : "s"} vs PO / GRN
               </div>
               <ul className="mt-2 space-y-1 text-xs">
                 {differences.map((d, i) => (
-                  <li key={i} className="flex flex-wrap justify-between gap-2 rounded-md border border-border/50 bg-card/60 px-3 py-1.5">
+                  <li
+                    key={i}
+                    className="flex flex-wrap justify-between gap-2 rounded-md border border-border/50 bg-card/60 px-3 py-1.5"
+                  >
                     <span>{d.name}</span>
                     <span className="text-muted-foreground">
                       {d.type === "qty" ? (
-                        <>Invoice qty <b className="num text-foreground">{d.invoiceValue}</b> vs GRN received <b className="num text-warning">{d.referenceValue}</b></>
+                        <>
+                          Invoice qty <b className="num text-foreground">{d.invoiceValue}</b> vs GRN
+                          received <b className="num text-warning">{d.referenceValue}</b>
+                        </>
                       ) : (
-                        <>Invoice price <b className="num text-foreground">{fmtMoney(d.invoiceValue)}</b> vs PO price <b className="num text-warning">{fmtMoney(d.referenceValue)}</b></>
+                        <>
+                          Invoice price{" "}
+                          <b className="num text-foreground">{fmtMoney(d.invoiceValue)}</b> vs PO
+                          price <b className="num text-warning">{fmtMoney(d.referenceValue)}</b>
+                        </>
                       )}
                     </span>
                   </li>
@@ -1043,12 +1301,19 @@ function NewPurchaseModal({
               </ul>
               <div className="mt-2">
                 <L label="Explanation note (recommended before approval)">
-                  <textarea rows={2} className="inp resize-y" value={form.difference_notes} onChange={(e) => setForm({ ...form, difference_notes: e.target.value })} placeholder="e.g. Price negotiated at invoicing; quantity adjusted for partial delivery…" />
+                  <textarea
+                    rows={2}
+                    className="inp resize-y"
+                    value={form.difference_notes}
+                    onChange={(e) => setForm({ ...form, difference_notes: e.target.value })}
+                    placeholder="e.g. Price negotiated at invoicing; quantity adjusted for partial delivery…"
+                  />
                 </L>
               </div>
               {form.difference_notes.trim().length === 0 && (
                 <p className="mt-1 text-[10px] text-muted-foreground">
-                  Not required to save — but the checker will see these differences, so an explanation speeds up approval.
+                  Not required to save — but the checker will see these differences, so an
+                  explanation speeds up approval.
                 </p>
               )}
             </div>
@@ -1056,18 +1321,30 @@ function NewPurchaseModal({
 
           {isEdit && invoice?.status === "approved_for_payment" && !isAdmin && !isTreasury && (
             <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
-              This invoice is approved for payment. Only treasury/admin can record payments — use the funding queue.
+              This invoice is approved for payment. Only treasury/admin can record payments — use
+              the funding queue.
             </div>
           )}
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
             <p className="text-[10px] text-muted-foreground">
-              Saving never touches inventory — the confirmed GRN is the only stock-crediting document.
+              Saving never touches inventory — the confirmed GRN is the only stock-crediting
+              document.
             </p>
             <div className="flex gap-2">
-              <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
-              <button disabled={save.isPending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
-                {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />} {isEdit ? "Save changes" : "Save draft"}
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-md border border-border px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                disabled={save.isPending}
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              >
+                {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}{" "}
+                {isEdit ? "Save changes" : "Save draft"}
               </button>
             </div>
           </div>
@@ -1079,7 +1356,14 @@ function NewPurchaseModal({
 }
 
 function L({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -1091,7 +1375,15 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-function PurchaseDetailModal({ invoice, grn, onClose }: { invoice: any; grn: GRNFragment | null; onClose: () => void }) {
+function PurchaseDetailModal({
+  invoice,
+  grn,
+  onClose,
+}: {
+  invoice: any;
+  grn: GRNFragment | null;
+  onClose: () => void;
+}) {
   const lines = invoice?.lines ?? [];
   const subtotal = Number(invoice?.subtotal) || 0;
   const gstTotal = Number(invoice?.gst_total) || 0;
@@ -1101,31 +1393,57 @@ function PurchaseDetailModal({ invoice, grn, onClose }: { invoice: any; grn: GRN
   const netAmount = Number(invoice?.amount ?? Math.max(0, grandTotal - advance));
   const amountPaid = Number(invoice?.amount_paid) || 0;
   const balanceDue =
-    invoice?.balance_due != null ? Number(invoice.balance_due) : Math.max(0, netAmount - amountPaid);
+    invoice?.balance_due != null
+      ? Number(invoice.balance_due)
+      : Math.max(0, netAmount - amountPaid);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <div>
             <h3 className="font-display text-lg">Purchase invoice {invoice.invoice_number}</h3>
             <div className="mt-1">
-              <StatusPill status={invoice.status} label={PI_STATUS_LABELS[invoice.status] ?? invoice.status} />
+              <StatusPill
+                status={invoice.status}
+                label={PI_STATUS_LABELS[invoice.status] ?? invoice.status}
+              />
             </div>
           </div>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
         </div>
         <div className="space-y-5 p-5 text-sm">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             <D label="Supplier" value={invoice.supplier_name ?? invoice.vendor?.name ?? "—"} />
-            <D label="Invoice date" value={invoice.issue_date ? fmtDate(invoice.issue_date) : "—"} />
-            <D label="Received date" value={invoice.received_date ? fmtDate(invoice.received_date) : "—"} />
+            <D
+              label="Invoice date"
+              value={invoice.issue_date ? fmtDate(invoice.issue_date) : "—"}
+            />
+            <D
+              label="Received date"
+              value={invoice.received_date ? fmtDate(invoice.received_date) : "—"}
+            />
             <D label="Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "—"} />
             <D label="Linked PO" value={invoice.goods_po_number ?? invoice.po_number ?? "—"} />
-            {invoice.linked_supplier_proforma_number && <D label="Linked proforma" value={invoice.linked_supplier_proforma_number} />}
+            {invoice.linked_supplier_proforma_number && (
+              <D label="Linked proforma" value={invoice.linked_supplier_proforma_number} />
+            )}
             <D label="Linked GRN" value={invoice.linked_goods_receipt_number ?? "—"} />
             {invoice.paid_date && <D label="Paid date" value={fmtDate(invoice.paid_date)} />}
-            {invoice.po_amount != null && invoice.po_amount > 0 && <D label="PO amount" value={<span className="num">{fmtMoney(invoice.po_amount)}</span>} />}
+            {invoice.po_amount != null && invoice.po_amount > 0 && (
+              <D
+                label="PO amount"
+                value={<span className="num">{fmtMoney(invoice.po_amount)}</span>}
+              />
+            )}
           </div>
 
           {lines.length > 0 && (
@@ -1157,11 +1475,23 @@ function PurchaseDetailModal({ invoice, grn, onClose }: { invoice: any; grn: GRN
                       <tr key={l.product_id} className="border-b border-border/40">
                         <td className="px-3 py-2">
                           <div className="font-medium">{l.name}</div>
-                          {l.sku && <div className="text-[10px] font-mono text-muted-foreground">{l.sku}</div>}
+                          {l.sku && (
+                            <div className="text-[10px] font-mono text-muted-foreground">
+                              {l.sku}
+                            </div>
+                          )}
                           {(qtyDiff || priceDiff) && (
                             <div className="mt-0.5 flex gap-1">
-                              {qtyDiff && <span className="text-[9px] font-medium text-warning">qty ≠ GRN</span>}
-                              {priceDiff && <span className="text-[9px] font-medium text-warning">price ≠ PO</span>}
+                              {qtyDiff && (
+                                <span className="text-[9px] font-medium text-warning">
+                                  qty ≠ GRN
+                                </span>
+                              )}
+                              {priceDiff && (
+                                <span className="text-[9px] font-medium text-warning">
+                                  price ≠ PO
+                                </span>
+                              )}
                             </div>
                           )}
                         </td>
@@ -1170,7 +1500,9 @@ function PurchaseDetailModal({ invoice, grn, onClose }: { invoice: any; grn: GRN
                         <td className="px-3 py-2 text-right num">{qty}</td>
                         <td className="px-3 py-2 text-right num">{fmtMoney(price)}</td>
                         <td className="px-3 py-2 text-right num">{l.gst_rate ?? 0}%</td>
-                        <td className="px-3 py-2 text-right num">{fmtMoney(Number(l.line_total) || 0)}</td>
+                        <td className="px-3 py-2 text-right num">
+                          {fmtMoney(Number(l.line_total) || 0)}
+                        </td>
                       </tr>
                     );
                   })}
@@ -1184,26 +1516,40 @@ function PurchaseDetailModal({ invoice, grn, onClose }: { invoice: any; grn: GRN
             <Row label="GST total" value={fmtMoney(gstTotal)} />
             <Row label="Freight / other" value={fmtMoney(freight)} />
             <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">Grand total</span>
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                Grand total
+              </span>
               <span className="num text-base">{fmtMoney(grandTotal)}</span>
             </div>
             {advance > 0 && (
               <div className="flex items-center justify-between">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Less advance paid</span>
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Less advance paid
+                </span>
                 <span className="num text-destructive">−{fmtMoney(advance)}</span>
               </div>
             )}
             <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">Net payable</span>
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                Net payable
+              </span>
               <span className="num">{fmtMoney(netAmount)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">Amount paid</span>
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                Amount paid
+              </span>
               <span className="num text-success">{fmtMoney(amountPaid)}</span>
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">Balance due</span>
-              <span className={`num font-medium ${balanceDue > 0 ? "text-warning" : "text-success"}`}>{fmtMoney(balanceDue)}</span>
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                Balance due
+              </span>
+              <span
+                className={`num font-medium ${balanceDue > 0 ? "text-warning" : "text-success"}`}
+              >
+                {fmtMoney(balanceDue)}
+              </span>
             </div>
           </div>
 
@@ -1216,7 +1562,8 @@ function PurchaseDetailModal({ invoice, grn, onClose }: { invoice: any; grn: GRN
 
           {grn && (
             <div className="rounded-md border border-success/30 bg-success/5 p-3 text-xs text-success">
-              Linked GRN {grn.receipt_number} · {grn.status === "confirmed" ? "stock credited" : grn.status}
+              Linked GRN {grn.receipt_number} ·{" "}
+              {grn.status === "confirmed" ? "stock credited" : grn.status}
             </div>
           )}
 
@@ -1229,11 +1576,18 @@ function PurchaseDetailModal({ invoice, grn, onClose }: { invoice: any; grn: GRN
 
           {(invoice.documents ?? []).length > 0 && (
             <div>
-              <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">Attachments</span>
+              <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+                Attachments
+              </span>
               <div className="flex flex-wrap gap-2">
                 {(invoice.documents ?? []).map((d: any, i: number) => (
-                  <a key={i} href={d.url ?? d.public_url} target="_blank" rel="noreferrer"
-                    className="rounded-md border border-border px-2.5 py-1 text-xs text-primary hover:bg-primary/5">
+                  <a
+                    key={i}
+                    href={d.url ?? d.public_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="rounded-md border border-border px-2.5 py-1 text-xs text-primary hover:bg-primary/5"
+                  >
                     {d.name ?? `Attachment ${i + 1}`}
                   </a>
                 ))}
@@ -1242,7 +1596,9 @@ function PurchaseDetailModal({ invoice, grn, onClose }: { invoice: any; grn: GRN
           )}
 
           <div className="flex justify-end border-t border-border pt-3">
-            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Close</button>
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
+              Close
+            </button>
           </div>
         </div>
       </div>

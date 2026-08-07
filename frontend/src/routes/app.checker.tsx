@@ -616,9 +616,7 @@ function CheckerPage() {
                           <div className="flex items-center gap-2">
                             <ScrollText className="h-3.5 w-3.5 shrink-0 text-primary" />
                             <div>
-                              <div className="font-mono text-xs">
-                                {q.quotation_number}
-                              </div>
+                              <div className="font-mono text-xs">{q.quotation_number}</div>
                               <div className="text-[10px] text-muted-foreground">
                                 {fmtDate(q.quotation_date)}
                               </div>
@@ -652,9 +650,7 @@ function CheckerPage() {
                             </div>
                           )}
                         </td>
-                        <td className="px-5 py-3 text-sm">
-                          {fmtDate(q.approval_requested_at)}
-                        </td>
+                        <td className="px-5 py-3 text-sm">{fmtDate(q.approval_requested_at)}</td>
                         <td className="px-5 py-3 text-right">
                           {canReview ? (
                             selfCreated ? (

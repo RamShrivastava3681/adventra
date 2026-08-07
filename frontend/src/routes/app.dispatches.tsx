@@ -389,7 +389,9 @@ function DispatchesPage() {
         <DispatchCreateModal
           userId={user.id}
           preselectSoId={preselectSoId}
-          sos={(sosQ.data ?? []).filter((s: SO) => ["confirmed", "partially_dispatched"].includes(s.status))}
+          sos={(sosQ.data ?? []).filter((s: SO) =>
+            ["confirmed", "partially_dispatched"].includes(s.status),
+          )}
           products={productsQ.data ?? []}
           stockBalance={stockBalance}
           proformas={proformasQ.data ?? []}
@@ -547,7 +549,8 @@ function DispatchCreateModal({
           dispatched_qty: Number(l.dispatched_qty) || 0,
           unit_price: Number(l.unit_price) || 0,
         }));
-      if (payloadLines.length === 0) throw new Error("Enter a dispatched quantity for at least one line");
+      if (payloadLines.length === 0)
+        throw new Error("Enter a dispatched quantity for at least one line");
       for (const l of payloadLines) {
         const soLine = so?.lines?.find((x) => x.product_id === l.product_id);
         const pending = Math.max(0, (soLine?.ordered_qty ?? 0) - (soLine?.dispatched_qty ?? 0));
@@ -768,7 +771,11 @@ function DispatchCreateModal({
                   <div className="col-span-2 text-right">Unit price</div>
                 </div>
                 {lines.map((l, i) => {
-                  const pending = Math.max(0, l.ordered_qty - (so.lines.find((x) => x.product_id === l.product_id)?.dispatched_qty ?? 0));
+                  const pending = Math.max(
+                    0,
+                    l.ordered_qty -
+                      (so.lines.find((x) => x.product_id === l.product_id)?.dispatched_qty ?? 0),
+                  );
                   const available = stockBalance.get(l.product_id) ?? 0;
                   const q = Number(l.dispatched_qty) || 0;
                   const short = q > 0 && q > available;
@@ -792,14 +799,18 @@ function DispatchCreateModal({
                       </div>
                       <div className="md:col-span-2">
                         <L label="Available">
-                          <div className={`inp bg-muted/40 text-right ${short ? "!border-warning" : ""}`}>
+                          <div
+                            className={`inp bg-muted/40 text-right ${short ? "!border-warning" : ""}`}
+                          >
                             {available.toLocaleString()}
                           </div>
                         </L>
                       </div>
                       <div>
                         <L label="Pending">
-                          <div className="inp bg-muted/40 text-right">{pending.toLocaleString()}</div>
+                          <div className="inp bg-muted/40 text-right">
+                            {pending.toLocaleString()}
+                          </div>
                         </L>
                       </div>
                       <div className="md:col-span-2">
@@ -840,7 +851,9 @@ function DispatchCreateModal({
 
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
             <p className="text-[10px] text-muted-foreground">
-              {qtyTotal > 0 ? `${qtyTotal.toLocaleString()} units to dispatch` : "No quantity entered yet"}
+              {qtyTotal > 0
+                ? `${qtyTotal.toLocaleString()} units to dispatch`
+                : "No quantity entered yet"}
             </p>
             <div className="flex gap-2">
               <button
@@ -965,140 +978,138 @@ function DispatchDetailModal({
 
   return (
     <>
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
       <div
-        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+        onClick={onClose}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <div>
-            <h3 className="font-display text-lg">Dispatch {d.dispatch_number}</h3>
-            <div className="mt-0.5">
-              <StatusPill
-                status={d.status}
-                label={DISPATCH_STATUS_LABELS[d.status] ?? d.status}
-                tone={DISPATCH_STATUS_TONES[d.status]}
-              />
+        <div
+          className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+            <div>
+              <h3 className="font-display text-lg">Dispatch {d.dispatch_number}</h3>
+              <div className="mt-0.5">
+                <StatusPill
+                  status={d.status}
+                  label={DISPATCH_STATUS_LABELS[d.status] ?? d.status}
+                  tone={DISPATCH_STATUS_TONES[d.status]}
+                />
+              </div>
             </div>
-          </div>
-          <button onClick={onClose}>
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="space-y-4 p-5 text-sm">
-          {/* Header info */}
-          <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-border/60 p-4 md:grid-cols-3">
-            <D label="Customer" value={d.customer_name ?? "—"} />
-            <D label="Sales order" value={d.so_number ?? "—"} />
-            <D label="Dispatch date" value={d.dispatch_date ? fmtDate(d.dispatch_date) : "—"} />
-            <D label="Warehouse" value={d.warehouse ?? "—"} />
-            <D label="Delivery address" value={d.delivery_address ?? "—"} />
-            <D label="Transporter" value={d.transporter_name ?? "—"} />
-            <D label="Tracking / AWB" value={d.tracking_number ?? "—"} />
-            <D label="Delivery challan" value={d.delivery_challan_number ?? "—"} />
-            <D
-              label="Linked proforma"
-              value={d.linked_customer_proforma_number ?? "—"}
-            />
-            <D label="Linked sales invoice" value={d.linked_sales_invoice_number ?? "—"} />
-            <D label="Created by" value={d.dispatched_by ?? "—"} />
-            <D label="Confirmed by" value={d.stock_debited ? (d.debited_by ?? "—") : "—"} />
+            <button onClick={onClose}>
+              <X className="h-4 w-4" />
+            </button>
           </div>
 
-          {/* Lines */}
-          <div className="overflow-x-auto rounded-lg border border-border/60">
-            <table className="w-full text-sm">
-              <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                <tr className="border-b border-border">
-                  <th className="px-3 py-2 text-left font-normal">Product</th>
-                  <th className="px-3 py-2 text-right font-normal">Dispatched</th>
-                  <th className="px-3 py-2 text-right font-normal">Delivered</th>
-                  <th className="px-3 py-2 text-right font-normal">Returned</th>
-                  <th className="px-3 py-2 text-right font-normal">Unit price</th>
-                  <th className="px-3 py-2 text-right font-normal">Value</th>
-                </tr>
-              </thead>
-              <tbody>
-                {(d.lines ?? []).map((l) => (
-                  <tr key={l.product_id} className="border-b border-border/40">
-                    <td className="px-3 py-2">
-                      <div className="font-medium">{l.name}</div>
-                      {l.sku && (
-                        <div className="text-[10px] font-mono text-muted-foreground">{l.sku}</div>
-                      )}
-                    </td>
-                    <td className="px-3 py-2 text-right num">{l.dispatched_qty.toLocaleString()}</td>
-                    <td className="px-3 py-2 text-right num">
-                      {(l.delivered_qty ?? 0).toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2 text-right num">
-                      {(l.returned_qty ?? 0).toLocaleString()}
-                    </td>
-                    <td className="px-3 py-2 text-right num">{fmtMoney(l.unit_price)}</td>
-                    <td className="px-3 py-2 text-right num">{fmtMoney(l.line_value)}</td>
+          <div className="space-y-4 p-5 text-sm">
+            {/* Header info */}
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-border/60 p-4 md:grid-cols-3">
+              <D label="Customer" value={d.customer_name ?? "—"} />
+              <D label="Sales order" value={d.so_number ?? "—"} />
+              <D label="Dispatch date" value={d.dispatch_date ? fmtDate(d.dispatch_date) : "—"} />
+              <D label="Warehouse" value={d.warehouse ?? "—"} />
+              <D label="Delivery address" value={d.delivery_address ?? "—"} />
+              <D label="Transporter" value={d.transporter_name ?? "—"} />
+              <D label="Tracking / AWB" value={d.tracking_number ?? "—"} />
+              <D label="Delivery challan" value={d.delivery_challan_number ?? "—"} />
+              <D label="Linked proforma" value={d.linked_customer_proforma_number ?? "—"} />
+              <D label="Linked sales invoice" value={d.linked_sales_invoice_number ?? "—"} />
+              <D label="Created by" value={d.dispatched_by ?? "—"} />
+              <D label="Confirmed by" value={d.stock_debited ? (d.debited_by ?? "—") : "—"} />
+            </div>
+
+            {/* Lines */}
+            <div className="overflow-x-auto rounded-lg border border-border/60">
+              <table className="w-full text-sm">
+                <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-3 py-2 text-left font-normal">Product</th>
+                    <th className="px-3 py-2 text-right font-normal">Dispatched</th>
+                    <th className="px-3 py-2 text-right font-normal">Delivered</th>
+                    <th className="px-3 py-2 text-right font-normal">Returned</th>
+                    <th className="px-3 py-2 text-right font-normal">Unit price</th>
+                    <th className="px-3 py-2 text-right font-normal">Value</th>
                   </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="text-xs">
-                  <td className="px-3 py-2 font-medium" colSpan={5}>
-                    Totals
-                  </td>
-                  <td className="px-3 py-2 text-right num">
-                    {fmtMoney((d.lines ?? []).reduce((s, l) => s + (l.line_value ?? 0), 0))}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-
-          <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
-            <span className="rounded bg-muted px-2 py-1">Qty {qty.toLocaleString()}</span>
-            <span className="rounded bg-success/10 px-2 py-1 text-success">
-              Delivered {delivered.toLocaleString()}
-            </span>
-            <span className="rounded bg-fuchsia-500/10 px-2 py-1 text-fuchsia-600">
-              Returned {returned.toLocaleString()}
-            </span>
-          </div>
-
-          {d.notes && (
-            <div className="rounded-md border border-border/40 p-3 text-xs text-muted-foreground">
-              Note: {d.notes}
+                </thead>
+                <tbody>
+                  {(d.lines ?? []).map((l) => (
+                    <tr key={l.product_id} className="border-b border-border/40">
+                      <td className="px-3 py-2">
+                        <div className="font-medium">{l.name}</div>
+                        {l.sku && (
+                          <div className="text-[10px] font-mono text-muted-foreground">{l.sku}</div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right num">
+                        {l.dispatched_qty.toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 text-right num">
+                        {(l.delivered_qty ?? 0).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 text-right num">
+                        {(l.returned_qty ?? 0).toLocaleString()}
+                      </td>
+                      <td className="px-3 py-2 text-right num">{fmtMoney(l.unit_price)}</td>
+                      <td className="px-3 py-2 text-right num">{fmtMoney(l.line_value)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr className="text-xs">
+                    <td className="px-3 py-2 font-medium" colSpan={5}>
+                      Totals
+                    </td>
+                    <td className="px-3 py-2 text-right num">
+                      {fmtMoney((d.lines ?? []).reduce((s, l) => s + (l.line_value ?? 0), 0))}
+                    </td>
+                  </tr>
+                </tfoot>
+              </table>
             </div>
-          )}
 
-          {/* Actions */}
-          <div className="flex flex-wrap gap-2 border-t border-border pt-3">
-            {canWrite && d.status === "draft" && (
-              <button
-                onClick={() => run("confirm")}
-                disabled={!!busy}
-                className="inline-flex items-center gap-1.5 rounded-md border border-success/50 px-3 py-1.5 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50"
-              >
-                {busy === "confirm" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <PackageCheck className="h-3.5 w-3.5" />
-                )}
-                Confirm dispatch (debit stock)
-              </button>
+            <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+              <span className="rounded bg-muted px-2 py-1">Qty {qty.toLocaleString()}</span>
+              <span className="rounded bg-success/10 px-2 py-1 text-success">
+                Delivered {delivered.toLocaleString()}
+              </span>
+              <span className="rounded bg-fuchsia-500/10 px-2 py-1 text-fuchsia-600">
+                Returned {returned.toLocaleString()}
+              </span>
+            </div>
+
+            {d.notes && (
+              <div className="rounded-md border border-border/40 p-3 text-xs text-muted-foreground">
+                Note: {d.notes}
+              </div>
             )}
-            {canWrite && ["confirmed", "partially_delivered"].includes(d.status) && (
-              <button
-                onClick={() => setDeliverOpen(true)}
-                disabled={!!busy}
-                className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
-              >
-                <CheckCircle2 className="h-3.5 w-3.5" /> Mark delivered
-              </button>
-            )}
-            {canWrite &&
-              ["confirmed", "partially_delivered", "delivered"].includes(d.status) && (
+
+            {/* Actions */}
+            <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+              {canWrite && d.status === "draft" && (
+                <button
+                  onClick={() => run("confirm")}
+                  disabled={!!busy}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-success/50 px-3 py-1.5 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50"
+                >
+                  {busy === "confirm" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <PackageCheck className="h-3.5 w-3.5" />
+                  )}
+                  Confirm dispatch (debit stock)
+                </button>
+              )}
+              {canWrite && ["confirmed", "partially_delivered"].includes(d.status) && (
+                <button
+                  onClick={() => setDeliverOpen(true)}
+                  disabled={!!busy}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Mark delivered
+                </button>
+              )}
+              {canWrite && ["confirmed", "partially_delivered", "delivered"].includes(d.status) && (
                 <button
                   onClick={() => setReturnOpen(true)}
                   disabled={!!busy}
@@ -1107,56 +1118,60 @@ function DispatchDetailModal({
                   <Undo2 className="h-3.5 w-3.5" /> Record return
                 </button>
               )}
-            <Link
-              to="/app/challan/$dispatchId"
-              params={{ dispatchId: d.id }}
-              className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:border-primary hover:text-primary"
-            >
-              <Printer className="h-3.5 w-3.5" /> Print delivery challan
-            </Link>
-            {canWrite && ["draft", "confirmed", "partially_delivered", "delivered"].includes(d.status) && (
-              <button
-                onClick={() => run("cancel")}
-                disabled={!!busy}
-                className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+              <Link
+                to="/app/challan/$dispatchId"
+                params={{ dispatchId: d.id }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:border-primary hover:text-primary"
               >
-                {busy === "cancel" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Ban className="h-3.5 w-3.5" />
+                <Printer className="h-3.5 w-3.5" /> Print delivery challan
+              </Link>
+              {canWrite &&
+                ["draft", "confirmed", "partially_delivered", "delivered"].includes(d.status) && (
+                  <button
+                    onClick={() => run("cancel")}
+                    disabled={!!busy}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10 disabled:opacity-50"
+                  >
+                    {busy === "cancel" ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Ban className="h-3.5 w-3.5" />
+                    )}
+                    Cancel dispatch
+                  </button>
                 )}
-                Cancel dispatch
-              </button>
-            )}
-            {canWrite && d.status === "draft" && (
-              <button
-                onClick={() => run("delete")}
-                disabled={!!busy}
-                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-destructive hover:text-destructive disabled:opacity-50"
-              >
-                {busy === "delete" ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Trash2 className="h-3.5 w-3.5" />
-                )}
-                Delete draft
-              </button>
-            )}
-          </div>
-
-          {stockBalance.size > 0 && (d.lines ?? []).some((l) => (stockBalance.get(l.product_id) ?? 0) < l.dispatched_qty && d.status !== "draft") && (
-            <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
-              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-              <span>
-                Some dispatched lines exceed current available stock — review inventory before
-                further action.
-              </span>
+              {canWrite && d.status === "draft" && (
+                <button
+                  onClick={() => run("delete")}
+                  disabled={!!busy}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-destructive hover:text-destructive disabled:opacity-50"
+                >
+                  {busy === "delete" ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-3.5 w-3.5" />
+                  )}
+                  Delete draft
+                </button>
+              )}
             </div>
-          )}
-        </div>
 
+            {stockBalance.size > 0 &&
+              (d.lines ?? []).some(
+                (l) =>
+                  (stockBalance.get(l.product_id) ?? 0) < l.dispatched_qty && d.status !== "draft",
+              ) && (
+                <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    Some dispatched lines exceed current available stock — review inventory before
+                    further action.
+                  </span>
+                </div>
+              )}
+          </div>
+        </div>
       </div>
-    </div>
 
       {deliverOpen && (
         <DeliverModal
@@ -1274,7 +1289,9 @@ function DeliverModal({
                           <div className="text-[10px] font-mono text-muted-foreground">{l.sku}</div>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right num">{l.dispatched_qty.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right num">
+                        {l.dispatched_qty.toLocaleString()}
+                      </td>
                       <td className="px-3 py-2 text-right num">
                         {(l.delivered_qty ?? 0).toLocaleString()}
                       </td>
@@ -1386,8 +1403,8 @@ function ReturnModal({
             <Undo2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
               Returned quantities are credited back into inventory and removed from the sales
-              order's dispatched total, so the order can be re-dispatched. The dispatch note is
-              then closed as Returned.
+              order's dispatched total, so the order can be re-dispatched. The dispatch note is then
+              closed as Returned.
             </span>
           </div>
           <div className="overflow-x-auto rounded-md border border-border/60">
@@ -1411,7 +1428,9 @@ function ReturnModal({
                           <div className="text-[10px] font-mono text-muted-foreground">{l.sku}</div>
                         )}
                       </td>
-                      <td className="px-3 py-2 text-right num">{l.dispatched_qty.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right num">
+                        {l.dispatched_qty.toLocaleString()}
+                      </td>
                       <td className="px-3 py-2 text-right num">
                         {(l.returned_qty ?? 0).toLocaleString()}
                       </td>

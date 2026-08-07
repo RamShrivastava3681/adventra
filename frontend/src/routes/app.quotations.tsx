@@ -96,14 +96,7 @@ type Customer = {
   postal_code: string | null;
 };
 
-const Q_STATUSES = [
-  "draft",
-  "sent",
-  "accepted",
-  "rejected",
-  "expired",
-  "converted_to_so",
-] as const;
+const Q_STATUSES = ["draft", "sent", "accepted", "rejected", "expired", "converted_to_so"] as const;
 
 const Q_STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
@@ -167,9 +160,7 @@ function QuotationsPage() {
     queryKey: ["quotations"],
     queryFn: async () => {
       const data = (await api.quotations.list()) as Q[];
-      return data.sort((a, b) =>
-        (b.quotation_date || "").localeCompare(a.quotation_date || ""),
-      );
+      return data.sort((a, b) => (b.quotation_date || "").localeCompare(a.quotation_date || ""));
     },
   });
   const productsQ = useQuery({
@@ -254,7 +245,11 @@ function QuotationsPage() {
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatTile label="Drafts" value={stats.drafts} icon={ScrollText} />
           <StatTile label="Sent" value={stats.sent} icon={Send} />
-          <StatTile label="Accepted value" value={fmtMoney(stats.acceptedValue)} icon={CircleDollarSign} />
+          <StatTile
+            label="Accepted value"
+            value={fmtMoney(stats.acceptedValue)}
+            icon={CircleDollarSign}
+          />
           <StatTile label="Converted" value={stats.converted} icon={ArrowRight} />
         </div>
 
@@ -380,7 +375,7 @@ function QuotationsPage() {
                                 className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
                                 title="Delete"
                               >
-                                <Trash2 className="h-3 w-3" />
+                                <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             )}
                             <Link
@@ -585,14 +580,16 @@ function QModal({
     const subtotal = round2(lineTotals.reduce((s, t) => s + t, 0));
     const totalDiscount = round2(lines.reduce((s, l) => s + lineDiscount(l), 0));
     const gstTotal = round2(
-      lines.reduce(
-        (s, l, i) =>
-          s + (lineTotals[i] * ((Number(l.gst_rate) || 0) / 100)),
-        0,
-      ),
+      lines.reduce((s, l, i) => s + lineTotals[i] * ((Number(l.gst_rate) || 0) / 100), 0),
     );
     const freight = Number(f.freight) || 0;
-    return { subtotal, totalDiscount, gstTotal, freight, grandTotal: round2(subtotal + gstTotal + freight) };
+    return {
+      subtotal,
+      totalDiscount,
+      gstTotal,
+      freight,
+      grandTotal: round2(subtotal + gstTotal + freight),
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [lines, f.freight]);
 
@@ -615,7 +612,8 @@ function QModal({
       for (const l of payloadLines) {
         if (!l.product_id) throw new Error("Every line must select a product from the catalogue");
         if (!(l.quantity > 0)) throw new Error("Quantity must be greater than zero");
-        if (l.unit_price < 0) throw new Error("Unit selling price must be greater than or equal to zero");
+        if (l.unit_price < 0)
+          throw new Error("Unit selling price must be greater than or equal to zero");
         if (
           l.updated_unit_price !== null &&
           (!Number.isFinite(l.updated_unit_price) || l.updated_unit_price < 0)
@@ -902,10 +900,7 @@ function QModal({
                   const gross = (Number(l.quantity) || 0) * effPrice(l);
                   const lineTotal = round2(gross - lineDiscount(l));
                   return (
-                    <div
-                      key={i}
-                      className="space-y-2 rounded-md border border-border/50 p-2"
-                    >
+                    <div key={i} className="space-y-2 rounded-md border border-border/50 p-2">
                       <div className="grid grid-cols-2 items-end gap-2 md:grid-cols-12">
                         <div className="col-span-2 md:col-span-3">
                           <L label="Product">
@@ -938,7 +933,11 @@ function QModal({
                           </L>
                         </div>
                         <div className="md:col-span-2 space-y-1.5">
-                          <L label={l.updated_unit_price !== "" ? "Unit price (original)" : "Unit price"}>
+                          <L
+                            label={
+                              l.updated_unit_price !== "" ? "Unit price (original)" : "Unit price"
+                            }
+                          >
                             <input
                               type="number"
                               min="0"
@@ -964,7 +963,9 @@ function QModal({
                           </L>
                           {l.updated_unit_price !== "" && editable && (
                             <div className="flex items-center justify-between text-[9px] text-muted-foreground">
-                              <span className="font-medium text-primary">Revision pending checker</span>
+                              <span className="font-medium text-primary">
+                                Revision pending checker
+                              </span>
                               <button
                                 type="button"
                                 onClick={() => setLine(i, { updated_unit_price: "" })}
@@ -984,7 +985,9 @@ function QModal({
                                 onChange={(e) =>
                                   setLine(i, {
                                     discount_type:
-                                      e.target.value === "" ? null : (e.target.value as "pct" | "amount"),
+                                      e.target.value === ""
+                                        ? null
+                                        : (e.target.value as "pct" | "amount"),
                                   })
                                 }
                                 disabled={!editable}
@@ -1102,15 +1105,19 @@ function QModal({
           {/* Status actions + save */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
             <div className="flex flex-wrap items-center gap-2">
-              {isEdit && canWrite && status === "draft" && approval !== "pending_review" && approval !== "approved" && (
-                <button
-                  type="button"
-                  onClick={() => changeStatus("sent", "Quotation sent")}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-blue-500/50 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-500/10"
-                >
-                  <Send className="h-3.5 w-3.5" /> Send to customer
-                </button>
-              )}
+              {isEdit &&
+                canWrite &&
+                status === "draft" &&
+                approval !== "pending_review" &&
+                approval !== "approved" && (
+                  <button
+                    type="button"
+                    onClick={() => changeStatus("sent", "Quotation sent")}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-blue-500/50 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-500/10"
+                  >
+                    <Send className="h-3.5 w-3.5" /> Send to customer
+                  </button>
+                )}
               {/* Maker → checker price approval. Available while the quote can
                   still change (draft / rejected / sent without a decision). */}
               {isEdit &&
@@ -1126,31 +1133,35 @@ function QModal({
                     <Send className="h-3.5 w-3.5" /> Submit for approval
                   </button>
                 )}
-              {isEdit && canWrite && status === "sent" && approval !== "pending_review" && approval !== "approved" && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => changeStatus("accepted", "Quotation accepted")}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-success/50 px-3 py-1.5 text-xs font-medium text-success hover:bg-success/10"
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Mark accepted
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => changeStatus("rejected", "Quotation rejected")}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
-                  >
-                    <Ban className="h-3.5 w-3.5" /> Mark rejected
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => changeStatus("expired", "Quotation marked expired")}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/40 px-3 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-500/10"
-                  >
-                    <Clock4 className="h-3.5 w-3.5" /> Mark expired
-                  </button>
-                </>
-              )}
+              {isEdit &&
+                canWrite &&
+                status === "sent" &&
+                approval !== "pending_review" &&
+                approval !== "approved" && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => changeStatus("accepted", "Quotation accepted")}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-success/50 px-3 py-1.5 text-xs font-medium text-success hover:bg-success/10"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" /> Mark accepted
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => changeStatus("rejected", "Quotation rejected")}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+                    >
+                      <Ban className="h-3.5 w-3.5" /> Mark rejected
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => changeStatus("expired", "Quotation marked expired")}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/40 px-3 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-500/10"
+                    >
+                      <Clock4 className="h-3.5 w-3.5" /> Mark expired
+                    </button>
+                  </>
+                )}
               {/* Convert is only possible after the checker approved the prices. */}
               {isEdit && canWrite && approval === "approved" && status !== "converted_to_so" && (
                 <button
@@ -1181,13 +1192,13 @@ function QModal({
               )}
               {approval === "rejected" && (
                 <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-destructive">
-                  <Ban className="h-3 w-3" /> Checker requested price revisions — update the
-                  updated prices and resubmit.
+                  <Ban className="h-3 w-3" /> Checker requested price revisions — update the updated
+                  prices and resubmit.
                 </span>
               )}
               <p className="w-full text-[10px] text-muted-foreground md:w-auto md:self-center">
-                Quotations never affect inventory or accounting — stock moves only after a
-                confirmed dispatch.
+                Quotations never affect inventory or accounting — stock moves only after a confirmed
+                dispatch.
               </p>
             </div>
             <div className="flex gap-2">

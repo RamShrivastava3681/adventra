@@ -4,7 +4,17 @@ import { useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, Trash2, X, Loader2, BookOpen, Wallet, ListTree, FileText, Scale } from "lucide-react";
+import {
+  Plus,
+  Trash2,
+  X,
+  Loader2,
+  BookOpen,
+  Wallet,
+  ListTree,
+  FileText,
+  Scale,
+} from "lucide-react";
 import { toast } from "sonner";
 import { BalanceSheetEntries } from "@/components/balance-sheet/BalanceSheetEntries";
 import { SearchableSelect } from "@/components/ui/searchable-select";
@@ -92,7 +102,10 @@ function ChartOfAccounts({ userId, isAdmin }: { userId?: string; isAdmin: boolea
     mutationFn: async (id: string) => {
       await api.chartOfAccounts.delete(id);
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["coa"] }); toast.success("Account removed"); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["coa"] });
+      toast.success("Account removed");
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -109,10 +122,14 @@ function ChartOfAccounts({ userId, isAdmin }: { userId?: string; isAdmin: boolea
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <div className="text-sm text-muted-foreground">
-          {rows.length} accounts · currency USD
-        </div>
-        <button onClick={() => { setEditing(null); setOpen(true); }} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+        <div className="text-sm text-muted-foreground">{rows.length} accounts · currency USD</div>
+        <button
+          onClick={() => {
+            setEditing(null);
+            setOpen(true);
+          }}
+          className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+        >
           <Plus className="h-4 w-4" /> New account
         </button>
       </div>
@@ -138,16 +155,33 @@ function ChartOfAccounts({ userId, isAdmin }: { userId?: string; isAdmin: boolea
                   {list.map((a: any) => (
                     <tr key={a.id} className="border-b border-border/50 hover:bg-muted/30">
                       <td className="py-2 font-mono">{a.code}</td>
-                      <td className="py-2">{a.name} {a.is_system && <span className="ml-2 text-[10px] uppercase tracking-widest text-muted-foreground">system</span>}</td>
+                      <td className="py-2">
+                        {a.name}{" "}
+                        {a.is_system && (
+                          <span className="ml-2 text-[10px] uppercase tracking-widest text-muted-foreground">
+                            system
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2 text-muted-foreground">{a.subtype ?? "—"}</td>
                       <td className="py-2 text-right">{Number(a.tax_rate).toFixed(2)}</td>
                       <td className="py-2">
-                        <span className={`text-xs ${a.status === "active" ? "text-emerald-600" : "text-muted-foreground"}`}>
+                        <span
+                          className={`text-xs ${a.status === "active" ? "text-emerald-600" : "text-muted-foreground"}`}
+                        >
                           {a.status}
                         </span>
                       </td>
                       <td className="py-2 text-right">
-                        <button onClick={() => { setEditing(a); setOpen(true); }} className="text-xs text-muted-foreground hover:text-foreground mr-3">Edit</button>
+                        <button
+                          onClick={() => {
+                            setEditing(a);
+                            setOpen(true);
+                          }}
+                          className="text-xs text-muted-foreground hover:text-foreground mr-3"
+                        >
+                          Edit
+                        </button>
                         {!a.is_system && (
                           <button
                             onClick={() => confirm("Delete this account?") && remove.mutate(a.id)}
@@ -171,14 +205,27 @@ function ChartOfAccounts({ userId, isAdmin }: { userId?: string; isAdmin: boolea
           initial={editing}
           userId={userId!}
           onClose={() => setOpen(false)}
-          onSaved={() => { setOpen(false); qc.invalidateQueries({ queryKey: ["coa"] }); }}
+          onSaved={() => {
+            setOpen(false);
+            qc.invalidateQueries({ queryKey: ["coa"] });
+          }}
         />
       )}
     </div>
   );
 }
 
-function AccountForm({ initial, userId, onClose, onSaved }: { initial: any; userId: string; onClose: () => void; onSaved: () => void }) {
+function AccountForm({
+  initial,
+  userId,
+  onClose,
+  onSaved,
+}: {
+  initial: any;
+  userId: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
   const [code, setCode] = useState(initial?.code ?? "");
   const [name, setName] = useState(initial?.name ?? "");
   const [type, setType] = useState(initial?.type ?? "expense");
@@ -192,7 +239,10 @@ function AccountForm({ initial, userId, onClose, onSaved }: { initial: any; user
     setSaving(true);
     try {
       const payload: any = {
-        code, name, type, subtype: subtype || null,
+        code,
+        name,
+        type,
+        subtype: subtype || null,
         tax_rate: Number(taxRate) || 0,
         description: description || null,
         status,
@@ -207,25 +257,37 @@ function AccountForm({ initial, userId, onClose, onSaved }: { initial: any; user
       onSaved();
     } catch (e: any) {
       toast.error(e.message ?? "Failed");
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm grid place-items-center p-4">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm">
       <div className="w-full max-w-lg rounded-lg border border-border bg-card p-6">
         <div className="flex justify-between mb-4">
           <div className="font-display text-lg">{initial ? "Edit account" : "New account"}</div>
-          <button onClick={onClose}><X className="h-4 w-4" /></button>
+          <button onClick={onClose}>
+            <X className="h-4 w-4" />
+          </button>
         </div>
         <div className="space-y-3">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-muted-foreground">Code</label>
-              <input value={code} onChange={(e) => setCode(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+              <input
+                value={code}
+                onChange={(e) => setCode(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              />
             </div>
             <div>
               <label className="text-xs text-muted-foreground">Status</label>
-              <select value={status} onChange={(e) => setStatus(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
+              <select
+                value={status}
+                onChange={(e) => setStatus(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              >
                 <option value="active">Active</option>
                 <option value="archived">Archived</option>
               </select>
@@ -233,32 +295,64 @@ function AccountForm({ initial, userId, onClose, onSaved }: { initial: any; user
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Name</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-muted-foreground">Type</label>
-              <select value={type} onChange={(e) => setType(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm">
-                {ACCOUNT_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+              >
+                {ACCOUNT_TYPES.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.label}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
               <label className="text-xs text-muted-foreground">Subtype</label>
-              <input value={subtype} onChange={(e) => setSubtype(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" placeholder="e.g. bank, operating" />
+              <input
+                value={subtype}
+                onChange={(e) => setSubtype(e.target.value)}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+                placeholder="e.g. bank, operating"
+              />
             </div>
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Tax rate %</label>
-            <input value={taxRate} onChange={(e) => setTaxRate(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+            <input
+              value={taxRate}
+              onChange={(e) => setTaxRate(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Description</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} rows={2} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
           </div>
         </div>
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="px-3 py-1.5 text-sm">Cancel</button>
-          <button onClick={save} disabled={saving} className="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground">
+          <button onClick={onClose} className="px-3 py-1.5 text-sm">
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="rounded-md bg-primary px-4 py-1.5 text-sm text-primary-foreground"
+          >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Save"}
           </button>
         </div>
@@ -285,7 +379,10 @@ function ManualJournal({ userId }: { userId?: string }) {
     queryKey: ["coa"],
     queryFn: async () => {
       const data = await api.chartOfAccounts.list();
-      return data.filter((a: any) => a.status === "active").map((a: any) => ({ id: a.id, code: a.code, name: a.name, type: a.type })).sort((a: any, b: any) => a.code?.localeCompare(b.code ?? "") ?? 0);
+      return data
+        .filter((a: any) => a.status === "active")
+        .map((a: any) => ({ id: a.id, code: a.code, name: a.name, type: a.type }))
+        .sort((a: any, b: any) => a.code?.localeCompare(b.code ?? "") ?? 0);
     },
   });
 
@@ -296,13 +393,21 @@ function ManualJournal({ userId }: { userId?: string }) {
   }, [lines]);
 
   const updateLine = (i: number, patch: Partial<Line>) =>
-    setLines(lines.map((l, idx) => idx === i ? { ...l, ...patch } : l));
+    setLines(lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
 
   const post = async () => {
     if (!userId) return;
-    if (!totals.balanced) { toast.error("Debits must equal credits"); return; }
-    const validLines = lines.filter((l) => l.account_id && (Number(l.debit) > 0 || Number(l.credit) > 0));
-    if (validLines.length < 2) { toast.error("Need at least 2 lines"); return; }
+    if (!totals.balanced) {
+      toast.error("Debits must equal credits");
+      return;
+    }
+    const validLines = lines.filter(
+      (l) => l.account_id && (Number(l.debit) > 0 || Number(l.credit) > 0),
+    );
+    if (validLines.length < 2) {
+      toast.error("Need at least 2 lines");
+      return;
+    }
     setSaving(true);
     try {
       const j = await api.journals.create({
@@ -315,7 +420,8 @@ function ManualJournal({ userId }: { userId?: string }) {
       });
       // Note: journal lines creation needs to be handled via backend or directly
       toast.success("Journal posted");
-      setReference(""); setDescription("");
+      setReference("");
+      setDescription("");
       setLines([
         { account_id: "", debit: "", credit: "", description: "" },
         { account_id: "", debit: "", credit: "", description: "" },
@@ -323,7 +429,9 @@ function ManualJournal({ userId }: { userId?: string }) {
       qc.invalidateQueries({ queryKey: ["journals"] });
     } catch (e: any) {
       toast.error(e.message ?? "Failed");
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -332,15 +440,28 @@ function ManualJournal({ userId }: { userId?: string }) {
         <div className="grid grid-cols-3 gap-3">
           <div>
             <label className="text-xs text-muted-foreground">Date</label>
-            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Reference</label>
-            <input value={reference} onChange={(e) => setReference(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+            <input
+              value={reference}
+              onChange={(e) => setReference(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Description</label>
-            <input value={description} onChange={(e) => setDescription(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm" />
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
+            />
           </div>
         </div>
 
@@ -370,13 +491,35 @@ function ManualJournal({ userId }: { userId?: string }) {
                   />
                 </td>
                 <td className="py-1">
-                  <input value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm" />
+                  <input
+                    value={l.description}
+                    onChange={(e) => updateLine(i, { description: e.target.value })}
+                    className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+                  />
                 </td>
                 <td className="py-1">
-                  <input value={l.debit} onChange={(e) => updateLine(i, { debit: e.target.value, credit: e.target.value ? "" : l.credit })} className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-right" />
+                  <input
+                    value={l.debit}
+                    onChange={(e) =>
+                      updateLine(i, {
+                        debit: e.target.value,
+                        credit: e.target.value ? "" : l.credit,
+                      })
+                    }
+                    className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-right"
+                  />
                 </td>
                 <td className="py-1">
-                  <input value={l.credit} onChange={(e) => updateLine(i, { credit: e.target.value, debit: e.target.value ? "" : l.debit })} className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-right" />
+                  <input
+                    value={l.credit}
+                    onChange={(e) =>
+                      updateLine(i, {
+                        credit: e.target.value,
+                        debit: e.target.value ? "" : l.debit,
+                      })
+                    }
+                    className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-right"
+                  />
                 </td>
                 <td className="py-1 text-center">
                   {lines.length > 2 && (
@@ -389,7 +532,12 @@ function ManualJournal({ userId }: { userId?: string }) {
             ))}
             <tr>
               <td colSpan={2} className="pt-2">
-                <button onClick={() => setLines([...lines, { account_id: "", debit: "", credit: "", description: "" }])} className="text-xs text-muted-foreground hover:text-foreground">
+                <button
+                  onClick={() =>
+                    setLines([...lines, { account_id: "", debit: "", credit: "", description: "" }])
+                  }
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
                   <Plus className="inline h-3 w-3" /> Add line
                 </button>
               </td>
@@ -401,10 +549,18 @@ function ManualJournal({ userId }: { userId?: string }) {
         </table>
 
         <div className="flex items-center justify-between">
-          <div className={`text-xs ${totals.balanced ? "text-emerald-600" : "text-muted-foreground"}`}>
-            {totals.balanced ? "✓ Balanced" : `Out of balance by ${fmtMoney(Math.abs(totals.d - totals.c))}`}
+          <div
+            className={`text-xs ${totals.balanced ? "text-emerald-600" : "text-muted-foreground"}`}
+          >
+            {totals.balanced
+              ? "✓ Balanced"
+              : `Out of balance by ${fmtMoney(Math.abs(totals.d - totals.c))}`}
           </div>
-          <button onClick={post} disabled={saving || !totals.balanced} className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50">
+          <button
+            onClick={post}
+            disabled={saving || !totals.balanced}
+            className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50"
+          >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : "Post journal"}
           </button>
         </div>
@@ -445,11 +601,19 @@ function JournalHistory() {
               const isOpen = expanded === j.id;
               return (
                 <>
-                  <tr key={j.id} className="border-b border-border/50 hover:bg-muted/30 cursor-pointer" onClick={() => setExpanded(isOpen ? null : j.id)}>
+                  <tr
+                    key={j.id}
+                    className="border-b border-border/50 hover:bg-muted/30 cursor-pointer"
+                    onClick={() => setExpanded(isOpen ? null : j.id)}
+                  >
                     <td className="py-2">{fmtDate(j.journal_date)}</td>
                     <td className="py-2 font-mono text-xs">{j.reference ?? "—"}</td>
                     <td className="py-2">{j.description ?? "—"}</td>
-                    <td className="py-2"><span className="text-xs uppercase text-muted-foreground tracking-widest">{j.source}</span></td>
+                    <td className="py-2">
+                      <span className="text-xs uppercase text-muted-foreground tracking-widest">
+                        {j.source}
+                      </span>
+                    </td>
                     <td className="py-2 text-right">{fmtMoney(total)}</td>
                   </tr>
                   {isOpen && (
@@ -467,10 +631,16 @@ function JournalHistory() {
                           <tbody>
                             {(j.lines ?? []).map((l: any) => (
                               <tr key={l.id}>
-                                <td>{l.account?.code} — {l.account?.name}</td>
+                                <td>
+                                  {l.account?.code} — {l.account?.name}
+                                </td>
                                 <td className="text-muted-foreground">{l.description ?? "—"}</td>
-                                <td className="text-right">{Number(l.debit) > 0 ? fmtMoney(l.debit) : ""}</td>
-                                <td className="text-right">{Number(l.credit) > 0 ? fmtMoney(l.credit) : ""}</td>
+                                <td className="text-right">
+                                  {Number(l.debit) > 0 ? fmtMoney(l.debit) : ""}
+                                </td>
+                                <td className="text-right">
+                                  {Number(l.credit) > 0 ? fmtMoney(l.credit) : ""}
+                                </td>
                               </tr>
                             ))}
                           </tbody>
@@ -482,7 +652,11 @@ function JournalHistory() {
               );
             })}
             {!rows.length && (
-              <tr><td colSpan={5} className="py-8 text-center text-muted-foreground">No journals yet.</td></tr>
+              <tr>
+                <td colSpan={5} className="py-8 text-center text-muted-foreground">
+                  No journals yet.
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
@@ -499,7 +673,9 @@ function AccountTransactions() {
     queryKey: ["coa"],
     queryFn: async () => {
       const data = await api.chartOfAccounts.list();
-      return data.map((a: any) => ({ id: a.id, code: a.code, name: a.name, type: a.type })).sort((a: any, b: any) => a.code?.localeCompare(b.code ?? "") ?? 0);
+      return data
+        .map((a: any) => ({ id: a.id, code: a.code, name: a.name, type: a.type }))
+        .sort((a: any, b: any) => a.code?.localeCompare(b.code ?? "") ?? 0);
     },
   });
 
@@ -512,8 +688,11 @@ function AccountTransactions() {
     },
   });
 
-  const rows = (txns.data ?? []).slice().sort((a: any, b: any) =>
-    (a.journal?.journal_date ?? "").localeCompare(b.journal?.journal_date ?? ""));
+  const rows = (txns.data ?? [])
+    .slice()
+    .sort((a: any, b: any) =>
+      (a.journal?.journal_date ?? "").localeCompare(b.journal?.journal_date ?? ""),
+    );
 
   let running = 0;
   const withBal = rows.map((r: any) => {
@@ -557,16 +736,26 @@ function AccountTransactions() {
               {withBal.map((r: any) => (
                 <tr key={r.id} className="border-b border-border/50">
                   <td className="py-2">{fmtDate(r.journal?.journal_date)}</td>
-                  <td className="py-2 text-xs uppercase text-muted-foreground tracking-widest">{r.journal?.source}</td>
+                  <td className="py-2 text-xs uppercase text-muted-foreground tracking-widest">
+                    {r.journal?.source}
+                  </td>
                   <td className="py-2 font-mono text-xs">{r.journal?.reference ?? "—"}</td>
                   <td className="py-2">{r.description ?? r.journal?.description ?? "—"}</td>
-                  <td className="py-2 text-right">{Number(r.debit) > 0 ? fmtMoney(r.debit) : ""}</td>
-                  <td className="py-2 text-right">{Number(r.credit) > 0 ? fmtMoney(r.credit) : ""}</td>
+                  <td className="py-2 text-right">
+                    {Number(r.debit) > 0 ? fmtMoney(r.debit) : ""}
+                  </td>
+                  <td className="py-2 text-right">
+                    {Number(r.credit) > 0 ? fmtMoney(r.credit) : ""}
+                  </td>
                   <td className="py-2 text-right">{fmtMoney(r.running)}</td>
                 </tr>
               ))}
               {!withBal.length && (
-                <tr><td colSpan={7} className="py-8 text-center text-muted-foreground">No transactions.</td></tr>
+                <tr>
+                  <td colSpan={7} className="py-8 text-center text-muted-foreground">
+                    No transactions.
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>

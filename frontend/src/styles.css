@@ -61,65 +61,65 @@
   --radius: 12px;
 
   /* Surface & backgrounds */
-  --background: #F8FAFC;
-  --foreground: #0F172A;
+  --background: #f8fafc;
+  --foreground: #0f172a;
 
   /* Cards */
-  --card: #FFFFFF;
-  --card-foreground: #0F172A;
+  --card: #ffffff;
+  --card-foreground: #0f172a;
 
-  --popover: #FFFFFF;
-  --popover-foreground: #0F172A;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
 
   /* Primary: bright cyan accent */
-  --primary: #00B8FF;
-  --primary-foreground: #FFFFFF;
+  --primary: #00b8ff;
+  --primary-foreground: #ffffff;
 
   /* Secondary: subtle light surface */
-  --secondary: #F1F5F9;
-  --secondary-foreground: #0F172A;
+  --secondary: #f1f5f9;
+  --secondary-foreground: #0f172a;
 
   /* Muted: light grey surfaces */
-  --muted: #F1F5F9;
-  --muted-foreground: #64748B;
+  --muted: #f1f5f9;
+  --muted-foreground: #64748b;
 
   /* Accent: cyan (same as primary for consistency) */
-  --accent: #00B8FF;
-  --accent-foreground: #FFFFFF;
+  --accent: #00b8ff;
+  --accent-foreground: #ffffff;
 
   /* Destructive */
-  --destructive: #DC2626;
-  --destructive-foreground: #FFFFFF;
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
 
   /* Warning */
-  --warning: #F59E0B;
-  --warning-foreground: #FFFFFF;
+  --warning: #f59e0b;
+  --warning-foreground: #ffffff;
 
   /* Success */
-  --success: #16A34A;
-  --success-foreground: #FFFFFF;
+  --success: #16a34a;
+  --success-foreground: #ffffff;
 
   /* Borders & inputs */
-  --border: #E2E8F0;
-  --input: #FFFFFF;
-  --ring: #00B8FF;
+  --border: #e2e8f0;
+  --input: #ffffff;
+  --ring: #00b8ff;
 
   /* Chart colors — fintech palette */
-  --chart-1: #00B8FF;     /* Cyan */
-  --chart-2: #0066FF;     /* Blue */
-  --chart-3: #7C3AED;     /* Purple */
-  --chart-4: #F59E0B;     /* Amber */
-  --chart-5: #16A34A;     /* Green */
+  --chart-1: #00b8ff; /* Cyan */
+  --chart-2: #0066ff; /* Blue */
+  --chart-3: #7c3aed; /* Purple */
+  --chart-4: #f59e0b; /* Amber */
+  --chart-5: #16a34a; /* Green */
 
   /* Sidebar — pristine white with cyan accents */
-  --sidebar: #FFFFFF;
-  --sidebar-foreground: #0F172A;
-  --sidebar-primary: #00B8FF;
-  --sidebar-primary-foreground: #FFFFFF;
-  --sidebar-accent: #F0F9FF;
-  --sidebar-accent-foreground: #0F172A;
-  --sidebar-border: #E2E8F0;
-  --sidebar-ring: #00B8FF;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0f172a;
+  --sidebar-primary: #00b8ff;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f0f9ff;
+  --sidebar-accent-foreground: #0f172a;
+  --sidebar-border: #e2e8f0;
+  --sidebar-ring: #00b8ff;
 }
 
 @layer base {
@@ -129,7 +129,8 @@
     transition-duration: 200ms;
     transition-timing-function: ease-out;
   }
-  html, body {
+  html,
+  body {
     background-color: var(--color-background);
     color: var(--color-foreground);
   }
@@ -139,11 +140,15 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
-  h1, h2, h3, .font-display {
+  h1,
+  h2,
+  h3,
+  .font-display {
     font-family: var(--font-display);
     letter-spacing: -0.02em;
   }
-  .num, .font-mono {
+  .num,
+  .font-mono {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
   }
@@ -172,10 +177,14 @@ input[type="number"] {
 @layer utilities {
   /* Card shadow — soft subtle elevation */
   .shadow-card {
-    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 1px 2px rgba(15, 23, 42, 0.02);
+    box-shadow:
+      0 1px 3px rgba(15, 23, 42, 0.04),
+      0 1px 2px rgba(15, 23, 42, 0.02);
   }
   .shadow-card-hover {
-    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06), 0 1px 3px rgba(15, 23, 42, 0.04);
+    box-shadow:
+      0 4px 20px rgba(15, 23, 42, 0.06),
+      0 1px 3px rgba(15, 23, 42, 0.04);
   }
   .shadow-dropdown {
     box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
@@ -184,7 +193,9 @@ input[type="number"] {
     box-shadow: 0 20px 60px rgba(15, 23, 42, 0.12);
   }
   .shadow-glow {
-    box-shadow: 0 0 0 1px rgba(0, 184, 255, 0.2), 0 8px 24px -4px rgba(0, 184, 255, 0.15);
+    box-shadow:
+      0 0 0 1px rgba(0, 184, 255, 0.2),
+      0 8px 24px -4px rgba(0, 184, 255, 0.15);
   }
   .border-hairline {
     border: 1px solid rgba(226, 232, 240, 0.7);
@@ -202,7 +213,7 @@ input[type="number"] {
     text-wrap: balance;
   }
   .bg-vault {
-    background-color: #F1F5F9;
+    background-color: #f1f5f9;
   }
   .shadow-vault {
     box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
@@ -214,25 +225,25 @@ input[type="number"] {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #64748B;
+    color: #64748b;
     padding: 0.75rem 1rem;
     text-align: left;
-    border-bottom: 1px solid #E2E8F0;
-    background: #F8FAFC;
+    border-bottom: 1px solid #e2e8f0;
+    background: #f8fafc;
   }
   .table-premium td {
     padding: 0.75rem 1rem;
-    border-bottom: 1px solid #F1F5F9;
+    border-bottom: 1px solid #f1f5f9;
     font-size: 0.8125rem;
   }
   .table-premium tr:hover td {
-    background-color: #F8FAFC;
+    background-color: #f8fafc;
   }
   .table-premium tr:nth-child(even) td {
-    background-color: #FAFBFC;
+    background-color: #fafbfc;
   }
   .table-premium tr:nth-child(even):hover td {
-    background-color: #F0F9FF;
+    background-color: #f0f9ff;
   }
 
   /* Button styles */
@@ -240,9 +251,10 @@ input[type="number"] {
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 0.5rem;    border-radius: 12px;
-    background: linear-gradient(135deg, #00B8FF, #0099D9);
-    color: #FFFFFF;
+    gap: 0.5rem;
+    border-radius: 12px;
+    background: linear-gradient(135deg, #00b8ff, #0099d9);
+    color: #ffffff;
     font-size: 0.8125rem;
     font-weight: 500;
     padding: 0.625rem 1.25rem;
@@ -252,7 +264,7 @@ input[type="number"] {
     border: none;
   }
   .btn-primary:hover {
-    background: #0099D9;
+    background: #0099d9;
     box-shadow: 0 4px 12px rgba(0, 184, 255, 0.3);
     transform: translateY(-1px);
   }
@@ -265,18 +277,18 @@ input[type="number"] {
     justify-content: center;
     gap: 0.5rem;
     border-radius: 12px;
-    background: #FFFFFF;
-    color: #0F172A;
+    background: #ffffff;
+    color: #0f172a;
     font-size: 0.8125rem;
     font-weight: 500;
     padding: 0.625rem 1.25rem;
-    border: 1px solid #E2E8F0;
+    border: 1px solid #e2e8f0;
     transition: all 200ms ease;
     cursor: pointer;
   }
   .btn-secondary:hover {
-    border-color: #00B8FF;
-    color: #00B8FF;
+    border-color: #00b8ff;
+    color: #00b8ff;
     box-shadow: 0 1px 3px rgba(0, 184, 255, 0.1);
   }
   .btn-danger {
@@ -285,24 +297,24 @@ input[type="number"] {
     justify-content: center;
     gap: 0.5rem;
     border-radius: 12px;
-    background: #FEF2F2;
-    color: #DC2626;
+    background: #fef2f2;
+    color: #dc2626;
     font-size: 0.8125rem;
     font-weight: 500;
     padding: 0.625rem 1.25rem;
-    border: 1px solid #FECACA;
+    border: 1px solid #fecaca;
     transition: all 200ms ease;
     cursor: pointer;
   }
   .btn-danger:hover {
-    background: #FEE2E2;
-    border-color: #FCA5A5;
+    background: #fee2e2;
+    border-color: #fca5a5;
   }
 
   /* KPI Metric card */
   .metric-card {
-    background: #FFFFFF;
-    border: 1px solid #E2E8F0;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
     border-radius: 16px;
     padding: 1.5rem;
     box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
@@ -316,7 +328,7 @@ input[type="number"] {
     font-size: 1.75rem;
     font-weight: 700;
     letter-spacing: -0.02em;
-    color: #0F172A;
+    color: #0f172a;
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
     line-height: 1.2;
@@ -325,7 +337,7 @@ input[type="number"] {
     font-size: 0.7rem;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #64748B;
+    color: #64748b;
     font-weight: 500;
     margin-bottom: 0.25rem;
   }

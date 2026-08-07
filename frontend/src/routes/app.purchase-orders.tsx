@@ -426,7 +426,7 @@ function PurchaseOrdersPage() {
                                 className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
                                 title="Delete"
                               >
-                                <Trash2 className="h-3 w-3" />
+                                <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             )}
                           </div>
@@ -2047,7 +2047,7 @@ function GRNsModal({
                               : "border-border text-muted-foreground hover:border-destructive hover:text-destructive"
                           }`}
                         >
-                          <Trash2 className="h-3 w-3" />
+                          <Trash2 className="h-3.5 w-3.5" />
                           {pending === "delete" ? "Delete?" : ""}
                         </button>
                       )}

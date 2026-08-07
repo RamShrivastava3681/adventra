@@ -27,8 +27,18 @@ function PreviewPage() {
     },
   });
 
-  if (invQ.isLoading) return <div className="grid min-h-screen place-items-center text-sm text-muted-foreground">Loading invoice…</div>;
-  if (!invQ.data) return <div className="grid min-h-screen place-items-center text-sm text-muted-foreground">Invoice not found.</div>;
+  if (invQ.isLoading)
+    return (
+      <div className="grid min-h-screen place-items-center text-sm text-muted-foreground">
+        Loading invoice…
+      </div>
+    );
+  if (!invQ.data)
+    return (
+      <div className="grid min-h-screen place-items-center text-sm text-muted-foreground">
+        Invoice not found.
+      </div>
+    );
 
   const i = invQ.data as Record<string, unknown> & { debtor?: Record<string, unknown> };
   const tpl = (tplQ.data as Record<string, unknown> | null) ?? {};
@@ -51,7 +61,9 @@ function PreviewPage() {
   // `amount` is the net receivable (grand total − advances) — the document
   // total that prints stays the full value with the advance shown separately.
   const netAmount = Number(i.amount ?? Math.max(0, grandTotal - advanceDeducted));
-  const subtotal = Number(i.subtotal_goods ?? i.subtotal ?? Math.max(0, grandTotal - Number(i.tax_amount ?? 0)));
+  const subtotal = Number(
+    i.subtotal_goods ?? i.subtotal ?? Math.max(0, grandTotal - Number(i.tax_amount ?? 0)),
+  );
   const totalDiscount = Number(i.total_discount ?? 0);
   const gstTotal = Number(i.gst_total ?? i.tax_amount ?? 0);
   const freight = Number(i.freight ?? 0);
@@ -59,7 +71,9 @@ function PreviewPage() {
   const balanceOutstanding = Math.max(0, netAmount - amountReceived);
 
   const debtor = i.debtor ?? {};
-  const partyAddress = [debtor.address_line, debtor.city, debtor.country].filter(Boolean).join(", ");
+  const partyAddress = [debtor.address_line, debtor.city, debtor.country]
+    .filter(Boolean)
+    .join(", ");
 
   return (
     <PrintShell

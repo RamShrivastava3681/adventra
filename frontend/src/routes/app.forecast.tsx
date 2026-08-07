@@ -4,15 +4,52 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
 import { useSignedImageUrl } from "@/lib/s3-image";
-import { bucketMovementsByMonth, currentMonthBucket, forecastSKU, MONTH_NAMES, computeVelocityByCategory, computePricingStrategy, recomputeTimeline, type ForecastResult, type CalculationBreakdown, type MomentumTag, type VelocityTag, type PricingStrategyResult, type CategoryVelocityInput } from "@/lib/forecast-engine";
 import {
-  TrendingUp, TrendingDown, AlertTriangle, Package, Search, BarChart3, RefreshCw,
-  CalendarClock, Clock, Truck, ArrowUpDown, ArrowRight, Zap, ArrowUp, ArrowDown, Minus,
-  Loader2, Save, Pencil,
+  bucketMovementsByMonth,
+  currentMonthBucket,
+  forecastSKU,
+  MONTH_NAMES,
+  computeVelocityByCategory,
+  computePricingStrategy,
+  recomputeTimeline,
+  type ForecastResult,
+  type CalculationBreakdown,
+  type MomentumTag,
+  type VelocityTag,
+  type PricingStrategyResult,
+  type CategoryVelocityInput,
+} from "@/lib/forecast-engine";
+import {
+  TrendingUp,
+  TrendingDown,
+  AlertTriangle,
+  Package,
+  Search,
+  BarChart3,
+  RefreshCw,
+  CalendarClock,
+  Clock,
+  Truck,
+  ArrowUpDown,
+  ArrowRight,
+  Zap,
+  ArrowUp,
+  ArrowDown,
+  Minus,
+  Loader2,
+  Save,
+  Pencil,
 } from "lucide-react";
 import {
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  Area, AreaChart, BarChart, Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Area,
+  AreaChart,
+  BarChart,
+  Bar,
 } from "recharts";
 import { toast } from "sonner";
 
@@ -21,15 +58,28 @@ export const Route = createFileRoute("/app/forecast")({
 });
 
 type Product = {
-  id: string; sku: string; name: string; category: string | null;
-  reorder_level: number; max_stock: number; lead_time_days: number;
+  id: string;
+  sku: string;
+  name: string;
+  category: string | null;
+  reorder_level: number;
+  max_stock: number;
+  lead_time_days: number;
   safety_stock_days: number;
-  unit_price: number; unit_cost: number;
-  minimum_gross_margin_percentage: number | null; status: string;
+  unit_price: number;
+  unit_cost: number;
+  minimum_gross_margin_percentage: number | null;
+  status: string;
   image_url: string | null;
 };
 
-type Analysis = { product: Product; stock: number; forecast: ForecastResult; velocityTag: VelocityTag; pricingStrategy: PricingStrategyResult | null };
+type Analysis = {
+  product: Product;
+  stock: number;
+  forecast: ForecastResult;
+  velocityTag: VelocityTag;
+  pricingStrategy: PricingStrategyResult | null;
+};
 
 // Deep-convert snake_case object keys to camelCase (the backend transform
 // middleware snake_cases every response key, so we restore them here).
@@ -49,8 +99,12 @@ function snakeToCamelDeep(value: unknown): any {
 function ForecastPage() {
   const queryClient = useQueryClient();
   const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<"all" | "reorder" | "fast" | "slow" | "accelerating" | "declining" | "out" | "critical">("all");
-  const [sortBy, setSortBy] = useState<"velocity" | "reorder" | "cover" | "stockout" | "trend">("reorder");
+  const [filter, setFilter] = useState<
+    "all" | "reorder" | "fast" | "slow" | "accelerating" | "declining" | "out" | "critical"
+  >("all");
+  const [sortBy, setSortBy] = useState<"velocity" | "reorder" | "cover" | "stockout" | "trend">(
+    "reorder",
+  );
   const [expanded, setExpanded] = useState<string | null>(null);
 
   // Tick every minute so date-sensitive fields (estimatedStockoutDate,
@@ -66,16 +120,25 @@ function ForecastPage() {
     queryKey: ["products-forecast"],
     queryFn: async () => {
       const data = await api.products.list();
-      return data.filter((p: any) => p.status === "active").map((p: any) => ({
-        id: p.id, sku: p.sku, name: p.name, category: p.category,
-        reorder_level: p.reorderLevel ?? p.reorder_level, max_stock: p.maxStock ?? p.max_stock,
-        lead_time_days: p.leadTimeDays ?? p.lead_time_days, safety_stock_days: p.safetyStockDays ?? p.safety_stock_days ?? 30,
-        unit_price: p.unitPrice ?? p.unit_price,
-        unit_cost: p.unitCost ?? p.unit_cost,
-        minimum_gross_margin_percentage: p.minimumGrossMarginPercentage ?? p.minimum_gross_margin_percentage ?? null,
-        status: p.status,
-        image_url: p.imageUrl ?? p.image_url ?? null,
-      })).sort((a: any, b: any) => a.sku?.localeCompare(b.sku ?? "") ?? 0);
+      return data
+        .filter((p: any) => p.status === "active")
+        .map((p: any) => ({
+          id: p.id,
+          sku: p.sku,
+          name: p.name,
+          category: p.category,
+          reorder_level: p.reorderLevel ?? p.reorder_level,
+          max_stock: p.maxStock ?? p.max_stock,
+          lead_time_days: p.leadTimeDays ?? p.lead_time_days,
+          safety_stock_days: p.safetyStockDays ?? p.safety_stock_days ?? 30,
+          unit_price: p.unitPrice ?? p.unit_price,
+          unit_cost: p.unitCost ?? p.unit_cost,
+          minimum_gross_margin_percentage:
+            p.minimumGrossMarginPercentage ?? p.minimum_gross_margin_percentage ?? null,
+          status: p.status,
+          image_url: p.imageUrl ?? p.image_url ?? null,
+        }))
+        .sort((a: any, b: any) => a.sku?.localeCompare(b.sku ?? "") ?? 0);
     },
     refetchInterval: 60_000, // keep SKU data current (lead times, prices, …)
   });
@@ -94,7 +157,12 @@ function ForecastPage() {
       // Live stock counts CONFIRMED movements only (drafts/cancelled don't move stock)
       return data
         .filter((m: any) => (m.status ?? "confirmed") === "confirmed")
-        .map((m: any) => ({ product_id: m.productId ?? m.product_id, direction: m.direction, quantity: m.quantity, movement_date: m.movementDate ?? m.movement_date }));
+        .map((m: any) => ({
+          product_id: m.productId ?? m.product_id,
+          direction: m.direction,
+          quantity: m.quantity,
+          movement_date: m.movementDate ?? m.movement_date,
+        }));
     },
     refetchInterval: 60_000, // live stock levels — sales/stock-ins flow in every minute
   });
@@ -129,14 +197,18 @@ function ForecastPage() {
       const productMap = new Map<string, any>();
       for (const p of fv.products) {
         productMap.set(p.id, {
-          id: p.id, sku: p.sku, name: p.name, category: p.category,
+          id: p.id,
+          sku: p.sku,
+          name: p.name,
+          category: p.category,
           reorder_level: p.reorderLevel ?? p.reorder_level ?? 0,
           max_stock: p.maxStock ?? p.max_stock ?? 0,
           lead_time_days: p.leadTimeDays ?? p.lead_time_days ?? 14,
           safety_stock_days: p.safetyStockDays ?? p.safety_stock_days ?? 30,
           unit_price: p.unitPrice ?? p.unit_price ?? 0,
           unit_cost: p.unitCost ?? p.unit_cost ?? 0,
-          minimum_gross_margin_percentage: p.minimumGrossMarginPercentage ?? p.minimum_gross_margin_percentage ?? null,
+          minimum_gross_margin_percentage:
+            p.minimumGrossMarginPercentage ?? p.minimum_gross_margin_percentage ?? null,
           status: p.status ?? "active",
           image_url: p.imageUrl ?? p.image_url ?? null,
         });
@@ -166,10 +238,16 @@ function ForecastPage() {
         const curMonthKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
         let currentMonthOutbound = 0;
         for (const m of moves) {
-          if (m.direction === "out" && (m.movement_date ?? "").slice(0, 7) === curMonthKey) currentMonthOutbound += Number(m.quantity);
+          if (m.direction === "out" && (m.movement_date ?? "").slice(0, 7) === curMonthKey)
+            currentMonthOutbound += Number(m.quantity);
         }
 
-        const f = recomputeTimeline(snapshot.forecast as ForecastResult, stock, product.lead_time_days, currentMonthOutbound);
+        const f = recomputeTimeline(
+          snapshot.forecast as ForecastResult,
+          stock,
+          product.lead_time_days,
+          currentMonthOutbound,
+        );
 
         rows.push({
           product,
@@ -236,7 +314,13 @@ function ForecastPage() {
         config: { safetyStockDays: Number(p.safety_stock_days) || 30 },
         currentMonth,
       });
-      return { product: p, stock, forecast: f, velocityTag: "dead" as VelocityTag, pricingStrategy: null as PricingStrategyResult | null };
+      return {
+        product: p,
+        stock,
+        forecast: f,
+        velocityTag: "dead" as VelocityTag,
+        pricingStrategy: null as PricingStrategyResult | null,
+      };
     });
 
     // 2. Compute category-based velocity for all SKUs
@@ -277,10 +361,16 @@ function ForecastPage() {
 
   const filtered = useMemo(() => {
     let r = analyses.filter((a) => {
-      if (q && !a.product.sku.toLowerCase().includes(q.toLowerCase()) && !a.product.name.toLowerCase().includes(q.toLowerCase())) return false;
+      if (
+        q &&
+        !a.product.sku.toLowerCase().includes(q.toLowerCase()) &&
+        !a.product.name.toLowerCase().includes(q.toLowerCase())
+      )
+        return false;
       if (filter === "reorder" && a.forecast.recommendedReorder <= 0) return false;
       if (filter === "fast" && a.velocityTag !== "fast_mover") return false;
-      if (filter === "slow" && a.velocityTag !== "slow_mover" && a.velocityTag !== "dead") return false;
+      if (filter === "slow" && a.velocityTag !== "slow_mover" && a.velocityTag !== "dead")
+        return false;
       if (filter === "accelerating" && a.forecast.momentumTag !== "accelerating") return false;
       if (filter === "declining" && a.forecast.momentumTag !== "declining") return false;
       if (filter === "out" && a.stock > 0) return false;
@@ -290,7 +380,10 @@ function ForecastPage() {
     r.sort((a, b) => {
       if (sortBy === "velocity") return b.forecast.avgMonthly - a.forecast.avgMonthly;
       if (sortBy === "cover") return a.forecast.daysOfCover - b.forecast.daysOfCover;
-      if (sortBy === "stockout") return (a.forecast.estimatedStockoutDate ?? "9999-99-99").localeCompare(b.forecast.estimatedStockoutDate ?? "9999-99-99");
+      if (sortBy === "stockout")
+        return (a.forecast.estimatedStockoutDate ?? "9999-99-99").localeCompare(
+          b.forecast.estimatedStockoutDate ?? "9999-99-99",
+        );
       if (sortBy === "trend") return Math.abs(b.forecast.trend) - Math.abs(a.forecast.trend);
       return b.forecast.recommendedReorder - a.forecast.recommendedReorder;
     });
@@ -298,9 +391,23 @@ function ForecastPage() {
   }, [analyses, q, filter, sortBy]);
 
   const summary = useMemo(() => {
-    let toReorder = 0, reorderQty = 0, reorderValue = 0, fast = 0, slow = 0, dead = 0, accelerating = 0, declining = 0, inactive = 0, out = 0, critical = 0;
+    let toReorder = 0,
+      reorderQty = 0,
+      reorderValue = 0,
+      fast = 0,
+      slow = 0,
+      dead = 0,
+      accelerating = 0,
+      declining = 0,
+      inactive = 0,
+      out = 0,
+      critical = 0;
     for (const a of analyses) {
-      if (a.forecast.recommendedReorder > 0) { toReorder++; reorderQty += a.forecast.recommendedReorder; reorderValue += a.forecast.recommendedReorder * Number(a.product.unit_cost); }
+      if (a.forecast.recommendedReorder > 0) {
+        toReorder++;
+        reorderQty += a.forecast.recommendedReorder;
+        reorderValue += a.forecast.recommendedReorder * Number(a.product.unit_cost);
+      }
       if (a.velocityTag === "fast_mover") fast++;
       if (a.velocityTag === "slow_mover") slow++;
       if (a.velocityTag === "dead") dead++;
@@ -310,7 +417,19 @@ function ForecastPage() {
       if (a.stock <= 0) out++;
       if (a.forecast.stockoutUrgency === "critical") critical++;
     }
-    return { toReorder, reorderQty, reorderValue, fast, slow, dead, accelerating, declining, inactive, out, critical };
+    return {
+      toReorder,
+      reorderQty,
+      reorderValue,
+      fast,
+      slow,
+      dead,
+      accelerating,
+      declining,
+      inactive,
+      out,
+      critical,
+    };
   }, [analyses]);
 
   const toggleExpand = (id: string) => {
@@ -323,22 +442,35 @@ function ForecastPage() {
         eyebrow="Intelligence"
         title="Demand forecast & reorder"
         description="Seasonal trend model over 12 months of sales. Shows monthly breakdowns, estimated stockout dates, and reorder timelines for every SKU."
-        breadcrumbs={[
-          { label: "Dashboard", href: "/app/dashboard" },
-          { label: "Forecast" },
-        ]}
+        breadcrumbs={[{ label: "Dashboard", href: "/app/dashboard" }, { label: "Forecast" }]}
       />
 
       <div className="space-y-6 p-6 md:p-10">
         {/* Summary tiles */}
         <div className="grid grid-cols-2 gap-3 md:grid-cols-9">
           {/* Velocity stats */}
-          <StatTile label="Fast movers" value={summary.fast} icon={<TrendingUp className="h-4 w-4 text-emerald-500" />} />
-          <StatTile label="Slow movers" value={summary.slow} icon={<TrendingDown className="h-4 w-4 text-amber-500" />} />
+          <StatTile
+            label="Fast movers"
+            value={summary.fast}
+            icon={<TrendingUp className="h-4 w-4 text-emerald-500" />}
+          />
+          <StatTile
+            label="Slow movers"
+            value={summary.slow}
+            icon={<TrendingDown className="h-4 w-4 text-amber-500" />}
+          />
           <StatTile label="Dead stock" value={summary.dead} />
           {/* Momentum stats */}
-          <StatTile label="Accelerating" value={summary.accelerating} icon={<ArrowUp className="h-4 w-4 text-emerald-500" />} />
-          <StatTile label="Declining" value={summary.declining} icon={<ArrowDown className="h-4 w-4 text-rose-500" />} />
+          <StatTile
+            label="Accelerating"
+            value={summary.accelerating}
+            icon={<ArrowUp className="h-4 w-4 text-emerald-500" />}
+          />
+          <StatTile
+            label="Declining"
+            value={summary.declining}
+            icon={<ArrowDown className="h-4 w-4 text-rose-500" />}
+          />
           <StatTile label="Inactive" value={summary.inactive} />
           {/* Core ops */}
           <StatTile label="Out of stock" value={summary.out} tone="destructive" />
@@ -348,7 +480,12 @@ function ForecastPage() {
             tone={summary.critical > 0 ? "destructive" : undefined}
             icon={summary.critical > 0 ? <Zap className="h-4 w-4 text-rose-500" /> : undefined}
           />
-          <StatTile label="Need reorder" value={summary.toReorder} tone="warning" icon={<AlertTriangle className="h-4 w-4 text-amber-500" />} />
+          <StatTile
+            label="Need reorder"
+            value={summary.toReorder}
+            tone="warning"
+            icon={<AlertTriangle className="h-4 w-4 text-amber-500" />}
+          />
         </div>
 
         {/* Filters bar */}
@@ -357,28 +494,46 @@ function ForecastPage() {
             <div className="relative flex-1 min-w-[220px]">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
-                value={q} onChange={(e) => setQ(e.target.value)}
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
                 placeholder="Search SKU or name…"
                 className="w-full rounded-lg border border-border bg-input px-9 py-2.5 text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10"
               />
             </div>
             <div className="flex flex-wrap gap-1.5">
-              {(["all","reorder","critical","fast","slow","accelerating","declining","out"] as const).map((s) => (
-                <button key={s} onClick={() => setFilter(s)}
+              {(
+                [
+                  "all",
+                  "reorder",
+                  "critical",
+                  "fast",
+                  "slow",
+                  "accelerating",
+                  "declining",
+                  "out",
+                ] as const
+              ).map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setFilter(s)}
                   className={`rounded-full border px-3.5 py-1.5 text-[11px] uppercase tracking-[0.12em] font-medium transition-all duration-200 ${
                     filter === s
                       ? s === "critical"
                         ? "border-rose-400/50 bg-rose-500/10 text-rose-500 shadow-sm"
                         : "border-primary/50 bg-primary/10 text-primary shadow-sm"
                       : "border-border/60 text-muted-foreground hover:border-border hover:text-foreground hover:bg-muted/30"
-                  }`}>
+                  }`}
+                >
                   {s === "critical" && <Zap className="inline h-3 w-3 mr-1 -mt-0.5" />}
                   {s}
                 </button>
               ))}
             </div>
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value as any)}
-              className="rounded-lg border border-border bg-input px-3.5 py-2.5 text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="rounded-lg border border-border bg-input px-3.5 py-2.5 text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10"
+            >
               <option value="reorder">Sort: Reorder qty ↓</option>
               <option value="velocity">Sort: Velocity ↓</option>
               <option value="cover">Sort: Days of cover ↑</option>
@@ -405,7 +560,9 @@ function ForecastPage() {
                 disabled={recomputeMutation.isPending}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:border-border hover:bg-muted/30 transition-all duration-200 disabled:opacity-50"
               >
-                <RefreshCw className={`h-3.5 w-3.5 ${recomputeMutation.isPending ? "animate-spin" : ""}`} />
+                <RefreshCw
+                  className={`h-3.5 w-3.5 ${recomputeMutation.isPending ? "animate-spin" : ""}`}
+                />
                 {recomputeMutation.isPending ? "Computing…" : "Recompute"}
               </button>
             </div>
@@ -504,30 +661,42 @@ function TrendCell({ f }: { f: ForecastResult }) {
   const isDown = f.trendDirection === "down";
   const isStable = f.trendDirection === "stable";
 
-  const icon = isUp ? <ArrowUp className="h-4 w-4" />
-    : isDown ? <ArrowDown className="h-4 w-4" />
-    : <Minus className="h-4 w-4" />;
+  const icon = isUp ? (
+    <ArrowUp className="h-4 w-4" />
+  ) : isDown ? (
+    <ArrowDown className="h-4 w-4" />
+  ) : (
+    <Minus className="h-4 w-4" />
+  );
 
-  const color = isUp ? "text-emerald-500"
-    : isDown ? "text-rose-500"
-    : "text-muted-foreground";
+  const color = isUp ? "text-emerald-500" : isDown ? "text-rose-500" : "text-muted-foreground";
 
-  const bgColor = isUp ? "bg-emerald-500/8"
-    : isDown ? "bg-rose-500/8"
-    : "bg-muted/30";
+  const bgColor = isUp ? "bg-emerald-500/8" : isDown ? "bg-rose-500/8" : "bg-muted/30";
 
   // Trend strength bar
   const strengthPct = Math.round(f.trendStrength * 100);
-  const barColor = strengthPct > 70 ? (isUp ? "bg-emerald-500" : isDown ? "bg-rose-500" : "bg-muted-foreground")
-    : strengthPct > 40 ? (isUp ? "bg-emerald-400" : isDown ? "bg-rose-400" : "bg-muted-foreground")
-    : "bg-muted-foreground/40";
+  const barColor =
+    strengthPct > 70
+      ? isUp
+        ? "bg-emerald-500"
+        : isDown
+          ? "bg-rose-500"
+          : "bg-muted-foreground"
+      : strengthPct > 40
+        ? isUp
+          ? "bg-emerald-400"
+          : isDown
+            ? "bg-rose-400"
+            : "bg-muted-foreground"
+        : "bg-muted-foreground/40";
 
   return (
     <div className="inline-flex flex-col items-end gap-1">
       <div className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 ${bgColor}`}>
         <span className={`${color}`}>{icon}</span>
         <span className={`font-mono text-xs font-semibold tabular-nums ${color}`}>
-          {f.trend > 0 ? "+" : ""}{f.trend}/mo
+          {f.trend > 0 ? "+" : ""}
+          {f.trend}/mo
         </span>
       </div>
       <div className="flex items-center gap-1.5 w-full">
@@ -547,11 +716,15 @@ function TrendCell({ f }: { f: ForecastResult }) {
 
 // --------------- Sparkline (tiny inline chart in Monthly forecast column) ---------------
 
-function ForecastSparkline({ forecast }: { forecast: ForecastResult['forecast'] }) {
+function ForecastSparkline({ forecast }: { forecast: ForecastResult["forecast"] }) {
   const maxQty = Math.max(...forecast.map((f) => f.qty), 1);
   return (
-    <div className="flex items-end gap-[3px] h-8"
-      title={forecast.map((f) => `${f.monthName} ${f.month.slice(0,4)}: ${f.qty.toLocaleString()} units`).join(" · ")}>
+    <div
+      className="flex items-end gap-[3px] h-8"
+      title={forecast
+        .map((f) => `${f.monthName} ${f.month.slice(0, 4)}: ${f.qty.toLocaleString()} units`)
+        .join(" · ")}
+    >
       {forecast.map((f, i) => {
         const h = Math.max((f.qty / maxQty) * 28, 3);
         const isNextMonth = i === 0;
@@ -585,38 +758,93 @@ function ForecastSparkline({ forecast }: { forecast: ForecastResult['forecast'] 
 
 // --------------- Main Row ---------------
 
-function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, defaultMargin, expanded, onToggle }: {
-  product: Product; stock: number; f: ForecastResult; velocityTag: VelocityTag; pricingStrategy: PricingStrategyResult | null;
+function ForecastRow({
+  product,
+  stock,
+  f,
+  velocityTag,
+  pricingStrategy,
+  defaultMargin,
+  expanded,
+  onToggle,
+}: {
+  product: Product;
+  stock: number;
+  f: ForecastResult;
+  velocityTag: VelocityTag;
+  pricingStrategy: PricingStrategyResult | null;
   defaultMargin: number;
-  expanded: boolean; onToggle: () => void;
+  expanded: boolean;
+  onToggle: () => void;
 }) {
   const nextMonthQty = f.forecast[0]?.qty ?? 0;
   const next6Total = f.forecast.reduce((a, b) => a + b.qty, 0);
   const imgSrc = useSignedImageUrl(product.image_url);
 
   // Velocity (category-based) icons & tones
-  const vIcon = velocityTag === "fast_mover" ? <TrendingUp className="h-3 w-3" />
-    : velocityTag === "medium_mover" ? <BarChart3 className="h-3 w-3" />
-    : velocityTag === "slow_mover" ? <TrendingDown className="h-3 w-3" />
-    : velocityTag === "dead" ? <Package className="h-3 w-3" />
-    : <BarChart3 className="h-3 w-3" />;
-  const vTone = velocityTag === "fast_mover" ? "success" : velocityTag === "medium_mover" ? "primary" : velocityTag === "slow_mover" ? "warning" : "destructive";
-  const vLabel = velocityTag === "fast_mover" ? "Fast mover" : velocityTag === "medium_mover" ? "Medium mover" : velocityTag === "slow_mover" ? "Slow mover" : velocityTag === "dead" ? "Dead" : velocityTag;
+  const vIcon =
+    velocityTag === "fast_mover" ? (
+      <TrendingUp className="h-3 w-3" />
+    ) : velocityTag === "medium_mover" ? (
+      <BarChart3 className="h-3 w-3" />
+    ) : velocityTag === "slow_mover" ? (
+      <TrendingDown className="h-3 w-3" />
+    ) : velocityTag === "dead" ? (
+      <Package className="h-3 w-3" />
+    ) : (
+      <BarChart3 className="h-3 w-3" />
+    );
+  const vTone =
+    velocityTag === "fast_mover"
+      ? "success"
+      : velocityTag === "medium_mover"
+        ? "primary"
+        : velocityTag === "slow_mover"
+          ? "warning"
+          : "destructive";
+  const vLabel =
+    velocityTag === "fast_mover"
+      ? "Fast mover"
+      : velocityTag === "medium_mover"
+        ? "Medium mover"
+        : velocityTag === "slow_mover"
+          ? "Slow mover"
+          : velocityTag === "dead"
+            ? "Dead"
+            : velocityTag;
 
   // Momentum icons & tones
-  const mIcon = f.momentumTag === "accelerating" ? <TrendingUp className="h-3 w-3" />
-    : f.momentumTag === "stable" ? <Minus className="h-3 w-3" />
-    : f.momentumTag === "declining" ? <TrendingDown className="h-3 w-3" />
-    : <Package className="h-3 w-3" />;
-  const mTone = f.momentumTag === "accelerating" ? "success" : f.momentumTag === "stable" ? "primary" : f.momentumTag === "declining" ? "warning" : "destructive";
+  const mIcon =
+    f.momentumTag === "accelerating" ? (
+      <TrendingUp className="h-3 w-3" />
+    ) : f.momentumTag === "stable" ? (
+      <Minus className="h-3 w-3" />
+    ) : f.momentumTag === "declining" ? (
+      <TrendingDown className="h-3 w-3" />
+    ) : (
+      <Package className="h-3 w-3" />
+    );
+  const mTone =
+    f.momentumTag === "accelerating"
+      ? "success"
+      : f.momentumTag === "stable"
+        ? "primary"
+        : f.momentumTag === "declining"
+          ? "warning"
+          : "destructive";
 
   const stockoutDays = f.estimatedStockoutDate ? daysRemaining(f.estimatedStockoutDate) : null;
   const reorderDays = f.reorderByDate ? daysRemaining(f.reorderByDate) : null;
   const refillDays = daysRemaining(f.nextRefillDate);
 
-  const urgencyIcon = f.stockoutUrgency === "critical" ? <Zap className="h-3 w-3" />
-    : f.stockoutUrgency === "warning" ? <Clock className="h-3 w-3" />
-    : <CalendarClock className="h-3 w-3" />;
+  const urgencyIcon =
+    f.stockoutUrgency === "critical" ? (
+      <Zap className="h-3 w-3" />
+    ) : f.stockoutUrgency === "warning" ? (
+      <Clock className="h-3 w-3" />
+    ) : (
+      <CalendarClock className="h-3 w-3" />
+    );
 
   const isCritical = f.stockoutUrgency === "critical";
   const isWarning = f.stockoutUrgency === "warning";
@@ -631,39 +859,53 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, defaultM
         onClick={onToggle}
       >
         {/* SKU / Name */}
-        <td className="px-5 py-3.5">
+        <td className="px-5 py-3">
           <div className="flex items-center gap-3">
             {product.image_url && imgSrc ? (
               <img
                 src={imgSrc}
                 alt={product.name}
                 className={`h-9 w-9 shrink-0 rounded-lg border object-cover ${
-                  isCritical ? "border-rose-300 dark:border-rose-800" : isWarning ? "border-amber-300 dark:border-amber-800" : "border-border"
+                  isCritical
+                    ? "border-rose-300 dark:border-rose-800"
+                    : isWarning
+                      ? "border-amber-300 dark:border-amber-800"
+                      : "border-border"
                 }`}
               />
             ) : (
-              <div className={`flex h-8 w-8 items-center justify-center rounded-lg border text-[10px] font-bold transition-colors ${
-                isCritical ? "border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-400"
-                : isWarning ? "border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400"
-                : "border-border/60 bg-muted/30 text-muted-foreground"
-              }`}>
+              <div
+                className={`flex h-8 w-8 items-center justify-center rounded-lg border text-[10px] font-bold transition-colors ${
+                  isCritical
+                    ? "border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-400"
+                    : isWarning
+                      ? "border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400"
+                      : "border-border/60 bg-muted/30 text-muted-foreground"
+                }`}
+              >
                 {product.sku.slice(0, 2).toUpperCase() || "?"}
               </div>
             )}
             <div>
-              <div className="font-mono text-[11px] text-muted-foreground leading-none mb-0.5">{product.sku}</div>
+              <div className="font-mono text-[11px] text-muted-foreground leading-none mb-0.5">
+                {product.sku}
+              </div>
               <div className="text-sm font-medium leading-tight">{product.name}</div>
               {product.category && (
-                <div className="text-[10px] text-muted-foreground/60 mt-0.5">{product.category}</div>
+                <div className="text-[10px] text-muted-foreground/60 mt-0.5">
+                  {product.category}
+                </div>
               )}
             </div>
           </div>
         </td>
 
         {/* Velocity (category-based) */}
-        <td className="px-5 py-3.5">
+        <td className="px-5 py-3">
           <div className="flex items-center gap-1.5">
-            <span className={`${vTone === "success" ? "text-emerald-500" : vTone === "warning" ? "text-amber-500" : vTone === "destructive" ? "text-rose-500" : "text-primary"}`}>
+            <span
+              className={`${vTone === "success" ? "text-emerald-500" : vTone === "warning" ? "text-amber-500" : vTone === "destructive" ? "text-rose-500" : "text-primary"}`}
+            >
               {vIcon}
             </span>
             <Pill tone={vTone as any}>{vLabel}</Pill>
@@ -671,44 +913,61 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, defaultM
         </td>
 
         {/* Momentum (sales trend) */}
-        <td className="px-5 py-3.5">
+        <td className="px-5 py-3">
           <div className="flex items-center gap-1.5">
-            <span className={`${mTone === "success" ? "text-emerald-500" : mTone === "warning" ? "text-amber-500" : mTone === "destructive" ? "text-rose-500" : "text-primary"}`}>
+            <span
+              className={`${mTone === "success" ? "text-emerald-500" : mTone === "warning" ? "text-amber-500" : mTone === "destructive" ? "text-rose-500" : "text-primary"}`}
+            >
               {mIcon}
             </span>
-            <Pill tone={mTone as any}>{f.momentumTag === "accelerating" ? "Accelerating" : f.momentumTag === "stable" ? "Stable" : f.momentumTag === "declining" ? "Declining" : f.momentumTag === "inactive" ? "Inactive" : f.momentumTag}</Pill>
+            <Pill tone={mTone as any}>
+              {f.momentumTag === "accelerating"
+                ? "Accelerating"
+                : f.momentumTag === "stable"
+                  ? "Stable"
+                  : f.momentumTag === "declining"
+                    ? "Declining"
+                    : f.momentumTag === "inactive"
+                      ? "Inactive"
+                      : f.momentumTag}
+            </Pill>
           </div>
         </td>
 
         {/* In stock */}
-        <td className="px-5 py-3.5 text-right">
-          <div className={`font-mono text-sm font-semibold tabular-nums ${
-            stock <= 0 ? "text-rose-600" : stock <= product.reorder_level ? "text-amber-600" : "text-foreground"
-          }`}>
+        <td className="px-5 py-3 text-right">
+          <div
+            className={`font-mono text-sm font-semibold tabular-nums ${
+              stock <= 0
+                ? "text-rose-600"
+                : stock <= product.reorder_level
+                  ? "text-amber-600"
+                  : "text-foreground"
+            }`}
+          >
             {stock.toLocaleString()}
           </div>
           <div className="text-[9px] text-muted-foreground/60 leading-tight">
             {stock <= 0
               ? "⚠ Out of stock"
               : stock <= product.reorder_level
-              ? `≤ reorder lvl (${product.reorder_level})`
-              : `reorder lvl: ${product.reorder_level}`
-            }
+                ? `≤ reorder lvl (${product.reorder_level})`
+                : `reorder lvl: ${product.reorder_level}`}
           </div>
         </td>
 
         {/* Days cover */}
-        <td className="px-5 py-3.5 text-right">
+        <td className="px-5 py-3 text-right">
           <CoverGauge days={f.daysOfCover} leadTime={product.lead_time_days} />
         </td>
 
         {/* Trend */}
-        <td className="px-5 py-3.5 text-right">
+        <td className="px-5 py-3 text-right">
           <TrendCell f={f} />
         </td>
 
         {/* Monthly forecast */}
-        <td className="px-5 py-3.5 text-right">
+        <td className="px-5 py-3 text-right">
           <div className="font-mono text-sm font-semibold tabular-nums">
             {nextMonthQty.toLocaleString()}
             {f.adjustmentFactor !== 1 && (
@@ -720,29 +979,48 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, defaultM
           </div>
           {f.adjustmentFactor !== 1 && (
             <div className="text-[9px] font-semibold text-amber-600 dark:text-amber-400 flex items-center justify-end gap-0.5">
-              {f.adjustmentFactor > 1 ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
-              live {Math.round((f.adjustmentFactor - 1) * 100) > 0 ? "+" : ""}{Math.round((f.adjustmentFactor - 1) * 100)}%
+              {f.adjustmentFactor > 1 ? (
+                <TrendingUp className="h-2.5 w-2.5" />
+              ) : (
+                <TrendingDown className="h-2.5 w-2.5" />
+              )}
+              live {Math.round((f.adjustmentFactor - 1) * 100) > 0 ? "+" : ""}
+              {Math.round((f.adjustmentFactor - 1) * 100)}%
             </div>
           )}
-          <div className="text-[9px] text-muted-foreground/60">next 6mo: {next6Total.toLocaleString()}</div>
+          <div className="text-[9px] text-muted-foreground/60">
+            next 6mo: {next6Total.toLocaleString()}
+          </div>
           <div className="mt-1">
             <ForecastSparkline forecast={f.forecast} />
           </div>
         </td>
 
         {/* Stockout date */}
-        <td className="px-5 py-3.5 text-right">
+        <td className="px-5 py-3 text-right">
           {f.estimatedStockoutDate ? (
-            <div className={`inline-flex flex-col items-end ${
-              stockoutDays !== null && stockoutDays <= 0 ? "text-rose-600" :
-              stockoutDays !== null && stockoutDays <= product.lead_time_days ? "text-amber-600" : "text-muted-foreground"
-            }`}>
-              <span className="text-xs font-semibold tabular-nums">{f.estimatedStockoutDate.slice(5)}</span>
+            <div
+              className={`inline-flex flex-col items-end ${
+                stockoutDays !== null && stockoutDays <= 0
+                  ? "text-rose-600"
+                  : stockoutDays !== null && stockoutDays <= product.lead_time_days
+                    ? "text-amber-600"
+                    : "text-muted-foreground"
+              }`}
+            >
+              <span className="text-xs font-semibold tabular-nums">
+                {f.estimatedStockoutDate.slice(5)}
+              </span>
               {stockoutDays !== null && (
-                <span className={`text-[10px] mt-0.5 flex items-center gap-0.5 font-medium ${
-                  stockoutDays <= 0 ? "text-rose-500" :
-                  stockoutDays <= 7 ? "text-amber-500" : "text-muted-foreground/60"
-                }`}>
+                <span
+                  className={`text-[10px] mt-0.5 flex items-center gap-0.5 font-medium ${
+                    stockoutDays <= 0
+                      ? "text-rose-500"
+                      : stockoutDays <= 7
+                        ? "text-amber-500"
+                        : "text-muted-foreground/60"
+                  }`}
+                >
                   {stockoutDays <= 0 ? "⚠ Out now" : `${stockoutDays}d away`}
                 </span>
               )}
@@ -753,19 +1031,33 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, defaultM
         </td>
 
         {/* Reorder by */}
-        <td className="px-5 py-3.5 text-right">
+        <td className="px-5 py-3 text-right">
           {f.reorderByDate ? (
-            <div className={`inline-flex flex-col items-end ${
-              reorderDays !== null && reorderDays <= 0 ? "text-rose-600 font-medium" :
-              reorderDays !== null && reorderDays <= 7 ? "text-amber-600" : "text-muted-foreground"
-            }`}>
+            <div
+              className={`inline-flex flex-col items-end ${
+                reorderDays !== null && reorderDays <= 0
+                  ? "text-rose-600 font-medium"
+                  : reorderDays !== null && reorderDays <= 7
+                    ? "text-amber-600"
+                    : "text-muted-foreground"
+              }`}
+            >
               <span className="text-xs tabular-nums">{f.reorderByDate.slice(5)}</span>
-              <span className={`text-[10px] mt-0.5 flex items-center gap-0.5 font-medium ${
-                reorderDays !== null && reorderDays <= 0 ? "text-rose-500" :
-                reorderDays !== null && reorderDays <= 7 ? "text-amber-500" : "text-muted-foreground/60"
-              }`}>
+              <span
+                className={`text-[10px] mt-0.5 flex items-center gap-0.5 font-medium ${
+                  reorderDays !== null && reorderDays <= 0
+                    ? "text-rose-500"
+                    : reorderDays !== null && reorderDays <= 7
+                      ? "text-amber-500"
+                      : "text-muted-foreground/60"
+                }`}
+              >
                 {urgencyIcon}
-                {reorderDays !== null && reorderDays <= 0 ? "OVERDUE" : reorderDays !== null ? `${reorderDays}d` : ""}
+                {reorderDays !== null && reorderDays <= 0
+                  ? "OVERDUE"
+                  : reorderDays !== null
+                    ? `${reorderDays}d`
+                    : ""}
               </span>
             </div>
           ) : (
@@ -774,7 +1066,7 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, defaultM
         </td>
 
         {/* Refill arrives */}
-        <td className="px-5 py-3.5 text-right">
+        <td className="px-5 py-3 text-right">
           <div className="inline-flex flex-col items-end text-muted-foreground">
             <span className="text-xs tabular-nums">{f.nextRefillDate.slice(5)}</span>
             <span className="text-[10px] text-muted-foreground/60 mt-0.5 flex items-center gap-0.5">
@@ -785,7 +1077,7 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, defaultM
         </td>
 
         {/* Reorder now */}
-        <td className="px-5 py-3.5 text-right">
+        <td className="px-5 py-3 text-right">
           {f.recommendedReorder > 0 ? (
             <div className="inline-flex flex-col items-end">
               <span className="font-bold text-primary tabular-nums text-base leading-none">
@@ -807,12 +1099,17 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, defaultM
         </td>
 
         {/* Toggle */}
-        <td className="px-5 py-3.5 text-center">
+        <td className="px-5 py-3 text-center">
           <button
-            onClick={(e) => { e.stopPropagation(); onToggle(); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggle();
+            }}
             className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-all duration-200"
           >
-            <ArrowUpDown className={`h-3.5 w-3.5 transition-all duration-300 ${expanded ? "rotate-180 text-primary" : ""}`} />
+            <ArrowUpDown
+              className={`h-3.5 w-3.5 transition-all duration-300 ${expanded ? "rotate-180 text-primary" : ""}`}
+            />
           </button>
         </td>
       </tr>
@@ -821,7 +1118,14 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, defaultM
       {expanded && (
         <tr className="border-b border-border/30">
           <td colSpan={12} className="px-5 py-0">
-            <ExpandedForecastDetail product={product} stock={stock} f={f} velocityTag={velocityTag} pricingStrategy={pricingStrategy} defaultMargin={defaultMargin} />
+            <ExpandedForecastDetail
+              product={product}
+              stock={stock}
+              f={f}
+              velocityTag={velocityTag}
+              pricingStrategy={pricingStrategy}
+              defaultMargin={defaultMargin}
+            />
           </td>
         </tr>
       )}
@@ -839,7 +1143,11 @@ function marginStoredToPercent(v: number | null | undefined): string {
   return String(Math.round(pct * 100) / 100);
 }
 
-function EditPricingForm({ product, pricingStrategy, defaultMargin }: {
+function EditPricingForm({
+  product,
+  pricingStrategy,
+  defaultMargin,
+}: {
   product: Product;
   pricingStrategy: PricingStrategyResult | null;
   defaultMargin: number;
@@ -847,7 +1155,9 @@ function EditPricingForm({ product, pricingStrategy, defaultMargin }: {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [unitCost, setUnitCost] = useState(String(product.unit_cost ?? ""));
-  const [marginPct, setMarginPct] = useState(marginStoredToPercent(product.minimum_gross_margin_percentage ?? defaultMargin));
+  const [marginPct, setMarginPct] = useState(
+    marginStoredToPercent(product.minimum_gross_margin_percentage ?? defaultMargin),
+  );
   const [savedFlash, setSavedFlash] = useState(false);
   const dirtyRef = useRef(false);
 
@@ -874,7 +1184,10 @@ function EditPricingForm({ product, pricingStrategy, defaultMargin }: {
     mutationFn: async () => {
       await api.products.update(product.id, {
         unit_cost: Number(unitCost) || 0,
-        minimum_gross_margin_percentage: Math.min(0.99, Math.max(0.01, (Number(marginPct) || 40) / 100)),
+        minimum_gross_margin_percentage: Math.min(
+          0.99,
+          Math.max(0.01, (Number(marginPct) || 40) / 100),
+        ),
       });
     },
     onSuccess: () => {
@@ -910,18 +1223,34 @@ function EditPricingForm({ product, pricingStrategy, defaultMargin }: {
         <div className="mt-3 space-y-3">
           <div className="grid grid-cols-2 gap-2">
             <label className="block">
-              <span className="mb-1 block text-[9px] uppercase tracking-widest text-muted-foreground">Unit cost ($)</span>
+              <span className="mb-1 block text-[9px] uppercase tracking-widest text-muted-foreground">
+                Unit cost ($)
+              </span>
               <input
-                type="number" step="0.01" value={unitCost}
-                onChange={(e) => { dirtyRef.current = true; setUnitCost(e.target.value); }}
+                type="number"
+                step="0.01"
+                value={unitCost}
+                onChange={(e) => {
+                  dirtyRef.current = true;
+                  setUnitCost(e.target.value);
+                }}
                 className="w-full rounded-lg border border-border bg-input px-2.5 py-1.5 text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10"
               />
             </label>
             <label className="block">
-              <span className="mb-1 block text-[9px] uppercase tracking-widest text-muted-foreground">Min gross margin (%)</span>
+              <span className="mb-1 block text-[9px] uppercase tracking-widest text-muted-foreground">
+                Min gross margin (%)
+              </span>
               <input
-                type="number" step="0.5" min="1" max="99" value={marginPct}
-                onChange={(e) => { dirtyRef.current = true; setMarginPct(e.target.value); }}
+                type="number"
+                step="0.5"
+                min="1"
+                max="99"
+                value={marginPct}
+                onChange={(e) => {
+                  dirtyRef.current = true;
+                  setMarginPct(e.target.value);
+                }}
                 className="w-full rounded-lg border border-border bg-input px-2.5 py-1.5 text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10"
               />
             </label>
@@ -929,11 +1258,18 @@ function EditPricingForm({ product, pricingStrategy, defaultMargin }: {
           <div className="space-y-1 rounded-lg border border-border/30 bg-muted/30 px-3 py-2 text-[10px]">
             <div className="flex justify-between">
               <span className="text-muted-foreground">Min permitted price</span>
-              <span className="font-mono font-semibold tabular-nums">${minPermitted.toFixed(2)}</span>
+              <span className="font-mono font-semibold tabular-nums">
+                ${minPermitted.toFixed(2)}
+              </span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Recommended {changePct !== 0 && `(applies ${changePct > 0 ? "+" : ""}${changePct}%)`}</span>
-              <span className="font-mono font-semibold tabular-nums text-primary">${recommended.toFixed(2)}</span>
+              <span className="text-muted-foreground">
+                Recommended{" "}
+                {changePct !== 0 && `(applies ${changePct > 0 ? "+" : ""}${changePct}%)`}
+              </span>
+              <span className="font-mono font-semibold tabular-nums text-primary">
+                ${recommended.toFixed(2)}
+              </span>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -942,7 +1278,11 @@ function EditPricingForm({ product, pricingStrategy, defaultMargin }: {
               disabled={save.isPending}
               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-[11px] font-medium text-primary-foreground transition-all duration-200 hover:opacity-90 disabled:opacity-60"
             >
-              {save.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />}
+              {save.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <Save className="h-3 w-3" />
+              )}
               Save pricing
             </button>
             <span className="text-[9px] text-muted-foreground/60">
@@ -961,10 +1301,13 @@ function CoverGauge({ days, leadTime }: { days: number; leadTime: number }) {
   const ratio = days === Infinity ? 999 : days / Math.max(leadTime, 1);
   const pct = Math.min((ratio / 4) * 100, 100);
   const color =
-    ratio < 1 ? "bg-rose-500" :
-    ratio < 1.5 ? "bg-amber-500" :
-    ratio < 3 ? "bg-emerald-500" :
-    "bg-emerald-500";
+    ratio < 1
+      ? "bg-rose-500"
+      : ratio < 1.5
+        ? "bg-amber-500"
+        : ratio < 3
+          ? "bg-emerald-500"
+          : "bg-emerald-500";
 
   return (
     <div className="flex flex-col items-end">
@@ -984,9 +1327,19 @@ function CoverGauge({ days, leadTime }: { days: number; leadTime: number }) {
 
 // --------------- Expanded Detail (the star of the show) ---------------
 
-function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrategy, defaultMargin }: {
-  product: Product; stock: number; f: ForecastResult;
-  velocityTag: VelocityTag; pricingStrategy: PricingStrategyResult | null;
+function ExpandedForecastDetail({
+  product,
+  stock,
+  f,
+  velocityTag,
+  pricingStrategy,
+  defaultMargin,
+}: {
+  product: Product;
+  stock: number;
+  f: ForecastResult;
+  velocityTag: VelocityTag;
+  pricingStrategy: PricingStrategyResult | null;
   defaultMargin: number;
 }) {
   // Build chart data: 12 history months + 6 forecast months
@@ -1021,7 +1374,8 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
     return data;
   }, [f]);
 
-  const coverVsLead = f.daysOfCover === Infinity ? 999 : f.daysOfCover / Math.max(product.lead_time_days, 1);
+  const coverVsLead =
+    f.daysOfCover === Infinity ? 999 : f.daysOfCover / Math.max(product.lead_time_days, 1);
 
   return (
     <div className="py-6 animate-in fade-in slide-in-from-top-2 duration-300">
@@ -1032,8 +1386,12 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
           <div className="rounded-xl border border-border/50 bg-card p-4">
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h4 className="text-xs uppercase tracking-widest text-muted-foreground">Demand trend</h4>
-                <p className="text-[10px] text-muted-foreground/60 mt-0.5">12mo history · 6mo forecast</p>
+                <h4 className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Demand trend
+                </h4>
+                <p className="text-[10px] text-muted-foreground/60 mt-0.5">
+                  12mo history · 6mo forecast
+                </p>
               </div>
               <div className="flex items-center gap-3 text-[10px]">
                 <span className="flex items-center gap-1.5">
@@ -1059,40 +1417,52 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
                       <stop offset="95%" stopColor="hsl(var(--primary))" stopOpacity={0.02} />
                     </linearGradient>
                     <linearGradient id="actualGrad" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="hsl(var(--muted-foreground))" stopOpacity={0.2} />
-                      <stop offset="95%" stopColor="hsl(var(--muted-foreground))" stopOpacity={0.02} />
+                      <stop
+                        offset="5%"
+                        stopColor="hsl(var(--muted-foreground))"
+                        stopOpacity={0.2}
+                      />
+                      <stop
+                        offset="95%"
+                        stopColor="hsl(var(--muted-foreground))"
+                        stopOpacity={0.02}
+                      />
                     </linearGradient>
                   </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.4)" vertical={false} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="hsl(var(--border) / 0.4)"
+                    vertical={false}
+                  />
                   <XAxis
                     dataKey="month"
-                    tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                    tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
                     axisLine={false}
                     interval="preserveStartEnd"
                   />
                   <YAxis
-                    tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                    tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
                     axisLine={false}
                     tickFormatter={(v: number) => v.toLocaleString()}
                   />
                   <Tooltip
                     contentStyle={{
-                      borderRadius: '12px',
-                      border: '1px solid hsl(var(--border) / 0.6)',
-                      background: 'hsl(var(--popover))',
-                      boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
-                      fontSize: '12px',
+                      borderRadius: "12px",
+                      border: "1px solid hsl(var(--border) / 0.6)",
+                      background: "hsl(var(--popover))",
+                      boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+                      fontSize: "12px",
                     }}
                     formatter={(value: any, name: string) => {
-                      if (value === null || value === undefined) return ['—', ''];
+                      if (value === null || value === undefined) return ["—", ""];
                       const labels: Record<string, string> = {
-                        actual: 'Actual demand',
-                        forecast: 'Forecast',
-                        baseline: 'Baseline',
-                        piLow: '80% CI Low',
-                        piHigh: '80% CI High',
+                        actual: "Actual demand",
+                        forecast: "Forecast",
+                        baseline: "Baseline",
+                        piLow: "80% CI Low",
+                        piHigh: "80% CI High",
                       };
                       return [value.toLocaleString(), labels[name] ?? name];
                     }}
@@ -1104,7 +1474,7 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
                     stroke="hsl(var(--muted-foreground) / 0.5)"
                     strokeWidth={2}
                     fill="url(#actualGrad)"
-                    dot={{ r: 3, fill: 'hsl(var(--muted-foreground) / 0.6)', strokeWidth: 0 }}
+                    dot={{ r: 3, fill: "hsl(var(--muted-foreground) / 0.6)", strokeWidth: 0 }}
                     connectNulls={false}
                   />
                   {/* Confidence interval band */}
@@ -1130,7 +1500,7 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
                     stroke="hsl(var(--primary))"
                     strokeWidth={2.5}
                     fill="url(#forecastGrad)"
-                    dot={{ r: 4, fill: 'hsl(var(--primary))', strokeWidth: 0 }}
+                    dot={{ r: 4, fill: "hsl(var(--primary))", strokeWidth: 0 }}
                     strokeDasharray="5 3"
                     connectNulls={false}
                   />
@@ -1147,39 +1517,49 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
             <div className="h-40">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={f.forecast} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border) / 0.3)" vertical={false} />
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="hsl(var(--border) / 0.3)"
+                    vertical={false}
+                  />
                   <XAxis
                     dataKey="monthName"
-                    tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                    tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
                     tickFormatter={(v: string) => v.slice(0, 3)}
                     tickLine={false}
                     axisLine={false}
                   />
                   <YAxis
-                    tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+                    tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
                     tickLine={false}
                     axisLine={false}
                     tickFormatter={(v: number) => v.toLocaleString()}
                   />
                   <Tooltip
                     contentStyle={{
-                      borderRadius: '12px',
-                      border: '1px solid hsl(var(--border) / 0.6)',
-                      background: 'hsl(var(--popover))',
-                      boxShadow: '0 8px 32px rgba(0,0,0,0.12)',
-                      fontSize: '12px',
+                      borderRadius: "12px",
+                      border: "1px solid hsl(var(--border) / 0.6)",
+                      background: "hsl(var(--popover))",
+                      boxShadow: "0 8px 32px rgba(0,0,0,0.12)",
+                      fontSize: "12px",
                     }}
                     formatter={(value: any, name: string) => [
-                      value !== null ? value.toLocaleString() : '—',
-                      name === 'qty' ? 'Forecast' : name === 'baseline' ? 'Baseline' : '',
+                      value !== null ? value.toLocaleString() : "—",
+                      name === "qty" ? "Forecast" : name === "baseline" ? "Baseline" : "",
                     ]}
                     labelFormatter={(label) => label}
                   />
-                  <Bar dataKey="qty" name="qty" radius={[4, 4, 0, 0]}
+                  <Bar
+                    dataKey="qty"
+                    name="qty"
+                    radius={[4, 4, 0, 0]}
                     fill="hsl(var(--primary))"
                     fillOpacity={0.8}
                   />
-                  <Bar dataKey="baseline" name="baseline" radius={[4, 4, 0, 0]}
+                  <Bar
+                    dataKey="baseline"
+                    name="baseline"
+                    radius={[4, 4, 0, 0]}
                     fill="hsl(var(--muted-foreground))"
                     fillOpacity={0.3}
                   />
@@ -1231,203 +1611,266 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
           </div>
 
           {/* Pricing strategy — enhanced visual card */}
-          {pricingStrategy && (() => {
-            const isDanger = pricingStrategy.strategy === "Clearance" || pricingStrategy.strategy === "Markdown / Promotion";
-            const isWarning = pricingStrategy.strategy === "Targeted promotion" || pricingStrategy.strategy === "Monitor";
-            const isPositive = pricingStrategy.strategy === "Protect margin" || pricingStrategy.strategy === "Hold price / protect availability";
-            const isNeutral = pricingStrategy.strategy === "Hold price";
+          {pricingStrategy &&
+            (() => {
+              const isDanger =
+                pricingStrategy.strategy === "Clearance" ||
+                pricingStrategy.strategy === "Markdown / Promotion";
+              const isWarning =
+                pricingStrategy.strategy === "Targeted promotion" ||
+                pricingStrategy.strategy === "Monitor";
+              const isPositive =
+                pricingStrategy.strategy === "Protect margin" ||
+                pricingStrategy.strategy === "Hold price / protect availability";
+              const isNeutral = pricingStrategy.strategy === "Hold price";
 
-            const borderColor = isDanger ? "border-rose-300/60 dark:border-rose-800/40"
-              : isWarning ? "border-amber-300/60 dark:border-amber-800/40"
-              : isPositive ? "border-emerald-300/60 dark:border-emerald-800/40"
-              : "border-border/50";
+              const borderColor = isDanger
+                ? "border-rose-300/60 dark:border-rose-800/40"
+                : isWarning
+                  ? "border-amber-300/60 dark:border-amber-800/40"
+                  : isPositive
+                    ? "border-emerald-300/60 dark:border-emerald-800/40"
+                    : "border-border/50";
 
-            const badgeBg = isDanger ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-400/30"
-              : isWarning ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-400/30"
-              : isPositive ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-400/30"
-              : "bg-muted/40 text-muted-foreground border-border/40";
+              const badgeBg = isDanger
+                ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-400/30"
+                : isWarning
+                  ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-400/30"
+                  : isPositive
+                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-400/30"
+                    : "bg-muted/40 text-muted-foreground border-border/40";
 
-            const accentBar = isDanger ? "bg-rose-500"
-              : isWarning ? "bg-amber-500"
-              : isPositive ? "bg-emerald-500"
-              : "bg-muted-foreground/30";
+              const accentBar = isDanger
+                ? "bg-rose-500"
+                : isWarning
+                  ? "bg-amber-500"
+                  : isPositive
+                    ? "bg-emerald-500"
+                    : "bg-muted-foreground/30";
 
-            const StrategyIcon = isDanger ? AlertTriangle
-              : isWarning ? TrendingDown
-              : isPositive ? TrendingUp
-              : Minus;
+              const StrategyIcon = isDanger
+                ? AlertTriangle
+                : isWarning
+                  ? TrendingDown
+                  : isPositive
+                    ? TrendingUp
+                    : Minus;
 
-            return (
-              <div className={`rounded-xl border ${borderColor} bg-card overflow-hidden`}>
-                {/* Colored accent bar */}
-                <div className={`h-1 w-full ${accentBar}`} />
+              return (
+                <div className={`rounded-xl border ${borderColor} bg-card overflow-hidden`}>
+                  {/* Colored accent bar */}
+                  <div className={`h-1 w-full ${accentBar}`} />
 
-                <div className="p-4 space-y-3">
-                  {/* Strategy header with icon */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${badgeBg}`}>
-                        <StrategyIcon className="h-3.5 w-3.5" />
-                      </div>
-                      <div>
-                        <div className="text-[9px] uppercase tracking-widest text-muted-foreground">
-                          Pricing strategy
+                  <div className="p-4 space-y-3">
+                    {/* Strategy header with icon */}
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div
+                          className={`flex h-7 w-7 items-center justify-center rounded-lg ${badgeBg}`}
+                        >
+                          <StrategyIcon className="h-3.5 w-3.5" />
                         </div>
-                        <div className="text-sm font-bold leading-tight">{pricingStrategy.strategy}</div>
-                      </div>
-                    </div>
-                    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[8px] uppercase tracking-widest font-semibold ${badgeBg}`}>
-                      {pricingStrategy.inventoryPosition}
-                    </span>
-                  </div>
-
-                  {/* Rule triggered */}
-                  <div className="rounded-lg bg-muted/30 px-3 py-2 border border-border/30">
-                    <div className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">Rule triggered</div>
-                    <div className="text-[11px] font-mono font-medium text-foreground/80">
-                      {pricingStrategy.triggeredRule}
-                    </div>
-                  </div>
-
-                  {/* Suggested action */}
-                  <div className="space-y-1">
-                    <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Action</div>
-                    <div className="text-xs font-medium leading-relaxed">
-                      {pricingStrategy.suggestedAction}
-                    </div>
-                  </div>
-
-                  {/* Reason */}
-                  <div className="space-y-1">
-                    <div className="text-[9px] uppercase tracking-widest text-muted-foreground">Reason</div>
-                    <div className="text-[10px] text-muted-foreground/80 leading-relaxed">
-                      {pricingStrategy.reason}
-                    </div>
-                  </div>
-
-                  {/* Price comparison bar */}
-                  <div className="rounded-lg border border-border/30 bg-muted/20 p-3 space-y-2">
-                    <div className="text-[8px] uppercase tracking-widest text-muted-foreground">Price analysis</div>
-                    <div className="flex items-center justify-between gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[9px] text-muted-foreground">Unit cost</div>
-                        <div className="font-mono text-sm tabular-nums text-muted-foreground">
-                          ${Number(pricingStrategy.conditions.unitCost).toFixed(2)}
+                        <div>
+                          <div className="text-[9px] uppercase tracking-widest text-muted-foreground">
+                            Pricing strategy
+                          </div>
+                          <div className="text-sm font-bold leading-tight">
+                            {pricingStrategy.strategy}
+                          </div>
                         </div>
                       </div>
-                      <div className="flex items-center justify-center text-muted-foreground/40">
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </div>
-                      <div className="flex-1 min-w-0 text-right">
-                        <div className="text-[9px] text-muted-foreground">Min permitted</div>
-                        <div className="font-mono text-sm font-bold tabular-nums">
-                          ${pricingStrategy.minimumPrice.toFixed(2)}
-                        </div>
-                      </div>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[8px] uppercase tracking-widest font-semibold ${badgeBg}`}
+                      >
+                        {pricingStrategy.inventoryPosition}
+                      </span>
                     </div>
-                    <div className="flex items-center justify-between gap-2 border-t border-border/30 pt-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="text-[9px] text-muted-foreground">Current</div>
-                        <div className="font-mono text-sm tabular-nums">
-                          ${Number(pricingStrategy.conditions.unitPrice).toFixed(2)}
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-center text-muted-foreground/40">
-                        <ArrowRight className="h-3.5 w-3.5" />
-                      </div>
-                      <div className="flex-1 min-w-0 text-right">
-                        <div className="text-[9px] text-muted-foreground flex items-center justify-end gap-1">
-                          Recommended
-                          <span className={`inline-flex items-center rounded-full px-1.5 py-px text-[8px] font-bold ${pricingStrategy.recommendedPriceChangePct > 0 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : pricingStrategy.recommendedPriceChangePct < 0 ? "bg-rose-500/15 text-rose-600 dark:text-rose-400" : "bg-muted/40 text-muted-foreground"}`}>
-                            {pricingStrategy.recommendedPriceChangePct > 0 ? "+" : ""}{pricingStrategy.recommendedPriceChangePct}%
-                          </span>
-                        </div>
-                        <div className="font-mono text-sm font-bold tabular-nums text-primary">
-                          ${pricingStrategy.recommendedPrice.toFixed(2)}
-                        </div>
-                      </div>
-                    </div>
-                    {/* Price range bar */}
-                    <div className="h-2 rounded-full bg-muted overflow-hidden relative">
-                      {(() => {
-                        const minP = pricingStrategy.minimumPrice;
-                        const curP = Number(pricingStrategy.conditions.unitPrice);
-                        const recP = pricingStrategy.recommendedPrice;
-                        const maxP = curP * 1.5;
-                        const range = maxP - minP;
-                        const pos = (v: number) => (range > 0 ? ((v - minP) / range) * 100 : 50);
-                        const minPos = pos(minP);
-                        const curPos = pos(curP);
-                        const recPos = pos(recP);
-                        return (
-                          <>
-                            <div className="absolute inset-0 bg-gradient-to-r from-rose-400/30 via-amber-400/30 to-emerald-400/30" />
-                            <div
-                              className="absolute top-0 bottom-0 w-0.5 bg-foreground rounded-full transition-all"
-                              style={{ left: `${Math.min(Math.max(curPos, 2), 98)}%` }}
-                            />
-                            <div
-                              className="absolute top-0 bottom-0 w-0.5 bg-destructive rounded-full transition-all"
-                              style={{ left: `${Math.min(Math.max(minPos, 2), 98)}%` }}
-                            />
-                            <div
-                              className="absolute top-0 bottom-0 w-0.5 bg-primary rounded-full transition-all"
-                              style={{ left: `${Math.min(Math.max(recPos, 2), 98)}%` }}
-                            />
-                          </>
-                        );
-                      })()}
-                    </div>
-                    <div className="flex justify-between text-[8px] text-muted-foreground/50">
-                      <span>Floor</span>
-                      <span>Current</span>
-                      <span>Ceiling</span>
-                    </div>
-                  </div>
 
-                  {/* Input conditions grid */}
-                  <div className="grid grid-cols-2 gap-1.5">
-                    <ConditionChip
-                      label="Velocity"
-                      value={pricingStrategy.conditions.velocity === "fast_mover" ? "Fast mover"
-                        : pricingStrategy.conditions.velocity === "medium_mover" ? "Medium mover"
-                        : pricingStrategy.conditions.velocity === "slow_mover" ? "Slow mover"
-                        : "Dead"}
-                      tone={pricingStrategy.conditions.velocity === "fast_mover" ? "positive"
-                        : pricingStrategy.conditions.velocity === "medium_mover" ? "neutral"
-                        : pricingStrategy.conditions.velocity === "slow_mover" ? "warning"
-                        : "danger"}
-                    />
-                    <ConditionChip
-                      label="Momentum"
-                      value={pricingStrategy.conditions.momentum === "accelerating" ? "Accelerating"
-                        : pricingStrategy.conditions.momentum === "stable" ? "Stable"
-                        : pricingStrategy.conditions.momentum === "declining" ? "Declining"
-                        : "Inactive"}
-                      tone={pricingStrategy.conditions.momentum === "accelerating" ? "positive"
-                        : pricingStrategy.conditions.momentum === "stable" ? "neutral"
-                        : "danger"}
-                    />
-                    <ConditionChip
-                      label="Days cover"
-                      value={String(pricingStrategy.conditions.daysOfCover)}
-                      tone={pricingStrategy.inventoryPosition === "low" ? "danger"
-                        : pricingStrategy.inventoryPosition === "high" ? "warning"
-                        : "positive"}
-                    />
-                    <ConditionChip
-                      label="Margin floor"
-                      value={`${Math.round(pricingStrategy.conditions.minGrossMarginPct * 100)}%`}
-                      tone="neutral"
-                    />
+                    {/* Rule triggered */}
+                    <div className="rounded-lg bg-muted/30 px-3 py-2 border border-border/30">
+                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground mb-0.5">
+                        Rule triggered
+                      </div>
+                      <div className="text-[11px] font-mono font-medium text-foreground/80">
+                        {pricingStrategy.triggeredRule}
+                      </div>
+                    </div>
+
+                    {/* Suggested action */}
+                    <div className="space-y-1">
+                      <div className="text-[9px] uppercase tracking-widest text-muted-foreground">
+                        Action
+                      </div>
+                      <div className="text-xs font-medium leading-relaxed">
+                        {pricingStrategy.suggestedAction}
+                      </div>
+                    </div>
+
+                    {/* Reason */}
+                    <div className="space-y-1">
+                      <div className="text-[9px] uppercase tracking-widest text-muted-foreground">
+                        Reason
+                      </div>
+                      <div className="text-[10px] text-muted-foreground/80 leading-relaxed">
+                        {pricingStrategy.reason}
+                      </div>
+                    </div>
+
+                    {/* Price comparison bar */}
+                    <div className="rounded-lg border border-border/30 bg-muted/20 p-3 space-y-2">
+                      <div className="text-[8px] uppercase tracking-widest text-muted-foreground">
+                        Price analysis
+                      </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[9px] text-muted-foreground">Unit cost</div>
+                          <div className="font-mono text-sm tabular-nums text-muted-foreground">
+                            ${Number(pricingStrategy.conditions.unitCost).toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-center text-muted-foreground/40">
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </div>
+                        <div className="flex-1 min-w-0 text-right">
+                          <div className="text-[9px] text-muted-foreground">Min permitted</div>
+                          <div className="font-mono text-sm font-bold tabular-nums">
+                            ${pricingStrategy.minimumPrice.toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between gap-2 border-t border-border/30 pt-2">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[9px] text-muted-foreground">Current</div>
+                          <div className="font-mono text-sm tabular-nums">
+                            ${Number(pricingStrategy.conditions.unitPrice).toFixed(2)}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-center text-muted-foreground/40">
+                          <ArrowRight className="h-3.5 w-3.5" />
+                        </div>
+                        <div className="flex-1 min-w-0 text-right">
+                          <div className="text-[9px] text-muted-foreground flex items-center justify-end gap-1">
+                            Recommended
+                            <span
+                              className={`inline-flex items-center rounded-full px-1.5 py-px text-[8px] font-bold ${pricingStrategy.recommendedPriceChangePct > 0 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : pricingStrategy.recommendedPriceChangePct < 0 ? "bg-rose-500/15 text-rose-600 dark:text-rose-400" : "bg-muted/40 text-muted-foreground"}`}
+                            >
+                              {pricingStrategy.recommendedPriceChangePct > 0 ? "+" : ""}
+                              {pricingStrategy.recommendedPriceChangePct}%
+                            </span>
+                          </div>
+                          <div className="font-mono text-sm font-bold tabular-nums text-primary">
+                            ${pricingStrategy.recommendedPrice.toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                      {/* Price range bar */}
+                      <div className="h-2 rounded-full bg-muted overflow-hidden relative">
+                        {(() => {
+                          const minP = pricingStrategy.minimumPrice;
+                          const curP = Number(pricingStrategy.conditions.unitPrice);
+                          const recP = pricingStrategy.recommendedPrice;
+                          const maxP = curP * 1.5;
+                          const range = maxP - minP;
+                          const pos = (v: number) => (range > 0 ? ((v - minP) / range) * 100 : 50);
+                          const minPos = pos(minP);
+                          const curPos = pos(curP);
+                          const recPos = pos(recP);
+                          return (
+                            <>
+                              <div className="absolute inset-0 bg-gradient-to-r from-rose-400/30 via-amber-400/30 to-emerald-400/30" />
+                              <div
+                                className="absolute top-0 bottom-0 w-0.5 bg-foreground rounded-full transition-all"
+                                style={{ left: `${Math.min(Math.max(curPos, 2), 98)}%` }}
+                              />
+                              <div
+                                className="absolute top-0 bottom-0 w-0.5 bg-destructive rounded-full transition-all"
+                                style={{ left: `${Math.min(Math.max(minPos, 2), 98)}%` }}
+                              />
+                              <div
+                                className="absolute top-0 bottom-0 w-0.5 bg-primary rounded-full transition-all"
+                                style={{ left: `${Math.min(Math.max(recPos, 2), 98)}%` }}
+                              />
+                            </>
+                          );
+                        })()}
+                      </div>
+                      <div className="flex justify-between text-[8px] text-muted-foreground/50">
+                        <span>Floor</span>
+                        <span>Current</span>
+                        <span>Ceiling</span>
+                      </div>
+                    </div>
+
+                    {/* Input conditions grid */}
+                    <div className="grid grid-cols-2 gap-1.5">
+                      <ConditionChip
+                        label="Velocity"
+                        value={
+                          pricingStrategy.conditions.velocity === "fast_mover"
+                            ? "Fast mover"
+                            : pricingStrategy.conditions.velocity === "medium_mover"
+                              ? "Medium mover"
+                              : pricingStrategy.conditions.velocity === "slow_mover"
+                                ? "Slow mover"
+                                : "Dead"
+                        }
+                        tone={
+                          pricingStrategy.conditions.velocity === "fast_mover"
+                            ? "positive"
+                            : pricingStrategy.conditions.velocity === "medium_mover"
+                              ? "neutral"
+                              : pricingStrategy.conditions.velocity === "slow_mover"
+                                ? "warning"
+                                : "danger"
+                        }
+                      />
+                      <ConditionChip
+                        label="Momentum"
+                        value={
+                          pricingStrategy.conditions.momentum === "accelerating"
+                            ? "Accelerating"
+                            : pricingStrategy.conditions.momentum === "stable"
+                              ? "Stable"
+                              : pricingStrategy.conditions.momentum === "declining"
+                                ? "Declining"
+                                : "Inactive"
+                        }
+                        tone={
+                          pricingStrategy.conditions.momentum === "accelerating"
+                            ? "positive"
+                            : pricingStrategy.conditions.momentum === "stable"
+                              ? "neutral"
+                              : "danger"
+                        }
+                      />
+                      <ConditionChip
+                        label="Days cover"
+                        value={String(pricingStrategy.conditions.daysOfCover)}
+                        tone={
+                          pricingStrategy.inventoryPosition === "low"
+                            ? "danger"
+                            : pricingStrategy.inventoryPosition === "high"
+                              ? "warning"
+                              : "positive"
+                        }
+                      />
+                      <ConditionChip
+                        label="Margin floor"
+                        value={`${Math.round(pricingStrategy.conditions.minGrossMarginPct * 100)}%`}
+                        tone="neutral"
+                      />
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })()}
+              );
+            })()}
 
           {/* Edit pricing — recommendation stays read-only; edits are manual */}
-          <EditPricingForm product={product} pricingStrategy={pricingStrategy} defaultMargin={defaultMargin} />
+          <EditPricingForm
+            product={product}
+            pricingStrategy={pricingStrategy}
+            defaultMargin={defaultMargin}
+          />
 
           {/* Risk indicators */}
           <div className="rounded-xl border border-border/50 bg-card p-4">
@@ -1438,12 +1881,24 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
               <RiskBar
                 label="Stockout risk"
                 level={f.stockoutRisk}
-                color={f.stockoutRisk === "high" ? "rose" : f.stockoutRisk === "medium" ? "amber" : "emerald"}
+                color={
+                  f.stockoutRisk === "high"
+                    ? "rose"
+                    : f.stockoutRisk === "medium"
+                      ? "amber"
+                      : "emerald"
+                }
               />
               <RiskBar
                 label="Overstock risk"
                 level={f.overstockRisk}
-                color={f.overstockRisk === "high" ? "rose" : f.overstockRisk === "medium" ? "amber" : "emerald"}
+                color={
+                  f.overstockRisk === "high"
+                    ? "rose"
+                    : f.overstockRisk === "medium"
+                      ? "amber"
+                      : "emerald"
+                }
               />
               <RiskBar
                 label="Coverage ratio"
@@ -1466,18 +1921,32 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
                 value={`${f.trend > 0 ? "+" : ""}${f.trend}/mo`}
                 tone={f.trend > 0 ? "success" : f.trend < 0 ? "destructive" : undefined}
               />
-              <KpiSquare label="Trend strength" value={`${Math.round(f.trendStrength * 100)}%`} tone={f.trendStrength > 0.7 ? "primary" : undefined} />
+              <KpiSquare
+                label="Trend strength"
+                value={`${Math.round(f.trendStrength * 100)}%`}
+                tone={f.trendStrength > 0.7 ? "primary" : undefined}
+              />
               <KpiSquare label="Seasonality" value={`×${f.seasonalityFactor.toFixed(2)}`} />
               <KpiSquare label="Daily demand" value={`${f.dailyForecast.toFixed(1)}/d`} />
-              <KpiSquare label="Recommended qty" value={f.recommendedReorder.toLocaleString()} tone="primary" />
-              <KpiSquare label="Reorder value" value={fmtMoney(f.recommendedReorder * Number(product.unit_cost))} />
+              <KpiSquare
+                label="Recommended qty"
+                value={f.recommendedReorder.toLocaleString()}
+                tone="primary"
+              />
+              <KpiSquare
+                label="Reorder value"
+                value={fmtMoney(f.recommendedReorder * Number(product.unit_cost))}
+              />
               <KpiSquare label="Next month" value={f.finalForecast.toLocaleString()} />
               <KpiSquare
                 label="Adjusted next mo"
                 value={f.adjustmentFactor !== 1 ? f.adjustedNextForecast.toLocaleString() : "—"}
                 tone={f.adjustmentFactor !== 1 ? "primary" : undefined}
               />
-              <KpiSquare label="In stock value" value={fmtMoney(stock * Number(product.unit_cost))} />
+              <KpiSquare
+                label="In stock value"
+                value={fmtMoney(stock * Number(product.unit_cost))}
+              />
             </div>
           </div>
         </div>
@@ -1492,12 +1961,23 @@ function ExpandedForecastDetail({ product, stock, f, velocityTag, pricingStrateg
 // --------------- Stockout Timeline Visualization ---------------
 
 function StockoutTimeline({
-  stock, dailyForecast, estimatedStockoutDate, reorderByDate, nextRefillDate,
-  leadTimeDays, daysOfCover, stockoutUrgency,
+  stock,
+  dailyForecast,
+  estimatedStockoutDate,
+  reorderByDate,
+  nextRefillDate,
+  leadTimeDays,
+  daysOfCover,
+  stockoutUrgency,
 }: {
-  stock: number; dailyForecast: number; estimatedStockoutDate: string | null;
-  reorderByDate: string | null; nextRefillDate: string; leadTimeDays: number;
-  daysOfCover: number; stockoutUrgency: string;
+  stock: number;
+  dailyForecast: number;
+  estimatedStockoutDate: string | null;
+  reorderByDate: string | null;
+  nextRefillDate: string;
+  leadTimeDays: number;
+  daysOfCover: number;
+  stockoutUrgency: string;
 }) {
   const today = new Date();
   const todayStr = today.toISOString().slice(0, 10);
@@ -1505,9 +1985,7 @@ function StockoutTimeline({
   const outDate = estimatedStockoutDate ?? "N/A";
 
   // Calculate relative positions for the timeline bar (0% = today, 100% = refill date or stockout, whichever is later)
-  const endDate = outDate !== "N/A"
-    ? (refillDate > outDate ? refillDate : outDate)
-    : refillDate;
+  const endDate = outDate !== "N/A" ? (refillDate > outDate ? refillDate : outDate) : refillDate;
   const totalDays = daysRemaining(endDate);
   const safeTotal = Math.max(totalDays, 1);
 
@@ -1523,16 +2001,21 @@ function StockoutTimeline({
           {/* Stock cover segment */}
           <div
             className={`absolute inset-y-0 left-0 rounded-full transition-all duration-700 ${
-              stockoutUrgency === "critical" ? "bg-gradient-to-r from-rose-500 to-rose-300" :
-              stockoutUrgency === "warning" ? "bg-gradient-to-r from-amber-500 to-amber-300" :
-              "bg-gradient-to-r from-emerald-500 to-emerald-300"
+              stockoutUrgency === "critical"
+                ? "bg-gradient-to-r from-rose-500 to-rose-300"
+                : stockoutUrgency === "warning"
+                  ? "bg-gradient-to-r from-amber-500 to-amber-300"
+                  : "bg-gradient-to-r from-emerald-500 to-emerald-300"
             }`}
             style={{ width: `${Math.min(Math.max(outPct, 5), 100)}%` }}
           />
         </div>
         {/* Markers */}
         {reorderByDate && (
-          <div className="absolute top-0" style={{ left: `${Math.min(Math.max(reorderPct, 3), 97)}%` }}>
+          <div
+            className="absolute top-0"
+            style={{ left: `${Math.min(Math.max(reorderPct, 3), 97)}%` }}
+          >
             <div className="w-0.5 h-7 bg-amber-400 rounded-full" />
             <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[8px] font-semibold text-amber-500 whitespace-nowrap">
               ⚑ Order
@@ -1547,7 +2030,10 @@ function StockoutTimeline({
             </div>
           </div>
         )}
-        <div className="absolute top-0" style={{ left: `${Math.min(Math.max(refillPct, 3), 97)}%` }}>
+        <div
+          className="absolute top-0"
+          style={{ left: `${Math.min(Math.max(refillPct, 3), 97)}%` }}
+        >
           <div className="w-0.5 h-7 bg-primary rounded-full" />
           <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-[8px] font-semibold text-primary whitespace-nowrap">
             ✓ In
@@ -1569,7 +2055,13 @@ function StockoutTimeline({
             value={reorderByDate}
             detail={`${daysRemaining(reorderByDate) > 0 ? `${daysRemaining(reorderByDate)} days` : "OVERDUE"}`}
             icon={<Clock className="h-3 w-3" />}
-            color={stockoutUrgency === "critical" ? "text-rose-500" : stockoutUrgency === "warning" ? "text-amber-500" : "text-muted-foreground"}
+            color={
+              stockoutUrgency === "critical"
+                ? "text-rose-500"
+                : stockoutUrgency === "warning"
+                  ? "text-amber-500"
+                  : "text-muted-foreground"
+            }
           />
         )}
         <TimelineRow
@@ -1584,7 +2076,13 @@ function StockoutTimeline({
           value={outDate}
           detail={outDate !== "N/A" ? `${daysRemaining(outDate)} days away` : "No stockout risk"}
           icon={<AlertTriangle className="h-3 w-3" />}
-          color={stockoutUrgency === "critical" ? "text-rose-500" : stockoutUrgency === "warning" ? "text-amber-500" : "text-emerald-500"}
+          color={
+            stockoutUrgency === "critical"
+              ? "text-rose-500"
+              : stockoutUrgency === "warning"
+                ? "text-amber-500"
+                : "text-emerald-500"
+          }
         />
       </div>
     </div>
@@ -1593,12 +2091,22 @@ function StockoutTimeline({
 
 // --------------- Risk Bar ---------------
 
-function RiskBar({ label, level, color, detail }: {
-  label: string; level: string; color: "rose" | "amber" | "emerald"; detail?: string;
+function RiskBar({
+  label,
+  level,
+  color,
+  detail,
+}: {
+  label: string;
+  level: string;
+  color: "rose" | "amber" | "emerald";
+  detail?: string;
 }) {
   const pct = level === "high" ? 100 : level === "medium" ? 60 : 20;
-  const barColor = color === "rose" ? "bg-rose-500" : color === "amber" ? "bg-amber-500" : "bg-emerald-500";
-  const textColor = color === "rose" ? "text-rose-600" : color === "amber" ? "text-amber-600" : "text-emerald-600";
+  const barColor =
+    color === "rose" ? "bg-rose-500" : color === "amber" ? "bg-amber-500" : "bg-emerald-500";
+  const textColor =
+    color === "rose" ? "text-rose-600" : color === "amber" ? "text-amber-600" : "text-emerald-600";
 
   return (
     <div>
@@ -1607,7 +2115,10 @@ function RiskBar({ label, level, color, detail }: {
         <span className={`text-[10px] font-semibold uppercase ${textColor}`}>{level}</span>
       </div>
       <div className="h-1.5 rounded-full bg-muted overflow-hidden">
-        <div className={`h-full rounded-full transition-all duration-500 ${barColor}`} style={{ width: `${pct}%` }} />
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${barColor}`}
+          style={{ width: `${pct}%` }}
+        />
       </div>
       {detail && <div className="text-[9px] text-muted-foreground/60 mt-0.5">{detail}</div>}
     </div>
@@ -1616,9 +2127,18 @@ function RiskBar({ label, level, color, detail }: {
 
 // --------------- Supporting components ---------------
 
-function TimelineRow({ label, value, detail, icon, color }: {
-  label: string; value: string; detail?: string;
-  icon: React.ReactNode; color: string;
+function TimelineRow({
+  label,
+  value,
+  detail,
+  icon,
+  color,
+}: {
+  label: string;
+  value: string;
+  detail?: string;
+  icon: React.ReactNode;
+  color: string;
 }) {
   return (
     <div className="flex items-center gap-2 py-0.5">
@@ -1634,21 +2154,26 @@ function TimelineRow({ label, value, detail, icon, color }: {
 
 // --------------- Month-by-month stock requirement row ---------------
 
-function MonthRequirementRow({ month, index }: {
-  month: ForecastResult['forecast'][0];
+function MonthRequirementRow({
+  month,
+  index,
+}: {
+  month: ForecastResult["forecast"][0];
   index: number;
 }) {
   const isNext = index === 0;
   const isNextNext = index === 1;
 
   return (
-    <div className={`flex items-center gap-3 py-2 px-3 rounded-lg transition-all ${
-      isNext
-        ? "bg-primary/5 border border-primary/15"
-        : isNextNext
-        ? "bg-muted/30 border border-border/30"
-        : ""
-    }`}>
+    <div
+      className={`flex items-center gap-3 py-2 px-3 rounded-lg transition-all ${
+        isNext
+          ? "bg-primary/5 border border-primary/15"
+          : isNextNext
+            ? "bg-muted/30 border border-border/30"
+            : ""
+      }`}
+    >
       {/* Month badge */}
       <div className="flex-shrink-0 w-20">
         <div className="text-[10px] font-semibold uppercase tracking-wide">
@@ -1662,7 +2187,9 @@ function MonthRequirementRow({ month, index }: {
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between mb-0.5">
           <span className="text-[9px] text-muted-foreground">Demand</span>
-          <span className="font-mono text-xs font-semibold tabular-nums">{month.qty.toLocaleString()}</span>
+          <span className="font-mono text-xs font-semibold tabular-nums">
+            {month.qty.toLocaleString()}
+          </span>
         </div>
         <div className="h-1.5 rounded-full bg-muted overflow-hidden">
           <div
@@ -1683,11 +2210,15 @@ function MonthRequirementRow({ month, index }: {
       {/* Projected after */}
       <div className="flex-shrink-0 text-right min-w-[70px]">
         <div className="text-[9px] text-muted-foreground">After demand</div>
-        <div className={`font-mono text-xs font-semibold tabular-nums ${
-          month.projectedStockAfter <= 0 ? "text-rose-500" :
-          month.projectedStockAfter < month.stockRequired * 0.3 ? "text-amber-500" :
-          "text-emerald-500"
-        }`}>
+        <div
+          className={`font-mono text-xs font-semibold tabular-nums ${
+            month.projectedStockAfter <= 0
+              ? "text-rose-500"
+              : month.projectedStockAfter < month.stockRequired * 0.3
+                ? "text-amber-500"
+                : "text-emerald-500"
+          }`}
+        >
           {month.projectedStockAfter.toLocaleString()}
         </div>
       </div>
@@ -1695,9 +2226,11 @@ function MonthRequirementRow({ month, index }: {
       {/* Suggested order */}
       <div className="flex-shrink-0 text-right min-w-[75px]">
         <div className="text-[9px] text-muted-foreground">Order if short</div>
-        <div className={`font-mono text-xs font-semibold tabular-nums ${
-          month.suggestedOrder > 0 ? "text-primary" : "text-muted-foreground/40"
-        }`}>
+        <div
+          className={`font-mono text-xs font-semibold tabular-nums ${
+            month.suggestedOrder > 0 ? "text-primary" : "text-muted-foreground/40"
+          }`}
+        >
           {month.suggestedOrder > 0 ? month.suggestedOrder.toLocaleString() : "—"}
         </div>
       </div>
@@ -1713,11 +2246,25 @@ function MonthRequirementRow({ month, index }: {
   );
 }
 
-function KpiSquare({ label, value, tone }: {
-  label: string; value: string; tone?: "success" | "destructive" | "primary" | "warning";
+function KpiSquare({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: "success" | "destructive" | "primary" | "warning";
 }) {
-  const t = tone === "success" ? "text-emerald-500" : tone === "destructive" ? "text-rose-500"
-    : tone === "primary" ? "text-primary" : tone === "warning" ? "text-amber-500" : "text-foreground";
+  const t =
+    tone === "success"
+      ? "text-emerald-500"
+      : tone === "destructive"
+        ? "text-rose-500"
+        : tone === "primary"
+          ? "text-primary"
+          : tone === "warning"
+            ? "text-amber-500"
+            : "text-foreground";
   return (
     <div className="rounded-lg border border-border/40 bg-muted/20 p-2.5 hover:bg-muted/40 transition-colors">
       <div className="text-[8px] uppercase tracking-widest text-muted-foreground">{label}</div>
@@ -1726,42 +2273,83 @@ function KpiSquare({ label, value, tone }: {
   );
 }
 
-function StatTile({ label, value, tone, icon }: { label: string; value: string | number; tone?: "warning" | "destructive"; icon?: React.ReactNode }) {
-  const t = tone === "warning" ? "text-amber-500" : tone === "destructive" ? "text-rose-500" : "text-foreground";
+function StatTile({
+  label,
+  value,
+  tone,
+  icon,
+}: {
+  label: string;
+  value: string | number;
+  tone?: "warning" | "destructive";
+  icon?: React.ReactNode;
+}) {
+  const t =
+    tone === "warning"
+      ? "text-amber-500"
+      : tone === "destructive"
+        ? "text-rose-500"
+        : "text-foreground";
   return (
     <div className="rounded-xl border border-border/60 bg-card p-4 hover:shadow-sm transition-shadow">
       <div className="flex items-center justify-between">
         <div className="text-[9px] uppercase tracking-widest text-muted-foreground">{label}</div>
         {icon}
       </div>
-      <div className={`mt-1.5 font-display text-2xl tabular-nums ${t}`}>{value}</div>
+      <div className={`mt-1 font-display text-2xl tabular-nums ${t}`}>{value}</div>
     </div>
   );
 }
 
-function Pill({ children, tone }: { children: React.ReactNode; tone: "success" | "warning" | "destructive" | "primary" }) {
-  const s = tone === "success" ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
-    : tone === "warning" ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
-    : tone === "primary" ? "bg-primary/10 text-primary border-primary/30"
-    : "bg-rose-500/10 text-rose-600 border-rose-500/30";
+function Pill({
+  children,
+  tone,
+}: {
+  children: React.ReactNode;
+  tone: "success" | "warning" | "destructive" | "primary";
+}) {
+  const s =
+    tone === "success"
+      ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
+      : tone === "warning"
+        ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
+        : tone === "primary"
+          ? "bg-primary/10 text-primary border-primary/30"
+          : "bg-rose-500/10 text-rose-600 border-rose-500/30";
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-widest font-semibold ${s}`}>
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-widest font-semibold ${s}`}
+    >
       {children}
     </span>
   );
 }
 
-function ConditionChip({ label, value, tone }: {
-  label: string; value: string; tone: "positive" | "warning" | "danger" | "neutral";
+function ConditionChip({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "positive" | "warning" | "danger" | "neutral";
 }) {
-  const bg = tone === "positive" ? "bg-emerald-500/10 border-emerald-500/20"
-    : tone === "warning" ? "bg-amber-500/10 border-amber-500/20"
-    : tone === "danger" ? "bg-rose-500/10 border-rose-500/20"
-    : "bg-muted/30 border-border/30";
-  const txt = tone === "positive" ? "text-emerald-600 dark:text-emerald-400"
-    : tone === "warning" ? "text-amber-600 dark:text-amber-400"
-    : tone === "danger" ? "text-rose-600 dark:text-rose-400"
-    : "text-muted-foreground";
+  const bg =
+    tone === "positive"
+      ? "bg-emerald-500/10 border-emerald-500/20"
+      : tone === "warning"
+        ? "bg-amber-500/10 border-amber-500/20"
+        : tone === "danger"
+          ? "bg-rose-500/10 border-rose-500/20"
+          : "bg-muted/30 border-border/30";
+  const txt =
+    tone === "positive"
+      ? "text-emerald-600 dark:text-emerald-400"
+      : tone === "warning"
+        ? "text-amber-600 dark:text-amber-400"
+        : tone === "danger"
+          ? "text-rose-600 dark:text-rose-400"
+          : "text-muted-foreground";
   return (
     <div className={`rounded-lg border ${bg} px-2.5 py-1.5`}>
       <div className="text-[8px] uppercase tracking-widest text-muted-foreground/70">{label}</div>
@@ -1777,8 +2365,7 @@ function ConditionChip({ label, value, tone }: {
 function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) {
   const [openSection, setOpenSection] = useState<string | null>(null);
 
-  const toggle = (id: string) =>
-    setOpenSection(openSection === id ? null : id);
+  const toggle = (id: string) => setOpenSection(openSection === id ? null : id);
 
   return (
     <div className="mt-6 border-t border-border/30 pt-6 space-y-3">
@@ -1793,22 +2380,13 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
       </div>
 
       {/* 1. Input Data */}
-      <CalcSection
-        id="input"
-        label="① Input data"
-        open={openSection}
-        onToggle={toggle}
-      >
+      <CalcSection id="input" label="① Input data" open={openSection} onToggle={toggle}>
         <div className="text-[10px] text-muted-foreground mb-2">
           Historical monthly demand values (corrected for stockouts):
         </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-1.5">
           {breakdown.inputData.values.map((v, i) => (
-            <CalcVar
-              key={i}
-              name={breakdown.inputData.monthLabels[i] ?? `M${i}`}
-              value={v}
-            />
+            <CalcVar key={i} name={breakdown.inputData.monthLabels[i] ?? `M${i}`} value={v} />
           ))}
         </div>
       </CalcSection>
@@ -1833,10 +2411,7 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
             label="Σ (demand × weight)"
             value={String(breakdown.weightedAverage.weightedSum)}
           />
-          <CalcLine
-            label="Σ weights"
-            value={String(breakdown.weightedAverage.weightSum)}
-          />
+          <CalcLine label="Σ weights" value={String(breakdown.weightedAverage.weightSum)} />
           <CalcLine
             label="Weighted avg"
             value={String(breakdown.weightedAverage.result)}
@@ -1861,11 +2436,7 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
           <CalcVar name="ΣX²" value={breakdown.trendAnalysis.sumX2 ?? 0} />
           <CalcVar name="Numerator" value={breakdown.trendAnalysis.numerator ?? 0} />
           <CalcVar name="Denominator" value={breakdown.trendAnalysis.denominator ?? 0} />
-          <CalcVar
-            name="Slope"
-            value={breakdown.trendAnalysis.slope}
-            highlight
-          />
+          <CalcVar name="Slope" value={breakdown.trendAnalysis.slope} highlight />
           <CalcVar name="SS Residual" value={breakdown.trendAnalysis.ssRes} />
           <CalcVar name="SS Total" value={breakdown.trendAnalysis.ssTot} />
           <CalcVar name="R² (strength)" value={breakdown.trendAnalysis.rSquared} highlight />
@@ -1883,7 +2454,8 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
       >
         <Formula formula={breakdown.seasonality.formula} />
         <div className="text-[10px] text-muted-foreground mb-1">
-          Overall average: <span className="font-mono font-semibold">{breakdown.seasonality.overallAvg}</span>
+          Overall average:{" "}
+          <span className="font-mono font-semibold">{breakdown.seasonality.overallAvg}</span>
         </div>
         <CalcTable
           headers={["Month", "Avg", "Raw", "Prev", "Next", "Factor", "Clamped"]}
@@ -1914,15 +2486,11 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
             <div
               key={i}
               className={`rounded-lg border p-3 ${
-                i === 0
-                  ? "border-primary/20 bg-primary/[0.03]"
-                  : "border-border/40"
+                i === 0 ? "border-primary/20 bg-primary/[0.03]" : "border-border/40"
               }`}
             >
               <div className="flex items-center gap-2 mb-2">
-                <span className="text-xs font-bold uppercase tracking-wide">
-                  {m.monthName}
-                </span>
+                <span className="text-xs font-bold uppercase tracking-wide">{m.monthName}</span>
                 {i === 0 && (
                   <span className="text-[9px] font-semibold text-primary bg-primary/10 px-2 py-0.5 rounded-full">
                     Next month
@@ -1955,9 +2523,9 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
                 <CalcVar name="Projected stock after" value={m.projectedStockAfter} />
               </div>
               <div className="mt-1.5 text-[9px] text-muted-foreground/50">
-                baseline = {m.avgPlusTrend} × {m.seasonalityFactor} = {m.baseline} ·
-                final = clamp({m.baseline} × {m.factorsMultiplied}, {m.clampLow}, {m.clampHigh}) = {m.finalForecast} ·
-                daily = {m.finalForecast} ÷ {m.daysInMonth}d = {m.dailyRate}/d
+                baseline = {m.avgPlusTrend} × {m.seasonalityFactor} = {m.baseline} · final = clamp(
+                {m.baseline} × {m.factorsMultiplied}, {m.clampLow}, {m.clampHigh}) ={" "}
+                {m.finalForecast} · daily = {m.finalForecast} ÷ {m.daysInMonth}d = {m.dailyRate}/d
               </div>
             </div>
           ))}
@@ -1965,12 +2533,7 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
       </CalcSection>
 
       {/* 6. Reorder Calculation */}
-      <CalcSection
-        id="reorder"
-        label="⑥ Reorder calculation"
-        open={openSection}
-        onToggle={toggle}
-      >
+      <CalcSection id="reorder" label="⑥ Reorder calculation" open={openSection} onToggle={toggle}>
         <div className="space-y-2 text-[11px]">
           <div className="font-medium text-xs mb-1">Daily average — last 3 completed months</div>
           <CalcTable
@@ -1992,14 +2555,13 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
             />
           </div>
 
-          <div className="font-medium text-xs mt-3 mb-1">Required stock (daily avg × (lead + safety))</div>
+          <div className="font-medium text-xs mt-3 mb-1">
+            Required stock (daily avg × (lead + safety))
+          </div>
           <div className="grid grid-cols-2 gap-x-4 gap-y-1">
             <CalcVar name="Supplier lead days" value={breakdown.reorder.supplierLeadDays} />
             <CalcVar name="Safety stock days" value={breakdown.reorder.safetyStockDays} />
-            <CalcVar
-              name="Safety stock"
-              value={breakdown.reorder.safetyStockUnits}
-            />
+            <CalcVar name="Safety stock" value={breakdown.reorder.safetyStockUnits} />
             <CalcVar
               name="Required stock"
               value={breakdown.reorder.requiredStock}
@@ -2009,7 +2571,8 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
           </div>
           {breakdown.reorder.safetyStockFormula && (
             <div className="text-[9px] text-muted-foreground/60 font-mono">
-              safety stock = {breakdown.reorder.safetyStockFormula} = {breakdown.reorder.safetyStockUnits}
+              safety stock = {breakdown.reorder.safetyStockFormula} ={" "}
+              {breakdown.reorder.safetyStockUnits}
             </div>
           )}
 
@@ -2029,16 +2592,10 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
               </>
             )}
             {breakdown.reorder.minimumOrderQty && (
-              <CalcVar
-                name="Min order qty"
-                value={breakdown.reorder.minimumOrderQty}
-              />
+              <CalcVar name="Min order qty" value={breakdown.reorder.minimumOrderQty} />
             )}
             {breakdown.reorder.orderMultiple && (
-              <CalcVar
-                name="Order multiple"
-                value={breakdown.reorder.orderMultiple}
-              />
+              <CalcVar name="Order multiple" value={breakdown.reorder.orderMultiple} />
             )}
             <CalcVar
               name="Final recommended"
@@ -2072,10 +2629,7 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
             value={breakdown.paceAdjustment.expectedSalesToDate}
             formula={`${breakdown.paceAdjustment.currentMonthBaseForecast} × ${breakdown.paceAdjustment.daysElapsed} ÷ ${breakdown.paceAdjustment.daysInMonth} = ${breakdown.paceAdjustment.expectedSalesToDate}`}
           />
-          <CalcVar
-            name="Actual sales to date"
-            value={breakdown.paceAdjustment.actualSalesToDate}
-          />
+          <CalcVar name="Actual sales to date" value={breakdown.paceAdjustment.actualSalesToDate} />
           <CalcVar
             name="Sales pace ratio"
             value={breakdown.paceAdjustment.salesPaceRatio ?? "—"}
@@ -2116,14 +2670,8 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
         onToggle={toggle}
       >
         <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-[11px]">
-          <CalcVar
-            name="Inventory position"
-            value={breakdown.daysOfCover.inventoryPosition}
-          />
-          <CalcVar
-            name="Daily forecast"
-            value={breakdown.daysOfCover.dailyForecast}
-          />
+          <CalcVar name="Inventory position" value={breakdown.daysOfCover.inventoryPosition} />
+          <CalcVar name="Daily forecast" value={breakdown.daysOfCover.dailyForecast} />
           <CalcVar
             name="Days of cover"
             value={
@@ -2138,14 +2686,8 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
                 : "No demand in the last 3 months → ∞"
             }
           />
-          <CalcVar
-            name="Last 3-mo demand"
-            value={breakdown.daysOfCover.totalDemand}
-          />
-          <CalcVar
-            name="Last 3-mo days"
-            value={breakdown.daysOfCover.totalDays}
-          />
+          <CalcVar name="Last 3-mo demand" value={breakdown.daysOfCover.totalDemand} />
+          <CalcVar name="Last 3-mo days" value={breakdown.daysOfCover.totalDays} />
           <CalcVar
             name="Last 3-mo daily avg"
             value={breakdown.daysOfCover.recentDaily}
@@ -2155,10 +2697,7 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
                 : undefined
             }
           />
-          <CalcVar
-            name="Last 3-mo avg (monthly)"
-            value={breakdown.daysOfCover.recent3MonthAvg}
-          />
+          <CalcVar name="Last 3-mo avg (monthly)" value={breakdown.daysOfCover.recent3MonthAvg} />
           <CalcVar
             name="Velocity"
             value={breakdown.momentum.result}
@@ -2167,10 +2706,10 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
               breakdown.momentum.recent3MonthAvg >= breakdown.momentum.threshold120pct
                 ? `${breakdown.momentum.recent3MonthAvg} ≥ ${breakdown.momentum.threshold120pct} → accelerating`
                 : breakdown.momentum.recent3MonthAvg >= breakdown.momentum.threshold60pct
-                ? `${breakdown.momentum.recent3MonthAvg} ≥ ${breakdown.momentum.threshold60pct} → stable`
-                : breakdown.momentum.recent3MonthAvg > 0
-                ? `${breakdown.momentum.recent3MonthAvg} < ${breakdown.momentum.threshold60pct} → declining`
-                : `0 → dead`
+                  ? `${breakdown.momentum.recent3MonthAvg} ≥ ${breakdown.momentum.threshold60pct} → stable`
+                  : breakdown.momentum.recent3MonthAvg > 0
+                    ? `${breakdown.momentum.recent3MonthAvg} < ${breakdown.momentum.threshold60pct} → declining`
+                    : `0 → dead`
             }
           />
         </div>
@@ -2199,11 +2738,7 @@ function CalculationDetails({ breakdown }: { breakdown: CalculationBreakdown }) 
           <CalcVar name="Stockout date" value={breakdown.timeline.estimatedStockoutDate ?? "—"} />
           <CalcVar name="Reorder by date" value={breakdown.timeline.reorderByDate ?? "—"} />
           <CalcVar name="Next refill date" value={breakdown.timeline.nextRefillDate} />
-          <CalcVar
-            name="Stockout urgency"
-            value={breakdown.timeline.stockoutUrgency}
-            highlight
-          />
+          <CalcVar name="Stockout urgency" value={breakdown.timeline.stockoutUrgency} highlight />
         </div>
       </CalcSection>
     </div>
@@ -2245,11 +2780,7 @@ function CalcSection({
           <path d="M19 9l-7 7-7-7" />
         </svg>
       </button>
-      {isOpen && (
-        <div className="px-4 pb-4 pt-1 border-t border-border/20">
-          {children}
-        </div>
-      )}
+      {isOpen && <div className="px-4 pb-4 pt-1 border-t border-border/20">{children}</div>}
     </div>
   );
 }
@@ -2257,7 +2788,9 @@ function CalcSection({
 function Formula({ formula }: { formula: string }) {
   return (
     <div className="mb-2 p-2 rounded-lg bg-muted/30 border border-border/20 text-[10px] font-mono text-primary/80">
-      <span className="text-[8px] uppercase tracking-widest text-muted-foreground mr-2">Formula:</span>
+      <span className="text-[8px] uppercase tracking-widest text-muted-foreground mr-2">
+        Formula:
+      </span>
       {formula}
     </div>
   );
@@ -2277,14 +2810,10 @@ function CalcVar({
   return (
     <div
       className={`rounded-lg px-2.5 py-1.5 border ${
-        highlight
-          ? "border-primary/30 bg-primary/5"
-          : "border-border/20 bg-muted/15"
+        highlight ? "border-primary/30 bg-primary/5" : "border-border/20 bg-muted/15"
       }`}
     >
-      <div className="text-[8px] uppercase tracking-wider text-muted-foreground/70">
-        {name}
-      </div>
+      <div className="text-[8px] uppercase tracking-wider text-muted-foreground/70">{name}</div>
       <div
         className={`font-mono text-xs tabular-nums ${
           highlight ? "text-primary font-bold" : "text-foreground/80"
@@ -2328,22 +2857,14 @@ function CalcLine({
           {value}
         </span>
         {formula && (
-          <div className="text-[8px] text-muted-foreground/40 font-mono mt-0.5">
-            {formula}
-          </div>
+          <div className="text-[8px] text-muted-foreground/40 font-mono mt-0.5">{formula}</div>
         )}
       </div>
     </div>
   );
 }
 
-function CalcTable({
-  headers,
-  rows,
-}: {
-  headers: string[];
-  rows: string[][];
-}) {
+function CalcTable({ headers, rows }: { headers: string[]; rows: string[][] }) {
   return (
     <div className="overflow-x-auto">
       <table className="table-premium w-full text-[10px]">

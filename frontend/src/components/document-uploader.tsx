@@ -25,7 +25,14 @@ function getToken(): string | null {
   return localStorage.getItem("auth_token");
 }
 
-export function DocumentUploader({ userId, scope, docs, onChange, label = "Supporting documents", hint }: Props) {
+export function DocumentUploader({
+  userId,
+  scope,
+  docs,
+  onChange,
+  label = "Supporting documents",
+  hint,
+}: Props) {
   const [busy, setBusy] = useState(false);
 
   const upload = async (files: FileList | null) => {
@@ -34,16 +41,19 @@ export function DocumentUploader({ userId, scope, docs, onChange, label = "Suppo
     try {
       const next: DocMeta[] = [...docs];
       for (const f of Array.from(files)) {
-        if (f.size > 15 * 1024 * 1024) { toast.error(`${f.name}: max 15 MB`); continue; }
+        if (f.size > 15 * 1024 * 1024) {
+          toast.error(`${f.name}: max 15 MB`);
+          continue;
+        }
         const safe = f.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
         const path = `${userId}/${scope}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe}`;
-        
+
         // Upload via backend API instead of Supabase Storage
         const formData = new FormData();
         formData.append("file", f);
         formData.append("path", path);
         formData.append("scope", scope);
-        
+
         const token = getToken();
         const res = await fetch(`${API_URL}/upload`, {
           method: "POST",
@@ -56,8 +66,11 @@ export function DocumentUploader({ userId, scope, docs, onChange, label = "Suppo
           continue;
         }
         next.push({
-          path, name: f.name, type: f.type || "application/octet-stream",
-          size: f.size, uploaded_at: new Date().toISOString(),
+          path,
+          name: f.name,
+          type: f.type || "application/octet-stream",
+          size: f.size,
+          uploaded_at: new Date().toISOString(),
         });
       }
       onChange(next);
@@ -81,10 +94,22 @@ export function DocumentUploader({ userId, scope, docs, onChange, label = "Suppo
       <div className="flex items-center justify-between">
         <span className="text-xs uppercase tracking-widest text-muted-foreground">{label}</span>
         <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs hover:border-primary hover:text-primary">
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Paperclip className="h-3.5 w-3.5" />}
+          {busy ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Paperclip className="h-3.5 w-3.5" />
+          )}
           Attach
-          <input type="file" multiple className="hidden" disabled={busy}
-            onChange={(e) => { upload(e.target.files); e.target.value = ""; }} />
+          <input
+            type="file"
+            multiple
+            className="hidden"
+            disabled={busy}
+            onChange={(e) => {
+              upload(e.target.files);
+              e.target.value = "";
+            }}
+          />
         </label>
       </div>
       {hint && <p className="text-[10px] text-muted-foreground">{hint}</p>}
@@ -95,13 +120,25 @@ export function DocumentUploader({ userId, scope, docs, onChange, label = "Suppo
       ) : (
         <ul className="space-y-1">
           {docs.map((d) => (
-            <li key={d.path} className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/40 px-2.5 py-1.5 text-xs">
+            <li
+              key={d.path}
+              className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/40 px-2.5 py-1.5 text-xs"
+            >
               <div className="flex min-w-0 items-center gap-2">
                 <FileText className="h-3.5 w-3.5 shrink-0 text-primary" />
-                <span className="truncate" title={d.name}>{d.name}</span>
-                <span className="shrink-0 text-muted-foreground">{(d.size / 1024).toFixed(0)} KB</span>
+                <span className="truncate" title={d.name}>
+                  {d.name}
+                </span>
+                <span className="shrink-0 text-muted-foreground">
+                  {(d.size / 1024).toFixed(0)} KB
+                </span>
               </div>
-              <button type="button" onClick={() => remove(d)} className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive" aria-label="Remove">
+              <button
+                type="button"
+                onClick={() => remove(d)}
+                className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive"
+                aria-label="Remove"
+              >
                 <X className="h-3.5 w-3.5" />
               </button>
             </li>
@@ -122,7 +159,10 @@ export function DocumentList({ docs }: { docs: DocMeta[] }) {
       const res = await fetch(`${API_URL}/upload/${encodeURIComponent(d.path)}/url`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      if (!res.ok) { toast.error("Could not open"); return; }
+      if (!res.ok) {
+        toast.error("Could not open");
+        return;
+      }
       const data = await res.json();
       window.open(data.url ?? data.signedUrl, "_blank", "noopener");
     } finally {
@@ -136,15 +176,29 @@ export function DocumentList({ docs }: { docs: DocMeta[] }) {
   return (
     <ul className="space-y-1">
       {docs.map((d) => (
-        <li key={d.path} className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/40 px-2.5 py-1.5 text-xs">
+        <li
+          key={d.path}
+          className="flex items-center justify-between gap-2 rounded-md border border-border bg-background/40 px-2.5 py-1.5 text-xs"
+        >
           <div className="flex min-w-0 items-center gap-2">
             <FileText className="h-3.5 w-3.5 shrink-0 text-primary" />
-            <span className="truncate" title={d.name}>{d.name}</span>
+            <span className="truncate" title={d.name}>
+              {d.name}
+            </span>
             <span className="shrink-0 text-muted-foreground">{(d.size / 1024).toFixed(0)} KB</span>
           </div>
-          <button type="button" onClick={() => open(d)} disabled={busyPath === d.path}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary disabled:opacity-60">
-            {busyPath === d.path ? <Loader2 className="h-3 w-3 animate-spin" /> : <Download className="h-3 w-3" />} Open
+          <button
+            type="button"
+            onClick={() => open(d)}
+            disabled={busyPath === d.path}
+            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary disabled:opacity-60"
+          >
+            {busyPath === d.path ? (
+              <Loader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <Download className="h-3 w-3" />
+            )}{" "}
+            Open
           </button>
         </li>
       ))}

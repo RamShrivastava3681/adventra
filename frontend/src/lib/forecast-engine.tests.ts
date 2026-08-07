@@ -49,7 +49,12 @@ function mkHistory(qtys: number[]): MonthlyBucket[] {
   });
 }
 
-function makeTrendingHistory(steps: number, slope: number, base: number, noise = 0): MonthlyBucket[] {
+function makeTrendingHistory(
+  steps: number,
+  slope: number,
+  base: number,
+  noise = 0,
+): MonthlyBucket[] {
   const now = new Date();
   return Array.from({ length: steps }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (steps - 1 - i), 1);
@@ -69,17 +74,29 @@ test("returns raw when availability missing", () => {
   eq(r.availabilityRate, undefined);
 });
 test("no correction when fully available", () => {
-  const r = correctForAvailability(42, "2026-01", { month: "2026-01", inStockDays: 31, daysInMonth: 31 });
+  const r = correctForAvailability(42, "2026-01", {
+    month: "2026-01",
+    inStockDays: 31,
+    daysInMonth: 31,
+  });
   eq(r.correctedDemand, 42);
   eq(r.availabilityRate, 1);
 });
 test("scales 42 units @ 21/30 days -> 60", () => {
-  const r = correctForAvailability(42, "2026-06", { month: "2026-06", inStockDays: 21, daysInMonth: 30 });
+  const r = correctForAvailability(42, "2026-06", {
+    month: "2026-06",
+    inStockDays: 21,
+    daysInMonth: 30,
+  });
   close(r.availabilityRate!, 0.7, 0.001);
   close(r.correctedDemand, 60);
 });
 test("caps at 1.4x actual for severe stockouts", () => {
-  const r = correctForAvailability(10, "2026-06", { month: "2026-06", inStockDays: 3, daysInMonth: 30 });
+  const r = correctForAvailability(10, "2026-06", {
+    month: "2026-06",
+    inStockDays: 3,
+    daysInMonth: 30,
+  });
   close(r.correctedDemand, 14);
 });
 
@@ -150,11 +167,13 @@ test("forecast anchors on the 12-month weighted baseline + trend", () => {
   close(
     r.forecast[0].baseline,
     (8 + 1) * seas,
-    0.5 // baseline is rounded to an integer in the result
+    0.5, // baseline is rounded to an integer in the result
   );
 });
 
-console.log("\nbucketMovementsByMonth — trailing months (current month included) + currentMonthBucket");
+console.log(
+  "\nbucketMovementsByMonth — trailing months (current month included) + currentMonthBucket",
+);
 test("buckets the trailing window (current month included) and corrects stockouts", () => {
   const now = new Date();
   const cur = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
@@ -209,7 +228,12 @@ console.log("\nreorder calculation");
 test("rounds up to order multiple and respects MOQ", () => {
   const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
   const r = forecastSKU(h, 0, 14, 6, {
-    config: { supplierLeadTimeDays: 14, safetyStockDays: 30, orderMultiple: 25, minimumOrderQty: 50 },
+    config: {
+      supplierLeadTimeDays: 14,
+      safetyStockDays: 30,
+      orderMultiple: 25,
+      minimumOrderQty: 50,
+    },
   });
   eq(r.recommendedReorder % 25, 0);
   truthy(r.recommendedReorder >= 50, "at least MOQ");
@@ -220,7 +244,12 @@ test("caps reorder by maxCoverDays unless protected", () => {
     config: { supplierLeadTimeDays: 60, safetyStockDays: 60, maxCoverDays: 30 },
   });
   const prot = forecastSKU(h, 0, 14, 6, {
-    config: { supplierLeadTimeDays: 60, safetyStockDays: 60, maxCoverDays: 30, isProtectedCore: true },
+    config: {
+      supplierLeadTimeDays: 60,
+      safetyStockDays: 60,
+      maxCoverDays: 30,
+      isProtectedCore: true,
+    },
   });
   truthy(prot.recommendedReorder > capped.recommendedReorder, "protected should order more");
 });
@@ -228,7 +257,9 @@ test("flags stockout and overstock risks", () => {
   const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
   const low = forecastSKU(h, 2, 14, 6, { config: { supplierLeadTimeDays: 14 } });
   eq(low.stockoutRisk, "high");
-  const high = forecastSKU(h, 5000, 14, 6, { config: { supplierLeadTimeDays: 14, maxCoverDays: 90 } });
+  const high = forecastSKU(h, 5000, 14, 6, {
+    config: { supplierLeadTimeDays: 14, maxCoverDays: 90 },
+  });
   eq(high.overstockRisk, "high");
 });
 
@@ -265,15 +296,23 @@ test("forecast months have prediction intervals", () => {
   for (const m of r.forecast) {
     truthy(m.predictionIntervalLow != null, `month ${m.month} should have low PI`);
     truthy(m.predictionIntervalHigh != null, `month ${m.month} should have high PI`);
-    truthy(m.predictionIntervalHigh! >= m.qty, `PI high (${m.predictionIntervalHigh}) >= qty (${m.qty})`);
-    truthy(m.predictionIntervalLow! <= m.qty, `PI low (${m.predictionIntervalLow}) <= qty (${m.qty})`);
+    truthy(
+      m.predictionIntervalHigh! >= m.qty,
+      `PI high (${m.predictionIntervalHigh}) >= qty (${m.qty})`,
+    );
+    truthy(
+      m.predictionIntervalLow! <= m.qty,
+      `PI low (${m.predictionIntervalLow}) <= qty (${m.qty})`,
+    );
   }
 });
 test("confidence interval widens with forecast horizon", () => {
   const h = mkHistory([10, 12, 11, 13, 15, 14, 16, 18, 17, 19, 20, 22]);
   const r = forecastSKU(h, 50, 14);
   const firstWidth = r.forecast[0].predictionIntervalHigh! - r.forecast[0].predictionIntervalLow!;
-  const lastWidth = r.forecast[r.forecast.length - 1].predictionIntervalHigh! - r.forecast[r.forecast.length - 1].predictionIntervalLow!;
+  const lastWidth =
+    r.forecast[r.forecast.length - 1].predictionIntervalHigh! -
+    r.forecast[r.forecast.length - 1].predictionIntervalLow!;
   truthy(lastWidth >= firstWidth, `CI should widen: first=${firstWidth}, last=${lastWidth}`);
 });
 
@@ -309,7 +348,7 @@ test("projected stock decreases over months without reorder", () => {
   for (let i = 1; i < r.forecast.length; i++) {
     truthy(
       r.forecast[i].projectedStockAfter <= r.forecast[i - 1].projectedStockAfter,
-      `Month ${i} projected stock (${r.forecast[i].projectedStockAfter}) should be <= month ${i - 1} (${r.forecast[i - 1].projectedStockAfter})`
+      `Month ${i} projected stock (${r.forecast[i].projectedStockAfter}) should be <= month ${i - 1} (${r.forecast[i - 1].projectedStockAfter})`,
     );
   }
 });
@@ -320,7 +359,10 @@ test("suggested order triggers when stock is low", () => {
   const r = forecastSKU(h, 10, 30, 3);
   // First month: 10 stock vs ~100 demand
   truthy(r.forecast[0].suggestedOrder > 0, "should suggest order when stock is low");
-  truthy(r.forecast[0].projectedStockAfter <= r.forecast[0].stockRequired, "stock after should be <= required");
+  truthy(
+    r.forecast[0].projectedStockAfter <= r.forecast[0].stockRequired,
+    "stock after should be <= required",
+  );
 });
 
 console.log("\ntimeline — stockout date = today + days of cover");
@@ -341,7 +383,9 @@ test("no stockout date when demand is zero (daysOfCover = Infinity)", () => {
 });
 test("days of cover = stock ÷ last-3-months daily average (window = 3 months before the forecast month)", () => {
   const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
-  const r = forecastSKU(h, 30, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
+  const r = forecastSKU(h, 30, 14, 6, {
+    config: { supplierLeadTimeDays: 14, safetyStockDays: 30 },
+  });
   const bd = r.calculationBreakdown;
   // Same window as the reorder recommendation: the 3 calendar months before
   // the forecast month (e.g. a September forecast → June, July, August).
@@ -350,17 +394,27 @@ test("days of cover = stock ÷ last-3-months daily average (window = 3 months be
   eq(bd.daysOfCover.totalDemand, bd.reorder.totalDemand, "Σ last-3-months demand");
   eq(bd.daysOfCover.totalDays, bd.reorder.totalDays, "Σ last-3-months calendar days");
   close(bd.daysOfCover.recentDaily, bd.reorder.dailyAverage, 0.005);
-  eq(bd.daysOfCover.daysOfCover, Math.round(30 / bd.reorder.dailyAverage), "daysOfCover = stock ÷ last-3-mo daily avg");
+  eq(
+    bd.daysOfCover.daysOfCover,
+    Math.round(30 / bd.reorder.dailyAverage),
+    "daysOfCover = stock ÷ last-3-mo daily avg",
+  );
   eq(r.daysOfCover, bd.daysOfCover.daysOfCover, "top-level matches breakdown");
 });
 test("recomputeTimeline refreshes days of cover with the same last-3-months window", () => {
   const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
-  const r = forecastSKU(h, 30, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
+  const r = forecastSKU(h, 30, 14, 6, {
+    config: { supplierLeadTimeDays: 14, safetyStockDays: 30 },
+  });
   const fresh = recomputeTimeline(r, 30, 14);
   const bd = fresh.calculationBreakdown;
   eq(bd.reorder.lastThreeMonths.length, 3, "window is 3 months");
   // The page recomputes cover from persisted snapshots via recomputeTimeline.
-  eq(bd.daysOfCover.daysOfCover, Math.round(30 / bd.reorder.dailyAverage), "daysOfCover refreshed from last-3-mo daily avg");
+  eq(
+    bd.daysOfCover.daysOfCover,
+    Math.round(30 / bd.reorder.dailyAverage),
+    "daysOfCover refreshed from last-3-mo daily avg",
+  );
   close(bd.daysOfCover.recentDaily, bd.reorder.dailyAverage, 0.005);
 });
 test("stockout date is today when already out of stock", () => {
@@ -374,22 +428,47 @@ console.log("\nnew fields — stock requirement");
 console.log("\nlive pace adjustment");
 test("computePaceAdjustment applies the ratio formula", () => {
   // base 60, day 15 of a 30-day month → expected 30. Actual 45 → ratio 1.5
-  const p = computePaceAdjustment({ currentMonthBaseForecast: 60, actualSalesToDate: 45, daysElapsed: 15, daysInMonth: 30 });
+  const p = computePaceAdjustment({
+    currentMonthBaseForecast: 60,
+    actualSalesToDate: 45,
+    daysElapsed: 15,
+    daysInMonth: 30,
+  });
   close(p.expectedSalesToDate, 30, 0.01);
   close(p.salesPaceRatio!, 1.5, 0.001);
   close(p.adjustmentFactor, 1.15, 0.001);
 });
 test("adjustment factor clamps to 1.20 and 0.80", () => {
-  const hot = computePaceAdjustment({ currentMonthBaseForecast: 60, actualSalesToDate: 300, daysElapsed: 15, daysInMonth: 30 });
+  const hot = computePaceAdjustment({
+    currentMonthBaseForecast: 60,
+    actualSalesToDate: 300,
+    daysElapsed: 15,
+    daysInMonth: 30,
+  });
   eq(hot.adjustmentFactor, 1.2);
-  const cold = computePaceAdjustment({ currentMonthBaseForecast: 60, actualSalesToDate: 0, daysElapsed: 15, daysInMonth: 30 });
+  const cold = computePaceAdjustment({
+    currentMonthBaseForecast: 60,
+    actualSalesToDate: 0,
+    daysElapsed: 15,
+    daysInMonth: 30,
+  });
   eq(cold.adjustmentFactor, 0.8);
 });
 test("no adjustment before 7 days or with no current-month forecast", () => {
-  const early = computePaceAdjustment({ currentMonthBaseForecast: 60, actualSalesToDate: 999, daysElapsed: 6, daysInMonth: 30 });
+  const early = computePaceAdjustment({
+    currentMonthBaseForecast: 60,
+    actualSalesToDate: 999,
+    daysElapsed: 6,
+    daysInMonth: 30,
+  });
   eq(early.adjustmentFactor, 1);
   eq(early.salesPaceRatio, null);
-  const zeroBase = computePaceAdjustment({ currentMonthBaseForecast: 0, actualSalesToDate: 10, daysElapsed: 15, daysInMonth: 30 });
+  const zeroBase = computePaceAdjustment({
+    currentMonthBaseForecast: 0,
+    actualSalesToDate: 10,
+    daysElapsed: 15,
+    daysInMonth: 30,
+  });
   eq(zeroBase.adjustmentFactor, 1);
 });
 test("forecastSKU exposes base + adjusted next month without altering the base", () => {
@@ -410,7 +489,7 @@ test("forecastSKU exposes base + adjusted next month without altering the base",
   eq(
     r.forecast.map((m) => m.qty).join(","),
     r2.forecast.map((m) => m.qty).join(","),
-    "forecast months identical with or without adjustment"
+    "forecast months identical with or without adjustment",
   );
 });
 test("recomputeTimeline refreshes the pace factor from live current-month sales", () => {
@@ -469,7 +548,11 @@ test("safety stock = dailyAverage × safetyStockDays from config", () => {
   eq(bd.safetyStockDays, 30);
   // A different safety stock days value must change the result proportionally
   const c = forecastSKU(h, 0, 30, 6, { config: { supplierLeadTimeDays: 30, safetyStockDays: 15 } });
-  eq(c.calculationBreakdown.reorder.safetyStockUnits, Math.round(c.calculationBreakdown.reorder.dailyAverage * 15), "safety scales with safetyStockDays");
+  eq(
+    c.calculationBreakdown.reorder.safetyStockUnits,
+    Math.round(c.calculationBreakdown.reorder.dailyAverage * 15),
+    "safety scales with safetyStockDays",
+  );
 });
 test("reorder = requiredStock − stock on hand (last-3-months daily average)", () => {
   const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
@@ -481,7 +564,9 @@ test("reorder = requiredStock − stock on hand (last-3-months daily average)", 
   const expected = Math.ceil(bd.recommendedBeforeCaps);
   eq(r.recommendedReorder, expected, "raw reorder = max(0, required − position), ceil");
   // With stock on hand, reorder shrinks by exactly that stock
-  const r2 = forecastSKU(h, 100, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
+  const r2 = forecastSKU(h, 100, 14, 6, {
+    config: { supplierLeadTimeDays: 14, safetyStockDays: 30 },
+  });
   const bd2 = r2.calculationBreakdown.reorder;
   eq(r2.recommendedReorder, Math.ceil(bd2.recommendedBeforeCaps));
   close(r2.recommendedReorder, Math.max(0, expected - 100), 1);
@@ -493,12 +578,17 @@ test("daily average window = the 3 most recent calendar months, current month co
   const r = forecastSKU(h, 0, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
   const bd = r.calculationBreakdown.reorder;
   eq(bd.lastThreeMonths.length, 3, "exactly 3 months");
-  eq(bd.lastThreeMonths[2].monthKey, curKey, "the current month is the newest entry (counted in full)");
+  eq(
+    bd.lastThreeMonths[2].monthKey,
+    curKey,
+    "the current month is the newest entry (counted in full)",
+  );
   eq(bd.totalDemand, 30, "3 full months × 10 units each");
   // Calendar days must match the real days of those months
   const realDays = bd.lastThreeMonths.reduce(
-    (s, m) => s + new Date(Number(m.monthKey.slice(0, 4)), Number(m.monthKey.slice(5, 7)), 0).getDate(),
-    0
+    (s, m) =>
+      s + new Date(Number(m.monthKey.slice(0, 4)), Number(m.monthKey.slice(5, 7)), 0).getDate(),
+    0,
   );
   eq(bd.totalDays, realDays, "calendar days match the actual months");
   // dailyAverage = totalDemand ÷ totalDays
@@ -544,14 +634,17 @@ test("recomputeTimeline refreshes reorder against live stock & backfills new fie
           finalRecommended: 999,
         },
       },
-    })
+    }),
   );
   const fresh = recomputeTimeline(oldSnapshot, 50, 14);
   // Reorder was recomputed (not 999), and matches the fresh engine result
   eq(fresh.recommendedReorder, r.recommendedReorder, "reorder recomputed live");
   const rb = fresh.calculationBreakdown.reorder;
   eq(rb.safetyStockDays, 30, "safety days backfilled with default");
-  truthy(typeof rb.safetyStockUnits === "number" && rb.safetyStockUnits > 0, "safety units backfilled");
+  truthy(
+    typeof rb.safetyStockUnits === "number" && rb.safetyStockUnits > 0,
+    "safety units backfilled",
+  );
   truthy(typeof rb.dailyForecast === "number", "dailyForecast backfilled");
   // Daily average window = the 3 most recent calendar months (current included, in full)
   const now = new Date();
@@ -562,7 +655,9 @@ test("recomputeTimeline refreshes reorder against live stock & backfills new fie
 });
 test("recomputeTimeline window = the 3 most recent calendar months in full (live outbound only drives pace)", () => {
   const h = mkHistory([30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30]);
-  const r = forecastSKU(h, 50, 14, 6, { config: { supplierLeadTimeDays: 14, safetyStockDays: 30 } });
+  const r = forecastSKU(h, 50, 14, 6, {
+    config: { supplierLeadTimeDays: 14, safetyStockDays: 30 },
+  });
   const fresh = recomputeTimeline(r, 50, 14, 5);
   const rb = fresh.calculationBreakdown.reorder;
   const now = new Date();
@@ -706,7 +801,12 @@ test("recommendation never mutates the SKU price inputs", () => {
 
 test("custom price-change rules override the defaults", () => {
   const custom = [
-    { id: "aggressive", velocity: "slow_mover" as const, momentum: "stable" as const, changePct: -5 },
+    {
+      id: "aggressive",
+      velocity: "slow_mover" as const,
+      momentum: "stable" as const,
+      changePct: -5,
+    },
   ];
   const r = computePricingStrategy({
     velocity: "slow_mover",

@@ -64,31 +64,59 @@ function AuthPage() {
             Capital moves at the speed of conviction.
           </h2>
           <p className="mt-4 max-w-md text-sm text-muted-foreground">
-            Submit invoices, advance against them, and monitor the entire receivables book in one room.
+            Submit invoices, advance against them, and monitor the entire receivables book in one
+            room.
           </p>
         </div>
-        <div className="relative text-xs text-muted-foreground">SOC 2 · ISO 27001 · 256-bit at rest</div>
+        <div className="relative text-xs text-muted-foreground">
+          SOC 2 · ISO 27001 · 256-bit at rest
+        </div>
       </div>
 
       {/* Right form */}
       <div className="flex items-center justify-center p-6 md:p-12">
         <div className="w-full max-w-md">
-          <h1 className="font-display text-3xl">{mode === "signup" ? "Create your account" : "Sign in"}</h1>
+          <h1 className="font-display text-3xl">
+            {mode === "signup" ? "Create your account" : "Sign in"}
+          </h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {mode === "signup" ? "Create an account to submit invoices and request advances." : "Resume monitoring your receivables."}
+            {mode === "signup"
+              ? "Create an account to submit invoices and request advances."
+              : "Resume monitoring your receivables."}
           </p>
 
           <form onSubmit={onSubmit} className="mt-8 space-y-4">
             {mode === "signup" && (
               <Field label="Company name">
-                <input value={companyName} onChange={(e) => setCompanyName(e.target.value)} required className="input" placeholder="Acme Manufacturing" />
+                <input
+                  value={companyName}
+                  onChange={(e) => setCompanyName(e.target.value)}
+                  required
+                  className="input"
+                  placeholder="Acme Manufacturing"
+                />
               </Field>
             )}
             <Field label="Email">
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="input" placeholder="you@company.com" />
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                required
+                className="input"
+                placeholder="you@company.com"
+              />
             </Field>
             <Field label="Password">
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required minLength={6} className="input" placeholder="••••••••" />
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+                minLength={6}
+                className="input"
+                placeholder="••••••••"
+              />
             </Field>
 
             <button disabled={loading} type="submit" className="btn-primary mt-2 w-full px-4 py-3">
@@ -99,7 +127,10 @@ function AuthPage() {
 
           <p className="mt-6 text-center text-sm text-muted-foreground">
             {mode === "signup" ? "Already have an account?" : "New here?"}{" "}
-            <button onClick={() => setMode(mode === "signup" ? "signin" : "signup")} className="text-primary underline-offset-4 hover:underline">
+            <button
+              onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
+              className="text-primary underline-offset-4 hover:underline"
+            >
               {mode === "signup" ? "Sign in" : "Create account"}
             </button>
           </p>
@@ -128,7 +159,9 @@ function AuthPage() {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>
+      <span className="mb-1.5 block text-xs uppercase tracking-widest text-muted-foreground">
+        {label}
+      </span>
       {children}
     </label>
   );

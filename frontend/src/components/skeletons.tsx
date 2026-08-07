@@ -33,13 +33,7 @@ export function ChartSkeleton({ height = "h-64" }: { height?: string }) {
 /* ------------------------------------------------------------------ */
 /*  Table skeleton                                                      */
 /* ------------------------------------------------------------------ */
-export function TableSkeleton({
-  rows = 5,
-  cols = 6,
-}: {
-  rows?: number;
-  cols?: number;
-}) {
+export function TableSkeleton({ rows = 5, cols = 6 }: { rows?: number; cols?: number }) {
   return (
     <div className="-mx-5 overflow-x-auto">
       <table className="table-premium w-full text-sm">
@@ -57,10 +51,7 @@ export function TableSkeleton({
             <tr key={r} className="border-b border-border/60">
               {Array.from({ length: cols }).map((_, c) => (
                 <td key={c} className="px-5 py-3">
-                  <Skeleton
-                    className="h-4"
-                    style={{ width: `${50 + Math.random() * 40}%` }}
-                  />
+                  <Skeleton className="h-4" style={{ width: `${50 + Math.random() * 40}%` }} />
                 </td>
               ))}
             </tr>

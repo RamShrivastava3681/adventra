@@ -4,7 +4,17 @@ import { useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Trash2, Link2, PackageOpen, Ban, CheckCircle2, Send } from "lucide-react";
+import {
+  Plus,
+  X,
+  Loader2,
+  Trash2,
+  Link2,
+  PackageOpen,
+  Ban,
+  CheckCircle2,
+  Send,
+} from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
@@ -67,7 +77,14 @@ type PF = {
 
 // Document statuses for proformas — purchase (supplier quotations) and
 // sales (customer proformas entered/uploaded into the system).
-const PF_DOC_STATUSES = ["received", "reviewed", "converted_to_po", "converted_to_so", "expired", "cancelled"];
+const PF_DOC_STATUSES = [
+  "received",
+  "reviewed",
+  "converted_to_po",
+  "converted_to_so",
+  "expired",
+  "cancelled",
+];
 const PF_DOC_LABELS: Record<string, string> = {
   received: "Received",
   reviewed: "Reviewed",
@@ -284,9 +301,7 @@ function ProformasPage() {
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ["proformas"] });
       qc.invalidateQueries({ queryKey: ["sales-orders"] });
-      toast.success(
-        `Draft sales order ${(res as any)?.salesOrder?.soNumber ?? ""} created`,
-      );
+      toast.success(`Draft sales order ${(res as any)?.salesOrder?.soNumber ?? ""} created`);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -404,17 +419,13 @@ function ProformasPage() {
                         : ["received", "reviewed", "proforma"].includes(p.status);
                     // Once submitted for review (or approved) the maker can no
                     // longer change the proforma — the checker/treasury own it.
-                    const underReview = ["pending_review", "approved"].includes(
-                      p.proforma_status,
-                    );
+                    const underReview = ["pending_review", "approved"].includes(p.proforma_status);
                     // The proforma invoice amount (total) and the advance due on
                     // it: PO-created purchase proformas carry advance_pct (×
                     // po_amount); manually entered proformas use `amount` as the
                     // advance requested.
                     const pfTotal =
-                      p.grand_total != null && p.grand_total > 0
-                        ? p.grand_total
-                        : p.amount;
+                      p.grand_total != null && p.grand_total > 0 ? p.grand_total : p.amount;
                     const pfAdvance = proformaAdvanceForDisplay(p);
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
@@ -457,12 +468,11 @@ function ProformasPage() {
                         </td>
                         <td className="px-5 py-3 text-right num">
                           <div>{fmtMoney(pfAdvance)}</div>
-                          {p.proforma_funded_amount != null &&
-                            p.proforma_funded_amount > 0 && (
-                              <div className="text-[10px] text-success">
-                                Paid {fmtMoney(p.proforma_funded_amount)}
-                              </div>
-                            )}
+                          {p.proforma_funded_amount != null && p.proforma_funded_amount > 0 && (
+                            <div className="text-[10px] text-success">
+                              Paid {fmtMoney(p.proforma_funded_amount)}
+                            </div>
+                          )}
                         </td>
                         <td className="px-5 py-3">
                           <div className="flex flex-col items-start gap-1">
@@ -573,17 +583,14 @@ function ProformasPage() {
                                 <CheckCircle2 className="h-3 w-3" /> Reviewed
                               </button>
                             )}
-                            {canCreate &&
-                              ["received", "reviewed"].includes(p.status) && (
-                                <button
-                                  onClick={() =>
-                                    setDocStatus.mutate({ id: p.id, status: "expired" })
-                                  }
-                                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:border-warning hover:text-warning"
-                                >
-                                  <Ban className="h-3 w-3" /> Expire
-                                </button>
-                              )}
+                            {canCreate && ["received", "reviewed"].includes(p.status) && (
+                              <button
+                                onClick={() => setDocStatus.mutate({ id: p.id, status: "expired" })}
+                                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:border-warning hover:text-warning"
+                              >
+                                <Ban className="h-3 w-3" /> Expire
+                              </button>
+                            )}
                             {(isChecker || isAdmin) &&
                               !docClosed &&
                               p.proforma_status === "pending_review" &&
@@ -595,17 +602,15 @@ function ProformasPage() {
                                   Review
                                 </button>
                               )}
-                            {canCreate &&
-                              !docClosed &&
-                              p.proforma_status === "rejected" && (
-                                <button
-                                  onClick={() => resubmit.mutate(p.id)}
-                                  disabled={resubmit.isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
-                                >
-                                  <Send className="h-3 w-3" /> Resubmit for approval
-                                </button>
-                              )}
+                            {canCreate && !docClosed && p.proforma_status === "rejected" && (
+                              <button
+                                onClick={() => resubmit.mutate(p.id)}
+                                disabled={resubmit.isPending}
+                                className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
+                              >
+                                <Send className="h-3 w-3" /> Resubmit for approval
+                              </button>
+                            )}
                             {(isTreasury || isAdmin) &&
                               !docClosed &&
                               p.proforma_status === "approved" && (
@@ -658,10 +663,10 @@ function ProformasPage() {
             </li>
             <li>
               <span className="font-medium text-foreground">Sales proforma</span> — record the
-              customer's proforma invoice (catalogue lines, totals, attachment) as Received,
-              review it, and convert it to a Sales order (a draft SO is auto-created, never stock).
-              An optional advance request flows through the checker/treasury pipeline and is
-              applied to the final invoice with the same PO number.
+              customer's proforma invoice (catalogue lines, totals, attachment) as Received, review
+              it, and convert it to a Sales order (a draft SO is auto-created, never stock). An
+              optional advance request flows through the checker/treasury pipeline and is applied to
+              the final invoice with the same PO number.
             </li>
             <li>
               Advances recorded against a PO are auto-deducted when the final invoice is raised —
@@ -852,9 +857,7 @@ function SalesProformaModal({
           }) => ({
             id: d.id,
             name: d.name ?? d.id,
-            contact: [d.contact_name, d.contact_email, d.contact_phone]
-              .filter(Boolean)
-              .join(" · "),
+            contact: [d.contact_name, d.contact_email, d.contact_phone].filter(Boolean).join(" · "),
           }),
         )
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -1245,10 +1248,9 @@ function SalesProformaModal({
             </L>
           </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
-            A proforma never creates inventory — stock only reduces after a confirmed dispatch.
-            If an advance is requested it is submitted for checker review, then received by
-            treasury. Convert the proforma to a Sales order from the list to hand it to the sales
-            workflow.
+            A proforma never creates inventory — stock only reduces after a confirmed dispatch. If
+            an advance is requested it is submitted for checker review, then received by treasury.
+            Convert the proforma to a Sales order from the list to hand it to the sales workflow.
           </p>
         </fieldset>
 
@@ -1930,7 +1932,7 @@ function proformaAdvanceAmount(
   pf: Pick<PF, "advance_pct" | "po_amount" | "amount">,
 ): number | null {
   if (pf.advance_pct == null || pf.advance_pct <= 0) return null;
-  return Math.round(((pf.po_amount ?? pf.amount ?? 0) * pf.advance_pct) / 100 * 100) / 100;
+  return Math.round((((pf.po_amount ?? pf.amount ?? 0) * pf.advance_pct) / 100) * 100) / 100;
 }
 
 /**
@@ -1938,9 +1940,7 @@ function proformaAdvanceAmount(
  * proformas carry advance_pct (× po_amount); manually entered proformas use
  * `amount` as the advance requested. Never null.
  */
-function proformaAdvanceForDisplay(
-  pf: Pick<PF, "advance_pct" | "po_amount" | "amount">,
-): number {
+function proformaAdvanceForDisplay(pf: Pick<PF, "advance_pct" | "po_amount" | "amount">): number {
   return proformaAdvanceAmount(pf) ?? (pf.po_amount == null ? pf.amount : 0);
 }
 

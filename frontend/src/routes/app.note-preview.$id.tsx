@@ -27,10 +27,23 @@ function NotePreviewPage() {
     },
   });
 
-  if (noteQ.isLoading) return <div className="grid min-h-screen place-items-center text-sm text-muted-foreground">Loading note…</div>;
-  if (!noteQ.data) return <div className="grid min-h-screen place-items-center text-sm text-muted-foreground">Note not found.</div>;
+  if (noteQ.isLoading)
+    return (
+      <div className="grid min-h-screen place-items-center text-sm text-muted-foreground">
+        Loading note…
+      </div>
+    );
+  if (!noteQ.data)
+    return (
+      <div className="grid min-h-screen place-items-center text-sm text-muted-foreground">
+        Note not found.
+      </div>
+    );
 
-  const n = noteQ.data as Record<string, unknown> & { invoice?: { invoice_number?: string }; purchase?: { invoice_number?: string } };
+  const n = noteQ.data as Record<string, unknown> & {
+    invoice?: { invoice_number?: string };
+    purchase?: { invoice_number?: string };
+  };
   const tpl = (tplQ.data as Record<string, unknown> | null) ?? {};
   const lines: PreviewLine[] = Array.isArray(n.line_items) ? (n.line_items as PreviewLine[]) : [];
   const amount = Number(n.amount ?? 0);

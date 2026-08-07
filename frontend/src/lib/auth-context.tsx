@@ -3,7 +3,14 @@ import api from "@/lib/api-client";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "@tanstack/react-router";
 
-export type AppRole = "client" | "factor_admin" | "treasury" | "checker" | "sales_rep" | "operations" | "reporting_manager";
+export type AppRole =
+  | "client"
+  | "factor_admin"
+  | "treasury"
+  | "checker"
+  | "sales_rep"
+  | "operations"
+  | "reporting_manager";
 
 export type AuthUser = {
   id: string;
@@ -42,7 +49,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const router = useRouter();
 
   const loadRoles = async (uid: string | undefined) => {
-    if (!uid) { setRoles([]); return; }
+    if (!uid) {
+      setRoles([]);
+      return;
+    }
     try {
       const data = await api.auth.me();
       setRoles((data.roles ?? []) as AppRole[]);
@@ -109,7 +119,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isSalesRep = roles.includes("sales_rep");
   const isOperations = roles.includes("operations");
   const isReportingManager = roles.includes("reporting_manager");
-  const isClient = roles.includes("client") || (!isAdmin && !isTreasury && !isChecker && !isSalesRep && !isOperations && !isReportingManager);
+  const isClient =
+    roles.includes("client") ||
+    (!isAdmin && !isTreasury && !isChecker && !isSalesRep && !isOperations && !isReportingManager);
 
   const value: AuthState = {
     user,
@@ -123,16 +135,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     isSalesRep,
     isOperations,
     isReportingManager,
-  signOut: () => {
-    localStorage.removeItem("auth_token");
-    setUser(null);
-    setToken(null);
-    setRoles([]);
-    qc.clear();
-  },
-  refreshRoles: () => loadRoles(user?.id),
-  refreshAuth,
-};
+    signOut: () => {
+      localStorage.removeItem("auth_token");
+      setUser(null);
+      setToken(null);
+      setRoles([]);
+      qc.clear();
+    },
+    refreshRoles: () => loadRoles(user?.id),
+    refreshAuth,
+  };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

@@ -72,7 +72,6 @@ type SO = {
   grand_total: number;
 };
 
-
 type CatalogueProduct = {
   id: string;
   sku: string | null;
@@ -149,7 +148,6 @@ function SalesOrdersPage() {
     },
   });
 
-
   // Catalogue + customers (debtor master).
   const productsQ = useQuery({
     queryKey: ["products-for-so"],
@@ -182,8 +180,6 @@ function SalesOrdersPage() {
       return data.filter((q: any) => ["draft", "sent", "accepted"].includes(q.status));
     },
   });
-
-
 
   const del = useMutation({
     mutationFn: async (id: string) => {
@@ -246,8 +242,16 @@ function SalesOrdersPage() {
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatTile label="Open orders" value={stats.open} icon={ClipboardList} />
-          <StatTile label="Order book value" value={fmtMoney(stats.orderBook)} icon={CircleDollarSign} />
-          <StatTile label="Dispatched value" value={fmtMoney(stats.dispatchedValue)} icon={PackageOpen} />
+          <StatTile
+            label="Order book value"
+            value={fmtMoney(stats.orderBook)}
+            icon={CircleDollarSign}
+          />
+          <StatTile
+            label="Dispatched value"
+            value={fmtMoney(stats.dispatchedValue)}
+            icon={PackageOpen}
+          />
           <StatTile label="Fully dispatched" value={stats.fullyDispatched} icon={PackageCheck} />
         </div>
 
@@ -298,7 +302,9 @@ function SalesOrdersPage() {
                       0,
                     );
                     const pct =
-                      totalQty > 0 ? Math.min(100, Math.round((dispatchedQty / totalQty) * 100)) : 0;
+                      totalQty > 0
+                        ? Math.min(100, Math.round((dispatchedQty / totalQty) * 100))
+                        : 0;
                     return (
                       <tr key={s.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3 font-mono text-xs">
@@ -404,7 +410,7 @@ function SalesOrdersPage() {
                                 className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
                                 title="Delete"
                               >
-                                <Trash2 className="h-3 w-3" />
+                                <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             )}
                           </div>
@@ -433,7 +439,6 @@ function SalesOrdersPage() {
           }}
         />
       )}
-
     </div>
   );
 }
@@ -518,14 +523,10 @@ function SOModal({
       customer_id: id,
       contact_person: c?.contact_name ?? prev.contact_person,
       billing_address: c
-        ? [c.address_line, c.city, c.country, c.postal_code]
-            .filter(Boolean)
-            .join(", ")
+        ? [c.address_line, c.city, c.country, c.postal_code].filter(Boolean).join(", ")
         : prev.billing_address,
       delivery_address: c
-        ? [c.address_line, c.city, c.country, c.postal_code]
-            .filter(Boolean)
-            .join(", ")
+        ? [c.address_line, c.city, c.country, c.postal_code].filter(Boolean).join(", ")
         : prev.delivery_address,
     }));
   };
@@ -601,7 +602,13 @@ function SOModal({
       ),
     );
     const freight = Number(f.freight) || 0;
-    return { subtotal, totalDiscount, gstTotal, freight, grandTotal: round2(subtotal + gstTotal + freight) };
+    return {
+      subtotal,
+      totalDiscount,
+      gstTotal,
+      freight,
+      grandTotal: round2(subtotal + gstTotal + freight),
+    };
   }, [lines, f.freight]);
 
   const save = useMutation({
@@ -621,7 +628,8 @@ function SOModal({
       for (const l of payloadLines) {
         if (!l.product_id) throw new Error("Every line must select a product from the catalogue");
         if (!(l.ordered_qty > 0)) throw new Error("Ordered quantity must be greater than zero");
-        if (l.unit_price < 0) throw new Error("Unit selling price must be greater than or equal to zero");
+        if (l.unit_price < 0)
+          throw new Error("Unit selling price must be greater than or equal to zero");
         if (l.discount_pct != null && (l.discount_pct < 0 || l.discount_pct > 100)) {
           throw new Error("Discount must be a percentage between 0 and 100");
         }
@@ -879,10 +887,7 @@ function SOModal({
                   const overDispatched =
                     editable && l.dispatched_qty > 0 && Number(l.ordered_qty) < l.dispatched_qty;
                   return (
-                    <div
-                      key={i}
-                      className="space-y-2 rounded-md border border-border/50 p-2"
-                    >
+                    <div key={i} className="space-y-2 rounded-md border border-border/50 p-2">
                       <div className="grid grid-cols-2 items-end gap-2 md:grid-cols-12">
                         <div className="col-span-2 md:col-span-4">
                           <L label="Product">

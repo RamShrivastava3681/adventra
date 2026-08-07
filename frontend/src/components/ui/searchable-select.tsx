@@ -13,11 +13,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 
 export interface SearchableOption {
   /** Stable id stored in the form ("" is treated as "nothing selected"). */
@@ -66,8 +62,7 @@ export function SearchableSelect({
 
   // cmdk filters on the CommandItem `value` prop, so it must carry every
   // searchable fragment (label + hint + id) — not just the stored id.
-  const searchKey = (o: SearchableOption) =>
-    `${o.label} ${o.hint ?? ""} ${o.value}`.toLowerCase();
+  const searchKey = (o: SearchableOption) => `${o.label} ${o.hint ?? ""} ${o.value}`.toLowerCase();
   const optionsByKey = React.useMemo(() => {
     const map = new Map<string, SearchableOption>();
     for (const o of options) map.set(searchKey(o), o);
@@ -122,9 +117,7 @@ export function SearchableSelect({
                   <div className="flex min-w-0 flex-col">
                     <span className="truncate">{o.label}</span>
                     {o.hint && (
-                      <span className="truncate text-[11px] text-muted-foreground">
-                        {o.hint}
-                      </span>
+                      <span className="truncate text-[11px] text-muted-foreground">{o.hint}</span>
                     )}
                   </div>
                 </CommandItem>

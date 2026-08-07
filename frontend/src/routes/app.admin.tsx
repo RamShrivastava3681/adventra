@@ -14,11 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/admin")({
@@ -68,7 +64,8 @@ function AdminPage() {
     managerId: "",
   });
 
-  const resetForm = () => setForm({ contactName: "", email: "", password: "", role: "sales_rep", managerId: "" });
+  const resetForm = () =>
+    setForm({ contactName: "", email: "", password: "", role: "sales_rep", managerId: "" });
 
   const invoicesQ = useQuery({
     queryKey: ["invoices-admin"],
@@ -93,7 +90,9 @@ function AdminPage() {
     queryFn: async () => {
       const data = await api.admin.users();
       // Extract roles from users
-      return data.flatMap((u: any) => (u.roles ?? []).map((r: string) => ({ user_id: u.id, role: r })));
+      return data.flatMap((u: any) =>
+        (u.roles ?? []).map((r: string) => ({ user_id: u.id, role: r })),
+      );
     },
     enabled: isAdmin,
   });
@@ -121,7 +120,10 @@ function AdminPage() {
     mutationFn: async ({ user_id, role, add }: { user_id: string; role: string; add: boolean }) => {
       await api.admin.updateRole(user_id, role, add);
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["user_roles-admin"] }); toast.success("Role updated"); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["user_roles-admin"] });
+      toast.success("Role updated");
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -157,7 +159,9 @@ function AdminPage() {
         const dpd = i.due_date ? daysBetween(i.due_date) : 0;
         if (dpd > 0) {
           inserts.push({
-            client_id: i.client_id, invoice_id: i.id, debtor_id: i.debtor_id,
+            client_id: i.client_id,
+            invoice_id: i.id,
+            debtor_id: i.debtor_id,
             type: "overdue",
             severity: dpd > 60 ? "critical" : dpd > 30 ? "warning" : "info",
             message: `Invoice ${i.invoice_number} overdue ${dpd} days — ${fmtMoney(i.amount)}`,
@@ -165,8 +169,11 @@ function AdminPage() {
         }
         if (Number(i.amount) >= 100000) {
           inserts.push({
-            client_id: i.client_id, invoice_id: i.id, debtor_id: i.debtor_id,
-            type: "large_invoice", severity: "info",
+            client_id: i.client_id,
+            invoice_id: i.id,
+            debtor_id: i.debtor_id,
+            type: "large_invoice",
+            severity: "info",
             message: `Large invoice received: ${fmtMoney(i.amount)} from ${(i as any).debtor?.name ?? "debtor"}`,
           });
         }
@@ -175,20 +182,26 @@ function AdminPage() {
       await api.alerts.generate();
       return inserts.length;
     },
-    onSuccess: (n) => { qc.invalidateQueries({ queryKey: ["alerts"] }); toast.success(`Generated ${n} alerts`); },
+    onSuccess: (n) => {
+      qc.invalidateQueries({ queryKey: ["alerts"] });
+      toast.success(`Generated ${n} alerts`);
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
   if (!isAdmin) {
     return (
       <div className="grid min-h-[60vh] place-items-center">
-        <div className="text-center"><div className="text-sm text-muted-foreground">Factor admin only.</div></div>
+        <div className="text-center">
+          <div className="text-sm text-muted-foreground">Factor admin only.</div>
+        </div>
       </div>
     );
   }
 
   const invoices = invoicesQ.data ?? [];
-  const tot = (st: string[]) => invoices.filter((i) => st.includes(i.status)).reduce((s, i) => s + Number(i.amount), 0);
+  const tot = (st: string[]) =>
+    invoices.filter((i) => st.includes(i.status)).reduce((s, i) => s + Number(i.amount), 0);
 
   const profiles = profilesQ.data ?? [];
   const roles = rolesQ.data ?? [];
@@ -214,8 +227,11 @@ function AdminPage() {
         description="Generate alerts, manage team roles, and act on exceptions."
         actions={
           <div className="flex items-center gap-2">
-            <button onClick={() => generateAlerts.mutate()} disabled={generateAlerts.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
+            <button
+              onClick={() => generateAlerts.mutate()}
+              disabled={generateAlerts.isPending}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+            >
               <Zap className="h-4 w-4" /> Run monitoring scan
             </button>
           </div>
@@ -223,20 +239,30 @@ function AdminPage() {
       />
       <div className="grid gap-4 p-6 md:grid-cols-4 md:p-10">
         <Card title="Pending review">
-          <div className="num text-3xl">{invoices.filter((i) => i.status === "pending").length}</div>
+          <div className="num text-3xl">
+            {invoices.filter((i) => i.status === "pending").length}
+          </div>
           <div className="mt-1 text-xs text-muted-foreground">{fmtMoney(tot(["pending"]))}</div>
         </Card>
         <Card title="Approved (to fund)">
-          <div className="num text-3xl text-primary">{invoices.filter((i) => i.status === "approved").length}</div>
+          <div className="num text-3xl text-primary">
+            {invoices.filter((i) => i.status === "approved").length}
+          </div>
           <div className="mt-1 text-xs text-muted-foreground">{fmtMoney(tot(["approved"]))}</div>
         </Card>
         <Card title="Funded">
-          <div className="num text-3xl text-success">{invoices.filter((i) => i.status === "advanced").length}</div>
+          <div className="num text-3xl text-success">
+            {invoices.filter((i) => i.status === "advanced").length}
+          </div>
           <div className="mt-1 text-xs text-muted-foreground">{fmtMoney(tot(["advanced"]))}</div>
         </Card>
         <Card title="Overdue / rejected">
-          <div className="num text-3xl text-destructive">{invoices.filter((i) => i.status === "overdue" || i.status === "rejected").length}</div>
-          <div className="mt-1 text-xs text-muted-foreground">{fmtMoney(tot(["overdue", "rejected"]))}</div>
+          <div className="num text-3xl text-destructive">
+            {invoices.filter((i) => i.status === "overdue" || i.status === "rejected").length}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {fmtMoney(tot(["overdue", "rejected"]))}
+          </div>
         </Card>
       </div>
 
@@ -255,8 +281,8 @@ function AdminPage() {
                 <DialogHeader>
                   <DialogTitle>Create user</DialogTitle>
                   <DialogDescription>
-                    Add a new team member with an initial role. They'll receive no email —
-                    share their credentials securely.
+                    Add a new team member with an initial role. They'll receive no email — share
+                    their credentials securely.
                   </DialogDescription>
                 </DialogHeader>
 
@@ -300,13 +326,18 @@ function AdminPage() {
                         onClick={() => setShowPassword(!showPassword)}
                         className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                       >
-                        {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4" />
+                        ) : (
+                          <Eye className="h-4 w-4" />
+                        )}
                       </button>
                     </div>
                     <button
                       type="button"
                       onClick={() => {
-                        const gen = Math.random().toString(36).slice(2, 10) +
+                        const gen =
+                          Math.random().toString(36).slice(2, 10) +
                           Math.random().toString(36).toUpperCase().slice(2, 6);
                         setForm({ ...form, password: gen });
                         setShowPassword(true);
@@ -319,7 +350,9 @@ function AdminPage() {
 
                   {/* Role */}
                   <div className="grid gap-1.5">
-                    <label className="text-xs font-medium text-muted-foreground">Initial role *</label>
+                    <label className="text-xs font-medium text-muted-foreground">
+                      Initial role *
+                    </label>
                     <div className="grid grid-cols-2 gap-2">
                       {ROLE_OPTIONS.map((opt) => {
                         const selected = form.role === opt.value;
@@ -345,7 +378,8 @@ function AdminPage() {
                   {form.role !== "factor_admin" && form.role !== "reporting_manager" && (
                     <div className="grid gap-1.5">
                       <label className="text-xs font-medium text-muted-foreground">
-                        Reporting manager <span className="text-[10px] text-muted-foreground/60">(optional)</span>
+                        Reporting manager{" "}
+                        <span className="text-[10px] text-muted-foreground/60">(optional)</span>
                       </label>
                       <select
                         value={form.managerId}
@@ -360,7 +394,9 @@ function AdminPage() {
                         ))}
                       </select>
                       {managersQ.data?.length === 0 && (
-                        <p className="text-[10px] text-muted-foreground">No reporting managers exist yet. Create one first.</p>
+                        <p className="text-[10px] text-muted-foreground">
+                          No reporting managers exist yet. Create one first.
+                        </p>
                       )}
                     </div>
                   )}
@@ -368,7 +404,10 @@ function AdminPage() {
 
                 <DialogFooter>
                   <button
-                    onClick={() => { setCreateOpen(false); resetForm(); }}
+                    onClick={() => {
+                      setCreateOpen(false);
+                      resetForm();
+                    }}
                     className="rounded-md border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
                   >
                     Cancel
@@ -381,7 +420,9 @@ function AdminPage() {
                     {createUser.isPending ? (
                       <>Creating…</>
                     ) : (
-                      <><UserPlus className="h-4 w-4" /> Create user</>
+                      <>
+                        <UserPlus className="h-4 w-4" /> Create user
+                      </>
                     )}
                   </button>
                 </DialogFooter>
@@ -408,7 +449,9 @@ function AdminPage() {
                 <tbody>
                   {profiles.map((p: any) => {
                     const userRoles = rolesByUser.get(p.id) ?? [];
-                    const mgrName = p.reportingManagerId ? managerLookup.get(p.reportingManagerId) : null;
+                    const mgrName = p.reportingManagerId
+                      ? managerLookup.get(p.reportingManagerId)
+                      : null;
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3">
@@ -460,19 +503,23 @@ function AdminPage() {
                                       — Clear assignment —
                                     </button>
                                   )}
-                                  {managersQ.data?.filter((m: any) => m.id !== p.id).map((m: any) => (
-                                    <button
-                                      key={m.id}
-                                      onClick={() => {
-                                        managerAssign.mutate({ userId: p.id, managerId: m.id });
-                                      }}
-                                      className={`w-full rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted ${
-                                        p.reporting_manager_id === m.id ? "bg-primary/5 font-medium" : ""
-                                      }`}
-                                    >
-                                      {m.contact_name || m.company_name || m.email}
-                                    </button>
-                                  ))}
+                                  {managersQ.data
+                                    ?.filter((m: any) => m.id !== p.id)
+                                    .map((m: any) => (
+                                      <button
+                                        key={m.id}
+                                        onClick={() => {
+                                          managerAssign.mutate({ userId: p.id, managerId: m.id });
+                                        }}
+                                        className={`w-full rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted ${
+                                          p.reporting_manager_id === m.id
+                                            ? "bg-primary/5 font-medium"
+                                            : ""
+                                        }`}
+                                      >
+                                        {m.contact_name || m.company_name || m.email}
+                                      </button>
+                                    ))}
                                 </div>
                               </PopoverContent>
                             </Popover>
@@ -486,7 +533,13 @@ function AdminPage() {
                               return (
                                 <button
                                   key={opt.value}
-                                  onClick={() => toggleRole.mutate({ user_id: p.id, role: opt.value, add: !hasRole })}
+                                  onClick={() =>
+                                    toggleRole.mutate({
+                                      user_id: p.id,
+                                      role: opt.value,
+                                      add: !hasRole,
+                                    })
+                                  }
                                   disabled={toggleRole.isPending}
                                   className={`rounded-md border px-2 py-1 text-[10px] font-medium transition-all ${
                                     hasRole
@@ -510,9 +563,10 @@ function AdminPage() {
           )}
           <p className="mt-3 text-[10px] text-muted-foreground">
             Checkers approve newly submitted invoices into the funding queue (maker–checker).
-            Treasury then pays supplier advances on approval, settles balances on the due date,
-            and records debtor receipts. Marking an invoice paid closes it and removes it from the queue.
-            New roles (Operations, Reporting Manager) are placeholders — working permissions can be configured later.
+            Treasury then pays supplier advances on approval, settles balances on the due date, and
+            records debtor receipts. Marking an invoice paid closes it and removes it from the
+            queue. New roles (Operations, Reporting Manager) are placeholders — working permissions
+            can be configured later.
           </p>
         </Card>
       </div>

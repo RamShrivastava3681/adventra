@@ -3,8 +3,27 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeader, Card, StatusPill, fmtMoney, fmtDate, daysBetween } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Send, Copy, Eye, Mail, Banknote, FileCheck, Ban, Trash2 } from "lucide-react";
+import {
+  PageHeader,
+  Card,
+  StatusPill,
+  fmtMoney,
+  fmtDate,
+  daysBetween,
+} from "@/components/ledger-ui";
+import {
+  Plus,
+  X,
+  Loader2,
+  Send,
+  Copy,
+  Eye,
+  Mail,
+  Banknote,
+  FileCheck,
+  Ban,
+  Trash2,
+} from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
@@ -30,7 +49,14 @@ type Inv = {
   id: string;
   client_id: string;
   debtor_id: string | null;
-  debtor?: { name?: string; contact_email?: string; contact_phone?: string; address_line?: string; city?: string; country?: string } | null;
+  debtor?: {
+    name?: string;
+    contact_email?: string;
+    contact_phone?: string;
+    address_line?: string;
+    city?: string;
+    country?: string;
+  } | null;
   invoice_number: string;
   amount: number;
   issue_date: string;
@@ -108,7 +134,11 @@ function InvoicesPage() {
     queryKey: ["debtors"],
     queryFn: async () => {
       const data = await api.debtors.list();
-      return data.map((d: any) => ({ id: d.id, name: d.name, payment_terms_days: d.paymentTermsDays ?? d.payment_terms_days }));
+      return data.map((d: any) => ({
+        id: d.id,
+        name: d.name,
+        payment_terms_days: d.paymentTermsDays ?? d.payment_terms_days,
+      }));
     },
   });
 
@@ -190,13 +220,13 @@ function InvoicesPage() {
         eyebrow="Invoices"
         title={isAdmin ? "Invoice queue" : "Your invoices"}
         description="Sales invoices bill the customer after goods are dispatched. Creating an invoice never reduces stock — only a confirmed dispatch debits inventory. Drafts are issued into the checker review, then the funding queue."
-        breadcrumbs={[
-          { label: "Dashboard", href: "/app/dashboard" },
-          { label: "Invoices" },
-        ]}
+        breadcrumbs={[{ label: "Dashboard", href: "/app/dashboard" }, { label: "Invoices" }]}
         actions={
           canCreate ? (
-            <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+            <button
+              onClick={() => setOpen(true)}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            >
               <Plus className="h-4 w-4" /> New invoice
             </button>
           ) : (
@@ -221,13 +251,20 @@ function InvoicesPage() {
               ["cancelled", "Cancelled", null],
             ] as const
           ).map(([k, label, n]) => (
-            <button key={k} onClick={() => setFilter(k)}
+            <button
+              key={k}
+              onClick={() => setFilter(k)}
               className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                filter === k ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-              }`}>
+                filter === k
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
               {label}
               {n != null && n > 0 && (
-                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">{n}</span>
+                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">
+                  {n}
+                </span>
               )}
             </button>
           ))}
@@ -263,21 +300,30 @@ function InvoicesPage() {
                     const received = Number(i.amount_received ?? 0);
                     const balance = Math.max(0, netAmount - received);
                     const dpd = i.due_date && i.status !== "paid" ? daysBetween(i.due_date) : 0;
-                    const lateDays = i.status === "paid"
-                      ? (i.late_days != null ? Number(i.late_days) : 0)
-                      : Math.max(0, dpd);
+                    const lateDays =
+                      i.status === "paid"
+                        ? i.late_days != null
+                          ? Number(i.late_days)
+                          : 0
+                        : Math.max(0, dpd);
                     return (
                       <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3">
                           <div className="font-mono text-xs">{i.invoice_number}</div>
                           {i.goods_sales_order_number && (
-                            <div className="text-[10px] text-muted-foreground">SO {i.goods_sales_order_number}</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              SO {i.goods_sales_order_number}
+                            </div>
                           )}
                           {i.linked_customer_proforma_number && (
-                            <div className="text-[10px] text-muted-foreground">PF {i.linked_customer_proforma_number}</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              PF {i.linked_customer_proforma_number}
+                            </div>
                           )}
                           {advance > 0 && (
-                            <div className="text-[10px] text-muted-foreground">Less advance {fmtMoney(advance)}</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              Less advance {fmtMoney(advance)}
+                            </div>
                           )}
                           {i.po_number && (
                             <div className="text-[10px] text-muted-foreground">
@@ -287,30 +333,61 @@ function InvoicesPage() {
                             </div>
                           )}
                         </td>
-                        {isAdmin && <td className="px-5 py-3 text-muted-foreground">{i.client?.company_name ?? "—"}</td>}
+                        {isAdmin && (
+                          <td className="px-5 py-3 text-muted-foreground">
+                            {i.client?.company_name ?? "—"}
+                          </td>
+                        )}
                         <td className="px-5 py-3">{i.debtor?.name ?? "—"}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(grandTotal)}</td>
-                        <td className="px-5 py-3 text-right num text-success">{received > 0 ? fmtMoney(received) : "—"}</td>
-                        <td className={`px-5 py-3 text-right num ${balance > 0 ? "text-warning" : "text-muted-foreground"}`}>{fmtMoney(balance)}</td>
+                        <td className="px-5 py-3 text-right num text-success">
+                          {received > 0 ? fmtMoney(received) : "—"}
+                        </td>
+                        <td
+                          className={`px-5 py-3 text-right num ${balance > 0 ? "text-warning" : "text-muted-foreground"}`}
+                        >
+                          {fmtMoney(balance)}
+                        </td>
                         <td className="px-5 py-3 text-sm">{fmtDate(i.due_date)}</td>
                         <td className="px-5 py-3">
                           <div className="flex flex-col items-start gap-1">
                             <StatusPill status={i.status} label={DOC_LABELS[i.status]} />
                             {i.status === "pending" && i.noa_status === "not_sent" && (
-                              <span className="text-[9px] uppercase tracking-widest text-muted-foreground">NOA before review</span>
+                              <span className="text-[9px] uppercase tracking-widest text-muted-foreground">
+                                NOA before review
+                              </span>
                             )}
                           </div>
                         </td>
                         <td className="px-5 py-3">
                           <NoaBadge status={i.noa_status} />
-                          {i.noa_comments && <div className="mt-1 max-w-[160px] truncate text-[10px] text-muted-foreground" title={i.noa_comments}>“{i.noa_comments}”</div>}
+                          {i.noa_comments && (
+                            <div
+                              className="mt-1 max-w-[160px] truncate text-[10px] text-muted-foreground"
+                              title={i.noa_comments}
+                            >
+                              “{i.noa_comments}”
+                            </div>
+                          )}
                         </td>
                         <td className="px-5 py-3 text-right">
                           <div className="inline-flex flex-wrap justify-end gap-1">
-                            <button onClick={() => setViewing(i)} className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">View</button>
-                            {canCreate && ["draft", "pending"].includes(i.status) && i.status !== "cancelled" && (
-                              <button onClick={() => setEditing(i)} className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">Edit</button>
-                            )}
+                            <button
+                              onClick={() => setViewing(i)}
+                              className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                            >
+                              View
+                            </button>
+                            {canCreate &&
+                              ["draft", "pending"].includes(i.status) &&
+                              i.status !== "cancelled" && (
+                                <button
+                                  onClick={() => setEditing(i)}
+                                  className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                >
+                                  Edit
+                                </button>
+                              )}
                             {canCreate && i.status === "draft" && (
                               <button
                                 onClick={() => issue.mutate(i.id)}
@@ -328,51 +405,83 @@ function InvoicesPage() {
                             >
                               <Eye className="h-3 w-3" /> Preview
                             </Link>
-                            {canRecordPayment && !["paid", "cancelled", "rejected"].includes(i.status) && (
+                            {canRecordPayment &&
+                              !["paid", "cancelled", "rejected"].includes(i.status) && (
+                                <button
+                                  onClick={() => setPaying(i)}
+                                  className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2 py-1 text-[10px] text-success hover:bg-success/10"
+                                >
+                                  <Banknote className="h-3 w-3" /> Record payment
+                                </button>
+                              )}
+                            {isAdmin &&
+                              i.status !== "paid" &&
+                              i.status !== "rejected" &&
+                              i.status !== "cancelled" &&
+                              i.due_date && (
+                                <button
+                                  onClick={() => sendReminder.mutate(i.id)}
+                                  disabled={sendReminder.isPending}
+                                  className="inline-flex items-center gap-1 rounded-md border border-amber-400/50 px-2 py-1 text-[10px] text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/20 disabled:opacity-50"
+                                  title="Send reminder email for this invoice"
+                                >
+                                  <Mail className="h-3 w-3" /> Remind
+                                </button>
+                              )}
+                            {i.noa_status === "not_sent" && (
                               <button
-                                onClick={() => setPaying(i)}
-                                className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2 py-1 text-[10px] text-success hover:bg-success/10"
+                                onClick={() => sendNoa.mutate(i.id)}
+                                className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10"
                               >
-                                <Banknote className="h-3 w-3" /> Record payment
-                              </button>
-                            )}
-                            {isAdmin && i.status !== "paid" && i.status !== "rejected" && i.status !== "cancelled" && i.due_date && (
-                              <button
-                                onClick={() => sendReminder.mutate(i.id)}
-                                disabled={sendReminder.isPending}
-                                className="inline-flex items-center gap-1 rounded-md border border-amber-400/50 px-2 py-1 text-[10px] text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/20 disabled:opacity-50"
-                                title="Send reminder email for this invoice"
-                              >
-                                <Mail className="h-3 w-3" /> Remind
-                              </button>
-                            )}
-                            {(i.noa_status === "not_sent") && (
-                              <button onClick={() => sendNoa.mutate(i.id)} className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10">
                                 <Send className="h-3 w-3" /> Send NOA
                               </button>
                             )}
                             {i.noa_status !== "not_sent" && (
-                              <button onClick={() => copyNoa(i)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:bg-muted">
+                              <button
+                                onClick={() => copyNoa(i)}
+                                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:bg-muted"
+                              >
                                 <Copy className="h-3 w-3" /> Copy NOA link
                               </button>
                             )}
-                            {isAdmin && i.status === "pending" && (
-                              canReview ? (
-                                <Link to="/app/checker" className="text-[10px] uppercase tracking-widest text-primary hover:underline">Review →</Link>
+                            {isAdmin &&
+                              i.status === "pending" &&
+                              (canReview ? (
+                                <Link
+                                  to="/app/checker"
+                                  className="text-[10px] uppercase tracking-widest text-primary hover:underline"
+                                >
+                                  Review →
+                                </Link>
                               ) : (
-                                <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Awaiting checker</span>
-                              )
-                            )}
-                            {isAdmin && (i.status === "approved" || i.status === "advanced" || i.status === "funded") && (
-                              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">In funding queue</span>
-                            )}
-                            {canCreate && ["draft", "pending"].includes(i.status) && i.status !== "cancelled" && (
-                              <button onClick={() => cancel.mutate(i.id)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive">
-                                <Ban className="h-3 w-3" /> Cancel
-                              </button>
-                            )}
+                                <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                                  Awaiting checker
+                                </span>
+                              ))}
+                            {isAdmin &&
+                              (i.status === "approved" ||
+                                i.status === "advanced" ||
+                                i.status === "funded") && (
+                                <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                                  In funding queue
+                                </span>
+                              )}
+                            {canCreate &&
+                              ["draft", "pending"].includes(i.status) &&
+                              i.status !== "cancelled" && (
+                                <button
+                                  onClick={() => cancel.mutate(i.id)}
+                                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
+                                >
+                                  <Ban className="h-3 w-3" /> Cancel
+                                </button>
+                              )}
                             {canCreate && i.status === "draft" && (
-                              <button onClick={() => del.mutate(i.id)} className="text-muted-foreground hover:text-destructive" title="Delete draft">
+                              <button
+                                onClick={() => del.mutate(i.id)}
+                                className="text-muted-foreground hover:text-destructive"
+                                title="Delete draft"
+                              >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             )}
@@ -389,10 +498,19 @@ function InvoicesPage() {
       </div>
 
       {open && (
-        <NewInvoiceModal onClose={() => setOpen(false)} debtors={debtorsQ.data ?? []} userId={user!.id} />
+        <NewInvoiceModal
+          onClose={() => setOpen(false)}
+          debtors={debtorsQ.data ?? []}
+          userId={user!.id}
+        />
       )}
       {editing && (
-        <NewInvoiceModal invoice={editing} onClose={() => setEditing(null)} debtors={debtorsQ.data ?? []} userId={user!.id} />
+        <NewInvoiceModal
+          invoice={editing}
+          onClose={() => setEditing(null)}
+          debtors={debtorsQ.data ?? []}
+          userId={user!.id}
+        />
       )}
       {viewing && <InvoiceDetailModal invoice={viewing} onClose={() => setViewing(null)} />}
       {paying && <PaymentModal invoice={paying} onClose={() => setPaying(null)} />}
@@ -409,7 +527,13 @@ function NoaBadge({ status }: { status: string }) {
     commented: { label: "Commented", cls: "border-primary/50 text-primary" },
   };
   const v = map[status] ?? map.not_sent;
-  return <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${v.cls}`}>{v.label}</span>;
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${v.cls}`}
+    >
+      {v.label}
+    </span>
+  );
 }
 
 // ─── New / Edit invoice modal (catalogue-backed goods invoice) ───────────
@@ -424,13 +548,25 @@ type LineDraft = {
   gst_rate: string;
 };
 
-function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv; onClose: () => void; debtors: any[]; userId: string }) {
+function NewInvoiceModal({
+  invoice,
+  onClose,
+  debtors,
+  userId,
+}: {
+  invoice?: Inv;
+  onClose: () => void;
+  debtors: any[];
+  userId: string;
+}) {
   const qc = useQueryClient();
   const isEdit = !!invoice;
   const [form, setForm] = useState({
     invoice_number: invoice?.invoice_number ?? "",
     debtor_id: invoice?.debtor_id ?? debtors[0]?.id ?? "",
-    issue_date: (invoice?.issue_date ?? new Date().toISOString().slice(0, 10))?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+    issue_date:
+      (invoice?.issue_date ?? new Date().toISOString().slice(0, 10))?.slice(0, 10) ??
+      new Date().toISOString().slice(0, 10),
     due_date: (invoice?.due_date ?? "")?.slice(0, 10) ?? "",
     customer_contact: invoice?.customer_contact ?? "",
     billing_address: invoice?.billing_address ?? "",
@@ -505,12 +641,19 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
     queryFn: async () => {
       const po = form.po_number.trim();
       const orders = await api.purchaseOrders.list();
-      const pfs = orders.filter((o: any) => o.side === "sales" && (o.po_number === po || o.proforma_number === po));
+      const pfs = orders.filter(
+        (o: any) => o.side === "sales" && (o.po_number === po || o.proforma_number === po),
+      );
       const pfIds = pfs.map((p: any) => p.id);
       let advances: any[] = [];
       if (pfIds.length) {
         const allAdvances = await api.advances.list();
-        advances = allAdvances.filter((a: any) => a.side === "sales" && pfIds.includes(a.purchaseOrderId ?? a.purchase_order_id) && a.status !== "refunded");
+        advances = allAdvances.filter(
+          (a: any) =>
+            a.side === "sales" &&
+            pfIds.includes(a.purchaseOrderId ?? a.purchase_order_id) &&
+            a.status !== "refunded",
+        );
       }
       return { proformas: pfs, advances };
     },
@@ -591,7 +734,14 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
 
   const totals = useMemo(() => {
     const subtotal = round2(
-      lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0) * (1 - (Number(l.discount_pct) || 0) / 100), 0),
+      lines.reduce(
+        (s, l) =>
+          s +
+          (Number(l.quantity) || 0) *
+            (Number(l.unit_price) || 0) *
+            (1 - (Number(l.discount_pct) || 0) / 100),
+        0,
+      ),
     );
     const grossTotal = round2(
       lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0),
@@ -601,7 +751,10 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
       lines.reduce(
         (s, l) =>
           s +
-          ((Number(l.quantity) || 0) * (Number(l.unit_price) || 0) * (1 - (Number(l.discount_pct) || 0) / 100) * (Number(l.gst_rate) || 0)) /
+          ((Number(l.quantity) || 0) *
+            (Number(l.unit_price) || 0) *
+            (1 - (Number(l.discount_pct) || 0) / 100) *
+            (Number(l.gst_rate) || 0)) /
             100,
         0,
       ),
@@ -657,8 +810,10 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
       for (const l of payloadLines) {
         if (!l.product_id) throw new Error("Every line must select a product from the catalogue");
         if (!(l.quantity > 0)) throw new Error("Quantity must be greater than zero");
-        if (l.unit_price < 0) throw new Error("Unit selling price must be greater than or equal to zero");
-        if (l.discount_pct != null && (l.discount_pct < 0 || l.discount_pct > 100)) throw new Error("Discount must be between 0 and 100%");
+        if (l.unit_price < 0)
+          throw new Error("Unit selling price must be greater than or equal to zero");
+        if (l.discount_pct != null && (l.discount_pct < 0 || l.discount_pct > 100))
+          throw new Error("Discount must be between 0 and 100%");
       }
 
       // The sales order link is mandatory and the invoice must match it.
@@ -713,7 +868,9 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
         const advs = (poLookupQ.data?.advances ?? []) as any[];
         if (form.po_number.trim() && advs.length) {
           for (const a of advs) {
-            try { await api.advances.update(a.id, { status: "applied" }); } catch {}
+            try {
+              await api.advances.update(a.id, { status: "applied" });
+            } catch {}
           }
         }
       }
@@ -742,16 +899,42 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
   };
 
   const addLine = () =>
-    setLines((ls) => [...ls, { product_id: "", sku: null, name: "", unit: "piece", quantity: "", unit_price: "", discount_pct: "", gst_rate: "" }]);
+    setLines((ls) => [
+      ...ls,
+      {
+        product_id: "",
+        sku: null,
+        name: "",
+        unit: "piece",
+        quantity: "",
+        unit_price: "",
+        discount_pct: "",
+        gst_rate: "",
+      },
+    ]);
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">{isEdit ? "Edit invoice" : "New invoice"}</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); save.mutate({ issueNow: true }); }} className="space-y-5 p-5">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate({ issueNow: true });
+          }}
+          className="space-y-5 p-5"
+        >
           {debtors.length === 0 && (
             <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
               No debtors exist yet. Ask your factor admin to add one in the Debtors tab.
@@ -779,7 +962,9 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
               />
             </L>
             <p className="mt-1 text-[10px] text-muted-foreground">
-              Every invoice must be linked to a confirmed sales order — its customer and lines are checked against it. An invoice never reduces stock; only a confirmed dispatch debits inventory.
+              Every invoice must be linked to a confirmed sales order — its customer and lines are
+              checked against it. An invoice never reduces stock; only a confirmed dispatch debits
+              inventory.
             </p>
           </fieldset>
 
@@ -790,10 +975,21 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
             </legend>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               <L label="Invoice number (auto if blank)">
-                <input className="inp" value={form.invoice_number} onChange={(e) => setForm({ ...form, invoice_number: e.target.value })} placeholder="INV-XXXXXXXX" />
+                <input
+                  className="inp"
+                  value={form.invoice_number}
+                  onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
+                  placeholder="INV-XXXXXXXX"
+                />
               </L>
               <L label="Invoice date">
-                <input required type="date" className="inp" value={form.issue_date} onChange={(e) => setForm({ ...form, issue_date: e.target.value })} />
+                <input
+                  required
+                  type="date"
+                  className="inp"
+                  value={form.issue_date}
+                  onChange={(e) => setForm({ ...form, issue_date: e.target.value })}
+                />
               </L>
               <L label="Customer *">
                 <SearchableSelect
@@ -804,29 +1000,62 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
                 />
               </L>
               <L label="Customer contact">
-                <input className="inp" value={form.customer_contact} onChange={(e) => setForm({ ...form, customer_contact: e.target.value })} placeholder="Name · email · phone" />
+                <input
+                  className="inp"
+                  value={form.customer_contact}
+                  onChange={(e) => setForm({ ...form, customer_contact: e.target.value })}
+                  placeholder="Name · email · phone"
+                />
               </L>
               <L label="Billing address">
-                <input className="inp" value={form.billing_address} onChange={(e) => setForm({ ...form, billing_address: e.target.value })} />
+                <input
+                  className="inp"
+                  value={form.billing_address}
+                  onChange={(e) => setForm({ ...form, billing_address: e.target.value })}
+                />
               </L>
               <L label="Delivery address">
-                <input className="inp" value={form.delivery_address} onChange={(e) => setForm({ ...form, delivery_address: e.target.value })} />
+                <input
+                  className="inp"
+                  value={form.delivery_address}
+                  onChange={(e) => setForm({ ...form, delivery_address: e.target.value })}
+                />
               </L>
               <L label="Payment terms">
-                <input className="inp" value={form.payment_terms} onChange={(e) => setForm({ ...form, payment_terms: e.target.value })} placeholder="Net 30" />
+                <input
+                  className="inp"
+                  value={form.payment_terms}
+                  onChange={(e) => setForm({ ...form, payment_terms: e.target.value })}
+                  placeholder="Net 30"
+                />
               </L>
               <L label={`Due date${selectedDebtor ? ` (auto: ${termsDays}d net)` : ""}`}>
-                <input type="date" className="inp" value={effectiveDue} onChange={(e) => setForm({ ...form, due_date: e.target.value })} />
+                <input
+                  type="date"
+                  className="inp"
+                  value={effectiveDue}
+                  onChange={(e) => setForm({ ...form, due_date: e.target.value })}
+                />
               </L>
             </div>
             <div className="mt-3">
               <L label="Notes (shown on the printed invoice)">
-                <textarea rows={2} className="inp resize-y" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
+                <textarea
+                  rows={2}
+                  className="inp resize-y"
+                  value={form.notes}
+                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                />
               </L>
             </div>
             <div className="mt-3">
-              <DocumentUploader userId={userId} scope="invoices" docs={docs} onChange={setDocs}
-                hint="Attach the final invoice PDF and any supporting paperwork." />
+              <DocumentUploader
+                userId={userId}
+                scope="invoices"
+                docs={docs}
+                onChange={setDocs}
+                hint="Attach the final invoice PDF and any supporting paperwork."
+              />
             </div>
           </fieldset>
 
@@ -847,9 +1076,16 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
                 <div className="col-span-1"></div>
               </div>
               {lines.map((l, i) => {
-                const lineTotal = round2((Number(l.quantity) || 0) * (Number(l.unit_price) || 0) * (1 - (Number(l.discount_pct) || 0) / 100));
+                const lineTotal = round2(
+                  (Number(l.quantity) || 0) *
+                    (Number(l.unit_price) || 0) *
+                    (1 - (Number(l.discount_pct) || 0) / 100),
+                );
                 return (
-                  <div key={i} className="grid grid-cols-2 items-end gap-2 rounded-md border border-border/50 p-2 md:grid-cols-12">
+                  <div
+                    key={i}
+                    className="grid grid-cols-2 items-end gap-2 rounded-md border border-border/50 p-2 md:grid-cols-12"
+                  >
                     <div className="col-span-2 md:col-span-3">
                       <L label="Product">
                         <SearchableSelect
@@ -862,48 +1098,94 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
                           }))}
                         />
                       </L>
-                      {l.name && <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>}
+                      {l.name && (
+                        <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
+                      )}
                     </div>
                     <div>
                       <L label="Unit">
-                        <input className="inp" value={l.unit} onChange={(e) => setLine(i, { unit: e.target.value })} />
+                        <input
+                          className="inp"
+                          value={l.unit}
+                          onChange={(e) => setLine(i, { unit: e.target.value })}
+                        />
                       </L>
                     </div>
                     <div>
                       <L label="Qty">
-                        <input type="number" min="0" step="0.001" className="inp" value={l.quantity} onChange={(e) => setLine(i, { quantity: e.target.value })} />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.001"
+                          className="inp"
+                          value={l.quantity}
+                          onChange={(e) => setLine(i, { quantity: e.target.value })}
+                        />
                       </L>
                     </div>
                     <div className="md:col-span-2">
                       <L label="Unit price">
-                        <input type="number" min="0" step="0.01" className="inp" value={l.unit_price} onChange={(e) => setLine(i, { unit_price: e.target.value })} />
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="inp"
+                          value={l.unit_price}
+                          onChange={(e) => setLine(i, { unit_price: e.target.value })}
+                        />
                       </L>
                     </div>
                     <div>
                       <L label="Disc %">
-                        <input list="inv-disc-rates" type="number" min="0" max="100" step="0.01" className="inp" value={l.discount_pct} onChange={(e) => setLine(i, { discount_pct: e.target.value })} />
+                        <input
+                          list="inv-disc-rates"
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          className="inp"
+                          value={l.discount_pct}
+                          onChange={(e) => setLine(i, { discount_pct: e.target.value })}
+                        />
                       </L>
                     </div>
                     <div>
                       <L label="GST %">
-                        <input list="pf-gst-rates" type="number" min="0" step="0.01" className="inp" value={l.gst_rate} onChange={(e) => setLine(i, { gst_rate: e.target.value })} />
+                        <input
+                          list="pf-gst-rates"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          className="inp"
+                          value={l.gst_rate}
+                          onChange={(e) => setLine(i, { gst_rate: e.target.value })}
+                        />
                       </L>
                     </div>
                     <div className="text-right">
                       <L label="Line total">
-                        <div className="inp text-right font-mono tabular-nums">{fmtMoney(lineTotal)}</div>
+                        <div className="inp text-right font-mono tabular-nums">
+                          {fmtMoney(lineTotal)}
+                        </div>
                       </L>
                     </div>
                     <div className="flex items-end justify-end pb-1">
-                      <button type="button" onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))} className="rounded p-1 text-muted-foreground hover:text-destructive">
+                      <button
+                        type="button"
+                        onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}
+                        className="rounded p-1 text-muted-foreground hover:text-destructive"
+                      >
                         <X className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   </div>
                 );
               })}
-              <button type="button" onClick={addLine}
-                className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary">
+              <button
+                type="button"
+                onClick={addLine}
+                className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+              >
                 <Plus className="h-3.5 w-3.5" /> Add line
               </button>
             </div>
@@ -912,12 +1194,16 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
           {/* Totals */}
           <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
             <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">Subtotal</span>
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                Subtotal
+              </span>
               <span className="num">{fmtMoney(totals.subtotal)}</span>
             </div>
             {totals.totalDiscount > 0 && (
               <div className="flex items-center justify-between">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">Total discount</span>
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Total discount
+                </span>
                 <span className="num text-destructive">−{fmtMoney(totals.totalDiscount)}</span>
               </div>
             )}
@@ -926,11 +1212,22 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
               <span className="num">{fmtMoney(totals.gstTotal)}</span>
             </div>
             <div className="flex items-center justify-between gap-3">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">Freight / charges</span>
-              <input type="number" min="0" step="0.01" className="inp !w-28 !py-1 text-right" value={form.freight} onChange={(e) => setForm({ ...form, freight: e.target.value })} />
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                Freight / charges
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="inp !w-28 !py-1 text-right"
+                value={form.freight}
+                onChange={(e) => setForm({ ...form, freight: e.target.value })}
+              />
             </div>
             <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">Grand total</span>
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                Grand total
+              </span>
               <span className="num text-base">{fmtMoney(totals.grandTotal)}</span>
             </div>
           </div>
@@ -957,37 +1254,78 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
                 />
               </L>
               <div className="grid grid-cols-3 gap-3">
-                <L label="PO / proforma number"><input className="inp" value={form.po_number} onChange={(e) => setForm({ ...form, po_number: e.target.value })} placeholder="PO-2026-001" /></L>
-                <L label="PO date"><input type="date" className="inp" value={form.po_date} onChange={(e) => setForm({ ...form, po_date: e.target.value })} /></L>
-                <L label="PO amount"><input type="number" step="0.01" min="0" className="inp" value={form.po_amount} onChange={(e) => setForm({ ...form, po_amount: e.target.value })} /></L>
+                <L label="PO / proforma number">
+                  <input
+                    className="inp"
+                    value={form.po_number}
+                    onChange={(e) => setForm({ ...form, po_number: e.target.value })}
+                    placeholder="PO-2026-001"
+                  />
+                </L>
+                <L label="PO date">
+                  <input
+                    type="date"
+                    className="inp"
+                    value={form.po_date}
+                    onChange={(e) => setForm({ ...form, po_date: e.target.value })}
+                  />
+                </L>
+                <L label="PO amount">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="inp"
+                    value={form.po_amount}
+                    onChange={(e) => setForm({ ...form, po_amount: e.target.value })}
+                  />
+                </L>
               </div>
               <p className="text-[10px] text-muted-foreground">
-                Advances received against the linked proforma are deducted from the invoice total — the net amount is what the customer owes. If no proforma, the full amount applies.
+                Advances received against the linked proforma are deducted from the invoice total —
+                the net amount is what the customer owes. If no proforma, the full amount applies.
               </p>
-            {form.po_number.trim() && (
-              <div className="mt-3 rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
-                <div className="mb-1 uppercase tracking-widest text-primary">Advances received against {form.po_number}</div>
-                {poLookupQ.isFetching ? (
-                  <div className="text-muted-foreground">Looking up…</div>
-                ) : (poLookupQ.data?.advances ?? []).length === 0 ? (
-                  <div className="text-muted-foreground">No advances recorded for this PO number on the sales side — full amount applies.</div>
-                ) : (
-                  <ul className="space-y-0.5">
-                    {((poLookupQ.data?.advances ?? []) as any[]).map((a) => (
-                      <li key={a.id} className="flex justify-between"><span className="text-muted-foreground">{fmtDate(a.advance_date)} {a.reference ? `· ${a.reference}` : ""}</span><span className="num text-primary">{fmtMoney(a.amount)}</span></li>
-                    ))}
-                  </ul>
-                )}
-                <div className="mt-2 flex justify-between border-t border-border pt-2 font-medium">
-                  <span>Balance outstanding</span><span className="num">{fmtMoney(totals.balanceDue)}</span>
+              {form.po_number.trim() && (
+                <div className="mt-3 rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
+                  <div className="mb-1 uppercase tracking-widest text-primary">
+                    Advances received against {form.po_number}
+                  </div>
+                  {poLookupQ.isFetching ? (
+                    <div className="text-muted-foreground">Looking up…</div>
+                  ) : (poLookupQ.data?.advances ?? []).length === 0 ? (
+                    <div className="text-muted-foreground">
+                      No advances recorded for this PO number on the sales side — full amount
+                      applies.
+                    </div>
+                  ) : (
+                    <ul className="space-y-0.5">
+                      {((poLookupQ.data?.advances ?? []) as any[]).map((a) => (
+                        <li key={a.id} className="flex justify-between">
+                          <span className="text-muted-foreground">
+                            {fmtDate(a.advance_date)} {a.reference ? `· ${a.reference}` : ""}
+                          </span>
+                          <span className="num text-primary">{fmtMoney(a.amount)}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  <div className="mt-2 flex justify-between border-t border-border pt-2 font-medium">
+                    <span>Balance outstanding</span>
+                    <span className="num">{fmtMoney(totals.balanceDue)}</span>
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
             </div>
           </fieldset>
 
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
             <button
               type="button"
               onClick={() => save.mutate({ issueNow: false })}
@@ -1001,16 +1339,28 @@ function NewInvoiceModal({ invoice, onClose, debtors, userId }: { invoice?: Inv;
               disabled={save.isPending}
               className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
             >
-              {save.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileCheck className="h-4 w-4" />}
+              {save.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <FileCheck className="h-4 w-4" />
+              )}
               {isEdit ? "Save & issue" : "Create & issue"}
             </button>
           </div>
         </form>
         <datalist id="pf-gst-rates">
-          <option value="0" /><option value="5" /><option value="12" /><option value="18" /><option value="28" />
+          <option value="0" />
+          <option value="5" />
+          <option value="12" />
+          <option value="18" />
+          <option value="28" />
         </datalist>
         <datalist id="inv-disc-rates">
-          <option value="0" /><option value="5" /><option value="10" /><option value="15" /><option value="20" />
+          <option value="0" />
+          <option value="5" />
+          <option value="10" />
+          <option value="15" />
+          <option value="20" />
         </datalist>
         <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
       </div>
@@ -1033,7 +1383,8 @@ function PaymentModal({ invoice, onClose }: { invoice: Inv; onClose: () => void 
     mutationFn: async () => {
       const amt = Number(amount);
       if (!amt || amt <= 0) throw new Error("Amount must be greater than zero");
-      if (amt > balance + 0.005) throw new Error(`Cannot exceed the outstanding balance of ${fmtMoney(balance)}`);
+      if (amt > balance + 0.005)
+        throw new Error(`Cannot exceed the outstanding balance of ${fmtMoney(balance)}`);
       await api.invoices.recordPayment(invoice.id, { amountReceived: amt, receiptDate: date });
     },
     onSuccess: () => {
@@ -1045,34 +1396,87 @@ function PaymentModal({ invoice, onClose }: { invoice: Inv; onClose: () => void 
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-xl border border-border bg-card shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">Record payment · {invoice.invoice_number}</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); pay.mutate(); }} className="space-y-4 p-5 text-sm">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            pay.mutate();
+          }}
+          className="space-y-4 p-5 text-sm"
+        >
           <div className="rounded-md border border-border/60 bg-muted/20 p-3 text-xs">
-            <div className="flex justify-between"><span className="text-muted-foreground">Grand total</span><span className="num">{fmtMoney(grandTotal)}</span></div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Grand total</span>
+              <span className="num">{fmtMoney(grandTotal)}</span>
+            </div>
             {advance > 0 && (
-              <div className="flex justify-between"><span className="text-muted-foreground">Less advance</span><span className="num text-destructive">−{fmtMoney(advance)}</span></div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Less advance</span>
+                <span className="num text-destructive">−{fmtMoney(advance)}</span>
+              </div>
             )}
-            <div className="flex justify-between"><span className="text-muted-foreground">Net amount</span><span className="num">{fmtMoney(netAmount)}</span></div>
-            <div className="flex justify-between"><span className="text-muted-foreground">Already received</span><span className="num text-success">{fmtMoney(received)}</span></div>
-            <div className="flex justify-between border-t border-border pt-1 font-medium"><span>Balance outstanding</span><span className="num text-warning">{fmtMoney(balance)}</span></div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Net amount</span>
+              <span className="num">{fmtMoney(netAmount)}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Already received</span>
+              <span className="num text-success">{fmtMoney(received)}</span>
+            </div>
+            <div className="flex justify-between border-t border-border pt-1 font-medium">
+              <span>Balance outstanding</span>
+              <span className="num text-warning">{fmtMoney(balance)}</span>
+            </div>
           </div>
           <L label="Amount received (USD)">
-            <input required type="number" step="0.01" min="0" className="inp" value={amount} onChange={(e) => setAmount(e.target.value)} />
+            <input
+              required
+              type="number"
+              step="0.01"
+              min="0"
+              className="inp"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
           </L>
           <L label="Receipt date">
-            <input required type="date" className="inp" value={date} onChange={(e) => setDate(e.target.value)} />
+            <input
+              required
+              type="date"
+              className="inp"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+            />
           </L>
           <p className="text-[10px] text-muted-foreground">
-            Paying the full balance flips the invoice to Paid; a partial amount marks it Partially Paid.
+            Paying the full balance flips the invoice to Paid; a partial amount marks it Partially
+            Paid.
           </p>
           <div className="flex justify-end gap-2 pt-1">
-            <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
-            <button disabled={pay.isPending} className="inline-flex items-center gap-2 rounded-md bg-success px-4 py-2 text-sm font-medium text-success-foreground disabled:opacity-60">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={pay.isPending}
+              className="inline-flex items-center gap-2 rounded-md bg-success px-4 py-2 text-sm font-medium text-success-foreground disabled:opacity-60"
+            >
               {pay.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               <Banknote className="h-4 w-4" /> Record payment
             </button>
@@ -1090,37 +1494,78 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
   const netAmount = Number(invoice.amount ?? Math.max(0, grandTotal - advance));
   const received = Number(invoice.amount_received ?? 0);
   const balance = Math.max(0, netAmount - received);
-  const address = [invoice.debtor?.address_line, invoice.debtor?.city, invoice.debtor?.country].filter(Boolean).join(", ");
+  const address = [invoice.debtor?.address_line, invoice.debtor?.city, invoice.debtor?.country]
+    .filter(Boolean)
+    .join(", ");
   const lines = invoice.lines ?? [];
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">Invoice {invoice.invoice_number}</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
         </div>
         <div className="space-y-4 p-5 text-sm">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
             <D label="Customer" value={invoice.debtor?.name ?? "—"} />
-            <D label="Status" value={<StatusPill status={invoice.status} label={DOC_LABELS[invoice.status]} />} />
+            <D
+              label="Status"
+              value={<StatusPill status={invoice.status} label={DOC_LABELS[invoice.status]} />}
+            />
             <D label="Grand total" value={<span className="num">{fmtMoney(grandTotal)}</span>} />
-            {advance > 0 && <D label="Advance deducted" value={<span className="num text-destructive">−{fmtMoney(advance)}</span>} />}
+            {advance > 0 && (
+              <D
+                label="Advance deducted"
+                value={<span className="num text-destructive">−{fmtMoney(advance)}</span>}
+              />
+            )}
             <D label="Net amount" value={<span className="num">{fmtMoney(netAmount)}</span>} />
-            <D label="Amount received" value={<span className="num text-success">{fmtMoney(received)}</span>} />
-            <D label="Balance outstanding" value={<span className="num text-warning">{fmtMoney(balance)}</span>} />
+            <D
+              label="Amount received"
+              value={<span className="num text-success">{fmtMoney(received)}</span>}
+            />
+            <D
+              label="Balance outstanding"
+              value={<span className="num text-warning">{fmtMoney(balance)}</span>}
+            />
             <D label="Issue date" value={invoice.issue_date ? fmtDate(invoice.issue_date) : "—"} />
             <D label="Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "—"} />
-            {invoice.goods_sales_order_number && <D label="Linked sales order" value={invoice.goods_sales_order_number} />}
-            {invoice.linked_customer_proforma_number && <D label="Linked proforma" value={invoice.linked_customer_proforma_number} />}
-            {invoice.customer_contact && <D label="Customer contact" value={invoice.customer_contact} />}
+            {invoice.goods_sales_order_number && (
+              <D label="Linked sales order" value={invoice.goods_sales_order_number} />
+            )}
+            {invoice.linked_customer_proforma_number && (
+              <D label="Linked proforma" value={invoice.linked_customer_proforma_number} />
+            )}
+            {invoice.customer_contact && (
+              <D label="Customer contact" value={invoice.customer_contact} />
+            )}
             {invoice.payment_terms && <D label="Payment terms" value={invoice.payment_terms} />}
             {invoice.po_number && <D label="PO number" value={invoice.po_number} />}
-            {invoice.po_amount != null && invoice.po_amount > 0 && <D label="PO amount" value={<span className="num">{fmtMoney(invoice.po_amount)}</span>} />}
+            {invoice.po_amount != null && invoice.po_amount > 0 && (
+              <D
+                label="PO amount"
+                value={<span className="num">{fmtMoney(invoice.po_amount)}</span>}
+              />
+            )}
             <D label="NOA" value={<NoaBadge status={invoice.noa_status} />} />
-            {invoice.billing_address && <D label="Billing address" value={invoice.billing_address} />}
-            {invoice.delivery_address && <D label="Delivery address" value={invoice.delivery_address} />}
+            {invoice.billing_address && (
+              <D label="Billing address" value={invoice.billing_address} />
+            )}
+            {invoice.delivery_address && (
+              <D label="Delivery address" value={invoice.delivery_address} />
+            )}
             {address && <D label="Debtor address" value={address} />}
-            <div className="col-span-2 md:col-span-3"><D label="Notes" value={invoice.notes ?? "—"} /></div>
+            <div className="col-span-2 md:col-span-3">
+              <D label="Notes" value={invoice.notes ?? "—"} />
+            </div>
           </div>
 
           {lines.length > 0 && (
@@ -1141,25 +1586,52 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
                     <tr key={l.product_id + l.name} className="border-b border-border/40">
                       <td className="px-3 py-2">
                         {l.name}
-                        {l.sku && <span className="ml-1 font-mono text-[10px] text-muted-foreground">{l.sku}</span>}
+                        {l.sku && (
+                          <span className="ml-1 font-mono text-[10px] text-muted-foreground">
+                            {l.sku}
+                          </span>
+                        )}
                       </td>
                       <td className="px-3 py-2 text-right num">{l.quantity.toLocaleString()}</td>
-                      <td className="px-3 py-2 text-right num text-muted-foreground">{fmtMoney(l.unit_price)}</td>
-                      <td className="px-3 py-2 text-right num text-muted-foreground">{l.discount_pct != null ? `${l.discount_pct}%` : "—"}</td>
-                      <td className="px-3 py-2 text-right num text-muted-foreground">{l.gst_rate != null ? `${l.gst_rate}%` : "—"}</td>
+                      <td className="px-3 py-2 text-right num text-muted-foreground">
+                        {fmtMoney(l.unit_price)}
+                      </td>
+                      <td className="px-3 py-2 text-right num text-muted-foreground">
+                        {l.discount_pct != null ? `${l.discount_pct}%` : "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right num text-muted-foreground">
+                        {l.gst_rate != null ? `${l.gst_rate}%` : "—"}
+                      </td>
                       <td className="px-3 py-2 text-right num">{fmtMoney(l.line_total)}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <div className="ml-auto max-w-[240px] space-y-0.5 p-3 text-xs">
-                <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span className="num">{fmtMoney(invoice.subtotal_goods ?? 0)}</span></div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="num">{fmtMoney(invoice.subtotal_goods ?? 0)}</span>
+                </div>
                 {Number(invoice.total_discount ?? 0) > 0 && (
-                  <div className="flex justify-between"><span className="text-muted-foreground">Total discount</span><span className="num text-destructive">−{fmtMoney(invoice.total_discount ?? 0)}</span></div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Total discount</span>
+                    <span className="num text-destructive">
+                      −{fmtMoney(invoice.total_discount ?? 0)}
+                    </span>
+                  </div>
                 )}
-                <div className="flex justify-between"><span className="text-muted-foreground">GST</span><span className="num">{fmtMoney(invoice.gst_total ?? 0)}</span></div>
-                <div className="flex justify-between"><span className="text-muted-foreground">Freight</span><span className="num">{fmtMoney(invoice.freight ?? 0)}</span></div>
-                <div className="flex justify-between border-t border-border pt-1 font-medium"><span>Grand total</span><span className="num">{fmtMoney(grandTotal)}</span></div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">GST</span>
+                  <span className="num">{fmtMoney(invoice.gst_total ?? 0)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Freight</span>
+                  <span className="num">{fmtMoney(invoice.freight ?? 0)}</span>
+                </div>
+                <div className="flex justify-between border-t border-border pt-1 font-medium">
+                  <span>Grand total</span>
+                  <span className="num">{fmtMoney(grandTotal)}</span>
+                </div>
               </div>
             </div>
           )}
@@ -1172,7 +1644,9 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
             >
               <Eye className="h-3.5 w-3.5" /> Preview PDF
             </Link>
-            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Close</button>
+            <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
+              Close
+            </button>
           </div>
         </div>
       </div>
@@ -1181,7 +1655,14 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
 }
 
 function L({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
 }
 
 function D({ label, value }: { label: string; value: React.ReactNode }) {

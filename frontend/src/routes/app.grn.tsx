@@ -419,7 +419,7 @@ function GrnPage() {
                                 {pendingDelete === g.id ? (
                                   "Delete?"
                                 ) : (
-                                  <Trash2 className="h-3 w-3" />
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 )}
                               </button>
                             )}
@@ -547,9 +547,7 @@ function GrnModal({
     if (!f.po_id) return purchaseInvoices;
     const po = pos.find((p) => p.id === f.po_id);
     if (!po) return purchaseInvoices;
-    const samePo = purchaseInvoices.filter(
-      (pi) => (pi.goods_po_number ?? "") === po.po_number,
-    );
+    const samePo = purchaseInvoices.filter((pi) => (pi.goods_po_number ?? "") === po.po_number);
     return samePo.length > 0 ? samePo : purchaseInvoices;
   }, [purchaseInvoices, pos, f.po_id]);
 
@@ -795,7 +793,13 @@ function GrnModal({
                     ...linkedPiCandidates.map((pi: any) => ({
                       value: pi.id,
                       label: pi.invoice_number,
-                      hint: [pi.supplier_name ?? pi.vendor_name, pi.goods_po_number ? `PO ${pi.goods_po_number}` : ""].filter(Boolean).join(" · ") || undefined,
+                      hint:
+                        [
+                          pi.supplier_name ?? pi.vendor_name,
+                          pi.goods_po_number ? `PO ${pi.goods_po_number}` : "",
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || undefined,
                     })),
                   ]}
                 />

@@ -42,8 +42,12 @@ function RequestsPage() {
   });
 
   const updateStatus = useMutation({
-    mutationFn: ({ id, status }: { id: string; status: string }) => api.requests.updateStatus(id, status),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["team-requests"] }); toast.success("Status updated"); },
+    mutationFn: ({ id, status }: { id: string; status: string }) =>
+      api.requests.updateStatus(id, status),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["team-requests"] });
+      toast.success("Status updated");
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -62,24 +66,37 @@ function RequestsPage() {
       <PageHeader
         eyebrow="Requests"
         title="Team requests"
-        description={pendingCount > 0 ? `${pendingCount} pending request${pendingCount > 1 ? "s" : ""} awaiting review` : "No pending requests"}
+        description={
+          pendingCount > 0
+            ? `${pendingCount} pending request${pendingCount > 1 ? "s" : ""} awaiting review`
+            : "No pending requests"
+        }
       />
       <div className="p-6 md:p-10">
         {/* Filter tabs */}
         <div className="flex gap-2">
-          <button onClick={() => setTypeFilter("")}
+          <button
+            onClick={() => setTypeFilter("")}
             className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition-all ${
-              !typeFilter ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-            }`}>
+              !typeFilter
+                ? "border-primary bg-primary/5 text-primary"
+                : "border-border text-muted-foreground hover:text-foreground"
+            }`}
+          >
             All
           </button>
           {Object.entries(TYPE_CONFIG).map(([key, cfg]) => {
             const Icon = cfg.icon;
             return (
-              <button key={key} onClick={() => setTypeFilter(key)}
+              <button
+                key={key}
+                onClick={() => setTypeFilter(key)}
                 className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-all ${
-                  typeFilter === key ? "border-primary bg-primary/5 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-                }`}>
+                  typeFilter === key
+                    ? "border-primary bg-primary/5 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
                 <Icon className="h-3.5 w-3.5" /> {cfg.label}
               </button>
             );
@@ -98,23 +115,33 @@ function RequestsPage() {
         ) : (
           <div className="mt-4 space-y-3">
             {requests.map((req: any) => {
-              const typeCfg = TYPE_CONFIG[req.type as keyof typeof TYPE_CONFIG] || TYPE_CONFIG.visit;
+              const typeCfg =
+                TYPE_CONFIG[req.type as keyof typeof TYPE_CONFIG] || TYPE_CONFIG.visit;
               const TypeIcon = typeCfg.icon;
               const userName = req.user?.contactName || req.user?.email || "Unknown";
 
               return (
-                <div key={req.id} className="rounded-xl border border-border bg-white p-4 shadow-sm">
+                <div
+                  key={req.id}
+                  className="rounded-xl border border-border bg-white p-4 shadow-sm"
+                >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">
                       {/* Header */}
                       <div className="flex items-center gap-2">
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${typeCfg.color}`}>
+                        <span
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${typeCfg.color}`}
+                        >
                           <TypeIcon className="h-3 w-3" /> {typeCfg.label}
                         </span>
-                        <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_COLORS[req.status] || "bg-muted text-muted-foreground"}`}>
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${STATUS_COLORS[req.status] || "bg-muted text-muted-foreground"}`}
+                        >
                           {STATUS_LABELS[req.status] || req.status}
                         </span>
-                        <span className="text-[10px] text-muted-foreground">{new Date(req.submittedAt).toLocaleDateString()}</span>
+                        <span className="text-[10px] text-muted-foreground">
+                          {new Date(req.submittedAt).toLocaleDateString()}
+                        </span>
                       </div>
 
                       {/* User info */}
@@ -129,23 +156,32 @@ function RequestsPage() {
 
                       {/* Data preview */}
                       <div className="mt-1.5 text-sm font-medium">
-                        {req.data?.purpose || req.data?.reason || req.data?.description || req.data?.location || `${typeCfg.label} request`}
+                        {req.data?.purpose ||
+                          req.data?.reason ||
+                          req.data?.description ||
+                          req.data?.location ||
+                          `${typeCfg.label} request`}
                       </div>
 
                       {/* Additional details */}
                       {(req.data?.location || req.data?.fromLocation) && (
                         <div className="mt-1 text-xs text-muted-foreground">
                           {req.data.location && `📍 ${req.data.location}`}
-                          {req.data.fromLocation && `📍 ${req.data.fromLocation} → ${req.data.toLocation || ""}`}
+                          {req.data.fromLocation &&
+                            `📍 ${req.data.fromLocation} → ${req.data.toLocation || ""}`}
                           {req.data.contactPerson && ` | 👤 ${req.data.contactPerson}`}
                         </div>
                       )}
                       {req.data?.amount && (
-                        <div className="mt-0.5 text-xs font-medium text-foreground">Amount: ${Number(req.data.amount).toLocaleString()}</div>
+                        <div className="mt-0.5 text-xs font-medium text-foreground">
+                          Amount: ${Number(req.data.amount).toLocaleString()}
+                        </div>
                       )}
                       {(req.data?.fromDate || req.data?.date) && (
                         <div className="mt-0.5 text-xs text-muted-foreground">
-                          {req.data.fromDate ? `${req.data.fromDate} → ${req.data.toDate || ""}` : req.data.date}
+                          {req.data.fromDate
+                            ? `${req.data.fromDate} → ${req.data.toDate || ""}`
+                            : req.data.date}
                         </div>
                       )}
                     </div>
@@ -153,14 +189,18 @@ function RequestsPage() {
                     {/* Actions */}
                     {req.status === "pending" && (
                       <div className="flex shrink-0 gap-1">
-                        <button onClick={() => updateStatus.mutate({ id: req.id, status: "approved" })}
+                        <button
+                          onClick={() => updateStatus.mutate({ id: req.id, status: "approved" })}
                           disabled={updateStatus.isPending}
-                          className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[10px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50">
+                          className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[10px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50"
+                        >
                           <CheckCircle className="h-3.5 w-3.5" /> Approve
                         </button>
-                        <button onClick={() => updateStatus.mutate({ id: req.id, status: "rejected" })}
+                        <button
+                          onClick={() => updateStatus.mutate({ id: req.id, status: "rejected" })}
                           disabled={updateStatus.isPending}
-                          className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[10px] font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50">
+                          className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[10px] font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
+                        >
                           <XCircle className="h-3.5 w-3.5" /> Reject
                         </button>
                       </div>

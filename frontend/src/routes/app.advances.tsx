@@ -43,7 +43,10 @@ function AdvancesPage() {
     mutationFn: async ({ id, status }: { id: string; status: string }) => {
       await api.advances.update(id, { status });
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["advances"] }); toast.success("Updated"); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["advances"] });
+      toast.success("Updated");
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -51,7 +54,10 @@ function AdvancesPage() {
     mutationFn: async (id: string) => {
       await api.advances.delete(id);
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["advances"] }); toast.success("Removed"); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["advances"] });
+      toast.success("Removed");
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -64,31 +70,50 @@ function AdvancesPage() {
         actions={
           canWrite ? (
             <div className="flex gap-2">
-              <button onClick={() => setOpen("sales")} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+              <button
+                onClick={() => setOpen("sales")}
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              >
                 <Plus className="h-4 w-4" /> Sales advance
               </button>
-              <button onClick={() => setOpen("purchase")} className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm">
+              <button
+                onClick={() => setOpen("purchase")}
+                className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm"
+              >
                 <Plus className="h-4 w-4" /> Purchase advance
               </button>
             </div>
           ) : (
-            <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">Read-only</span>
+            <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+              Read-only
+            </span>
           )
         }
       />
 
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-2">
-          <Card title="Open sales advances (received)"><div className="num text-3xl text-success">{fmtMoney(totals.sales)}</div></Card>
-          <Card title="Open purchase advances (paid)"><div className="num text-3xl text-warning">{fmtMoney(totals.purchase)}</div></Card>
+          <Card title="Open sales advances (received)">
+            <div className="num text-3xl text-success">{fmtMoney(totals.sales)}</div>
+          </Card>
+          <Card title="Open purchase advances (paid)">
+            <div className="num text-3xl text-warning">{fmtMoney(totals.purchase)}</div>
+          </Card>
         </div>
 
         <div className="flex gap-2">
           {(["sales", "purchase"] as const).map((s) => (
-            <button key={s} onClick={() => setTab(s)}
+            <button
+              key={s}
+              onClick={() => setTab(s)}
               className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                tab === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-              }`}>{s === "sales" ? "Sales side" : "Purchase side"}</button>
+                tab === s
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {s === "sales" ? "Sales side" : "Purchase side"}
+            </button>
           ))}
         </div>
 
@@ -96,7 +121,9 @@ function AdvancesPage() {
           {advancesQ.isLoading ? (
             <TableSkeleton rows={5} cols={8} />
           ) : rows.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">No advances on this side yet.</div>
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              No advances on this side yet.
+            </div>
           ) : (
             <div className="-mx-5 overflow-x-auto">
               <table className="table-premium w-full text-sm">
@@ -117,43 +144,86 @@ function AdvancesPage() {
                     const inv = a.side === "sales" ? a.invoice : a.purchase;
                     const linkedAmount = a.order?.amount ?? inv?.amount ?? null;
                     const cp = a.order
-                      ? (a.side === "sales" ? a.order.debtor?.name : a.order.vendor?.name)
-                      : (a.side === "sales" ? a.invoice?.debtor?.name : a.purchase?.vendor?.name);
+                      ? a.side === "sales"
+                        ? a.order.debtor?.name
+                        : a.order.vendor?.name
+                      : a.side === "sales"
+                        ? a.invoice?.debtor?.name
+                        : a.purchase?.vendor?.name;
                     return (
                       <tr key={a.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3 text-muted-foreground">{fmtDate(a.advance_date)}</td>
+                        <td className="px-5 py-3 text-muted-foreground">
+                          {fmtDate(a.advance_date)}
+                        </td>
                         <td className="px-5 py-3">
                           {a.order ? (
-                            <Link to="/app/proformas" className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                              <Link2 className="h-3 w-3" />PO {a.order.po_number}
+                            <Link
+                              to="/app/proformas"
+                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                            >
+                              <Link2 className="h-3 w-3" />
+                              PO {a.order.po_number}
                             </Link>
                           ) : inv ? (
-                            <Link to={a.side === "sales" ? "/app/invoices" : "/app/purchases"} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
-                              <Link2 className="h-3 w-3" />{inv.invoice_number}
+                            <Link
+                              to={a.side === "sales" ? "/app/invoices" : "/app/purchases"}
+                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                            >
+                              <Link2 className="h-3 w-3" />
+                              {inv.invoice_number}
                             </Link>
-                          ) : <span className="text-muted-foreground">—</span>}
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
                         </td>
                         <td className="px-5 py-3">{cp ?? "—"}</td>
-                        <td className="px-5 py-3 text-right num text-primary">{fmtMoney(a.amount)}</td>
-                        <td className="px-5 py-3 text-right num text-muted-foreground">{linkedAmount != null ? fmtMoney(linkedAmount) : "—"}</td>
-                        <td className="px-5 py-3 text-xs text-muted-foreground">{a.reference ?? "—"}</td>
+                        <td className="px-5 py-3 text-right num text-primary">
+                          {fmtMoney(a.amount)}
+                        </td>
+                        <td className="px-5 py-3 text-right num text-muted-foreground">
+                          {linkedAmount != null ? fmtMoney(linkedAmount) : "—"}
+                        </td>
+                        <td className="px-5 py-3 text-xs text-muted-foreground">
+                          {a.reference ?? "—"}
+                        </td>
                         <td className="px-5 py-3">
-                          <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
-                            a.status === "applied" ? "border-success/50 text-success"
-                            : a.status === "refunded" ? "border-muted text-muted-foreground"
-                            : "border-warning/50 text-warning"
-                          }`}>{a.status}</span>
+                          <span
+                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                              a.status === "applied"
+                                ? "border-success/50 text-success"
+                                : a.status === "refunded"
+                                  ? "border-muted text-muted-foreground"
+                                  : "border-warning/50 text-warning"
+                            }`}
+                          >
+                            {a.status}
+                          </span>
                         </td>
                         <td className="px-5 py-3 text-right">
                           <div className="inline-flex gap-1">
                             {canWrite && a.status === "open" && (
-                              <button onClick={() => setStatus.mutate({ id: a.id, status: "applied" })} className="rounded-md border border-success/50 px-2 py-0.5 text-[10px] text-success hover:bg-success/10">Mark applied</button>
+                              <button
+                                onClick={() => setStatus.mutate({ id: a.id, status: "applied" })}
+                                className="rounded-md border border-success/50 px-2 py-0.5 text-[10px] text-success hover:bg-success/10"
+                              >
+                                Mark applied
+                              </button>
                             )}
                             {canWrite && a.status !== "refunded" && (
-                              <button onClick={() => setStatus.mutate({ id: a.id, status: "refunded" })} className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted">Refunded</button>
+                              <button
+                                onClick={() => setStatus.mutate({ id: a.id, status: "refunded" })}
+                                className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted"
+                              >
+                                Refunded
+                              </button>
                             )}
                             {canWrite && (
-                              <button onClick={() => del.mutate(a.id)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
+                              <button
+                                onClick={() => del.mutate(a.id)}
+                                className="text-muted-foreground hover:text-destructive"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
                             )}
                           </div>
                         </td>
@@ -167,12 +237,22 @@ function AdvancesPage() {
         </Card>
       </div>
 
-      {open && user && <NewAdvanceModal side={open} userId={user.id} onClose={() => setOpen(null)} />}
+      {open && user && (
+        <NewAdvanceModal side={open} userId={user.id} onClose={() => setOpen(null)} />
+      )}
     </div>
   );
 }
 
-function NewAdvanceModal({ side, userId, onClose }: { side: "sales" | "purchase"; userId: string; onClose: () => void }) {
+function NewAdvanceModal({
+  side,
+  userId,
+  onClose,
+}: {
+  side: "sales" | "purchase";
+  userId: string;
+  onClose: () => void;
+}) {
   const qc = useQueryClient();
   const [linkType, setLinkType] = useState<"po" | "invoice">("po");
   const [form, setForm] = useState({
@@ -210,7 +290,8 @@ function NewAdvanceModal({ side, userId, onClose }: { side: "sales" | "purchase"
     mutationFn: async () => {
       if (!form.amount || Number(form.amount) <= 0) throw new Error("Amount must be > 0");
       if (linkType === "po") {
-        if (!form.purchase_order_id) throw new Error("Pick the purchase order this advance is against");
+        if (!form.purchase_order_id)
+          throw new Error("Pick the purchase order this advance is against");
       } else {
         const id = side === "sales" ? form.invoice_id : form.purchase_invoice_id;
         if (!id) throw new Error("Pick the invoice this advance relates to");
@@ -224,28 +305,57 @@ function NewAdvanceModal({ side, userId, onClose }: { side: "sales" | "purchase"
         notes: form.notes || null,
         purchase_order_id: linkType === "po" ? form.purchase_order_id : null,
         invoice_id: linkType === "invoice" && side === "sales" ? form.invoice_id : null,
-        purchase_invoice_id: linkType === "invoice" && side === "purchase" ? form.purchase_invoice_id : null,
+        purchase_invoice_id:
+          linkType === "invoice" && side === "purchase" ? form.purchase_invoice_id : null,
       };
       await api.advances.create(payload);
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["advances"] }); toast.success("Advance recorded"); onClose(); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["advances"] });
+      toast.success("Advance recorded");
+      onClose();
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card"
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">{side === "sales" ? "Sales advance (received)" : "Purchase advance (paid)"}</h3>
-          <button onClick={onClose}><X className="h-4 w-4" /></button>
+          <h3 className="font-display text-lg">
+            {side === "sales" ? "Sales advance (received)" : "Purchase advance (paid)"}
+          </h3>
+          <button onClick={onClose}>
+            <X className="h-4 w-4" />
+          </button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-4 p-5">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            create.mutate();
+          }}
+          className="space-y-4 p-5"
+        >
           <div className="flex gap-2">
             {(["po", "invoice"] as const).map((t) => (
-              <button type="button" key={t} onClick={() => setLinkType(t)}
+              <button
+                type="button"
+                key={t}
+                onClick={() => setLinkType(t)}
                 className={`rounded-full border px-3 py-1 text-[10px] uppercase tracking-widest transition ${
-                  linkType === t ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground hover:text-foreground"
-                }`}>{t === "po" ? "Against PO" : "Against invoice"}</button>
+                  linkType === t
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {t === "po" ? "Against PO" : "Against invoice"}
+              </button>
             ))}
           </div>
           {linkType === "po" ? (
@@ -257,36 +367,80 @@ function NewAdvanceModal({ side, userId, onClose }: { side: "sales" | "purchase"
                 options={(ordersQ.data ?? []).map((o: any) => ({
                   value: o.id,
                   label: o.po_number,
-                  hint: `${(o.debtor?.name ?? o.vendor?.name) ?? ""} · ${fmtMoney(o.amount)}`,
+                  hint: `${o.debtor?.name ?? o.vendor?.name ?? ""} · ${fmtMoney(o.amount)}`,
                 }))}
               />
               {(ordersQ.data ?? []).length === 0 && (
-                <p className="mt-1 text-[10px] text-warning">No open {side} proformas yet. Raise one in Proforma invoices first.</p>
+                <p className="mt-1 text-[10px] text-warning">
+                  No open {side} proformas yet. Raise one in Proforma invoices first.
+                </p>
               )}
             </L>
           ) : (
             <L label={side === "sales" ? "Sales invoice *" : "Purchase invoice *"}>
               <SearchableSelect
                 value={side === "sales" ? form.invoice_id : form.purchase_invoice_id}
-                onChange={(v) => setForm({ ...form, [side === "sales" ? "invoice_id" : "purchase_invoice_id"]: v })}
+                onChange={(v) =>
+                  setForm({ ...form, [side === "sales" ? "invoice_id" : "purchase_invoice_id"]: v })
+                }
                 placeholder="Select…"
                 options={(invoicesQ.data ?? []).map((i: any) => ({
                   value: i.id,
                   label: i.invoice_number,
-                  hint: `${(i.debtor?.name ?? i.vendor?.name) ?? ""} · ${fmtMoney(i.amount)}`,
+                  hint: `${i.debtor?.name ?? i.vendor?.name ?? ""} · ${fmtMoney(i.amount)}`,
                 }))}
               />
             </L>
           )}
           <div className="grid grid-cols-2 gap-3">
-            <L label="Amount *"><input required type="number" step="0.01" min="0" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} /></L>
-            <L label="Date"><input required type="date" className="inp" value={form.advance_date} onChange={(e) => setForm({ ...form, advance_date: e.target.value })} /></L>
+            <L label="Amount *">
+              <input
+                required
+                type="number"
+                step="0.01"
+                min="0"
+                className="inp"
+                value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+              />
+            </L>
+            <L label="Date">
+              <input
+                required
+                type="date"
+                className="inp"
+                value={form.advance_date}
+                onChange={(e) => setForm({ ...form, advance_date: e.target.value })}
+              />
+            </L>
           </div>
-          <L label="Reference (txn id / cheque #)"><input className="inp" value={form.reference} onChange={(e) => setForm({ ...form, reference: e.target.value })} /></L>
-          <L label="Notes"><textarea rows={2} className="inp" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></L>
+          <L label="Reference (txn id / cheque #)">
+            <input
+              className="inp"
+              value={form.reference}
+              onChange={(e) => setForm({ ...form, reference: e.target.value })}
+            />
+          </L>
+          <L label="Notes">
+            <textarea
+              rows={2}
+              className="inp"
+              value={form.notes}
+              onChange={(e) => setForm({ ...form, notes: e.target.value })}
+            />
+          </L>
           <div className="flex justify-end gap-2 pt-2">
-            <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
-            <button disabled={create.isPending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={create.isPending}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+            >
               {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Save
             </button>
           </div>
@@ -298,5 +452,12 @@ function NewAdvanceModal({ side, userId, onClose }: { side: "sales" | "purchase"
 }
 
 function L({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
 }

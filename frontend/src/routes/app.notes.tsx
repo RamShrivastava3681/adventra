@@ -34,7 +34,6 @@ function statusClass(s: Status) {
   return "bg-amber-500/10 text-amber-400 border-amber-500/30";
 }
 
-
 function NotesPage() {
   const { user, isAdmin, isClient, isChecker, isTreasury } = useAuth();
   const canCreate = isAdmin || (isClient && !isChecker && !isTreasury);
@@ -47,7 +46,9 @@ function NotesPage() {
     queryKey: ["credit-debit-notes"],
     queryFn: async () => {
       const data = await api.creditDebitNotes.list();
-      return (data ?? []).sort((a: any, b: any) => new Date(b.note_date).getTime() - new Date(a.note_date).getTime());
+      return (data ?? []).sort(
+        (a: any, b: any) => new Date(b.note_date).getTime() - new Date(a.note_date).getTime(),
+      );
     },
   });
 
@@ -55,7 +56,10 @@ function NotesPage() {
     mutationFn: async (id: string) => {
       await api.creditDebitNotes.delete(id);
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["credit-debit-notes"] }); toast.success("Removed"); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
+      toast.success("Removed");
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
@@ -63,18 +67,26 @@ function NotesPage() {
     mutationFn: async (id: string) => {
       await api.creditDebitNotes.update(id, { status: "void" });
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["credit-debit-notes"] }); toast.success("Voided"); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
+      toast.success("Voided");
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
   const rows = notesQ.data ?? [];
   const filtered = filter === "all" ? rows : rows.filter((r: any) => r.kind === filter);
-  const creditTotal = rows.filter((r: any) => r.kind === "credit").reduce((s: number, r: any) => s + Number(r.amount), 0);
-  const debitTotal = rows.filter((r: any) => r.kind === "debit").reduce((s: number, r: any) => s + Number(r.amount), 0);
-  const pendingCount = rows.filter((r: any) => r.status === "pending" || r.status === "issued").length;
+  const creditTotal = rows
+    .filter((r: any) => r.kind === "credit")
+    .reduce((s: number, r: any) => s + Number(r.amount), 0);
+  const debitTotal = rows
+    .filter((r: any) => r.kind === "debit")
+    .reduce((s: number, r: any) => s + Number(r.amount), 0);
+  const pendingCount = rows.filter(
+    (r: any) => r.status === "pending" || r.status === "issued",
+  ).length;
   const approvedCount = rows.filter((r: any) => r.status === "approved").length;
   const appliedCount = rows.filter((r: any) => r.status === "applied").length;
-
 
   return (
     <div>
@@ -84,7 +96,10 @@ function NotesPage() {
         description="Raise credit notes (refunds, discounts) and debit notes (extra charges, claims). Every note routes to the Checker desk for approval, then the Funding queue, where Treasury applies it — automatically adjusting the linked sales or purchase invoice."
         actions={
           canCreate ? (
-            <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+            <button
+              onClick={() => setOpen(true)}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            >
               <Plus className="h-4 w-4" /> New note
             </button>
           ) : (
@@ -97,35 +112,43 @@ function NotesPage() {
 
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-3">
-
           <Card title="Pending checker">
             <div className="num text-2xl text-amber-400">{pendingCount}</div>
-            <div className="mt-1 text-xs text-muted-foreground">Awaiting maker–checker approval</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Awaiting maker–checker approval
+            </div>
           </Card>
           <Card title="Approved · awaiting apply">
             <div className="num text-2xl text-emerald-400">{approvedCount}</div>
-            <div className="mt-1 text-xs text-muted-foreground">Sitting in the funding queue for treasury</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Sitting in the funding queue for treasury
+            </div>
           </Card>
           <Card title="Applied">
             <div className="num text-2xl text-primary">{appliedCount}</div>
-            <div className="mt-1 text-xs text-muted-foreground">Adjustment posted to linked invoice</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Adjustment posted to linked invoice
+            </div>
           </Card>
         </div>
 
         <div className="grid gap-4 md:grid-cols-3">
           <Card title="Credit notes (gross)">
             <div className="num text-xl">{fmtMoney(creditTotal)}</div>
-            <div className="mt-1 text-xs text-muted-foreground">{rows.filter((r: any) => r.kind === "credit").length} notes — refunds & discounts</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {rows.filter((r: any) => r.kind === "credit").length} notes — refunds & discounts
+            </div>
           </Card>
           <Card title="Debit notes (gross)">
             <div className="num text-xl">{fmtMoney(debitTotal)}</div>
-            <div className="mt-1 text-xs text-muted-foreground">{rows.filter((r: any) => r.kind === "debit").length} notes — extra charges & claims</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              {rows.filter((r: any) => r.kind === "debit").length} notes — extra charges & claims
+            </div>
           </Card>
           <Card title="Total notes">
             <div className="num text-xl">{rows.length}</div>
             <div className="mt-1 text-xs text-muted-foreground">All-time</div>
           </Card>
-
         </div>
 
         <div className="flex items-center gap-2">
@@ -175,8 +198,11 @@ function NotesPage() {
                       <tr key={r.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3">{fmtDate(r.note_date)}</td>
                         <td className="px-5 py-3">
-                          <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${r.kind === "credit" ? "border-rose-500/30 text-rose-400" : "border-emerald-500/30 text-emerald-400"}`}>
-                            <Icon className="h-3 w-3" />{r.kind}
+                          <span
+                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${r.kind === "credit" ? "border-rose-500/30 text-rose-400" : "border-emerald-500/30 text-emerald-400"}`}
+                          >
+                            <Icon className="h-3 w-3" />
+                            {r.kind}
                           </span>
                         </td>
                         <td className="px-5 py-3 font-mono text-xs">{r.note_number}</td>
@@ -192,11 +218,17 @@ function NotesPage() {
                             <span className="text-xs text-muted-foreground">Unlinked</span>
                           )}
                         </td>
-                        <td className="px-5 py-3 text-muted-foreground max-w-[220px] truncate">{r.reason ?? "—"}</td>
+                        <td className="px-5 py-3 text-muted-foreground max-w-[220px] truncate">
+                          {r.reason ?? "—"}
+                        </td>
                         <td className="px-5 py-3 text-right">
                           {docs.length > 0 ? (
-                            <button onClick={() => setViewing(r)} className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary">
-                              <Paperclip className="h-3 w-3" />{docs.length}
+                            <button
+                              onClick={() => setViewing(r)}
+                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary"
+                            >
+                              <Paperclip className="h-3 w-3" />
+                              {docs.length}
                             </button>
                           ) : (
                             <span className="text-[10px] text-muted-foreground">—</span>
@@ -204,9 +236,20 @@ function NotesPage() {
                         </td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
                         <td className="px-5 py-3">
-                          <span className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${statusClass(r.status)}`}>{STATUS_LABEL[r.status as Status] ?? r.status}</span>
+                          <span
+                            className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${statusClass(r.status)}`}
+                          >
+                            {STATUS_LABEL[r.status as Status] ?? r.status}
+                          </span>
                           {canCreate && (r.status === "pending" || r.status === "issued") && (
-                            <button onClick={() => { if (confirm("Void this note?")) voidNote.mutate(r.id); }} className="ml-2 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-destructive">Void</button>
+                            <button
+                              onClick={() => {
+                                if (confirm("Void this note?")) voidNote.mutate(r.id);
+                              }}
+                              className="ml-2 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-destructive"
+                            >
+                              Void
+                            </button>
                           )}
                         </td>
 
@@ -220,13 +263,22 @@ function NotesPage() {
                             >
                               <Eye className="h-3.5 w-3.5" />
                             </Link>
-                            <button onClick={() => setViewing(r)} className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary">View</button>
+                            <button
+                              onClick={() => setViewing(r)}
+                              className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+                            >
+                              View
+                            </button>
                             {canCreate && (r.status === "pending" || r.status === "issued") && (
-                              <button onClick={() => { if (confirm("Delete this note?")) remove.mutate(r.id); }} className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive">
+                              <button
+                                onClick={() => {
+                                  if (confirm("Delete this note?")) remove.mutate(r.id);
+                                }}
+                                className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive"
+                              >
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             )}
-
                           </div>
                         </td>
                       </tr>
@@ -240,7 +292,11 @@ function NotesPage() {
       </div>
 
       {open && user && (
-        <NewNoteModal userId={user.id} onClose={() => setOpen(false)} onCreated={() => qc.invalidateQueries({ queryKey: ["credit-debit-notes"] })} />
+        <NewNoteModal
+          userId={user.id}
+          onClose={() => setOpen(false)}
+          onCreated={() => qc.invalidateQueries({ queryKey: ["credit-debit-notes"] })}
+        />
       )}
 
       {viewing && <NoteDetailModal note={viewing} onClose={() => setViewing(null)} />}
@@ -256,11 +312,21 @@ function NoteDetailModal({ note, onClose }: { note: any; onClose: () => void }) 
       : null;
   const docs: DocMeta[] = Array.isArray(note.documents) ? note.documents : [];
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
-          <h3 className="font-display text-lg">{note.kind === "credit" ? "Credit" : "Debit"} note · {note.note_number}</h3>
-          <button onClick={onClose}><X className="h-4 w-4" /></button>
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-xl border border-border bg-card shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <h3 className="font-display text-lg">
+            {note.kind === "credit" ? "Credit" : "Debit"} note · {note.note_number}
+          </h3>
+          <button onClick={onClose}>
+            <X className="h-4 w-4" />
+          </button>
         </div>
         <div className="space-y-4 p-5 text-sm">
           <div className="grid grid-cols-2 gap-3">
@@ -272,12 +338,16 @@ function NoteDetailModal({ note, onClose }: { note: any; onClose: () => void }) 
           </div>
           {note.reason && (
             <div>
-              <div className="mb-1 text-xs uppercase tracking-widest text-muted-foreground">Reason</div>
+              <div className="mb-1 text-xs uppercase tracking-widest text-muted-foreground">
+                Reason
+              </div>
               <p className="text-muted-foreground">{note.reason}</p>
             </div>
           )}
           <div>
-            <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Attachments</div>
+            <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">
+              Attachments
+            </div>
             <DocumentList docs={docs} />
           </div>
         </div>
@@ -295,7 +365,15 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
-function NewNoteModal({ userId, onClose, onCreated }: { userId: string; onClose: () => void; onCreated: () => void }) {
+function NewNoteModal({
+  userId,
+  onClose,
+  onCreated,
+}: {
+  userId: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const [mode, setMode] = useState<"generated" | "manual">("generated");
   const [form, setForm] = useState({
     kind: "credit" as Kind,
@@ -327,12 +405,19 @@ function NewNoteModal({ userId, onClose, onCreated }: { userId: string; onClose:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tplQ.data?.default_tax_rate]);
 
-  const subtotal = lines.reduce((s, l) => s + Number(l.quantity || 0) * Number(l.unit_price || 0), 0);
+  const subtotal = lines.reduce(
+    (s, l) => s + Number(l.quantity || 0) * Number(l.unit_price || 0),
+    0,
+  );
   const taxAmount = (subtotal * Number(form.tax_rate || 0)) / 100;
   const generatedTotal = subtotal + taxAmount;
   useEffect(() => {
     if (mode === "generated") {
-      setForm((f) => (Number(f.amount) === generatedTotal ? f : { ...f, amount: generatedTotal ? generatedTotal.toFixed(2) : "" }));
+      setForm((f) =>
+        Number(f.amount) === generatedTotal
+          ? f
+          : { ...f, amount: generatedTotal ? generatedTotal.toFixed(2) : "" },
+      );
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, subtotal, taxAmount]);
@@ -341,14 +426,28 @@ function NewNoteModal({ userId, onClose, onCreated }: { userId: string; onClose:
     queryKey: ["note-link-sales"],
     queryFn: async () => {
       const data = await api.invoices.list();
-      return data.map((i: any) => ({ id: i.id, invoice_number: i.invoiceNumber ?? i.invoice_number, amount: i.amount })).reverse().slice(0, 200);
+      return data
+        .map((i: any) => ({
+          id: i.id,
+          invoice_number: i.invoiceNumber ?? i.invoice_number,
+          amount: i.amount,
+        }))
+        .reverse()
+        .slice(0, 200);
     },
   });
   const purchQ = useQuery({
     queryKey: ["note-link-purchases"],
     queryFn: async () => {
       const data = await api.purchaseInvoices.list();
-      return data.map((i: any) => ({ id: i.id, invoice_number: i.invoiceNumber ?? i.invoice_number, amount: i.amount })).reverse().slice(0, 200);
+      return data
+        .map((i: any) => ({
+          id: i.id,
+          invoice_number: i.invoiceNumber ?? i.invoice_number,
+          amount: i.amount,
+        }))
+        .reverse()
+        .slice(0, 200);
     },
   });
 
@@ -370,8 +469,12 @@ function NewNoteModal({ userId, onClose, onCreated }: { userId: string; onClose:
           unit_price: Number(l.unit_price),
           line_total: Number(l.quantity) * Number(l.unit_price),
         }));
-      if (mode === "generated" && cleanLines.length === 0) throw new Error("Add at least one line item to generate a note.");
-      const subTotal = mode === "generated" ? cleanLines.reduce((s, l) => s + l.line_total, 0) : Number(form.amount);
+      if (mode === "generated" && cleanLines.length === 0)
+        throw new Error("Add at least one line item to generate a note.");
+      const subTotal =
+        mode === "generated"
+          ? cleanLines.reduce((s, l) => s + l.line_total, 0)
+          : Number(form.amount);
       const taxRateN = Number(form.tax_rate || 0);
       const taxAmtN = mode === "generated" ? (subTotal * taxRateN) / 100 : 0;
       const totalAmt = mode === "generated" ? subTotal + taxAmtN : Number(form.amount);
@@ -396,18 +499,36 @@ function NewNoteModal({ userId, onClose, onCreated }: { userId: string; onClose:
       };
       await api.creditDebitNotes.create(payload);
     },
-    onSuccess: () => { onCreated(); toast.success("Note submitted for checker approval"); onClose(); },
+    onSuccess: () => {
+      onCreated();
+      toast.success("Note submitted for checker approval");
+      onClose();
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-xl border border-border bg-card shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">New credit / debit note</h3>
-          <button onClick={onClose}><X className="h-4 w-4" /></button>
+          <button onClick={onClose}>
+            <X className="h-4 w-4" />
+          </button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-4 p-5">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            create.mutate();
+          }}
+          className="space-y-4 p-5"
+        >
           {/* Mode toggle */}
           <div className="rounded-md border border-border bg-background/40 p-1 grid grid-cols-2 gap-1">
             {(["generated", "manual"] as const).map((m) => (
@@ -438,10 +559,22 @@ function NewNoteModal({ userId, onClose, onCreated }: { userId: string; onClose:
           </L>
           <div className="grid grid-cols-2 gap-3">
             <L label="Note number *">
-              <input required className="inp" placeholder="CN-0001 / DN-0001" value={form.note_number} onChange={(e) => setForm({ ...form, note_number: e.target.value })} />
+              <input
+                required
+                className="inp"
+                placeholder="CN-0001 / DN-0001"
+                value={form.note_number}
+                onChange={(e) => setForm({ ...form, note_number: e.target.value })}
+              />
             </L>
             <L label="Date">
-              <input required type="date" className="inp" value={form.note_date} onChange={(e) => setForm({ ...form, note_date: e.target.value })} />
+              <input
+                required
+                type="date"
+                className="inp"
+                value={form.note_date}
+                onChange={(e) => setForm({ ...form, note_date: e.target.value })}
+              />
             </L>
           </div>
 
@@ -449,46 +582,165 @@ function NewNoteModal({ userId, onClose, onCreated }: { userId: string; onClose:
             <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <div className="text-xs uppercase tracking-widest text-primary">Line items</div>
-                <button type="button" onClick={() => setLines([...lines, { description: "", quantity: 1, unit_price: 0 }])} className="text-[10px] uppercase tracking-widest text-primary hover:underline">+ Add line</button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setLines([...lines, { description: "", quantity: 1, unit_price: 0 }])
+                  }
+                  className="text-[10px] uppercase tracking-widest text-primary hover:underline"
+                >
+                  + Add line
+                </button>
               </div>
               <table className="table-premium w-full text-xs">
                 <thead className="text-muted-foreground">
-                  <tr><th className="text-left font-normal">Description</th><th className="w-16 text-right font-normal">Qty</th><th className="w-24 text-right font-normal">Rate</th><th className="w-24 text-right font-normal">Total</th><th className="w-6" /></tr>
+                  <tr>
+                    <th className="text-left font-normal">Description</th>
+                    <th className="w-16 text-right font-normal">Qty</th>
+                    <th className="w-24 text-right font-normal">Rate</th>
+                    <th className="w-24 text-right font-normal">Total</th>
+                    <th className="w-6" />
+                  </tr>
                 </thead>
                 <tbody>
                   {lines.map((l, idx) => (
                     <tr key={idx}>
-                      <td className="py-1 pr-2"><input className="inp" placeholder="Description" value={l.description} onChange={(e) => setLines(lines.map((x, i) => i === idx ? { ...x, description: e.target.value } : x))} /></td>
-                      <td className="py-1 pr-2"><input type="number" step="0.001" min="0" className="inp text-right" value={l.quantity} onChange={(e) => setLines(lines.map((x, i) => i === idx ? { ...x, quantity: Number(e.target.value) } : x))} /></td>
-                      <td className="py-1 pr-2"><input type="number" step="0.01" min="0" className="inp text-right" value={l.unit_price} onChange={(e) => setLines(lines.map((x, i) => i === idx ? { ...x, unit_price: Number(e.target.value) } : x))} /></td>
-                      <td className="py-1 pr-2 text-right num text-muted-foreground">{currencySym}{(Number(l.quantity || 0) * Number(l.unit_price || 0)).toFixed(2)}</td>
-                      <td className="py-1 text-right"><button type="button" onClick={() => setLines(lines.length > 1 ? lines.filter((_, i) => i !== idx) : lines)} className="text-muted-foreground hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button></td>
+                      <td className="py-1 pr-2">
+                        <input
+                          className="inp"
+                          placeholder="Description"
+                          value={l.description}
+                          onChange={(e) =>
+                            setLines(
+                              lines.map((x, i) =>
+                                i === idx ? { ...x, description: e.target.value } : x,
+                              ),
+                            )
+                          }
+                        />
+                      </td>
+                      <td className="py-1 pr-2">
+                        <input
+                          type="number"
+                          step="0.001"
+                          min="0"
+                          className="inp text-right"
+                          value={l.quantity}
+                          onChange={(e) =>
+                            setLines(
+                              lines.map((x, i) =>
+                                i === idx ? { ...x, quantity: Number(e.target.value) } : x,
+                              ),
+                            )
+                          }
+                        />
+                      </td>
+                      <td className="py-1 pr-2">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          className="inp text-right"
+                          value={l.unit_price}
+                          onChange={(e) =>
+                            setLines(
+                              lines.map((x, i) =>
+                                i === idx ? { ...x, unit_price: Number(e.target.value) } : x,
+                              ),
+                            )
+                          }
+                        />
+                      </td>
+                      <td className="py-1 pr-2 text-right num text-muted-foreground">
+                        {currencySym}
+                        {(Number(l.quantity || 0) * Number(l.unit_price || 0)).toFixed(2)}
+                      </td>
+                      <td className="py-1 text-right">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setLines(lines.length > 1 ? lines.filter((_, i) => i !== idx) : lines)
+                          }
+                          className="text-muted-foreground hover:text-destructive"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
               <div className="ml-auto w-56 space-y-1 border-t border-border pt-2 text-xs">
-                <div className="flex justify-between"><span className="text-muted-foreground">Subtotal</span><span className="num">{currencySym}{subtotal.toFixed(2)}</span></div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="num">
+                    {currencySym}
+                    {subtotal.toFixed(2)}
+                  </span>
+                </div>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-muted-foreground">Tax %</span>
-                  <input type="number" step="0.01" min="0" className="inp h-7 w-20 text-right" value={form.tax_rate} onChange={(e) => setForm({ ...form, tax_rate: e.target.value })} />
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    className="inp h-7 w-20 text-right"
+                    value={form.tax_rate}
+                    onChange={(e) => setForm({ ...form, tax_rate: e.target.value })}
+                  />
                 </div>
-                <div className="flex justify-between text-muted-foreground"><span>Tax amount</span><span className="num">{currencySym}{taxAmount.toFixed(2)}</span></div>
-                <div className="flex justify-between border-t border-border pt-1 font-medium"><span>Total</span><span className="num text-primary">{currencySym}{generatedTotal.toFixed(2)}</span></div>
+                <div className="flex justify-between text-muted-foreground">
+                  <span>Tax amount</span>
+                  <span className="num">
+                    {currencySym}
+                    {taxAmount.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between border-t border-border pt-1 font-medium">
+                  <span>Total</span>
+                  <span className="num text-primary">
+                    {currencySym}
+                    {generatedTotal.toFixed(2)}
+                  </span>
+                </div>
               </div>
             </div>
           )}
 
           <div className="grid grid-cols-2 gap-3">
             <L label={mode === "generated" ? "Amount (auto from line items)" : "Amount *"}>
-              <input required type="number" step="0.01" min="0" readOnly={mode === "generated"} className={`inp ${mode === "generated" ? "opacity-70" : ""}`} value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+              <input
+                required
+                type="number"
+                step="0.01"
+                min="0"
+                readOnly={mode === "generated"}
+                className={`inp ${mode === "generated" ? "opacity-70" : ""}`}
+                value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+              />
             </L>
             <L label="Counterparty">
-              <input className="inp" placeholder="Debtor / supplier name" value={form.counterparty} onChange={(e) => setForm({ ...form, counterparty: e.target.value })} />
+              <input
+                className="inp"
+                placeholder="Debtor / supplier name"
+                value={form.counterparty}
+                onChange={(e) => setForm({ ...form, counterparty: e.target.value })}
+              />
             </L>
           </div>
           <L label="Link to invoice">
-            <select className="inp" value={form.link_kind} onChange={(e) => setForm({ ...form, link_kind: e.target.value as "none" | "sale" | "purchase", link_id: "" })}>
+            <select
+              className="inp"
+              value={form.link_kind}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  link_kind: e.target.value as "none" | "sale" | "purchase",
+                  link_id: "",
+                })
+              }
+            >
               <option value="none">Not linked</option>
               <option value="sale">Sales invoice</option>
               <option value="purchase">Purchase invoice</option>
@@ -509,14 +761,34 @@ function NewNoteModal({ userId, onClose, onCreated }: { userId: string; onClose:
             </L>
           )}
           <L label="Reason">
-            <textarea rows={2} className="inp" placeholder="Short-shipment, pricing adjustment, quality claim…" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} />
+            <textarea
+              rows={2}
+              className="inp"
+              placeholder="Short-shipment, pricing adjustment, quality claim…"
+              value={form.reason}
+              onChange={(e) => setForm({ ...form, reason: e.target.value })}
+            />
           </L>
-          <DocumentUploader userId={userId} scope="notes" docs={docs} onChange={setDocs}
-            hint="Attach the signed note, supporting correspondence, or evidence." />
+          <DocumentUploader
+            userId={userId}
+            scope="notes"
+            docs={docs}
+            onChange={setDocs}
+            hint="Attach the signed note, supporting correspondence, or evidence."
+          />
 
           <div className="flex justify-end gap-2 pt-1">
-            <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
-            <button disabled={create.isPending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={create.isPending}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+            >
               {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Submit for approval
             </button>
           </div>
@@ -528,5 +800,12 @@ function NewNoteModal({ userId, onClose, onCreated }: { userId: string; onClose:
 }
 
 function L({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
 }

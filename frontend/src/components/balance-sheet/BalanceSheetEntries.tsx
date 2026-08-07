@@ -32,18 +32,96 @@ type SectionMeta = {
 };
 
 const SECTIONS: SectionMeta[] = [
-  { id: "tangible_asset", label: "Tangible Assets", group: "assets", parent: "Fixed Assets", autoLabel: "From accounts (fixed subtype)", autoDescription: "Sum of Chart of Accounts of type=asset, subtype=fixed" },
-  { id: "cash_bank", label: "Cash at bank and in hand", group: "assets", parent: "Current Assets", autoLabel: "From bank accounts + advances flow", autoDescription: "Bank/cash accounts + net customer/supplier advances" },
-  { id: "accounts_receivable", label: "Accounts Receivable", group: "assets", parent: "Current Assets", autoLabel: "From approved invoices outstanding", autoDescription: "Approved invoices minus applied customer advances" },
-  { id: "other_current_asset", label: "Other Current Assets", group: "assets", parent: "Current Assets", autoLabel: "Inventory + other asset accounts", autoDescription: "Stock valuation + non-bank / non-AR / non-fixed asset accounts" },
-  { id: "accounts_payable", label: "Accounts Payable", group: "liabilities", parent: "Creditors ≤ 1yr", autoLabel: "From purchase bills outstanding", autoDescription: "Supplier bills minus supplier payments applied" },
-  { id: "customer_advance", label: "Advance received from Customers", group: "liabilities", parent: "Creditors ≤ 1yr", autoLabel: "From unapplied customer advances", autoDescription: "Customer receipts not yet applied to an invoice" },
-  { id: "corporation_tax_payable", label: "Corporation Tax Payable", group: "liabilities", parent: "Creditors ≤ 1yr", autoLabel: "From matching liability account" },
-  { id: "rounding", label: "Rounding", group: "liabilities", parent: "Creditors ≤ 1yr", autoLabel: "From matching liability account" },
-  { id: "other_current_liability", label: "Other Current Liabilities", group: "liabilities", parent: "Creditors ≤ 1yr", autoLabel: "From remaining liability accounts" },
-  { id: "share_capital", label: "Share Capital", group: "equity", parent: "Capital and Reserves", autoLabel: "From equity accounts (capital subtype)" },
-  { id: "retained_earnings", label: "Retained Earnings", group: "equity", parent: "Capital and Reserves", autoLabel: "From retained earnings account" },
-  { id: "other_equity", label: "Other Equity", group: "equity", parent: "Capital and Reserves", autoLabel: "From remaining equity accounts" },
+  {
+    id: "tangible_asset",
+    label: "Tangible Assets",
+    group: "assets",
+    parent: "Fixed Assets",
+    autoLabel: "From accounts (fixed subtype)",
+    autoDescription: "Sum of Chart of Accounts of type=asset, subtype=fixed",
+  },
+  {
+    id: "cash_bank",
+    label: "Cash at bank and in hand",
+    group: "assets",
+    parent: "Current Assets",
+    autoLabel: "From bank accounts + advances flow",
+    autoDescription: "Bank/cash accounts + net customer/supplier advances",
+  },
+  {
+    id: "accounts_receivable",
+    label: "Accounts Receivable",
+    group: "assets",
+    parent: "Current Assets",
+    autoLabel: "From approved invoices outstanding",
+    autoDescription: "Approved invoices minus applied customer advances",
+  },
+  {
+    id: "other_current_asset",
+    label: "Other Current Assets",
+    group: "assets",
+    parent: "Current Assets",
+    autoLabel: "Inventory + other asset accounts",
+    autoDescription: "Stock valuation + non-bank / non-AR / non-fixed asset accounts",
+  },
+  {
+    id: "accounts_payable",
+    label: "Accounts Payable",
+    group: "liabilities",
+    parent: "Creditors ≤ 1yr",
+    autoLabel: "From purchase bills outstanding",
+    autoDescription: "Supplier bills minus supplier payments applied",
+  },
+  {
+    id: "customer_advance",
+    label: "Advance received from Customers",
+    group: "liabilities",
+    parent: "Creditors ≤ 1yr",
+    autoLabel: "From unapplied customer advances",
+    autoDescription: "Customer receipts not yet applied to an invoice",
+  },
+  {
+    id: "corporation_tax_payable",
+    label: "Corporation Tax Payable",
+    group: "liabilities",
+    parent: "Creditors ≤ 1yr",
+    autoLabel: "From matching liability account",
+  },
+  {
+    id: "rounding",
+    label: "Rounding",
+    group: "liabilities",
+    parent: "Creditors ≤ 1yr",
+    autoLabel: "From matching liability account",
+  },
+  {
+    id: "other_current_liability",
+    label: "Other Current Liabilities",
+    group: "liabilities",
+    parent: "Creditors ≤ 1yr",
+    autoLabel: "From remaining liability accounts",
+  },
+  {
+    id: "share_capital",
+    label: "Share Capital",
+    group: "equity",
+    parent: "Capital and Reserves",
+    autoLabel: "From equity accounts (capital subtype)",
+  },
+  {
+    id: "retained_earnings",
+    label: "Retained Earnings",
+    group: "equity",
+    parent: "Capital and Reserves",
+    autoLabel: "From retained earnings account",
+  },
+  {
+    id: "other_equity",
+    label: "Other Equity",
+    group: "equity",
+    parent: "Capital and Reserves",
+    autoLabel: "From remaining equity accounts",
+  },
 ];
 
 const GROUP_LABEL: Record<Group, string> = {
@@ -79,7 +157,11 @@ async function fetchAuto(asOf: string) {
     invs: (invs ?? []).filter((i: any) => (i.issueDate ?? i.issue_date) <= asOf),
     bills: (bills ?? []).filter((b: any) => (b.issueDate ?? b.issue_date) <= asOf),
     advs: (advs ?? []).filter((a: any) => (a.advanceDate ?? a.advance_date) <= asOf),
-    stock: (stock ?? []).filter((s: any) => (s.createdAt ?? s.created_at ?? "").slice(0, 10) <= asOf && (s.status ?? "confirmed") === "confirmed"),
+    stock: (stock ?? []).filter(
+      (s: any) =>
+        (s.createdAt ?? s.created_at ?? "").slice(0, 10) <= asOf &&
+        (s.status ?? "confirmed") === "confirmed",
+    ),
   };
 }
 
@@ -95,7 +177,9 @@ function computeAuto(d: Awaited<ReturnType<typeof fetchAuto>>): Partial<Record<S
 
   // AR: approved invoices outstanding
   const paidByInv = new Map<string, number>();
-  for (const a of d.advs) if (a.side === "sales" && a.invoice_id) paidByInv.set(a.invoice_id, (paidByInv.get(a.invoice_id) ?? 0) + Number(a.amount || 0));
+  for (const a of d.advs)
+    if (a.side === "sales" && a.invoice_id)
+      paidByInv.set(a.invoice_id, (paidByInv.get(a.invoice_id) ?? 0) + Number(a.amount || 0));
   let ar = 0;
   for (const i of d.invs as any[]) {
     if (!APPROVED.has(String(i.status))) continue;
@@ -106,7 +190,12 @@ function computeAuto(d: Awaited<ReturnType<typeof fetchAuto>>): Partial<Record<S
 
   // AP: bills outstanding
   const paidByBill = new Map<string, number>();
-  for (const a of d.advs) if (a.side !== "sales" && a.purchase_invoice_id) paidByBill.set(a.purchase_invoice_id, (paidByBill.get(a.purchase_invoice_id) ?? 0) + Number(a.amount || 0));
+  for (const a of d.advs)
+    if (a.side !== "sales" && a.purchase_invoice_id)
+      paidByBill.set(
+        a.purchase_invoice_id,
+        (paidByBill.get(a.purchase_invoice_id) ?? 0) + Number(a.amount || 0),
+      );
   let ap = 0;
   for (const b of d.bills as any[]) {
     const out2 = Number(b.amount || 0) - (paidByBill.get(b.id) ?? 0);
@@ -121,14 +210,22 @@ function computeAuto(d: Awaited<ReturnType<typeof fetchAuto>>): Partial<Record<S
 
   // Inventory (in other_current_asset auto)
   const map = new Map<string, { qty: number; totalCost: number; unitAvg: number }>();
-  const sorted = [...d.stock].sort((x: any, y: any) => (x.created_at || "").localeCompare(y.created_at || ""));
+  const sorted = [...d.stock].sort((x: any, y: any) =>
+    (x.created_at || "").localeCompare(y.created_at || ""),
+  );
   for (const m of sorted as any[]) {
     const k = m.sku || m.item_name || m.id;
     const cur = map.get(k) ?? { qty: 0, totalCost: 0, unitAvg: 0 };
-    const q = Number(m.quantity || 0), uc = Number(m.unit_cost || 0);
+    const q = Number(m.quantity || 0),
+      uc = Number(m.unit_cost || 0);
     // Inventory value = Σ(in qty × unit cost) − Σ(out qty × unit cost)
-    if (m.direction === "in") { cur.qty += q; cur.totalCost += q * uc; }
-    else { cur.qty -= q; cur.totalCost = Math.max(0, cur.totalCost - uc * q); }
+    if (m.direction === "in") {
+      cur.qty += q;
+      cur.totalCost += q * uc;
+    } else {
+      cur.qty -= q;
+      cur.totalCost = Math.max(0, cur.totalCost - uc * q);
+    }
     cur.unitAvg = cur.qty > 0 ? cur.totalCost / cur.qty : 0;
     map.set(k, cur);
   }
@@ -147,7 +244,9 @@ export function BalanceSheetEntries({ userId }: { userId: string }) {
   const qc = useQueryClient();
   const [asOf, setAsOf] = useState(new Date().toISOString().slice(0, 10));
   const [openMode, setOpenMode] = useState<"add" | "opening">("add");
-  const [editing, setEditing] = useState<{ section: Section; entry: ManualEntry | null } | null>(null);
+  const [editing, setEditing] = useState<{ section: Section; entry: ManualEntry | null } | null>(
+    null,
+  );
 
   const auto = useQuery({ queryKey: ["bs-entries-auto", asOf], queryFn: () => fetchAuto(asOf) });
   const autoTotals = useMemo(() => (auto.data ? computeAuto(auto.data) : {}), [auto.data]);
@@ -156,7 +255,9 @@ export function BalanceSheetEntries({ userId }: { userId: string }) {
     queryKey: ["bs-entries", asOf],
     queryFn: async () => {
       const data = await api.balanceEntries.list();
-      return ((data ?? []) as ManualEntry[]).filter((e: any) => (e.entryDate ?? e.entry_date) <= asOf).reverse();
+      return ((data ?? []) as ManualEntry[])
+        .filter((e: any) => (e.entryDate ?? e.entry_date) <= asOf)
+        .reverse();
     },
   });
 
@@ -179,11 +280,13 @@ export function BalanceSheetEntries({ userId }: { userId: string }) {
     return map;
   }, [entriesQ.data]);
 
-  const sectionSubtotal = (s: Section) => (entriesBySection.get(s) ?? []).reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  const sectionSubtotal = (s: Section) =>
+    (entriesBySection.get(s) ?? []).reduce((sum, e) => sum + Number(e.amount || 0), 0);
   const autoOf = (s: Section) => autoTotals[s] ?? 0;
   const totalOf = (s: Section) => autoOf(s) + sectionSubtotal(s);
 
-  const groupTotal = (g: Group) => SECTIONS.filter((s) => s.group === g).reduce((sum, s) => sum + totalOf(s.id), 0);
+  const groupTotal = (g: Group) =>
+    SECTIONS.filter((s) => s.group === g).reduce((sum, s) => sum + totalOf(s.id), 0);
 
   const totalAssets = groupTotal("assets");
   const totalLiab = groupTotal("liabilities");
@@ -196,12 +299,23 @@ export function BalanceSheetEntries({ userId }: { userId: string }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-center gap-3">
           <label className="text-xs uppercase tracking-widest text-muted-foreground">As of</label>
-          <input type="date" value={asOf} onChange={(e) => setAsOf(e.target.value)} className="rounded-md border border-border bg-background px-3 py-1.5 text-sm" />
+          <input
+            type="date"
+            value={asOf}
+            onChange={(e) => setAsOf(e.target.value)}
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+          />
           <div className="ml-2 inline-flex rounded-md border border-border">
-            <button onClick={() => setOpenMode("add")} className={`px-3 py-1.5 text-xs ${openMode === "add" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>
+            <button
+              onClick={() => setOpenMode("add")}
+              className={`px-3 py-1.5 text-xs ${openMode === "add" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+            >
               <Sparkles className="mr-1 inline h-3.5 w-3.5" /> New entries
             </button>
-            <button onClick={() => setOpenMode("opening")} className={`px-3 py-1.5 text-xs ${openMode === "opening" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>
+            <button
+              onClick={() => setOpenMode("opening")}
+              className={`px-3 py-1.5 text-xs ${openMode === "opening" ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}
+            >
               <HistoryIcon className="mr-1 inline h-3.5 w-3.5" /> Opening balances
             </button>
           </div>
@@ -229,12 +343,16 @@ export function BalanceSheetEntries({ userId }: { userId: string }) {
                   <div key={meta.id} className="border border-border rounded-lg">
                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-2">
                       <div>
-                        <div className="text-xs uppercase tracking-widest text-muted-foreground">{meta.parent}</div>
+                        <div className="text-xs uppercase tracking-widest text-muted-foreground">
+                          {meta.parent}
+                        </div>
                         <div className="font-medium">{meta.label}</div>
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="text-right">
-                          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Section total</div>
+                          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                            Section total
+                          </div>
                           <div className="font-mono text-base">{fmtAccounting(total)}</div>
                         </div>
                         <button
@@ -268,32 +386,51 @@ export function BalanceSheetEntries({ userId }: { userId: string }) {
                       {/* Manual */}
                       <div className="p-4">
                         <div className="mb-2 flex items-center justify-between">
-                          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Manual entries · {rows.length}</div>
+                          <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                            Manual entries · {rows.length}
+                          </div>
                           <div className="font-mono text-sm">{fmtAccounting(manVal)}</div>
                         </div>
                         {rows.length === 0 ? (
-                          <div className="text-xs italic text-muted-foreground">No manual entries — use "Add" above.</div>
+                          <div className="text-xs italic text-muted-foreground">
+                            No manual entries — use "Add" above.
+                          </div>
                         ) : (
                           <ul className="space-y-1.5">
                             {rows.map((r) => (
-                              <li key={r.id} className="group flex items-center justify-between gap-2 rounded border border-transparent px-2 py-1 text-xs hover:border-border hover:bg-muted/40">
+                              <li
+                                key={r.id}
+                                className="group flex items-center justify-between gap-2 rounded border border-transparent px-2 py-1 text-xs hover:border-border hover:bg-muted/40"
+                              >
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-2">
                                     <span className="truncate">{r.name}</span>
                                     {r.is_opening_balance && (
-                                      <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-primary">Opening</span>
+                                      <span className="rounded bg-primary/15 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-primary">
+                                        Opening
+                                      </span>
                                     )}
                                   </div>
-                                  <div className="text-[10px] text-muted-foreground">{fmtDate(r.entry_date)}{r.description ? ` · ${r.description}` : ""}</div>
+                                  <div className="text-[10px] text-muted-foreground">
+                                    {fmtDate(r.entry_date)}
+                                    {r.description ? ` · ${r.description}` : ""}
+                                  </div>
                                 </div>
                                 <div className="font-mono">{fmtAccounting(r.amount)}</div>
                                 <div className="flex items-center gap-1 opacity-0 transition group-hover:opacity-100">
-                                  <button onClick={() => setEditing({ section: meta.id, entry: r })} title="Edit"><Pencil className="h-3 w-3 text-muted-foreground hover:text-foreground" /></button>
+                                  <button
+                                    onClick={() => setEditing({ section: meta.id, entry: r })}
+                                    title="Edit"
+                                  >
+                                    <Pencil className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                                  </button>
                                   <button
                                     onClick={async () => {
                                       if (!confirm("Delete this entry?")) return;
                                       await api.balanceEntries.delete(r.id);
-                                      toast.success("Deleted"); qc.invalidateQueries({ queryKey: ["bs-entries"] }); qc.invalidateQueries({ queryKey: ["bs"] });
+                                      toast.success("Deleted");
+                                      qc.invalidateQueries({ queryKey: ["bs-entries"] });
+                                      qc.invalidateQueries({ queryKey: ["bs"] });
                                     }}
                                     title="Delete"
                                   >
@@ -323,7 +460,9 @@ export function BalanceSheetEntries({ userId }: { userId: string }) {
         </div>
         <div className="mt-3 text-center text-xs">
           Assets − (Liabilities + Equity) ={" "}
-          <span className={Math.abs(diff) < 0.01 ? "text-emerald-600" : "text-destructive"}>{fmtAccounting(diff)}</span>
+          <span className={Math.abs(diff) < 0.01 ? "text-emerald-600" : "text-destructive"}>
+            {fmtAccounting(diff)}
+          </span>
         </div>
       </Card>
 
@@ -357,7 +496,13 @@ function SumTile({ label, value }: { label: string; value: number }) {
 
 /* ---------- Entry modal ---------- */
 function EntryModal({
-  userId, asOf, defaultOpening, section, entry, onClose, onSaved,
+  userId,
+  asOf,
+  defaultOpening,
+  section,
+  entry,
+  onClose,
+  onSaved,
 }: {
   userId: string;
   asOf: string;
@@ -379,7 +524,9 @@ function EntryModal({
     queryKey: ["coa-list"],
     queryFn: async () => {
       const data = await api.chartOfAccounts.list();
-      return data.map((a: any) => ({ id: a.id, code: a.code, name: a.name })).sort((a: any, b: any) => a.code?.localeCompare(b.code ?? "") ?? 0);
+      return data
+        .map((a: any) => ({ id: a.id, code: a.code, name: a.name }))
+        .sort((a: any, b: any) => a.code?.localeCompare(b.code ?? "") ?? 0);
     },
   });
 
@@ -417,49 +564,107 @@ function EntryModal({
       <div className="relative w-full max-w-xl rounded-xl border border-border bg-background p-6 shadow-2xl">
         <div className="mb-4 flex items-start justify-between">
           <div>
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{meta.group === "assets" ? "Assets" : meta.group === "liabilities" ? "Liabilities" : "Capital and Reserves"} · {meta.parent}</div>
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              {meta.group === "assets"
+                ? "Assets"
+                : meta.group === "liabilities"
+                  ? "Liabilities"
+                  : "Capital and Reserves"}{" "}
+              · {meta.parent}
+            </div>
             <h3 className="font-display text-xl">{meta.label}</h3>
-            <p className="text-xs text-muted-foreground">{entry ? "Edit entry" : isOpening ? "Add opening balance (carry-forward)" : "Add manual entry"}</p>
+            <p className="text-xs text-muted-foreground">
+              {entry
+                ? "Edit entry"
+                : isOpening
+                  ? "Add opening balance (carry-forward)"
+                  : "Add manual entry"}
+            </p>
           </div>
-          <button onClick={onClose} className="rounded p-1 hover:bg-muted"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} className="rounded p-1 hover:bg-muted">
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
           <div className="col-span-2">
             <label className="text-xs text-muted-foreground">Name *</label>
-            <input value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm" />
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+            />
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Amount *</label>
-            <input type="number" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-right font-mono" />
+            <input
+              type="number"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm text-right font-mono"
+            />
           </div>
           <div>
             <label className="text-xs text-muted-foreground">Date</label>
-            <input type="date" value={entryDate} onChange={(e) => setEntryDate(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm" />
+            <input
+              type="date"
+              value={entryDate}
+              onChange={(e) => setEntryDate(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+            />
           </div>
           <div className="col-span-2">
             <label className="text-xs text-muted-foreground">Account (optional)</label>
-            <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm">
+            <select
+              value={accountId}
+              onChange={(e) => setAccountId(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+            >
               <option value="">— None —</option>
-              {(coa.data ?? []).map((a: any) => <option key={a.id} value={a.id}>{a.code} — {a.name}</option>)}
+              {(coa.data ?? []).map((a: any) => (
+                <option key={a.id} value={a.id}>
+                  {a.code} — {a.name}
+                </option>
+              ))}
             </select>
           </div>
           <div className="col-span-2">
             <label className="text-xs text-muted-foreground">Description</label>
-            <input value={description} onChange={(e) => setDescription(e.target.value)} className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm" />
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+            />
           </div>
           <div className="col-span-2">
             <label className="text-xs text-muted-foreground">Notes</label>
-            <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm" />
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={2}
+              className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+            />
           </div>
           <label className="col-span-2 mt-1 inline-flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={isOpening} onChange={(e) => setIsOpening(e.target.checked)} />
-            <span>This is an <strong>opening balance</strong> (carry-forward from previous period)</span>
+            <input
+              type="checkbox"
+              checked={isOpening}
+              onChange={(e) => setIsOpening(e.target.checked)}
+            />
+            <span>
+              This is an <strong>opening balance</strong> (carry-forward from previous period)
+            </span>
           </label>
         </div>
 
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded-md border border-border bg-background px-3 py-1.5 text-sm">Cancel</button>
+          <button
+            onClick={onClose}
+            className="rounded-md border border-border bg-background px-3 py-1.5 text-sm"
+          >
+            Cancel
+          </button>
           <button
             disabled={!name || !amount || save.isPending}
             onClick={() => save.mutate()}

@@ -36,7 +36,11 @@ function AlertsPage() {
         eyebrow="Surveillance"
         title="Alerts"
         description="Real-time signals across overdue invoices, credit-limit breaches, and risk migrations."
-        actions={<span className="rounded-full border border-border px-3 py-1 text-xs"><span className="num text-primary">{unread}</span> unread</span>}
+        actions={
+          <span className="rounded-full border border-border px-3 py-1 text-xs">
+            <span className="num text-primary">{unread}</span> unread
+          </span>
+        }
       />
       <div className="p-6 md:p-10">
         <Card>
@@ -48,10 +52,19 @@ function AlertsPage() {
           ) : (
             <ul className="divide-y divide-border">
               {items.map((a) => (
-                <li key={a.id} className={`flex items-start gap-4 p-4 ${a.is_read ? "opacity-60" : ""}`}>
-                  <span className={`mt-1.5 h-2.5 w-2.5 rounded-full ${
-                    a.severity === "critical" ? "bg-destructive" : a.severity === "warning" ? "bg-warning" : "bg-primary"
-                  }`} />
+                <li
+                  key={a.id}
+                  className={`flex items-start gap-4 p-4 ${a.is_read ? "opacity-60" : ""}`}
+                >
+                  <span
+                    className={`mt-1.5 h-2.5 w-2.5 rounded-full ${
+                      a.severity === "critical"
+                        ? "bg-destructive"
+                        : a.severity === "warning"
+                          ? "bg-warning"
+                          : "bg-primary"
+                    }`}
+                  />
                   <div className="flex-1">
                     <div className="text-sm">{a.message}</div>
                     <div className="mt-1 text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -59,7 +72,10 @@ function AlertsPage() {
                     </div>
                   </div>
                   {!a.is_read && (
-                    <button onClick={() => markRead.mutate(a.id)} className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-muted">
+                    <button
+                      onClick={() => markRead.mutate(a.id)}
+                      className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs hover:bg-muted"
+                    >
                       <Check className="h-3 w-3" /> Mark read
                     </button>
                   )}

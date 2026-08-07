@@ -476,8 +476,9 @@ function ConfirmProductDelete({
       >
         <h3 className="font-display text-lg">Delete {product.name}?</h3>
         <p className="mt-1 text-sm text-muted-foreground">
-          This permanently removes <span className="font-medium text-foreground">{product.sku}</span>{" "}
-          from the catalogue{movementCount > 0 ? (
+          This permanently removes{" "}
+          <span className="font-medium text-foreground">{product.sku}</span> from the catalogue
+          {movementCount > 0 ? (
             <>
               , along with its{" "}
               <span className="font-medium text-foreground">

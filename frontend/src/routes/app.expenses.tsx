@@ -45,14 +45,19 @@ function ExpensesPage() {
     mutationFn: async (id: string) => {
       await api.expenses.delete(id);
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["expenses"] }); toast.success("Removed"); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["expenses"] });
+      toast.success("Removed");
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
   const rows = expensesQ.data ?? [];
   const byCat = CATS.map((c) => ({
     ...c,
-    total: rows.filter((r: any) => r.category === c.id).reduce((s: number, r: any) => s + Number(r.amount), 0),
+    total: rows
+      .filter((r: any) => r.category === c.id)
+      .reduce((s: number, r: any) => s + Number(r.amount), 0),
   }));
   const total = rows.reduce((s: number, r: any) => s + Number(r.amount), 0);
 
@@ -64,7 +69,10 @@ function ExpensesPage() {
         description="Log logistics, insurance, interest, and other operating costs — link each to a sales or purchase invoice for true per-deal economics."
         actions={
           canCreate ? (
-            <button onClick={() => setOpen(true)} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+            <button
+              onClick={() => setOpen(true)}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            >
               <Plus className="h-4 w-4" /> Log expense
             </button>
           ) : (
@@ -92,7 +100,9 @@ function ExpensesPage() {
           {expensesQ.isLoading ? (
             <TableSkeleton rows={5} cols={7} />
           ) : rows.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">No expenses logged yet.</div>
+            <div className="py-10 text-center text-sm text-muted-foreground">
+              No expenses logged yet.
+            </div>
           ) : (
             <div className="-mx-5 overflow-x-auto">
               <table className="table-premium w-full text-sm">
@@ -137,7 +147,8 @@ function ExpensesPage() {
                               onClick={() => setViewing(r)}
                               className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary"
                             >
-                              <Paperclip className="h-3 w-3" />{docs.length}
+                              <Paperclip className="h-3 w-3" />
+                              {docs.length}
                             </button>
                           ) : (
                             <span className="text-[10px] text-muted-foreground">—</span>
@@ -145,8 +156,12 @@ function ExpensesPage() {
                         </td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
                         <td className="px-5 py-3 text-right">
-                          <button onClick={() => { if (confirm("Delete this expense?")) remove.mutate(r.id); }}
-                            className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive">
+                          <button
+                            onClick={() => {
+                              if (confirm("Delete this expense?")) remove.mutate(r.id);
+                            }}
+                            className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive"
+                          >
                             <Trash2 className="h-3.5 w-3.5" />
                           </button>
                         </td>
@@ -168,9 +183,7 @@ function ExpensesPage() {
         />
       )}
 
-      {viewing && (
-        <ExpenseDetailModal expense={viewing} onClose={() => setViewing(null)} />
-      )}
+      {viewing && <ExpenseDetailModal expense={viewing} onClose={() => setViewing(null)} />}
     </div>
   );
 }
@@ -183,11 +196,19 @@ function ExpenseDetailModal({ expense, onClose }: { expense: any; onClose: () =>
       : null;
   const docs: DocMeta[] = Array.isArray(expense.documents) ? expense.documents : [];
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg rounded-xl border border-border bg-card shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">Expense detail</h3>
-          <button onClick={onClose}><X className="h-4 w-4" /></button>
+          <button onClick={onClose}>
+            <X className="h-4 w-4" />
+          </button>
         </div>
         <div className="space-y-4 p-5 text-sm">
           <div className="grid grid-cols-2 gap-3">
@@ -198,12 +219,16 @@ function ExpenseDetailModal({ expense, onClose }: { expense: any; onClose: () =>
           </div>
           {expense.description && (
             <div>
-              <div className="mb-1 text-xs uppercase tracking-widest text-muted-foreground">Description</div>
+              <div className="mb-1 text-xs uppercase tracking-widest text-muted-foreground">
+                Description
+              </div>
               <p className="text-muted-foreground">{expense.description}</p>
             </div>
           )}
           <div>
-            <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">Attachments</div>
+            <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">
+              Attachments
+            </div>
             <DocumentList docs={docs} />
           </div>
         </div>
@@ -221,7 +246,15 @@ function Detail({ label, value }: { label: string; value: string }) {
   );
 }
 
-function NewExpenseModal({ userId, onClose, onCreated }: { userId: string; onClose: () => void; onCreated: () => void }) {
+function NewExpenseModal({
+  userId,
+  onClose,
+  onCreated,
+}: {
+  userId: string;
+  onClose: () => void;
+  onCreated: () => void;
+}) {
   const [form, setForm] = useState({
     category: "logistics",
     description: "",
@@ -236,14 +269,28 @@ function NewExpenseModal({ userId, onClose, onCreated }: { userId: string; onClo
     queryKey: ["expense-link-sales"],
     queryFn: async () => {
       const data = await api.invoices.list();
-      return data.map((i: any) => ({ id: i.id, invoice_number: i.invoiceNumber ?? i.invoice_number, amount: i.amount })).reverse().slice(0, 200);
+      return data
+        .map((i: any) => ({
+          id: i.id,
+          invoice_number: i.invoiceNumber ?? i.invoice_number,
+          amount: i.amount,
+        }))
+        .reverse()
+        .slice(0, 200);
     },
   });
   const purchQ = useQuery({
     queryKey: ["expense-link-purchases"],
     queryFn: async () => {
       const data = await api.purchaseInvoices.list();
-      return data.map((i: any) => ({ id: i.id, invoice_number: i.invoiceNumber ?? i.invoice_number, amount: i.amount })).reverse().slice(0, 200);
+      return data
+        .map((i: any) => ({
+          id: i.id,
+          invoice_number: i.invoiceNumber ?? i.invoice_number,
+          amount: i.amount,
+        }))
+        .reverse()
+        .slice(0, 200);
     },
   });
 
@@ -269,36 +316,82 @@ function NewExpenseModal({ userId, onClose, onCreated }: { userId: string; onClo
       };
       await api.expenses.create(payload);
     },
-    onSuccess: () => { onCreated(); toast.success("Expense logged"); onClose(); },
+    onSuccess: () => {
+      onCreated();
+      toast.success("Expense logged");
+      onClose();
+    },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
-      <div className="w-full max-w-md rounded-xl border border-border bg-card shadow-vault" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-border px-5 py-3">
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-xl border border-border bg-card shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">Log expense</h3>
-          <button onClick={onClose}><X className="h-4 w-4" /></button>
+          <button onClick={onClose}>
+            <X className="h-4 w-4" />
+          </button>
         </div>
-        <form onSubmit={(e) => { e.preventDefault(); create.mutate(); }} className="space-y-4 p-5">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            create.mutate();
+          }}
+          className="space-y-4 p-5"
+        >
           <L label="Category">
-            <select className="inp" value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-              {CATS.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+            <select
+              className="inp"
+              value={form.category}
+              onChange={(e) => setForm({ ...form, category: e.target.value })}
+            >
+              {CATS.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
             </select>
           </L>
           <div className="grid grid-cols-2 gap-3">
             <L label="Amount (USD) *">
-              <input required type="number" step="0.01" min="0" className="inp" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+              <input
+                required
+                type="number"
+                step="0.01"
+                min="0"
+                className="inp"
+                value={form.amount}
+                onChange={(e) => setForm({ ...form, amount: e.target.value })}
+              />
             </L>
             <L label="Date">
-              <input required type="date" className="inp" value={form.expense_date} onChange={(e) => setForm({ ...form, expense_date: e.target.value })} />
+              <input
+                required
+                type="date"
+                className="inp"
+                value={form.expense_date}
+                onChange={(e) => setForm({ ...form, expense_date: e.target.value })}
+              />
             </L>
           </div>
           <L label="Link to transaction">
             <select
               className="inp"
               value={form.link_kind}
-              onChange={(e) => setForm({ ...form, link_kind: e.target.value as "none" | "sale" | "purchase", link_id: "" })}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  link_kind: e.target.value as "none" | "sale" | "purchase",
+                  link_id: "",
+                })
+              }
             >
               <option value="none">Not linked</option>
               <option value="sale">Sales invoice</option>
@@ -320,14 +413,33 @@ function NewExpenseModal({ userId, onClose, onCreated }: { userId: string; onClo
             </L>
           )}
           <L label="Description">
-            <textarea rows={2} className="inp" value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} />
+            <textarea
+              rows={2}
+              className="inp"
+              value={form.description}
+              onChange={(e) => setForm({ ...form, description: e.target.value })}
+            />
           </L>
-          <DocumentUploader userId={userId} scope="expenses" docs={docs} onChange={setDocs}
-            hint="Attach receipts, invoices, or any supporting paperwork." />
+          <DocumentUploader
+            userId={userId}
+            scope="expenses"
+            docs={docs}
+            onChange={setDocs}
+            hint="Attach receipts, invoices, or any supporting paperwork."
+          />
 
           <div className="flex justify-end gap-2 pt-1">
-            <button type="button" onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">Cancel</button>
-            <button disabled={create.isPending} className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={create.isPending}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+            >
               {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Save
             </button>
           </div>
@@ -339,5 +451,12 @@ function NewExpenseModal({ userId, onClose, onCreated }: { userId: string; onClo
 }
 
 function L({ label, children }: { label: string; children: React.ReactNode }) {
-  return <label className="block"><span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">{label}</span>{children}</label>;
+  return (
+    <label className="block">
+      <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+        {label}
+      </span>
+      {children}
+    </label>
+  );
 }

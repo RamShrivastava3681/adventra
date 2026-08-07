@@ -86,7 +86,14 @@ function QueuePage() {
       const data = await api.purchaseInvoices.list();
       return data
         .filter((p: any) =>
-          ["approved_for_payment", "partially_paid", "approved", "funded", "advanced", "overdue"].includes(p.status),
+          [
+            "approved_for_payment",
+            "partially_paid",
+            "approved",
+            "funded",
+            "advanced",
+            "overdue",
+          ].includes(p.status),
         )
         .sort((a: any, b: any) =>
           (a.dueDate ?? a.due_date ?? "9999").localeCompare(b.dueDate ?? b.due_date ?? "9999"),
@@ -687,10 +694,7 @@ function QueuePage() {
           row={payFor}
           onClose={() => setPayFor(null)}
           onSubmit={(vals) => {
-            payPurchase.mutate(
-              { id: payFor.id, ...vals },
-              { onSuccess: () => setPayFor(null) },
-            );
+            payPurchase.mutate({ id: payFor.id, ...vals }, { onSuccess: () => setPayFor(null) });
           }}
         />
       )}
@@ -764,9 +768,7 @@ function PayPurchaseModal({
         className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-vault"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="mb-4 font-display text-lg">
-          Record payment · {row.invoice_number}
-        </h3>
+        <h3 className="mb-4 font-display text-lg">Record payment · {row.invoice_number}</h3>
         <div className="space-y-3 text-sm">
           <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground space-y-1">
             <div>
@@ -780,9 +782,8 @@ function PayPurchaseModal({
               {fmtDate(row.due_date)}
             </div>
             <div className="pt-1 text-[10px]">
-              Paying the full balance flips the invoice to Paid; a partial amount marks it
-              Partially Paid. The purchase invoice never touches stock — it only settles the
-              supplier payable.
+              Paying the full balance flips the invoice to Paid; a partial amount marks it Partially
+              Paid. The purchase invoice never touches stock — it only settles the supplier payable.
             </div>
           </div>
           <label className="block">

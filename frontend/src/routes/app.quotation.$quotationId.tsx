@@ -81,9 +81,7 @@ function QuotationPage() {
                 <div className="mt-1 font-medium">{d.customer_name ?? "—"}</div>
                 {d.contact_person && <div className="text-slate-600">{d.contact_person}</div>}
                 {d.billing_address && (
-                  <div className="mt-1 whitespace-pre-line text-slate-600">
-                    {d.billing_address}
-                  </div>
+                  <div className="mt-1 whitespace-pre-line text-slate-600">{d.billing_address}</div>
                 )}
               </div>
               <div>
@@ -141,9 +139,7 @@ function QuotationPage() {
                             <span className="text-slate-400 line-through">
                               {fmtMoney(l.unit_price)}
                             </span>{" "}
-                            <span className="font-semibold">
-                              {fmtMoney(l.updated_unit_price)}
-                            </span>
+                            <span className="font-semibold">{fmtMoney(l.updated_unit_price)}</span>
                           </>
                         ) : (
                           fmtMoney(l.unit_price)

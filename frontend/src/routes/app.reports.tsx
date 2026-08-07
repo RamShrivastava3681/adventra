@@ -3,7 +3,27 @@ import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader } from "@/components/ledger-ui";
-import { Users, Eye, Building2, Truck, FileText, ShoppingCart, FileSignature, Receipt, Wallet, ClipboardCheck, Banknote, Package, TrendingUp, Boxes, Shield, Settings, BellRing, Mail, Palette } from "lucide-react";
+import {
+  Users,
+  Eye,
+  Building2,
+  Truck,
+  FileText,
+  ShoppingCart,
+  FileSignature,
+  Receipt,
+  Wallet,
+  ClipboardCheck,
+  Banknote,
+  Package,
+  TrendingUp,
+  Boxes,
+  Shield,
+  Settings,
+  BellRing,
+  Mail,
+  Palette,
+} from "lucide-react";
 
 export const Route = createFileRoute("/app/reports")({
   component: ReportsPage,
@@ -78,7 +98,9 @@ function ReportsPage() {
         ) : reports.length === 0 ? (
           <div className="py-12 text-center">
             <Users className="mx-auto h-12 w-12 text-muted-foreground/30" />
-            <div className="mt-4 text-sm font-medium text-muted-foreground">No team members assigned yet</div>
+            <div className="mt-4 text-sm font-medium text-muted-foreground">
+              No team members assigned yet
+            </div>
             <div className="mt-1 text-xs text-muted-foreground/60">
               An admin needs to assign users to you from the Operations page.
             </div>
@@ -86,11 +108,11 @@ function ReportsPage() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             {reports.map((report: any) => {
-              const primaryRole = (report.roles ?? []).find(
-                (r: string) => r !== "client",
-              ) || "client";
+              const primaryRole =
+                (report.roles ?? []).find((r: string) => r !== "client") || "client";
               const RoleIcon = ROLE_ICONS[primaryRole] || Users;
-              const roleColor = ROLE_COLORS[primaryRole] || "bg-muted text-muted-foreground border-border";
+              const roleColor =
+                ROLE_COLORS[primaryRole] || "bg-muted text-muted-foreground border-border";
               const reportName = report.contact_name || report.company_name || report.email;
 
               return (
@@ -99,7 +121,9 @@ function ReportsPage() {
                   className="group relative rounded-xl border border-border bg-white p-5 shadow-sm transition-all duration-200 hover:shadow-md hover:border-primary/20"
                 >
                   {/* Role badge */}
-                  <div className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${roleColor}`}>
+                  <div
+                    className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-medium uppercase tracking-wider ${roleColor}`}
+                  >
                     <RoleIcon className="h-3 w-3" />
                     {ROLE_LABELS[primaryRole] || primaryRole}
                   </div>
@@ -151,9 +175,9 @@ function ReportsPage() {
             <div>
               <div className="text-xs font-medium text-foreground">View-as mode</div>
               <div className="mt-0.5 text-[11px] text-muted-foreground leading-relaxed">
-                Clicking "View workspace" opens the team member's own workspace — you'll see their tabs
-                (e.g. CRM / Leads for salespeople) in the sidebar along with the data they've entered,
-                in read-only mode. A banner at the top lets you exit anytime.
+                Clicking "View workspace" opens the team member's own workspace — you'll see their
+                tabs (e.g. CRM / Leads for salespeople) in the sidebar along with the data they've
+                entered, in read-only mode. A banner at the top lets you exit anytime.
               </div>
             </div>
           </div>

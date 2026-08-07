@@ -200,7 +200,8 @@ const api = {
     create: (data: any) => api.post<any>("/goods-dispatches", data),
     update: (id: string, data: any) => api.put<any>(`/goods-dispatches/${id}`, data),
     delete: (id: string) => api.delete(`/goods-dispatches/${id}`),
-    confirm: (id: string, data?: any) => api.post<any>(`/goods-dispatches/${id}/confirm`, data ?? {}),
+    confirm: (id: string, data?: any) =>
+      api.post<any>(`/goods-dispatches/${id}/confirm`, data ?? {}),
     cancel: (id: string) => api.post<any>(`/goods-dispatches/${id}/cancel`, {}),
     deliver: (id: string, data: any) => api.post<any>(`/goods-dispatches/${id}/deliver`, data),
     return: (id: string, data: any) => api.post<any>(`/goods-dispatches/${id}/return`, data),
