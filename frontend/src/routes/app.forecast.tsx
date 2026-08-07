@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
-import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
 import { useSignedImageUrl } from "@/lib/s3-image";
 import {
   bucketMovementsByMonth,
@@ -19,25 +18,30 @@ import {
   type CategoryVelocityInput,
 } from "@/lib/forecast-engine";
 import {
-  TrendingUp,
-  TrendingDown,
   AlertTriangle,
-  Package,
-  Search,
-  BarChart3,
-  RefreshCw,
-  CalendarClock,
-  Clock,
-  Truck,
-  ArrowUpDown,
   ArrowRight,
-  Zap,
-  ArrowUp,
-  ArrowDown,
-  Minus,
+  ArrowUpDown,
+  BadgePercent,
+  Check,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Download,
   Loader2,
-  Save,
+  Minus,
+  Package,
   Pencil,
+  RefreshCw,
+  Save,
+  Search,
+  SearchX,
+  ShoppingCart,
+  SlidersHorizontal,
+  TrendingDown,
+  TrendingUp,
+  X,
+  Zap,
 } from "lucide-react";
 import {
   XAxis,
@@ -49,6 +53,8 @@ import {
   AreaChart,
 } from "recharts";
 import { toast } from "sonner";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
+import { Skeleton } from "@/components/ui/skeleton";
 
 export const Route = createFileRoute("/app/forecast")({
   component: ForecastPage,
@@ -78,6 +84,19 @@ type Analysis = {
   pricingStrategy: PricingStrategyResult | null;
 };
 
+type FilterT =
+  | "all"
+  | "reorder"
+  | "fast"
+  | "medium"
+  | "slow"
+  | "accelerating"
+  | "declining"
+  | "out"
+  | "critical";
+
+type SortKey = "velocity" | "reorder" | "cover" | "stockout" | "trend";
+
 // Deep-convert snake_case object keys to camelCase (the backend transform
 // middleware snake_cases every response key, so we restore them here).
 function snakeToCamelDeep(value: unknown): any {
@@ -96,13 +115,13 @@ function snakeToCamelDeep(value: unknown): any {
 function ForecastPage() {
   const queryClient = useQueryClient();
   const [q, setQ] = useState("");
-  const [filter, setFilter] = useState<
-    "all" | "reorder" | "fast" | "slow" | "accelerating" | "declining" | "out" | "critical"
-  >("all");
-  const [sortBy, setSortBy] = useState<"velocity" | "reorder" | "cover" | "stockout" | "trend">(
-    "reorder",
-  );
+  const [filter, setFilter] = useState<FilterT>("all");
+  const [category, setCategory] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<SortKey>("reorder");
+  const [sortDir, setSortDir] = useState<"desc" | "asc">("desc");
+  const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const PAGE_SIZE = 10;
 
   // Tick every minute so date-sensitive fields (estimatedStockoutDate,
   // reorderByDate, nextRefillDate, days of cover) are recomputed against the
@@ -357,7 +376,8 @@ function ForecastPage() {
   }, [productsQ.data, movementsQ.data, forecastVarsQ.data, catalogueSettingsQ.data, clockTick]);
 
   const filtered = useMemo(() => {
-    let r = analyses.filter((a) => {
+    const r = analyses.filter((a) => {
+      if (category !== "all" && a.product.category !== category) return false;
       if (
         q &&
         !a.product.sku.toLowerCase().includes(q.toLowerCase()) &&
@@ -366,6 +386,7 @@ function ForecastPage() {
         return false;
       if (filter === "reorder" && a.forecast.recommendedReorder <= 0) return false;
       if (filter === "fast" && a.velocityTag !== "fast_mover") return false;
+      if (filter === "medium" && a.velocityTag !== "medium_mover") return false;
       if (filter === "slow" && a.velocityTag !== "slow_mover" && a.velocityTag !== "dead")
         return false;
       if (filter === "accelerating" && a.forecast.momentumTag !== "accelerating") return false;
@@ -374,18 +395,24 @@ function ForecastPage() {
       if (filter === "critical" && a.forecast.stockoutUrgency !== "critical") return false;
       return true;
     });
+    // dir flips the natural sort order of each key (default preserves the
+    // original behaviour: reorder qty desc).
+    const dir = sortDir === "desc" ? 1 : -1;
     r.sort((a, b) => {
-      if (sortBy === "velocity") return b.forecast.avgMonthly - a.forecast.avgMonthly;
-      if (sortBy === "cover") return a.forecast.daysOfCover - b.forecast.daysOfCover;
+      if (sortBy === "velocity") return (b.forecast.avgMonthly - a.forecast.avgMonthly) * dir;
+      if (sortBy === "cover") return (a.forecast.daysOfCover - b.forecast.daysOfCover) * dir;
       if (sortBy === "stockout")
-        return (a.forecast.estimatedStockoutDate ?? "9999-99-99").localeCompare(
-          b.forecast.estimatedStockoutDate ?? "9999-99-99",
+        return (
+          (a.forecast.estimatedStockoutDate ?? "9999-99-99").localeCompare(
+            b.forecast.estimatedStockoutDate ?? "9999-99-99",
+          ) * dir
         );
-      if (sortBy === "trend") return Math.abs(b.forecast.trend) - Math.abs(a.forecast.trend);
-      return b.forecast.recommendedReorder - a.forecast.recommendedReorder;
+      if (sortBy === "trend")
+        return (Math.abs(b.forecast.trend) - Math.abs(a.forecast.trend)) * dir;
+      return (b.forecast.recommendedReorder - a.forecast.recommendedReorder) * dir;
     });
     return r;
-  }, [analyses, q, filter, sortBy]);
+  }, [analyses, q, filter, category, sortBy, sortDir]);
 
   const summary = useMemo(() => {
     let toReorder = 0,
@@ -429,333 +456,588 @@ function ForecastPage() {
     };
   }, [analyses]);
 
+  const categories = useMemo(() => {
+    const s = new Set<string>();
+    for (const a of analyses) if (a.product.category) s.add(a.product.category);
+    return Array.from(s).sort((x, y) => x.localeCompare(y));
+  }, [analyses]);
+
+  const loading = productsQ.isLoading || movementsQ.isLoading;
+
+  // -------- Pagination (presentation only) --------
+  useEffect(() => {
+    setPage(1);
+  }, [q, filter, category, sortBy]);
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const safePage = Math.min(page, pageCount);
+  const pageRows = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const handleSort = (key: SortKey) => {
+    if (sortBy === key) setSortDir((d) => (d === "desc" ? "asc" : "desc"));
+    else {
+      setSortBy(key);
+      setSortDir("desc");
+    }
+  };
+
+  const resetFilters = () => {
+    setQ("");
+    setFilter("all");
+    setCategory("all");
+    setPage(1);
+  };
+
+  const exportCSV = () => {
+    const header = [
+      "SKU",
+      "Product",
+      "Category",
+      "Velocity",
+      "Momentum",
+      "In stock",
+      "Days cover",
+      "Monthly forecast",
+      "Stockout date",
+      "Recommended order",
+    ];
+    const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const lines = filtered.map((a) => [
+      a.product.sku,
+      a.product.name,
+      a.product.category ?? "",
+      velocityLabel(a.velocityTag),
+      momentumLabel(a.forecast.momentumTag),
+      a.stock,
+      a.forecast.daysOfCover === Infinity ? "" : Math.round(a.forecast.daysOfCover),
+      a.forecast.forecast[0]?.qty ?? 0,
+      a.forecast.estimatedStockoutDate ?? "",
+      a.forecast.recommendedReorder,
+    ]);
+    const csv = [header, ...lines].map((row) => row.map(esc).join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "sku-forecast.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const toggleExpand = (id: string) => {
     setExpanded(expanded === id ? null : id);
   };
 
   return (
-    <div>
+    <div className="min-h-screen bg-white">
+      {/* ── Dark navy header ─────────────────────────────────────── */}
       <PageHeader
-        eyebrow="Intelligence"
-        title="Demand forecast & reorder"
-        description="Seasonal trend model over 12 months of sales. Shows monthly breakdowns, estimated stockout dates, and reorder timelines for every SKU."
-        breadcrumbs={[{ label: "Dashboard", href: "/app/dashboard" }, { label: "Forecast" }]}
+        totalSkus={analyses.length}
+        needReorder={summary.toReorder}
+        stockoutRisk={summary.critical}
       />
 
-      <div className="space-y-6 p-6 md:p-10">
-        {/* Summary tiles */}
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-9">
-          {/* Velocity stats */}
-          <StatTile
-            label="Fast movers"
-            value={summary.fast}
-            icon={<TrendingUp className="h-4 w-4 text-emerald-500" />}
-          />
-          <StatTile
-            label="Slow movers"
-            value={summary.slow}
-            icon={<TrendingDown className="h-4 w-4 text-amber-500" />}
-          />
-          <StatTile label="Dead stock" value={summary.dead} />
-          {/* Momentum stats */}
-          <StatTile
-            label="Accelerating"
-            value={summary.accelerating}
-            icon={<ArrowUp className="h-4 w-4 text-emerald-500" />}
-          />
-          <StatTile
-            label="Declining"
-            value={summary.declining}
-            icon={<ArrowDown className="h-4 w-4 text-rose-500" />}
-          />
-          <StatTile label="Inactive" value={summary.inactive} />
-          {/* Core ops */}
-          <StatTile label="Out of stock" value={summary.out} tone="destructive" />
-          <StatTile
-            label="Critical"
-            value={summary.critical}
-            tone={summary.critical > 0 ? "destructive" : undefined}
-            icon={summary.critical > 0 ? <Zap className="h-4 w-4 text-rose-500" /> : undefined}
-          />
-          <StatTile
-            label="Need reorder"
-            value={summary.toReorder}
-            tone="warning"
-            icon={<AlertTriangle className="h-4 w-4 text-amber-500" />}
-          />
-        </div>
+      <div className="mx-auto w-full max-w-[1440px] space-y-5 px-4 py-6 md:px-8 md:py-8">
+        {/* ── Filter toolbar ─────────────────────────────────────── */}
+        <FiltersToolbar
+          q={q}
+          onQ={setQ}
+          category={category}
+          onCategory={setCategory}
+          categories={categories}
+          filter={filter}
+          onFilter={setFilter}
+          onRecompute={() => recomputeMutation.mutate()}
+          recomputing={recomputeMutation.isPending}
+          computedDate={forecastVarsQ.data?.computedDate}
+          onExport={exportCSV}
+        />
 
-        {/* Filters bar */}
-        <Card>
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="relative flex-1 min-w-[220px]">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Search SKU or name…"
-                className="w-full rounded-lg border border-border bg-input px-9 py-2.5 text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10"
-              />
-            </div>
-            <div className="flex flex-wrap gap-1.5">
-              {(
-                [
-                  "all",
-                  "reorder",
-                  "critical",
-                  "fast",
-                  "slow",
-                  "accelerating",
-                  "declining",
-                  "out",
-                ] as const
-              ).map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setFilter(s)}
-                  className={`rounded-full border px-3.5 py-1.5 text-[11px] uppercase tracking-[0.12em] font-medium transition-all duration-200 ${
-                    filter === s
-                      ? s === "critical"
-                        ? "border-rose-400/50 bg-rose-500/10 text-rose-500 shadow-sm"
-                        : "border-primary/50 bg-primary/10 text-primary shadow-sm"
-                      : "border-border/60 text-muted-foreground hover:border-border hover:text-foreground hover:bg-muted/30"
-                  }`}
-                >
-                  {s === "critical" && <Zap className="inline h-3 w-3 mr-1 -mt-0.5" />}
-                  {s}
-                </button>
-              ))}
-            </div>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="rounded-lg border border-border bg-input px-3.5 py-2.5 text-sm outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10"
-            >
-              <option value="reorder">Sort: Reorder qty ↓</option>
-              <option value="velocity">Sort: Velocity ↓</option>
-              <option value="cover">Sort: Days of cover ↑</option>
-              <option value="stockout">Sort: Stockout date ↑</option>
-              <option value="trend">Sort: Trend strength ↓</option>
-            </select>
-
-            {/* Recompute button + freshness badge */}
-            <div className="flex items-center gap-2 ml-auto">
-              <span className="inline-flex items-center gap-1.5 text-[10px] text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                <span className="relative flex h-1.5 w-1.5">
-                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-                  <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                </span>
-                Live · refresh 60s
-              </span>
-              {forecastVarsQ.data?.computedDate && (
-                <span className="text-[10px] text-muted-foreground/60 whitespace-nowrap">
-                  Computed {forecastVarsQ.data.computedDate}
-                </span>
-              )}
-              <button
-                onClick={() => recomputeMutation.mutate()}
-                disabled={recomputeMutation.isPending}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-border/60 px-3 py-2 text-[11px] font-medium text-muted-foreground hover:text-foreground hover:border-border hover:bg-muted/30 transition-all duration-200 disabled:opacity-50"
-              >
-                <RefreshCw
-                  className={`h-3.5 w-3.5 ${recomputeMutation.isPending ? "animate-spin" : ""}`}
-                />
-                {recomputeMutation.isPending ? "Computing…" : "Recompute"}
-              </button>
-            </div>
-
-            <span className="text-[11px] text-muted-foreground hidden md:block">
-              {filtered.length} of {analyses.length} SKUs
-            </span>
-          </div>
-        </Card>
-
-        {/* Main table */}
-        <Card title="SKU forecast">
-          {analyses.length === 0 ? (
-            <div className="py-14 text-center text-sm text-muted-foreground">
-              <Package className="mx-auto mb-3 h-10 w-10 opacity-30" />
-              <div className="text-base font-medium text-foreground/70">No products yet</div>
-              <div className="mt-1">Add products and record stock movements to see forecasts.</div>
-            </div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-                  <tr className="border-b border-border/70">
-                    <th className="px-5 py-3 text-left font-medium">SKU / Name</th>
-                    <th className="px-5 py-3 text-left font-medium">Velocity</th>
-                    <th className="px-5 py-3 text-left font-medium">Momentum</th>
-                    <th className="px-5 py-3 text-right font-medium">In stock</th>
-                    <th className="px-5 py-3 text-right font-medium">Days cover</th>
-                    <th className="px-5 py-3 text-right font-medium">Trend</th>
-                    <th className="px-5 py-3 text-right font-medium">Monthly forecast</th>
-                    <th className="px-5 py-3 text-right font-medium">Stockout date</th>
-                    <th className="px-5 py-3 text-right font-medium">Reorder by</th>
-                    <th className="px-5 py-3 text-right font-medium">Refill arrives</th>
-                    <th className="px-5 py-3 text-right font-medium">Reorder now</th>
-                    <th className="px-5 py-3 text-center font-medium">Chart</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((a) => (
-                    <ForecastRow
-                      key={a.product.id}
-                      product={a.product}
-                      stock={a.stock}
-                      f={a.forecast}
-                      velocityTag={a.velocityTag}
-                      pricingStrategy={a.pricingStrategy}
-                      defaultMargin={defaultMargin}
-                      expanded={expanded === a.product.id}
-                      onToggle={() => toggleExpand(a.product.id)}
-                    />
-                  ))}
-                </tbody>
-              </table>
-              {filtered.length === 0 && analyses.length > 0 && (
-                <div className="py-12 text-center text-sm text-muted-foreground">
-                  No SKUs match the current filter.
-                </div>
-              )}
-            </div>
-          )}
-        </Card>
+        {/* ── Table / empty / loading states ─────────────────────── */}
+        {loading ? (
+          <SKUTableSkeleton />
+        ) : analyses.length === 0 ? (
+          <EmptyState />
+        ) : filtered.length === 0 ? (
+          <NoResults onReset={resetFilters} />
+        ) : (
+          <SKUTable
+            rows={pageRows}
+            total={filtered.length}
+            expanded={expanded}
+            onToggle={toggleExpand}
+            sortBy={sortBy}
+            sortDir={sortDir}
+            onSort={handleSort}
+            defaultMargin={defaultMargin}
+            page={safePage}
+            pageCount={pageCount}
+            pageSize={PAGE_SIZE}
+            onPageChange={setPage}
+          />
+        )}
       </div>
     </div>
   );
 }
 
-// --------------- utilities ---------------
+/* ═══════════════════════════════════════════════════════════════════════
+   Header + summary cards
+   ═══════════════════════════════════════════════════════════════════════ */
 
-/** True when `a` is a newer persisted snapshot than `b` (by computedDate, then updatedAt). */
-function newerSnapshot(a: any, b: any): boolean {
-  const aDate = a.computedDate ?? a.computed_date ?? "";
-  const bDate = b.computedDate ?? b.computed_date ?? "";
-  if (aDate !== bDate) return aDate > bDate;
-  const aUpd = a.updatedAt ?? a.updated_at ?? "";
-  const bUpd = b.updatedAt ?? b.updated_at ?? "";
-  return aUpd > bUpd;
-}
-
-function daysRemaining(dateStr: string): number {
-  const d = new Date(dateStr);
-  const now = new Date();
-  return Math.ceil((d.getTime() - now.getTime()) / 86400000);
-}
-
-function formatDays(d: number): string {
-  if (d <= 0) return "Overdue";
-  if (d === 1) return "1 day";
-  if (d < 30) return `${d} days`;
-  return `${d}d`;
-}
-
-// --------------- Trend cell component ---------------
-
-function TrendCell({ f }: { f: ForecastResult }) {
-  const isUp = f.trendDirection === "up";
-  const isDown = f.trendDirection === "down";
-  const isStable = f.trendDirection === "stable";
-
-  const icon = isUp ? (
-    <ArrowUp className="h-4 w-4" />
-  ) : isDown ? (
-    <ArrowDown className="h-4 w-4" />
-  ) : (
-    <Minus className="h-4 w-4" />
-  );
-
-  const color = isUp ? "text-emerald-500" : isDown ? "text-rose-500" : "text-muted-foreground";
-
-  const bgColor = isUp ? "bg-emerald-500/8" : isDown ? "bg-rose-500/8" : "bg-muted/30";
-
-  // Trend strength bar
-  const strengthPct = Math.round(f.trendStrength * 100);
-  const barColor =
-    strengthPct > 70
-      ? isUp
-        ? "bg-emerald-500"
-        : isDown
-          ? "bg-rose-500"
-          : "bg-muted-foreground"
-      : strengthPct > 40
-        ? isUp
-          ? "bg-emerald-400"
-          : isDown
-            ? "bg-rose-400"
-            : "bg-muted-foreground"
-        : "bg-muted-foreground/40";
-
+function PageHeader({
+  totalSkus,
+  needReorder,
+  stockoutRisk,
+}: {
+  totalSkus: number;
+  needReorder: number;
+  stockoutRisk: number;
+}) {
   return (
-    <div className="inline-flex flex-col items-end gap-1">
-      <div className={`inline-flex items-center gap-1.5 rounded-lg px-2 py-1 ${bgColor}`}>
-        <span className={`${color}`}>{icon}</span>
-        <span className={`font-mono text-xs font-semibold tabular-nums ${color}`}>
-          {f.trend > 0 ? "+" : ""}
-          {f.trend}/mo
-        </span>
-      </div>
-      <div className="flex items-center gap-1.5 w-full">
-        <div className="flex-1 h-1 rounded-full bg-muted overflow-hidden">
-          <div
-            className={`h-full rounded-full transition-all duration-500 ${barColor}`}
-            style={{ width: `${strengthPct}%` }}
-          />
+    <header className="bg-slate-900">
+      <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-4 py-6 md:flex-row md:items-center md:justify-between md:px-8 md:py-5">
+        <div className="flex items-center gap-3.5">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 shadow-lg shadow-blue-600/30">
+            <Package className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight text-white">SKU Forecast</h1>
+            <p className="text-xs text-slate-400">Demand planning · reorder intelligence</p>
+          </div>
         </div>
-        <span className="text-[9px] tabular-nums text-muted-foreground/60 font-medium">
-          {strengthPct}%
-        </span>
+        <SummaryCards totalSkus={totalSkus} needReorder={needReorder} stockoutRisk={stockoutRisk} />
       </div>
+    </header>
+  );
+}
+
+function SummaryCards({
+  totalSkus,
+  needReorder,
+  stockoutRisk,
+}: {
+  totalSkus: number;
+  needReorder: number;
+  stockoutRisk: number;
+}) {
+  return (
+    <div className="grid grid-cols-3 gap-3">
+      <HeaderStat
+        icon={<Package className="h-4 w-4" />}
+        iconClass="bg-blue-500/15 text-blue-400"
+        value={totalSkus}
+        label="Total SKUs"
+      />
+      <HeaderStat
+        icon={<AlertTriangle className="h-4 w-4" />}
+        iconClass="bg-amber-500/15 text-amber-400"
+        value={needReorder}
+        label="Need Reorder"
+      />
+      <HeaderStat
+        icon={<Zap className="h-4 w-4" />}
+        iconClass="bg-rose-500/15 text-rose-400"
+        value={stockoutRisk}
+        label="Stockout Risk"
+      />
     </div>
   );
 }
 
-// --------------- Sparkline (tiny inline chart in Monthly forecast column) ---------------
-
-function ForecastSparkline({ forecast }: { forecast: ForecastResult["forecast"] }) {
-  const maxQty = Math.max(...forecast.map((f) => f.qty), 1);
+function HeaderStat({
+  icon,
+  iconClass,
+  value,
+  label,
+}: {
+  icon: React.ReactNode;
+  iconClass: string;
+  value: number;
+  label: string;
+}) {
   return (
     <div
-      className="flex items-end gap-[3px] h-8"
-      title={forecast
-        .map((f) => `${f.monthName} ${f.month.slice(0, 4)}: ${f.qty.toLocaleString()} units`)
-        .join(" · ")}
+      className="min-w-0 rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-3"
+      title={label}
     >
-      {forecast.map((f, i) => {
-        const h = Math.max((f.qty / maxQty) * 28, 3);
-        const isNextMonth = i === 0;
-        return (
-          <div key={i} className="group relative flex-1 flex flex-col items-center justify-end">
-            <div
-              className={`w-full rounded-t-sm transition-all duration-300 ease-out hover:opacity-80 cursor-pointer ${
-                isNextMonth ? "ring-1 ring-primary/40" : ""
-              }`}
-              style={{
-                height: `${h}px`,
-                background: isNextMonth
-                  ? `linear-gradient(to top, hsl(var(--primary) / 0.85), hsl(var(--primary) / 0.55))`
-                  : `linear-gradient(to top, hsl(var(--primary) / 0.6), hsl(var(--primary) / 0.35))`,
-              }}
-            />
-            <div className="pointer-events-none absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg bg-popover px-2.5 py-1.5 text-[10px] text-popover-foreground opacity-0 shadow-xl ring-1 ring-border/50 transition-opacity group-hover:opacity-100 z-10">
-              <div className="font-semibold">{f.monthName}</div>
-              <div className="text-muted-foreground">{f.qty.toLocaleString()} units</div>
-              <div className="text-[9px] text-muted-foreground/60">
-                Stock req: {f.stockRequired.toLocaleString()}
-                {f.suggestedOrder > 0 && ` · Order ${f.suggestedOrder}`}
-              </div>
-            </div>
-          </div>
-        );
-      })}
+      <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${iconClass}`}>
+        {icon}
+      </div>
+      <div className="mt-2 text-xl font-bold tabular-nums leading-none text-white">
+        {value.toLocaleString()}
+      </div>
+      <div className="mt-1 text-[11px] font-medium text-slate-400">{label}</div>
     </div>
   );
 }
 
-// --------------- Main Row ---------------
+/* ═══════════════════════════════════════════════════════════════════════
+   Filters toolbar
+   ═══════════════════════════════════════════════════════════════════════ */
 
-function ForecastRow({
+const EXTRA_FILTERS: { value: FilterT; label: string }[] = [
+  { value: "reorder", label: "Need reorder" },
+  { value: "critical", label: "Critical stockout" },
+  { value: "out", label: "Out of stock" },
+  { value: "accelerating", label: "Accelerating" },
+  { value: "declining", label: "Declining" },
+];
+
+function FiltersToolbar({
+  q,
+  onQ,
+  category,
+  onCategory,
+  categories,
+  filter,
+  onFilter,
+  onRecompute,
+  recomputing,
+  computedDate,
+  onExport,
+}: {
+  q: string;
+  onQ: (v: string) => void;
+  category: string;
+  onCategory: (v: string) => void;
+  categories: string[];
+  filter: FilterT;
+  onFilter: (v: FilterT) => void;
+  onRecompute: () => void;
+  recomputing: boolean;
+  computedDate?: string;
+  onExport: () => void;
+}) {
+  const velocityValue: FilterT =
+    filter === "fast" || filter === "medium" || filter === "slow" ? filter : "all";
+  const activeExtra = EXTRA_FILTERS.some((o) => o.value === filter);
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-card">
+      {/* Search */}
+      <div className="relative min-w-[220px] flex-1">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <input
+          value={q}
+          onChange={(e) => onQ(e.target.value)}
+          placeholder="Search SKU or product name…"
+          aria-label="Search SKU or product name"
+          className="h-11 w-full rounded-[10px] border border-gray-200 bg-white pl-9 pr-9 text-sm text-gray-900 outline-none transition-all placeholder:text-gray-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
+        />
+        {q && (
+          <button
+            onClick={() => onQ("")}
+            aria-label="Clear search"
+            title="Clear search"
+            className="absolute right-2.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+
+      {/* Category */}
+      <div className="relative">
+        <select
+          value={category}
+          onChange={(e) => onCategory(e.target.value)}
+          aria-label="Filter by category"
+          className="h-11 cursor-pointer appearance-none rounded-[10px] border border-gray-200 bg-white pl-3.5 pr-9 text-sm text-gray-700 outline-none transition-all hover:border-gray-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
+        >
+          <option value="all">All categories</option>
+          {categories.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+      </div>
+
+      {/* Velocity */}
+      <div className="relative">
+        <select
+          value={velocityValue}
+          onChange={(e) => onFilter(e.target.value as FilterT)}
+          aria-label="Filter by velocity"
+          className="h-11 cursor-pointer appearance-none rounded-[10px] border border-gray-200 bg-white pl-3.5 pr-9 text-sm text-gray-700 outline-none transition-all hover:border-gray-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
+        >
+          <option value="all">All velocities</option>
+          <option value="fast">Fast</option>
+          <option value="medium">Steady</option>
+          <option value="slow">Slow</option>
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+      </div>
+
+      {/* More filters */}
+      <Popover>
+        <PopoverTrigger asChild>
+          <button
+            title="More filters"
+            className="inline-flex h-11 items-center gap-2 rounded-[10px] border border-gray-200 bg-white px-3.5 text-sm font-medium text-gray-700 transition-all hover:border-gray-300 hover:bg-gray-50"
+          >
+            <SlidersHorizontal className="h-4 w-4 text-gray-500" />
+            More filters
+            {activeExtra && <span className="h-1.5 w-1.5 rounded-full bg-blue-600" />}
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" sideOffset={6} className="w-56 p-1.5 shadow-dropdown">
+          <p className="px-2 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+            Quick filters
+          </p>
+          <div className="flex flex-col">
+            {EXTRA_FILTERS.map((o) => {
+              const active = filter === o.value;
+              return (
+                <button
+                  key={o.value}
+                  onClick={() => onFilter(active ? "all" : o.value)}
+                  className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
+                    active
+                      ? "bg-blue-50 font-medium text-blue-700"
+                      : "text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  {active ? (
+                    <Check className="h-4 w-4 shrink-0 text-blue-600" />
+                  ) : (
+                    <span className="h-4 w-4 shrink-0" />
+                  )}
+                  {o.label}
+                </button>
+              );
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
+
+      {/* Right group */}
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        <span
+          className="hidden items-center gap-1.5 text-xs text-emerald-600 md:inline-flex"
+          title="Forecasts refresh automatically every 60 seconds"
+        >
+          <span className="relative flex h-1.5 w-1.5">
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          </span>
+          Live
+        </span>
+        {computedDate && (
+          <span className="hidden text-xs text-gray-400 lg:block">Computed {computedDate}</span>
+        )}
+        <button
+          onClick={onRecompute}
+          disabled={recomputing}
+          title="Recompute forecasts now"
+          className="inline-flex h-11 items-center gap-2 rounded-[10px] border border-gray-200 bg-white px-3.5 text-sm font-medium text-gray-700 transition-all hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+        >
+          <RefreshCw className={`h-4 w-4 text-gray-500 ${recomputing ? "animate-spin" : ""}`} />
+          {recomputing ? "Computing…" : "Recompute"}
+        </button>
+        <button
+          onClick={onExport}
+          title="Export the current view as CSV"
+          className="inline-flex h-11 items-center gap-2 rounded-[10px] bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/30"
+        >
+          <Download className="h-4 w-4" />
+          Export
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Table + rows
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function SKUTable({
+  rows,
+  total,
+  expanded,
+  onToggle,
+  sortBy,
+  sortDir,
+  onSort,
+  defaultMargin,
+  page,
+  pageCount,
+  pageSize,
+  onPageChange,
+}: {
+  rows: Analysis[];
+  total: number;
+  expanded: string | null;
+  onToggle: (id: string) => void;
+  sortBy: SortKey;
+  sortDir: "desc" | "asc";
+  onSort: (k: SortKey) => void;
+  defaultMargin: number;
+  page: number;
+  pageCount: number;
+  pageSize: number;
+  onPageChange: (p: number) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white shadow-card">
+      {/* ── Mobile: cards ── */}
+      <div className="md:hidden">
+        {rows.map((a) => (
+          <MobileRowCard
+            key={a.product.id}
+            product={a.product}
+            stock={a.stock}
+            f={a.forecast}
+            velocityTag={a.velocityTag}
+            pricingStrategy={a.pricingStrategy}
+            defaultMargin={defaultMargin}
+            expanded={expanded === a.product.id}
+            onToggle={() => onToggle(a.product.id)}
+          />
+        ))}
+      </div>
+
+      {/* ── Tablet & desktop: full table ── */}
+      {/* overflow-x-clip (not -auto) so the sticky thead sticks to the
+          viewport instead of to this wrapper's scrollport */}
+      <div className="hidden overflow-x-clip rounded-t-xl md:block">
+        <table className="w-full min-w-[980px] text-sm">
+          <thead className="sticky top-14 z-10 md:top-0">
+            <tr className="border-b border-gray-200 bg-[#FAFAFA]">
+              <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                Product
+              </th>
+              <SortableTh
+                label="Velocity"
+                sortKey="velocity"
+                sortBy={sortBy}
+                dir={sortDir}
+                onSort={onSort}
+                className="hidden md:table-cell"
+              />
+              <th className="hidden px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500 lg:table-cell">
+                Momentum
+              </th>
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                In Stock
+              </th>
+              <SortableTh
+                label="Days Cover"
+                sortKey="cover"
+                sortBy={sortBy}
+                dir={sortDir}
+                onSort={onSort}
+                className="hidden md:table-cell"
+              />
+              <th className="hidden px-4 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-500 xl:table-cell">
+                Monthly Forecast
+              </th>
+              <SortableTh
+                label="Stockout Date"
+                sortKey="stockout"
+                sortBy={sortBy}
+                dir={sortDir}
+                onSort={onSort}
+                className="hidden lg:table-cell"
+              />
+              <SortableTh
+                label="Recommended Order"
+                sortKey="reorder"
+                sortBy={sortBy}
+                dir={sortDir}
+                onSort={onSort}
+                className="hidden md:table-cell"
+              />
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                Action
+              </th>
+              <th className="w-12 px-2 py-3" aria-label="Expand row" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((a) => (
+              <TableRow
+                key={a.product.id}
+                product={a.product}
+                stock={a.stock}
+                f={a.forecast}
+                velocityTag={a.velocityTag}
+                pricingStrategy={a.pricingStrategy}
+                defaultMargin={defaultMargin}
+                expanded={expanded === a.product.id}
+                onToggle={() => onToggle(a.product.id)}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* ── Pagination footer ── */}
+      <div className="flex flex-col items-center justify-between gap-3 border-t border-gray-100 px-6 py-4 sm:flex-row">
+        <p className="text-sm text-gray-500">
+          Showing{" "}
+          <span className="font-medium text-gray-900">
+            {total === 0 ? 0 : (page - 1) * pageSize + 1}–{Math.min(total, page * pageSize)}
+          </span>{" "}
+          of <span className="font-medium text-gray-900">{total}</span> SKUs
+        </p>
+        <Pagination page={page} pageCount={pageCount} onPageChange={onPageChange} />
+      </div>
+    </div>
+  );
+}
+
+function SortableTh({
+  label,
+  sortKey,
+  sortBy,
+  dir,
+  onSort,
+  className = "",
+}: {
+  label: string;
+  sortKey: SortKey;
+  sortBy: SortKey;
+  dir: "desc" | "asc";
+  onSort: (k: SortKey) => void;
+  className?: string;
+}) {
+  const active = sortBy === sortKey;
+  // "cover"/"stockout" naturally sort ascending; mirror the arrow to the real
+  // effective direction so the chevron is never misleading.
+  const ascKeys: SortKey[] = ["cover", "stockout"];
+  const effective =
+    ascKeys.includes(sortKey) && sortBy === sortKey ? (dir === "desc" ? "asc" : "desc") : dir;
+  return (
+    <th
+      className={`px-4 py-3 ${className}`}
+      aria-sort={active ? (effective === "asc" ? "ascending" : "descending") : undefined}
+    >
+      <button
+        onClick={() => onSort(sortKey)}
+        title={`Sort by ${label.toLowerCase()}`}
+        className={`group inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors hover:text-gray-900 ${
+          active ? "text-gray-900" : "text-gray-500"
+        }`}
+      >
+        {label}
+        {active ? (
+          effective === "asc" ? (
+            <ChevronUp className="h-3.5 w-3.5 text-blue-600" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 text-blue-600" />
+          )
+        ) : (
+          <ArrowUpDown className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-60" />
+        )}
+      </button>
+    </th>
+  );
+}
+
+function TableRow({
   product,
   stock,
   f,
@@ -774,321 +1056,134 @@ function ForecastRow({
   expanded: boolean;
   onToggle: () => void;
 }) {
-  const nextMonthQty = f.forecast[0]?.qty ?? 0;
-  const next6Total = f.forecast.reduce((a, b) => a + b.qty, 0);
   const imgSrc = useSignedImageUrl(product.image_url);
-
-  // Velocity (category-based) icons & tones
-  const vIcon =
-    velocityTag === "fast_mover" ? (
-      <TrendingUp className="h-3 w-3" />
-    ) : velocityTag === "medium_mover" ? (
-      <BarChart3 className="h-3 w-3" />
-    ) : velocityTag === "slow_mover" ? (
-      <TrendingDown className="h-3 w-3" />
-    ) : velocityTag === "dead" ? (
-      <Package className="h-3 w-3" />
-    ) : (
-      <BarChart3 className="h-3 w-3" />
-    );
-  const vTone =
-    velocityTag === "fast_mover"
-      ? "success"
-      : velocityTag === "medium_mover"
-        ? "primary"
-        : velocityTag === "slow_mover"
-          ? "warning"
-          : "destructive";
-  const vLabel =
-    velocityTag === "fast_mover"
-      ? "Fast mover"
-      : velocityTag === "medium_mover"
-        ? "Medium mover"
-        : velocityTag === "slow_mover"
-          ? "Slow mover"
-          : velocityTag === "dead"
-            ? "Dead"
-            : velocityTag;
-
-  // Momentum icons & tones
-  const mIcon =
-    f.momentumTag === "accelerating" ? (
-      <TrendingUp className="h-3 w-3" />
-    ) : f.momentumTag === "stable" ? (
-      <Minus className="h-3 w-3" />
-    ) : f.momentumTag === "declining" ? (
-      <TrendingDown className="h-3 w-3" />
-    ) : (
-      <Package className="h-3 w-3" />
-    );
-  const mTone =
-    f.momentumTag === "accelerating"
-      ? "success"
-      : f.momentumTag === "stable"
-        ? "primary"
-        : f.momentumTag === "declining"
-          ? "warning"
-          : "destructive";
-
+  const nextMonthQty = f.forecast[0]?.qty ?? 0;
+  const needsReorder = f.recommendedReorder > 0;
   const stockoutDays = f.estimatedStockoutDate ? daysRemaining(f.estimatedStockoutDate) : null;
-  const reorderDays = f.reorderByDate ? daysRemaining(f.reorderByDate) : null;
-  const refillDays = daysRemaining(f.nextRefillDate);
-
-  const urgencyIcon =
-    f.stockoutUrgency === "critical" ? (
-      <Zap className="h-3 w-3" />
-    ) : f.stockoutUrgency === "warning" ? (
-      <Clock className="h-3 w-3" />
-    ) : (
-      <CalendarClock className="h-3 w-3" />
-    );
-
-  const isCritical = f.stockoutUrgency === "critical";
-  const isWarning = f.stockoutUrgency === "warning";
+  const coverDanger = f.daysOfCover < 7;
 
   return (
     <>
       <tr
-        className={`border-b border-border/50 transition-all duration-200 cursor-pointer select-none
-          ${isCritical ? "bg-rose-500/5 hover:bg-rose-500/8" : "hover:bg-muted/30"}
-          ${expanded ? "bg-muted/20 shadow-inner" : ""}
-        `}
         onClick={onToggle}
+        className={`cursor-pointer border-b border-gray-100 transition-colors duration-150 last:border-0 hover:bg-gray-50 ${
+          expanded ? "bg-gray-50/70" : ""
+        }`}
       >
-        {/* SKU / Name */}
-        <td className="px-5 py-3">
+        {/* Product */}
+        <td className="px-6 py-4">
           <div className="flex items-center gap-3">
             {product.image_url && imgSrc ? (
               <img
                 src={imgSrc}
                 alt={product.name}
-                className={`h-9 w-9 shrink-0 rounded-lg border object-cover ${
-                  isCritical
-                    ? "border-rose-300 dark:border-rose-800"
-                    : isWarning
-                      ? "border-amber-300 dark:border-amber-800"
-                      : "border-border"
-                }`}
+                className="h-10 w-10 shrink-0 rounded-lg border border-gray-200 object-cover"
               />
             ) : (
-              <div
-                className={`flex h-8 w-8 items-center justify-center rounded-lg border text-[10px] font-bold transition-colors ${
-                  isCritical
-                    ? "border-rose-200 bg-rose-50 text-rose-600 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-400"
-                    : isWarning
-                      ? "border-amber-200 bg-amber-50 text-amber-600 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-400"
-                      : "border-border/60 bg-muted/30 text-muted-foreground"
-                }`}
-              >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-gray-100 text-[11px] font-bold text-gray-500">
                 {product.sku.slice(0, 2).toUpperCase() || "?"}
               </div>
             )}
-            <div>
-              <div className="font-mono text-[11px] text-muted-foreground leading-none mb-0.5">
+            <div className="min-w-0">
+              <div className="truncate text-sm font-semibold text-gray-900">{product.name}</div>
+              <div className="mt-0.5 truncate text-xs text-gray-500">
                 {product.sku}
+                {product.category && <> · {product.category}</>}
               </div>
-              <div className="text-sm font-medium leading-tight">{product.name}</div>
-              {product.category && (
-                <div className="text-[10px] text-muted-foreground/60 mt-0.5">
-                  {product.category}
-                </div>
-              )}
             </div>
           </div>
         </td>
 
-        {/* Velocity (category-based) */}
-        <td className="px-5 py-3">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`${vTone === "success" ? "text-emerald-500" : vTone === "warning" ? "text-amber-500" : vTone === "destructive" ? "text-rose-500" : "text-primary"}`}
-            >
-              {vIcon}
-            </span>
-            <Pill tone={vTone as any}>{vLabel}</Pill>
-          </div>
+        {/* Velocity */}
+        <td className="hidden px-4 py-4 md:table-cell">
+          <span className={`text-sm font-medium ${velocityColor(velocityTag)}`}>
+            {velocityLabel(velocityTag)}
+          </span>
         </td>
 
-        {/* Momentum (sales trend) */}
-        <td className="px-5 py-3">
-          <div className="flex items-center gap-1.5">
-            <span
-              className={`${mTone === "success" ? "text-emerald-500" : mTone === "warning" ? "text-amber-500" : mTone === "destructive" ? "text-rose-500" : "text-primary"}`}
-            >
-              {mIcon}
-            </span>
-            <Pill tone={mTone as any}>
-              {f.momentumTag === "accelerating"
-                ? "Accelerating"
-                : f.momentumTag === "stable"
-                  ? "Stable"
-                  : f.momentumTag === "declining"
-                    ? "Declining"
-                    : f.momentumTag === "inactive"
-                      ? "Inactive"
-                      : f.momentumTag}
-            </Pill>
-          </div>
+        {/* Momentum */}
+        <td className="hidden px-4 py-4 lg:table-cell">
+          <span className={`text-sm font-medium ${momentumColor(f.momentumTag)}`}>
+            {momentumLabel(f.momentumTag)}
+          </span>
         </td>
 
         {/* In stock */}
-        <td className="px-5 py-3 text-right">
-          <div
-            className={`font-mono text-sm font-semibold tabular-nums ${
-              stock <= 0
-                ? "text-rose-600"
-                : stock <= product.reorder_level
-                  ? "text-amber-600"
-                  : "text-foreground"
-            }`}
-          >
-            {stock.toLocaleString()}
-          </div>
-          <div className="text-[9px] text-muted-foreground/60 leading-tight">
-            {stock <= 0
-              ? "⚠ Out of stock"
-              : stock <= product.reorder_level
-                ? `≤ reorder lvl (${product.reorder_level})`
-                : `reorder lvl: ${product.reorder_level}`}
-          </div>
+        <td
+          className={`px-4 py-4 text-right text-sm font-medium tabular-nums ${
+            stock <= 0 ? "text-red-600" : "text-gray-900"
+          }`}
+        >
+          {stock.toLocaleString()}
         </td>
 
         {/* Days cover */}
-        <td className="px-5 py-3 text-right">
-          <CoverGauge days={f.daysOfCover} leadTime={product.lead_time_days} />
+        <td
+          className={`hidden px-4 py-4 text-right text-sm tabular-nums md:table-cell ${
+            coverDanger ? "font-medium text-red-600" : "text-gray-900"
+          }`}
+        >
+          {f.daysOfCover === Infinity ? "∞" : `${Math.round(f.daysOfCover)} days`}
         </td>
 
-        {/* Trend */}
-        <td className="px-5 py-3 text-right">
-          <TrendCell f={f} />
-        </td>
-
-        {/* Monthly forecast — shows the exact value from the forecast formula */}
-        <td className="px-5 py-3 text-right">
-          <div className="font-mono text-sm font-semibold tabular-nums">
-            {nextMonthQty.toLocaleString()}
-          </div>
-          <div className="text-[9px] text-muted-foreground/60">
-            next 6mo: {next6Total.toLocaleString()}
-          </div>
-          <div className="mt-1">
-            <ForecastSparkline forecast={f.forecast} />
-          </div>
+        {/* Monthly forecast */}
+        <td className="hidden px-4 py-4 text-center text-sm font-medium tabular-nums text-gray-900 xl:table-cell">
+          {nextMonthQty.toLocaleString()}
         </td>
 
         {/* Stockout date */}
-        <td className="px-5 py-3 text-right">
+        <td className="hidden px-4 py-4 text-right lg:table-cell">
           {f.estimatedStockoutDate ? (
-            <div
-              className={`inline-flex flex-col items-end ${
-                stockoutDays !== null && stockoutDays <= 0
-                  ? "text-rose-600"
-                  : stockoutDays !== null && stockoutDays <= product.lead_time_days
-                    ? "text-amber-600"
-                    : "text-muted-foreground"
+            <span
+              title={
+                stockoutDays !== null
+                  ? stockoutDays <= 0
+                    ? "Out of stock now"
+                    : `Stockout in ~${stockoutDays} days`
+                  : undefined
+              }
+              className={`text-sm tabular-nums ${
+                stockoutDays !== null && stockoutDays <= 7
+                  ? "font-medium text-red-600"
+                  : "text-amber-600"
               }`}
             >
-              <span className="text-xs font-semibold tabular-nums">
-                {f.estimatedStockoutDate.slice(5)}
-              </span>
-              {stockoutDays !== null && (
-                <span
-                  className={`text-[10px] mt-0.5 flex items-center gap-0.5 font-medium ${
-                    stockoutDays <= 0
-                      ? "text-rose-500"
-                      : stockoutDays <= 7
-                        ? "text-amber-500"
-                        : "text-muted-foreground/60"
-                  }`}
-                >
-                  {stockoutDays <= 0 ? "⚠ Out now" : `${stockoutDays}d away`}
-                </span>
-              )}
-            </div>
-          ) : (
-            <span className="text-xs text-muted-foreground/50 italic">Sufficient</span>
-          )}
-        </td>
-
-        {/* Reorder by */}
-        <td className="px-5 py-3 text-right">
-          {f.reorderByDate ? (
-            <div
-              className={`inline-flex flex-col items-end ${
-                reorderDays !== null && reorderDays <= 0
-                  ? "text-rose-600 font-medium"
-                  : reorderDays !== null && reorderDays <= 7
-                    ? "text-amber-600"
-                    : "text-muted-foreground"
-              }`}
-            >
-              <span className="text-xs tabular-nums">{f.reorderByDate.slice(5)}</span>
-              <span
-                className={`text-[10px] mt-0.5 flex items-center gap-0.5 font-medium ${
-                  reorderDays !== null && reorderDays <= 0
-                    ? "text-rose-500"
-                    : reorderDays !== null && reorderDays <= 7
-                      ? "text-amber-500"
-                      : "text-muted-foreground/60"
-                }`}
-              >
-                {urgencyIcon}
-                {reorderDays !== null && reorderDays <= 0
-                  ? "OVERDUE"
-                  : reorderDays !== null
-                    ? `${reorderDays}d`
-                    : ""}
-              </span>
-            </div>
-          ) : (
-            <span className="text-xs text-muted-foreground/50 italic">—</span>
-          )}
-        </td>
-
-        {/* Refill arrives */}
-        <td className="px-5 py-3 text-right">
-          <div className="inline-flex flex-col items-end text-muted-foreground">
-            <span className="text-xs tabular-nums">{f.nextRefillDate.slice(5)}</span>
-            <span className="text-[10px] text-muted-foreground/60 mt-0.5 flex items-center gap-0.5">
-              <Truck className="h-2.5 w-2.5" />
-              {formatDays(refillDays)}
+              {fmtShortDate(f.estimatedStockoutDate)}
             </span>
-          </div>
-        </td>
-
-        {/* Reorder now */}
-        <td className="px-5 py-3 text-right">
-          {f.recommendedReorder > 0 ? (
-            <div className="inline-flex flex-col items-end">
-              <span className="font-bold text-primary tabular-nums text-base leading-none">
-                {f.recommendedReorder.toLocaleString()}
-              </span>
-              <span className="text-[10px] text-muted-foreground/70 mt-0.5">
-                {fmtMoney(f.recommendedReorder * Number(product.unit_cost))}
-              </span>
-              {f.reorderByDate && daysRemaining(f.reorderByDate) <= 7 && (
-                <span className="mt-1 text-[9px] font-semibold text-rose-500 flex items-center gap-0.5 bg-rose-500/10 px-1.5 py-0.5 rounded-full">
-                  <Zap className="h-2.5 w-2.5" />
-                  Order soon
-                </span>
-              )}
-            </div>
           ) : (
-            <span className="text-xs text-muted-foreground/50 italic">Stocked</span>
+            <span className="text-sm text-gray-400">—</span>
           )}
         </td>
 
-        {/* Toggle */}
-        <td className="px-5 py-3 text-center">
+        {/* Recommended order */}
+        <td className="hidden px-4 py-4 text-right md:table-cell">
+          {needsReorder ? (
+            <span className="text-sm font-semibold tabular-nums text-gray-900">
+              {f.recommendedReorder.toLocaleString()}
+            </span>
+          ) : (
+            <span className="text-sm text-gray-400">—</span>
+          )}
+        </td>
+
+        {/* Action */}
+        <td className="px-4 py-4 text-right">
+          <ActionButton needsReorder={needsReorder} qty={f.recommendedReorder} onClick={onToggle} />
+        </td>
+
+        {/* Chevron */}
+        <td className="w-12 px-2 py-4 text-right">
           <button
             onClick={(e) => {
               e.stopPropagation();
               onToggle();
             }}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-all duration-200"
+            aria-label={expanded ? "Collapse row details" : "Expand row details"}
+            title={expanded ? "Collapse details" : "Expand details"}
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors duration-150 hover:bg-gray-100 hover:text-gray-700"
           >
-            <ArrowUpDown
-              className={`h-3.5 w-3.5 transition-all duration-300 ${expanded ? "rotate-180 text-primary" : ""}`}
+            <ChevronRight
+              className={`h-4 w-4 transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}
             />
           </button>
         </td>
@@ -1096,8 +1191,8 @@ function ForecastRow({
 
       {/* Expanded detail panel */}
       {expanded && (
-        <tr className="border-b border-border/30">
-          <td colSpan={12} className="px-5 py-0">
+        <tr className="border-b border-gray-100 bg-gray-50/60">
+          <td colSpan={10} className="px-6">
             <ExpandedForecastDetail
               product={product}
               f={f}
@@ -1109,6 +1204,393 @@ function ForecastRow({
       )}
     </>
   );
+}
+
+function MobileRowCard({
+  product,
+  stock,
+  f,
+  velocityTag,
+  pricingStrategy,
+  defaultMargin,
+  expanded,
+  onToggle,
+}: {
+  product: Product;
+  stock: number;
+  f: ForecastResult;
+  velocityTag: VelocityTag;
+  pricingStrategy: PricingStrategyResult | null;
+  defaultMargin: number;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
+  const imgSrc = useSignedImageUrl(product.image_url);
+  const nextMonthQty = f.forecast[0]?.qty ?? 0;
+  const needsReorder = f.recommendedReorder > 0;
+  const stockoutDays = f.estimatedStockoutDate ? daysRemaining(f.estimatedStockoutDate) : null;
+
+  return (
+    <div className="border-b border-gray-100 px-4 py-4 last:border-0">
+      <button
+        onClick={onToggle}
+        className="flex w-full items-start gap-3 text-left"
+        aria-label={expanded ? "Collapse row details" : "Expand row details"}
+      >
+        {product.image_url && imgSrc ? (
+          <img
+            src={imgSrc}
+            alt={product.name}
+            className="h-10 w-10 shrink-0 rounded-lg border border-gray-200 object-cover"
+          />
+        ) : (
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-gray-100 text-[11px] font-bold text-gray-500">
+            {product.sku.slice(0, 2).toUpperCase() || "?"}
+          </div>
+        )}
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-sm font-semibold text-gray-900">{product.name}</div>
+          <div className="truncate text-xs text-gray-500">
+            {product.sku}
+            {product.category && <> · {product.category}</>}
+          </div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+            <span className={`font-medium ${velocityColor(velocityTag)}`}>
+              {velocityLabel(velocityTag)}
+            </span>
+            <span className="text-gray-300">·</span>
+            <span className={`font-medium ${momentumColor(f.momentumTag)}`}>
+              {momentumLabel(f.momentumTag)}
+            </span>
+          </div>
+        </div>
+        <ChevronRight
+          className={`mt-1 h-4 w-4 shrink-0 text-gray-400 transition-transform duration-150 ${
+            expanded ? "rotate-90" : ""
+          }`}
+        />
+      </button>
+
+      <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+        <MiniStat label="In stock" value={stock.toLocaleString()} danger={stock <= 0} />
+        <MiniStat
+          label="Days cover"
+          value={f.daysOfCover === Infinity ? "∞" : `${Math.round(f.daysOfCover)}d`}
+          danger={f.daysOfCover < 7}
+        />
+        <MiniStat label="Forecast" value={nextMonthQty.toLocaleString()} />
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <div className="text-sm">
+          <span
+            className={`tabular-nums ${
+              f.estimatedStockoutDate
+                ? stockoutDays !== null && stockoutDays <= 7
+                  ? "font-medium text-red-600"
+                  : "text-amber-600"
+                : "text-gray-400"
+            }`}
+          >
+            {f.estimatedStockoutDate ? fmtShortDate(f.estimatedStockoutDate) : "—"}
+          </span>
+          <span className="mx-2 text-gray-300">·</span>
+          <span className="text-gray-500">
+            Order:{" "}
+            <span
+              className={`font-medium tabular-nums ${
+                needsReorder ? "text-gray-900" : "text-gray-400"
+              }`}
+            >
+              {needsReorder ? f.recommendedReorder.toLocaleString() : "—"}
+            </span>
+          </span>
+        </div>
+        <ActionButton needsReorder={needsReorder} qty={f.recommendedReorder} onClick={onToggle} />
+      </div>
+
+      {expanded && (
+        <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4">
+          <ExpandedForecastDetail
+            product={product}
+            f={f}
+            pricingStrategy={pricingStrategy}
+            defaultMargin={defaultMargin}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MiniStat({ label, value, danger }: { label: string; value: string; danger?: boolean }) {
+  return (
+    <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2 py-2">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-gray-400">{label}</div>
+      <div
+        className={`mt-0.5 text-sm font-semibold tabular-nums ${
+          danger ? "text-red-600" : "text-gray-900"
+        }`}
+      >
+        {value}
+      </div>
+    </div>
+  );
+}
+
+function ActionButton({
+  needsReorder,
+  qty,
+  onClick,
+}: {
+  needsReorder: boolean;
+  qty: number;
+  onClick: () => void;
+}) {
+  if (needsReorder) {
+    return (
+      <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onClick();
+        }}
+        title="Expand details to review this reorder"
+        className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/30 active:scale-[0.98]"
+      >
+        <ShoppingCart className="h-4 w-4" />
+        Order {qty.toLocaleString()}
+      </button>
+    );
+  }
+  return (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      title="Review pricing strategy"
+      className="inline-flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-all hover:border-gray-300 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/30 active:scale-[0.98]"
+    >
+      <BadgePercent className="h-4 w-4 text-gray-500" />
+      Review Price
+    </button>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Pagination
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function getPageItems(page: number, count: number): (number | "…")[] {
+  if (count <= 7) return Array.from({ length: count }, (_, i) => i + 1);
+  const items: (number | "…")[] = [1];
+  const start = Math.max(2, page - 1);
+  const end = Math.min(count - 1, page + 1);
+  if (start > 2) items.push("…");
+  for (let i = start; i <= end; i++) items.push(i);
+  if (end < count - 1) items.push("…");
+  items.push(count);
+  return items;
+}
+
+function Pagination({
+  page,
+  pageCount,
+  onPageChange,
+}: {
+  page: number;
+  pageCount: number;
+  onPageChange: (p: number) => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        onClick={() => onPageChange(page - 1)}
+        disabled={page <= 1}
+        title="Previous page"
+        className="inline-flex h-8 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 text-sm text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <ChevronLeft className="h-4 w-4" />
+        <span className="hidden sm:inline">Previous</span>
+      </button>
+      {getPageItems(page, pageCount).map((it, i) =>
+        it === "…" ? (
+          <span key={`e-${i}`} className="px-1 text-sm text-gray-400">
+            …
+          </span>
+        ) : (
+          <button
+            key={it}
+            onClick={() => onPageChange(it)}
+            aria-label={`Page ${it}`}
+            aria-current={it === page ? "page" : undefined}
+            className={`h-8 min-w-8 rounded-lg px-2 text-sm tabular-nums transition-colors ${
+              it === page
+                ? "bg-gray-100 font-semibold text-gray-900"
+                : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+            }`}
+          >
+            {it}
+          </button>
+        ),
+      )}
+      <button
+        onClick={() => onPageChange(page + 1)}
+        disabled={page >= pageCount}
+        title="Next page"
+        className="inline-flex h-8 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 text-sm text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        <span className="hidden sm:inline">Next</span>
+        <ChevronRight className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Empty / no-results / loading states
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function EmptyState() {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white px-6 py-20 text-center shadow-card">
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100">
+        <Package className="h-6 w-6 text-gray-400" />
+      </div>
+      <h3 className="mt-4 text-base font-semibold text-gray-900">No products yet</h3>
+      <p className="mx-auto mt-1 max-w-sm text-sm text-gray-500">
+        Add products and record stock movements to see demand forecasts and reorder recommendations.
+      </p>
+    </div>
+  );
+}
+
+function NoResults({ onReset }: { onReset: () => void }) {
+  return (
+    <div className="rounded-xl border border-gray-200 bg-white px-6 py-20 text-center shadow-card">
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100">
+        <SearchX className="h-6 w-6 text-gray-400" />
+      </div>
+      <h3 className="mt-4 text-base font-semibold text-gray-900">No SKUs match your filters</h3>
+      <p className="mx-auto mt-1 max-w-sm text-sm text-gray-500">
+        Try adjusting your search or clearing the active filters.
+      </p>
+      <button
+        onClick={onReset}
+        className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+      >
+        Clear filters
+      </button>
+    </div>
+  );
+}
+
+function SKUTableSkeleton() {
+  return (
+    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-card">
+      <div className="hidden overflow-x-auto md:block">
+        <table className="w-full min-w-[980px] text-sm">
+          <thead>
+            <tr className="border-b border-gray-200 bg-[#FAFAFA]">
+              {Array.from({ length: 9 }).map((_, i) => (
+                <th key={i} className="px-4 py-3 first:pl-6">
+                  <Skeleton className="h-3 w-16" />
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: 8 }).map((_, r) => (
+              <tr key={r} className="border-b border-gray-100">
+                {Array.from({ length: 9 }).map((_, c) => (
+                  <td key={c} className="px-4 py-5 first:pl-6">
+                    <div className="flex items-center gap-3">
+                      {c === 0 && <Skeleton className="h-10 w-10 shrink-0 rounded-lg" />}
+                      <Skeleton
+                        className="h-4"
+                        style={{ width: `${55 + ((r * 7 + c * 13) % 30)}%` }}
+                      />
+                    </div>
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="space-y-4 p-4 md:hidden">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="flex items-center gap-3">
+            <Skeleton className="h-10 w-10 shrink-0 rounded-lg" />
+            <div className="flex-1 space-y-2">
+              <Skeleton className="h-4 w-1/2" />
+              <Skeleton className="h-3 w-1/3" />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Label / formatting helpers
+   ═══════════════════════════════════════════════════════════════════════ */
+
+const VELOCITY_LABEL: Record<VelocityTag, string> = {
+  fast_mover: "Fast",
+  medium_mover: "Steady",
+  slow_mover: "Slow",
+  dead: "Dead",
+};
+
+function velocityLabel(t: VelocityTag): string {
+  return VELOCITY_LABEL[t] ?? t;
+}
+
+function velocityColor(t: VelocityTag): string {
+  if (t === "fast_mover") return "text-emerald-600";
+  if (t === "medium_mover") return "text-gray-600";
+  if (t === "slow_mover") return "text-amber-600";
+  return "text-rose-600";
+}
+
+const MOMENTUM_LABEL: Record<MomentumTag, string> = {
+  accelerating: "Positive",
+  stable: "Stable",
+  declining: "Declining",
+  inactive: "Inactive",
+};
+
+function momentumLabel(t: MomentumTag): string {
+  return MOMENTUM_LABEL[t] ?? t;
+}
+
+function momentumColor(t: MomentumTag): string {
+  if (t === "accelerating") return "text-emerald-600";
+  if (t === "stable") return "text-gray-600";
+  if (t === "declining") return "text-amber-600";
+  return "text-gray-400";
+}
+
+/** True when `a` is a newer persisted snapshot than `b` (by computedDate, then updatedAt). */
+function newerSnapshot(a: any, b: any): boolean {
+  const aDate = a.computedDate ?? a.computed_date ?? "";
+  const bDate = b.computedDate ?? b.computed_date ?? "";
+  if (aDate !== bDate) return aDate > bDate;
+  const aUpd = a.updatedAt ?? a.updated_at ?? "";
+  const bUpd = b.updatedAt ?? b.updated_at ?? "";
+  return aUpd > bUpd;
+}
+
+function daysRemaining(dateStr: string): number {
+  const d = new Date(dateStr);
+  const now = new Date();
+  return Math.ceil((d.getTime() - now.getTime()) / 86400000);
+}
+
+function fmtShortDate(d: string): string {
+  return new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
 // --------------- Edit pricing (recommendation stays read-only) ---------------
@@ -1273,37 +1755,9 @@ function EditPricingForm({
   );
 }
 
-// --------------- Cover gauge (Days cover cell) ---------------
-
-function CoverGauge({ days, leadTime }: { days: number; leadTime: number }) {
-  const ratio = days === Infinity ? 999 : days / Math.max(leadTime, 1);
-  const pct = Math.min((ratio / 4) * 100, 100);
-  const color =
-    ratio < 1
-      ? "bg-rose-500"
-      : ratio < 1.5
-        ? "bg-amber-500"
-        : ratio < 3
-          ? "bg-emerald-500"
-          : "bg-emerald-500";
-
-  return (
-    <div className="flex flex-col items-end">
-      <div className="font-mono text-sm font-semibold tabular-nums">
-        {days === Infinity ? "∞" : `${days}d`}
-      </div>
-      <div className="text-[9px] text-muted-foreground/60 mb-1">lead {leadTime}d</div>
-      <div className="w-16 h-1.5 rounded-full bg-muted overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-500 ${color}`}
-          style={{ width: `${Math.min(pct, 100)}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-// --------------- Expanded Detail (the star of the show) ---------------
+/* ═══════════════════════════════════════════════════════════════════════
+   Expanded Detail (the star of the show)
+   ═══════════════════════════════════════════════════════════════════════ */
 
 function ExpandedForecastDetail({
   product,
@@ -1734,7 +2188,13 @@ function ExpandedForecastDetail({
                           <div className="text-[9px] text-muted-foreground flex items-center justify-end gap-1">
                             Recommended
                             <span
-                              className={`inline-flex items-center rounded-full px-1.5 py-px text-[8px] font-bold ${pricingStrategy.recommendedPriceChangePct > 0 ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" : pricingStrategy.recommendedPriceChangePct < 0 ? "bg-rose-500/15 text-rose-600 dark:text-rose-400" : "bg-muted/40 text-muted-foreground"}`}
+                              className={`inline-flex items-center rounded-full px-1.5 py-px text-[8px] font-bold ${
+                                pricingStrategy.recommendedPriceChangePct > 0
+                                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                  : pricingStrategy.recommendedPriceChangePct < 0
+                                    ? "bg-rose-500/15 text-rose-600 dark:text-rose-400"
+                                    : "bg-muted/40 text-muted-foreground"
+                              }`}
                             >
                               {pricingStrategy.recommendedPriceChangePct > 0 ? "+" : ""}
                               {pricingStrategy.recommendedPriceChangePct}%
@@ -1856,57 +2316,6 @@ function ExpandedForecastDetail({
         </div>
       </div>
     </div>
-  );
-}
-function StatTile({
-  label,
-  value,
-  tone,
-  icon,
-}: {
-  label: string;
-  value: string | number;
-  tone?: "warning" | "destructive";
-  icon?: React.ReactNode;
-}) {
-  const t =
-    tone === "warning"
-      ? "text-amber-500"
-      : tone === "destructive"
-        ? "text-rose-500"
-        : "text-foreground";
-  return (
-    <div className="rounded-xl border border-border/60 bg-card p-4 hover:shadow-sm transition-shadow">
-      <div className="flex items-center justify-between">
-        <div className="text-[9px] uppercase tracking-widest text-muted-foreground">{label}</div>
-        {icon}
-      </div>
-      <div className={`mt-1 font-display text-2xl tabular-nums ${t}`}>{value}</div>
-    </div>
-  );
-}
-
-function Pill({
-  children,
-  tone,
-}: {
-  children: React.ReactNode;
-  tone: "success" | "warning" | "destructive" | "primary";
-}) {
-  const s =
-    tone === "success"
-      ? "bg-emerald-500/10 text-emerald-600 border-emerald-500/30"
-      : tone === "warning"
-        ? "bg-amber-500/10 text-amber-600 border-amber-500/30"
-        : tone === "primary"
-          ? "bg-primary/10 text-primary border-primary/30"
-          : "bg-rose-500/10 text-rose-600 border-rose-500/30";
-  return (
-    <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-widest font-semibold ${s}`}
-    >
-      {children}
-    </span>
   );
 }
 
