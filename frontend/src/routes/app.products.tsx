@@ -5,6 +5,8 @@ import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { ProductThumb } from "@/components/product-thumb";
+import { useSignedImageUrl, s3KeyFromUrl } from "@/lib/s3-image";
 import {
   Plus,
   X,
@@ -350,17 +352,7 @@ function ProductsPage() {
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3">
                           <div className="flex items-center gap-2.5">
-                            {p.image_url ? (
-                              <img
-                                src={p.image_url}
-                                alt={p.name}
-                                className="h-9 w-9 shrink-0 rounded-lg border border-border object-cover shadow-sm"
-                              />
-                            ) : (
-                              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg border border-border/60 bg-muted/60 text-muted-foreground">
-                                <Package className="h-4 w-4" />
-                              </span>
-                            )}
+                            <ProductThumb imageUrl={p.image_url} name={p.name} />
                             <span className="font-mono text-xs">{p.sku}</span>
                           </div>
                         </td>
@@ -1039,6 +1031,7 @@ function ImageField({
 }) {
   const [busy, setBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const signed = useSignedImageUrl(value);
 
   const upload = async (files: FileList | null) => {
     if (!files || !files[0]) return;
@@ -1083,11 +1076,11 @@ function ImageField({
 
   const remove = async () => {
     // Best-effort delete of the S3 object (only when it came from our uploader).
-    const m = value.match(/amazonaws\.com\/(.+)$/);
-    if (m) {
+    const key = s3KeyFromUrl(value);
+    if (key) {
       try {
         const token = localStorage.getItem("auth_token");
-        await fetch(`${API_URL}/upload/${encodeURIComponent(m[1])}`, {
+        await fetch(`${API_URL}/upload/${encodeURIComponent(key)}`, {
           method: "DELETE",
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
@@ -1100,10 +1093,10 @@ function ImageField({
 
   return (
     <div className="flex items-start gap-3">
-      {value ? (
+      {value && signed ? (
         <div className="relative">
           <img
-            src={value}
+            src={signed}
             alt="Product"
             className="h-20 w-20 rounded-lg border border-border object-cover"
           />

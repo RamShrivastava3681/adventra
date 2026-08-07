@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
+import { useSignedImageUrl } from "@/lib/s3-image";
 import { bucketMovementsByMonth, currentMonthBucket, forecastSKU, MONTH_NAMES, computeVelocityByCategory, computePricingStrategy, recomputeTimeline, type ForecastResult, type CalculationBreakdown, type MomentumTag, type VelocityTag, type PricingStrategyResult, type CategoryVelocityInput } from "@/lib/forecast-engine";
 import {
   TrendingUp, TrendingDown, AlertTriangle, Package, Search, BarChart3, RefreshCw,
@@ -591,6 +592,7 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, defaultM
 }) {
   const nextMonthQty = f.forecast[0]?.qty ?? 0;
   const next6Total = f.forecast.reduce((a, b) => a + b.qty, 0);
+  const imgSrc = useSignedImageUrl(product.image_url);
 
   // Velocity (category-based) icons & tones
   const vIcon = velocityTag === "fast_mover" ? <TrendingUp className="h-3 w-3" />
@@ -631,9 +633,9 @@ function ForecastRow({ product, stock, f, velocityTag, pricingStrategy, defaultM
         {/* SKU / Name */}
         <td className="px-5 py-3.5">
           <div className="flex items-center gap-3">
-            {product.image_url ? (
+            {product.image_url && imgSrc ? (
               <img
-                src={product.image_url}
+                src={imgSrc}
                 alt={product.name}
                 className={`h-9 w-9 shrink-0 rounded-lg border object-cover ${
                   isCritical ? "border-rose-300 dark:border-rose-800" : isWarning ? "border-amber-300 dark:border-amber-800" : "border-border"

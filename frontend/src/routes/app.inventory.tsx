@@ -5,6 +5,7 @@ import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { ProductThumb } from "@/components/product-thumb";
 import {
   Plus,
   X,
@@ -263,17 +264,12 @@ function InventoryPage() {
                     <tr key={`${b.sku ?? b.item}`} className="border-b border-border/60">
                       <td className="px-5 py-2.5">
                         <div className="flex items-center gap-2.5">
-                          {b.productId && productImages.get(b.productId) ? (
-                            <img
-                              src={productImages.get(b.productId)!}
-                              alt={b.item}
-                              className="h-8 w-8 shrink-0 rounded-md border border-border object-cover"
-                            />
-                          ) : (
-                            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md border border-border/60 bg-muted/60 text-muted-foreground">
-                              <Package className="h-3.5 w-3.5" />
-                            </span>
-                          )}
+                          <ProductThumb
+                            imageUrl={b.productId ? productImages.get(b.productId) : null}
+                            name={b.item}
+                            size="sm"
+                            rounded="md"
+                          />
                           <span>{b.item}</span>
                         </div>
                       </td>
@@ -378,17 +374,11 @@ function InventoryPage() {
                       </td>
                       <td className="px-5 py-3">
                         <div className="flex items-center gap-2.5">
-                          {m.product_id && productImages.get(m.product_id) ? (
-                            <img
-                              src={productImages.get(m.product_id)!}
-                              alt={m.item_name}
-                              className="h-9 w-9 shrink-0 rounded-md border border-border object-cover"
-                            />
-                          ) : (
-                            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md border border-border/60 bg-muted/60 text-muted-foreground">
-                              <Package className="h-4 w-4" />
-                            </span>
-                          )}
+                          <ProductThumb
+                            imageUrl={m.product_id ? productImages.get(m.product_id) : null}
+                            name={m.item_name}
+                            rounded="md"
+                          />
                           <div>
                             <div>{m.item_name}</div>
                             {m.sku && (
