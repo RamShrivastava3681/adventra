@@ -9,6 +9,13 @@ export const Route = createFileRoute("/app/quotation/$quotationId")({
   component: QuotationPage,
 });
 
+// Customer's decision recorded from the emailed approval link (Approve/Reject).
+const DEBTOR_LABELS: Record<string, string> = {
+  pending: "Awaiting customer response",
+  approved: "Approved by customer",
+  rejected: "Rejected by customer",
+};
+
 function QuotationPage() {
   const { quotationId } = Route.useParams();
   const qc = useQueryClient();
@@ -48,7 +55,30 @@ function QuotationPage() {
           >
             <ArrowLeft className="h-4 w-4" /> Back to quotations
           </Link>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {d?.debtor_approval_status && (
+              <span
+                className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium ${
+                  d.debtor_approval_status === "approved"
+                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600"
+                    : d.debtor_approval_status === "rejected"
+                      ? "border-destructive/40 bg-destructive/10 text-destructive"
+                      : "border-violet-500/40 bg-violet-500/10 text-violet-600"
+                }`}
+                title={
+                  d.debtor_approval_comments
+                    ? `Customer comments: ${d.debtor_approval_comments}`
+                    : "The customer's response to the emailed quotation"
+                }
+              >
+                {d.debtor_approval_status === "approved"
+                  ? "✅"
+                  : d.debtor_approval_status === "rejected"
+                    ? "❌"
+                    : "⏳"}{" "}
+                {DEBTOR_LABELS[d.debtor_approval_status] ?? d.debtor_approval_status}
+              </span>
+            )}
             {canSend && (
               <button
                 onClick={() => sendToDebtor.mutate()}
@@ -170,16 +200,11 @@ function QuotationPage() {
                       <td className="py-2 pr-2 text-right">{l.quantity.toLocaleString()}</td>
                       <td className="py-2 pr-2 text-right">{l.unit}</td>
                       <td className="py-2 pr-2 text-right">
-                        {l.updated_unit_price != null ? (
-                          <>
-                            <span className="text-slate-400 line-through">
-                              {fmtMoney(l.unit_price)}
-                            </span>{" "}
-                            <span className="font-semibold">{fmtMoney(l.updated_unit_price)}</span>
-                          </>
-                        ) : (
-                          fmtMoney(l.unit_price)
-                        )}
+                        <span className="font-semibold">
+                          {l.updated_unit_price != null
+                            ? fmtMoney(l.updated_unit_price)
+                            : fmtMoney(l.unit_price)}
+                        </span>
                       </td>
                       <td className="py-2 pr-2 text-right">{discountLabel}</td>
                       <td className="py-2 pr-2 text-right">{l.gst_rate ?? "—"}</td>

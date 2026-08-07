@@ -11,7 +11,6 @@ import {
   ClipboardList,
   PackageCheck,
   PackageOpen,
-  CheckCircle2,
   Ban,
   Trash2,
   Pencil,
@@ -759,6 +758,13 @@ function SOModal({
                   label={SO_STATUS_LABELS[status] ?? status}
                   tone={SO_STATUS_TONES[status]}
                 />
+                {so?.debtor_approval_status && (
+                  <StatusPill
+                    status={so.debtor_approval_status}
+                    label={SO_DEBTOR_LABELS[so.debtor_approval_status] ?? so.debtor_approval_status}
+                    tone={SO_DEBTOR_TONES[so.debtor_approval_status]}
+                  />
+                )}
               </div>
             )}
           </div>
@@ -1129,15 +1135,15 @@ function SOModal({
           {/* Status actions + save */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
             <div className="flex flex-wrap gap-2">
-              {isEdit && canWrite && status === "draft" && (
-                <button
-                  type="button"
-                  onClick={() => changeStatus("confirmed")}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Confirm order
-                </button>
-              )}
+              {isEdit &&
+                canWrite &&
+                status === "draft" &&
+                so?.debtor_approval_status !== "rejected" && (
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-violet-600">
+                    <Mail className="h-3 w-3" /> The customer confirms via the emailed link
+                    {so?.debtor_approval_email ? ` (sent to ${so.debtor_approval_email})` : ""}
+                  </span>
+                )}
               {isEdit && !["cancelled", "fully_dispatched"].includes(status) && (
                 <button
                   type="button"

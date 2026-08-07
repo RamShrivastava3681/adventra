@@ -520,6 +520,9 @@ function QModal({
   const isEdit = !!q;
   const status = q?.status ?? "draft";
   const approval = q?.approval_status ?? null;
+  // Guards the status-change actions ("Send to customer" now also emails the
+  // PDF, which takes a moment) against double-clicks sending duplicate emails.
+  const [statusBusy, setStatusBusy] = useState(false);
   // Lines (and the updated prices) can be edited while the quotation is a
   // draft or sent but not yet submitted for approval, or after the checker has
   // rejected the prices and sent it back. Once an approval is in flight — or
@@ -717,14 +720,31 @@ function QModal({
   });
 
   const changeStatus = async (next: string, label: string) => {
-    if (!q) return;
+    if (!q || statusBusy) return;
+    setStatusBusy(true);
     try {
       await api.quotations.update(q.id, { status: next });
       onSaved();
-      toast.success(label);
+      // "Send to customer" must also email the quotation PDF to the customer
+      // (the status change alone never sends anything). Best-effort: the
+      // quotation is still marked as sent even if the email can't go out.
+      if (next === "sent") {
+        try {
+          const res = (await api.quotations.sendToDebtor(q.id)) as { sentTo?: string };
+          toast.success(`${label} — PDF emailed to ${res?.sentTo ?? "the customer"}`);
+        } catch (e) {
+          toast.warning(
+            `${label}, but the email could not be sent: ${e instanceof Error ? e.message : "unknown error"} — you can retry with "Send to debtor"`,
+          );
+        }
+      } else {
+        toast.success(label);
+      }
       onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setStatusBusy(false);
     }
   };
 
@@ -788,6 +808,13 @@ function QModal({
                     status={approval}
                     label={Q_APPROVAL_LABELS[approval] ?? approval}
                     tone={Q_APPROVAL_TONES[approval]}
+                  />
+                )}
+                {q?.debtor_approval_status && (
+                  <StatusPill
+                    status={q.debtor_approval_status}
+                    label={Q_DEBTOR_LABELS[q.debtor_approval_status] ?? q.debtor_approval_status}
+                    tone={Q_DEBTOR_TONES[q.debtor_approval_status]}
                   />
                 )}
               </div>
@@ -1173,9 +1200,15 @@ function QModal({
                   <button
                     type="button"
                     onClick={() => changeStatus("sent", "Quotation sent")}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-blue-500/50 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-500/10"
+                    disabled={statusBusy}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-blue-500/50 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-500/10 disabled:opacity-50"
                   >
-                    <Send className="h-3.5 w-3.5" /> Send to customer
+                    {statusBusy ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Send className="h-3.5 w-3.5" />
+                    )}
+                    Send to customer
                   </button>
                 )}
               {/* Maker → checker price approval. Available while the quote can
@@ -1199,20 +1232,13 @@ function QModal({
                 approval !== "pending_review" &&
                 approval !== "approved" && (
                   <>
-                    <button
-                      type="button"
-                      onClick={() => changeStatus("accepted", "Quotation accepted")}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-success/50 px-3 py-1.5 text-xs font-medium text-success hover:bg-success/10"
-                    >
-                      <CheckCircle2 className="h-3.5 w-3.5" /> Mark accepted
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => changeStatus("rejected", "Quotation rejected")}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
-                    >
-                      <Ban className="h-3.5 w-3.5" /> Mark rejected
-                    </button>
+                    {/* Accept/reject is decided by the customer via the emailed
+                        approval link — never from this panel. The response is
+                        fetched back and shown as the debtor status pill. */}
+                    <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-violet-600">
+                      <Mail className="h-3 w-3" /> The customer accepts or rejects via the emailed
+                      link{q?.debtor_approval_email ? ` (sent to ${q.debtor_approval_email})` : ""}
+                    </span>
                     <button
                       type="button"
                       onClick={() => changeStatus("expired", "Quotation marked expired")}
