@@ -1,8 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api-client";
-import { ArrowLeft, Printer } from "lucide-react";
+import { ArrowLeft, Printer, Mail, Loader2 } from "lucide-react";
 import { fmtMoney, fmtDate } from "@/components/ledger-ui";
+import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/quotation/$quotationId")({
   component: QuotationPage,
@@ -10,11 +11,29 @@ export const Route = createFileRoute("/app/quotation/$quotationId")({
 
 function QuotationPage() {
   const { quotationId } = Route.useParams();
+  const qc = useQueryClient();
   const q = useQuery({
     queryKey: ["quotation", quotationId],
     queryFn: async () => api.quotations.get(quotationId),
   });
   const d = q.data as any;
+
+  // Email the quotation PDF to the debtor for their approval.
+  const sendToDebtor = useMutation({
+    mutationFn: async () => {
+      const res = (await api.quotations.sendToDebtor(quotationId)) as any;
+      return res?.sentTo ?? "the debtor";
+    },
+    onSuccess: (sentTo) => {
+      qc.invalidateQueries({ queryKey: ["quotation", quotationId] });
+      qc.invalidateQueries({ queryKey: ["quotations"] });
+      toast.success(`Quotation PDF sent to ${sentTo}`);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const canSend =
+    d && ["draft", "sent", "accepted", "rejected"].includes(d.status);
 
   const totalQty = (d?.lines ?? []).reduce((s: number, l: any) => s + l.quantity, 0);
 
@@ -29,12 +48,29 @@ function QuotationPage() {
           >
             <ArrowLeft className="h-4 w-4" /> Back to quotations
           </Link>
-          <button
-            onClick={() => window.print()}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-          >
-            <Printer className="h-4 w-4" /> Print / Save PDF
-          </button>
+          <div className="flex items-center gap-2">
+            {canSend && (
+              <button
+                onClick={() => sendToDebtor.mutate()}
+                disabled={sendToDebtor.isPending}
+                className="inline-flex items-center gap-2 rounded-md border border-violet-500/40 px-4 py-2 text-sm font-medium text-violet-600 hover:bg-violet-500/10 disabled:opacity-50"
+                title="Email the quotation PDF to the debtor for approval"
+              >
+                {sendToDebtor.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Mail className="h-4 w-4" />
+                )}
+                Send to debtor
+              </button>
+            )}
+            <button
+              onClick={() => window.print()}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            >
+              <Printer className="h-4 w-4" /> Print / Save PDF
+            </button>
+          </div>
         </div>
       </div>
 

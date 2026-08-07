@@ -69,6 +69,18 @@ export interface GoodsSalesOrder {
    * field is the fallback when dispatch quantities are fully revoked.
    */
   manualStatus: string;
+  /** Debtor (customer) approval via the emailed PDF. null = never sent. */
+  debtorApprovalStatus: "pending" | "approved" | "rejected" | null;
+  /** One-time secure token embedded in the approval link — nulled on response. */
+  debtorApprovalToken: string | null;
+  /** When the "send to debtor" email with the PDF was dispatched. */
+  debtorApprovalSentAt: string | null;
+  /** When the debtor clicked approve/reject. */
+  debtorApprovalRespondedAt: string | null;
+  /** Optional comments left by the debtor (usually with a rejection). */
+  debtorApprovalComments: string | null;
+  /** The email address the PDF was sent to. */
+  debtorApprovalEmail: string | null;
   lines: GoodsSalesOrderLine[];
   totalQty: number;
   subtotal: number;
@@ -179,6 +191,12 @@ export async function create(data: Partial<GoodsSalesOrder> & { clientId: string
     salespersonName: data.salespersonName || null,
     linkedQuotationId: data.linkedQuotationId || null,
     linkedQuotationNumber: data.linkedQuotationNumber || null,
+    debtorApprovalStatus: (data.debtorApprovalStatus as any) || null,
+    debtorApprovalToken: data.debtorApprovalToken || null,
+    debtorApprovalSentAt: data.debtorApprovalSentAt || null,
+    debtorApprovalRespondedAt: data.debtorApprovalRespondedAt || null,
+    debtorApprovalComments: data.debtorApprovalComments || null,
+    debtorApprovalEmail: data.debtorApprovalEmail || null,
     paymentTerms: data.paymentTerms || null,
     expectedDispatchDate: data.expectedDispatchDate || null,
     expectedDeliveryDate: data.expectedDeliveryDate || null,
@@ -199,10 +217,12 @@ export async function update(id: string, updates: Partial<GoodsSalesOrder>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
   const allowed = [
     "soNumber", "orderDate", "customerId", "customerName", "contactPerson", "billingAddress",
-    "deliveryAddress", "salespersonId", "salespersonName", "linkedQuotationId",
+    "deliveryAddress",    "salespersonId", "salespersonName", "linkedQuotationId",
     "linkedQuotationNumber", "paymentTerms", "expectedDispatchDate", "expectedDeliveryDate",
     "notes", "documents", "status", "manualStatus",
     "lines", "totalQty", "subtotal", "totalDiscount", "gstTotal", "freight", "grandTotal",
+    "debtorApprovalStatus", "debtorApprovalToken", "debtorApprovalSentAt",
+    "debtorApprovalRespondedAt", "debtorApprovalComments", "debtorApprovalEmail",
   ];
   for (const k of allowed) {
     if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k];

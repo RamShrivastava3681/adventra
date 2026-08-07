@@ -74,6 +74,18 @@ export interface Quotation {
   linkedGoodsSoId: string | null;
   /** Maker–checker price approval. null = not submitted. */
   approvalStatus: string | null;
+  /** Debtor (customer) approval via the emailed PDF. null = never sent. */
+  debtorApprovalStatus: "pending" | "approved" | "rejected" | null;
+  /** One-time secure token embedded in the approval link — nulled on response. */
+  debtorApprovalToken: string | null;
+  /** When the "send to debtor" email with the PDF was dispatched. */
+  debtorApprovalSentAt: string | null;
+  /** When the debtor clicked approve/reject. */
+  debtorApprovalRespondedAt: string | null;
+  /** Optional comments left by the debtor (usually with a rejection). */
+  debtorApprovalComments: string | null;
+  /** The email address the PDF was sent to. */
+  debtorApprovalEmail: string | null;
   approvalRequestedAt: string | null;
   approvalReviewedBy: string | null;
   approvalReviewedAt: string | null;
@@ -201,6 +213,12 @@ export async function create(data: Partial<Quotation> & { clientId: string }) {
     ...totals,
     linkedGoodsSoId: data.linkedGoodsSoId || null,
     approvalStatus: data.approvalStatus || null,
+    debtorApprovalStatus: (data.debtorApprovalStatus as any) || null,
+    debtorApprovalToken: data.debtorApprovalToken || null,
+    debtorApprovalSentAt: data.debtorApprovalSentAt || null,
+    debtorApprovalRespondedAt: data.debtorApprovalRespondedAt || null,
+    debtorApprovalComments: data.debtorApprovalComments || null,
+    debtorApprovalEmail: data.debtorApprovalEmail || null,
     approvalRequestedAt: data.approvalRequestedAt || null,
     approvalReviewedBy: data.approvalReviewedBy || null,
     approvalReviewedAt: data.approvalReviewedAt || null,
@@ -221,6 +239,8 @@ export async function update(id: string, updates: Partial<Quotation>) {
     "lines", "subtotal", "totalDiscount", "gstTotal", "freight", "grandTotal", "linkedGoodsSoId",
     "approvalStatus", "approvalRequestedAt", "approvalReviewedBy", "approvalReviewedAt",
     "approvalComments",
+    "debtorApprovalStatus", "debtorApprovalToken", "debtorApprovalSentAt",
+    "debtorApprovalRespondedAt", "debtorApprovalComments", "debtorApprovalEmail",
   ];
   for (const k of allowed) {
     if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k];

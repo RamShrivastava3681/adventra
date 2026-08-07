@@ -1941,6 +1941,266 @@ router.post("/quotations/:id/convert", authMiddleware, async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
+// ===================== DEBTOR PDF APPROVALS =====================
+// Send a quotation / sales order PDF to the debtor by email with an
+// Approve/Reject link. The debtor's decision is recorded on the document and
+// reflected in the Quotations / Sales Orders tabs (accepted / confirmed).
+// The public /approvals/:token endpoints are token-authenticated (rate-limited,
+// no login) and one-time: the token is cleared once the debtor responds.
+
+/** Locate a document by its one-time debtor approval token. */
+async function findApprovalDoc(token: string): Promise<{ kind: "quotation" | "sales_order"; doc: any } | null> {
+  const [quotations, sos] = await Promise.all([
+    db.scanByType("Quotation"),
+    db.scanByType("GoodsSalesOrder"),
+  ]);
+  const q = (quotations as any[]).find((x) => x.debtorApprovalToken === token);
+  if (q) return { kind: "quotation", doc: q };
+  const so = (sos as any[]).find((x) => x.debtorApprovalToken === token);
+  if (so) return { kind: "sales_order", doc: so };
+  return null;
+}
+
+/** Resolve the client's company name + contact for the PDF and email branding. */
+async function resolveCompanyName(userId: string): Promise<{ name: string; contact: string | null }> {
+  try {
+    const client = await db.getItem(`USER#${userId}`);
+    if (client) {
+      return {
+        name: (client as any).companyName || (client as any).email || "Our Company",
+        contact: (client as any).email || null,
+      };
+    }
+  } catch { /* ignore */ }
+  return { name: "Our Company", contact: null };
+}
+
+/** Shared send-to-debtor logic: build PDF, email it, return the fresh token. */
+async function sendDocumentToDebtor(
+  kind: "quotation" | "sales_order",
+  doc: any,
+  clientId: string,
+): Promise<{ token: string; email: string; filename: string }> {
+  const debtor = doc.customerId ? await Debtor.get(doc.customerId) : null;
+  const email = debtor?.contactEmail?.trim() || null;
+  if (!email) {
+    throw new Error(
+      `No contact email on file for "${debtor?.name || "the customer"}" — add one in the Debtors tab first`,
+    );
+  }
+  const { isEmailConfigured } = await import("../email.js");
+  if (!isEmailConfigured()) {
+    throw new Error("SMTP is not configured — set SMTP_HOST / SMTP_USER / SMTP_PASS to send approval emails");
+  }
+
+  const company = await resolveCompanyName(clientId);
+  const { quotationToPdfData, salesOrderToPdfData, buildDocumentPdf } = await import("../lib/document-pdf.js");
+  const data =
+    kind === "quotation"
+      ? quotationToPdfData(doc, company.name, company.contact)
+      : salesOrderToPdfData(doc, company.name, company.contact);
+  const pdf = await buildDocumentPdf(data);
+
+  const token = uuid();
+  const approvalUrl = `${config.appUrl}/approve/${token}`;
+  const { sendDocumentApprovalEmail } = await import("../email.js");
+  const sent = await sendDocumentApprovalEmail({
+    kind,
+    number: data.number,
+    grandTotal: data.grandTotal,
+    validUntil: data.validUntil,
+    customerName: data.customerName || debtor?.name || "Customer",
+    customerEmail: email,
+    companyName: company.name,
+    pdfBuffer: pdf,
+    pdfFilename: `${data.number.replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`,
+    approvalUrl,
+  });
+  if (!sent) throw new Error("Failed to send the email — check the SMTP configuration");
+  return { token, email, filename: `${data.number.replace(/[^A-Za-z0-9-_]/g, "_")}.pdf` };
+}
+
+/** POST /quotations/:id/send-to-debtor — email the quotation PDF for approval. */
+router.post("/quotations/:id/send-to-debtor", authMiddleware, async (req, res) => {
+  try {
+    const q = await Quotation.get(req.params.id);
+    if (!q) return res.status(404).json({ error: "Quotation not found" });
+    if (!["draft", "sent", "accepted", "rejected"].includes(q.status)) {
+      return res.status(400).json({
+        error:
+          q.status === "converted_to_so"
+            ? "This quotation is already converted to a sales order"
+            : "Only draft, sent or accepted quotations can be sent to the debtor",
+      });
+    }
+    const sent = await sendDocumentToDebtor("quotation", q, req.user!.userId);
+    const updated = await Quotation.update(q.id, {
+      debtorApprovalStatus: "pending",
+      debtorApprovalToken: sent.token,
+      debtorApprovalSentAt: db.nowISO(),
+      debtorApprovalRespondedAt: null,
+      debtorApprovalComments: null,
+      debtorApprovalEmail: sent.email,
+    });
+    res.json({ success: true, sentTo: sent.email, document: updated });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/** POST /goods-sales-orders/:id/send-to-debtor — email the SO PDF for approval. */
+router.post("/goods-sales-orders/:id/send-to-debtor", authMiddleware, async (req, res) => {
+  try {
+    const so = await GoodsSO.get(req.params.id);
+    if (!so) return res.status(404).json({ error: "Sales order not found" });
+    if (!["draft", "confirmed"].includes(so.status)) {
+      return res.status(400).json({
+        error: "Only draft or confirmed sales orders can be sent to the debtor",
+      });
+    }
+    const sent = await sendDocumentToDebtor("sales_order", so, req.user!.userId);
+    const updated = await GoodsSO.update(so.id, {
+      debtorApprovalStatus: "pending",
+      debtorApprovalToken: sent.token,
+      debtorApprovalSentAt: db.nowISO(),
+      debtorApprovalRespondedAt: null,
+      debtorApprovalComments: null,
+      debtorApprovalEmail: sent.email,
+    });
+    res.json({ success: true, sentTo: sent.email, document: updated });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * Whitelisted summary of a document for the public debtor page — never expose
+ * internal fields (clientId, salespersonId, approval reviewers, tokens…).
+ */
+function publicApprovalSummary(kind: "quotation" | "sales_order", doc: any) {
+  const base = {
+    id: doc.id,
+    status: doc.status,
+    customerName: doc.customerName ?? null,
+    contactPerson: doc.contactPerson ?? null,
+    billingAddress: doc.billingAddress ?? null,
+    deliveryAddress: doc.deliveryAddress ?? null,
+    paymentTerms: doc.paymentTerms ?? null,
+    notes: doc.notes ?? null,
+    lines: (doc.lines ?? []).map((l: any) => ({
+      productId: l.productId,
+      sku: l.sku ?? null,
+      name: l.name ?? "Item",
+      unit: l.unit ?? "unit",
+      quantity: Number(l.quantity) || 0,
+      orderedQty: Number(l.orderedQty) || 0,
+      unitPrice: Number(l.unitPrice) || 0,
+      updatedUnitPrice: l.updatedUnitPrice ?? null,
+      discountType: l.discountType ?? null,
+      discountValue: l.discountValue ?? null,
+      discountPct: l.discountPct ?? null,
+      gstRate: l.gstRate ?? null,
+      lineTotal: Number(l.lineTotal) || 0,
+    })),
+    subtotal: Number(doc.subtotal) || 0,
+    totalDiscount: Number(doc.totalDiscount) || 0,
+    gstTotal: Number(doc.gstTotal) || 0,
+    freight: Number(doc.freight) || 0,
+    grandTotal: Number(doc.grandTotal) || 0,
+    debtorApprovalStatus: doc.debtorApprovalStatus ?? null,
+    debtorApprovalComments: doc.debtorApprovalComments ?? null,
+  };
+  return kind === "quotation"
+    ? {
+        ...base,
+        quotationNumber: doc.quotationNumber,
+        quotationDate: doc.quotationDate,
+        validUntil: doc.validUntil,
+      }
+    : {
+        ...base,
+        soNumber: doc.soNumber,
+        orderDate: doc.orderDate,
+        expectedDeliveryDate: doc.expectedDeliveryDate,
+      };
+}
+
+/** GET /approvals/:token — public, one-time token lookup for the debtor page. */
+router.get("/approvals/:token", publicTokenLimiter, async (req, res) => {
+  try {
+    const found = await findApprovalDoc(req.params.token);
+    if (!found) return res.status(404).json({ error: "Not found" });
+    const debtor = found.doc.customerId ? await Debtor.get(found.doc.customerId) : null;
+    res.json({
+      kind: found.kind,
+      document: publicApprovalSummary(found.kind, found.doc),
+      debtor: debtor
+        ? { name: debtor.name, contactName: debtor.contactName, contactEmail: debtor.contactEmail }
+        : null,
+    });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/** POST /approvals/:token/respond — record the debtor's decision (one-time, atomic). */
+router.post("/approvals/:token/respond", publicTokenLimiter, async (req, res) => {
+  try {
+    const { decision, comments } = req.body || {};
+    if (!["approved", "rejected"].includes(decision)) {
+      return res.status(400).json({ error: "decision must be 'approved' or 'rejected'" });
+    }
+    if (comments !== undefined && (typeof comments !== "string" || comments.length > 2000)) {
+      return res.status(400).json({ error: "Comments are too long" });
+    }
+    const found = await findApprovalDoc(req.params.token);
+    if (!found) {
+      return res.status(404).json({ error: "This approval link is invalid or has already been used" });
+    }
+    const { kind, doc } = found;
+
+    // Never clobber a document that has moved past the sendable state — e.g. a
+    // quotation that was already converted to an SO, or an SO that is already
+    // dispatched/cancelled. The debtor's decision is still recorded; the
+    // lifecycle status stays untouched.
+    const locked =
+      kind === "quotation"
+        ? ["converted_to_so", "expired"].includes(doc.status)
+        : ["partially_dispatched", "fully_dispatched", "cancelled"].includes(doc.status);
+
+    const patch: Record<string, any> = {
+      debtorApprovalStatus: decision,
+      debtorApprovalRespondedAt: db.nowISO(),
+      debtorApprovalComments: comments || null,
+      debtorApprovalToken: null,
+    };
+    if (!locked) {
+      patch.status =
+        kind === "quotation"
+          ? decision === "approved"
+            ? "accepted"
+            : "rejected"
+          : decision === "approved"
+            ? "confirmed"
+            : "draft";
+      if (kind === "sales_order") patch.manualStatus = patch.status;
+    }
+
+    // Atomic claim: the token must still match, so exactly one concurrent
+    // response wins — the loser gets a 404 (link already used).
+    const pk = kind === "quotation" ? `QUOTATION#${doc.id}` : `GOODS_SO#${doc.id}`;
+    const claimed = await db.updateItemIf(
+      pk,
+      pk,
+      patch,
+      "debtorApprovalToken = :tok",
+      { ":tok": req.params.token },
+    );
+    if (!claimed) {
+      return res.status(404).json({ error: "This approval link is invalid or has already been used" });
+    }
+    res.json({ success: true, decision, status: claimed.status ?? doc.status });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
 // ===================== GOODS DISPATCHES (sales-side of GRN) =====================
 // Lifecycle: draft (no stock) → confirm (DEBITS stock with the dispatched
 // quantity, folds dispatched qty into the SO) → cancelled (reversing credit

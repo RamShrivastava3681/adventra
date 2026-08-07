@@ -179,6 +179,7 @@ const api = {
     update: (id: string, data: any) => api.put<any>(`/quotations/${id}`, data),
     delete: (id: string) => api.delete(`/quotations/${id}`),
     convert: (id: string) => api.post<any>(`/quotations/${id}/convert`, {}),
+    sendToDebtor: (id: string) => api.post<any>(`/quotations/${id}/send-to-debtor`, {}),
   },
 
   // Goods Sales Orders (catalogue-backed customer orders — never touch stock)
@@ -187,6 +188,14 @@ const api = {
     create: (data: any) => api.post<any>("/goods-sales-orders", data),
     update: (id: string, data: any) => api.put<any>(`/goods-sales-orders/${id}`, data),
     delete: (id: string) => api.delete(`/goods-sales-orders/${id}`),
+    sendToDebtor: (id: string) => api.post<any>(`/goods-sales-orders/${id}/send-to-debtor`, {}),
+  },
+
+  // Debtor document approvals (public, token-authenticated — no login)
+  approvals: {
+    get: (token: string) => api.get<any>(`/approvals/${token}`),
+    respond: (token: string, decision: "approved" | "rejected", comments?: string) =>
+      api.post<any>(`/approvals/${token}/respond`, { decision, comments }),
   },
 
   // Goods Dispatches (dispatch notes — DEBIT inventory when confirmed)

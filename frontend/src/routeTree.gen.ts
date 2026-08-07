@@ -44,6 +44,7 @@ import { Route as AppSuppliersRouteImport } from './routes/app.suppliers'
 import { Route as AppTemplateRouteImport } from './routes/app.template'
 import { Route as AppVendorsRouteImport } from './routes/app.vendors'
 import { Route as AppWorkspaceRouteImport } from './routes/app.workspace'
+import { Route as ApproveTokenRouteImport } from './routes/approve.$token'
 import { Route as NoaTokenRouteImport } from './routes/noa.$token'
 import { Route as AppChallanDispatchIdRouteImport } from './routes/app.challan.$dispatchId'
 import { Route as AppInvoicePreviewIdRouteImport } from './routes/app.invoice-preview.$id'
@@ -225,6 +226,11 @@ const AppWorkspaceRoute = AppWorkspaceRouteImport.update({
   path: '/workspace',
   getParentRoute: () => AppRoute,
 } as any)
+const ApproveTokenRoute = ApproveTokenRouteImport.update({
+  id: '/approve/$token',
+  path: '/approve/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const NoaTokenRoute = NoaTokenRouteImport.update({
   id: '/noa/$token',
   path: '/noa/$token',
@@ -287,6 +293,7 @@ export interface FileRoutesByFullPath {
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
   '/app/workspace': typeof AppWorkspaceRoute
+  '/approve/$token': typeof ApproveTokenRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/challan/$dispatchId': typeof AppChallanDispatchIdRoute
   '/app/invoice-preview/$id': typeof AppInvoicePreviewIdRoute
@@ -329,6 +336,7 @@ export interface FileRoutesByTo {
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
   '/app/workspace': typeof AppWorkspaceRoute
+  '/approve/$token': typeof ApproveTokenRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/challan/$dispatchId': typeof AppChallanDispatchIdRoute
   '/app/invoice-preview/$id': typeof AppInvoicePreviewIdRoute
@@ -372,6 +380,7 @@ export interface FileRoutesById {
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
   '/app/workspace': typeof AppWorkspaceRoute
+  '/approve/$token': typeof ApproveTokenRoute
   '/noa/$token': typeof NoaTokenRoute
   '/app/challan/$dispatchId': typeof AppChallanDispatchIdRoute
   '/app/invoice-preview/$id': typeof AppInvoicePreviewIdRoute
@@ -416,6 +425,7 @@ export interface FileRouteTypes {
     | '/app/template'
     | '/app/vendors'
     | '/app/workspace'
+    | '/approve/$token'
     | '/noa/$token'
     | '/app/challan/$dispatchId'
     | '/app/invoice-preview/$id'
@@ -458,6 +468,7 @@ export interface FileRouteTypes {
     | '/app/template'
     | '/app/vendors'
     | '/app/workspace'
+    | '/approve/$token'
     | '/noa/$token'
     | '/app/challan/$dispatchId'
     | '/app/invoice-preview/$id'
@@ -500,6 +511,7 @@ export interface FileRouteTypes {
     | '/app/template'
     | '/app/vendors'
     | '/app/workspace'
+    | '/approve/$token'
     | '/noa/$token'
     | '/app/challan/$dispatchId'
     | '/app/invoice-preview/$id'
@@ -511,6 +523,7 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRoute: typeof AppRouteWithChildren
   AuthRoute: typeof AuthRoute
+  ApproveTokenRoute: typeof ApproveTokenRoute
   NoaTokenRoute: typeof NoaTokenRoute
 }
 
@@ -761,6 +774,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWorkspaceRouteImport
       parentRoute: typeof AppRoute
     }
+    '/approve/$token': {
+      id: '/approve/$token'
+      path: '/approve/$token'
+      fullPath: '/approve/$token'
+      preLoaderRoute: typeof ApproveTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/noa/$token': {
       id: '/noa/$token'
       path: '/noa/$token'
@@ -883,6 +903,7 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRoute: AppRouteWithChildren,
   AuthRoute: AuthRoute,
+  ApproveTokenRoute: ApproveTokenRoute,
   NoaTokenRoute: NoaTokenRoute,
 }
 export const routeTree = rootRouteImport

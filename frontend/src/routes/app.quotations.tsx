@@ -15,6 +15,7 @@ import {
   Trash2,
   Pencil,
   Printer,
+  Mail,
   ArrowRight,
   Clock4,
   CircleDollarSign,
@@ -74,6 +75,11 @@ type Q = {
   approval_reviewed_by: string | null;
   approval_reviewed_at: string | null;
   approval_comments: string | null;
+  debtor_approval_status: "pending" | "approved" | "rejected" | null;
+  debtor_approval_sent_at: string | null;
+  debtor_approval_responded_at: string | null;
+  debtor_approval_comments: string | null;
+  debtor_approval_email: string | null;
 };
 
 type CatalogueProduct = {
@@ -125,6 +131,19 @@ const Q_APPROVAL_LABELS: Record<string, string> = {
 
 const Q_APPROVAL_TONES: Record<string, string> = {
   pending_review: "bg-amber-500/10 text-amber-600 border-amber-500/30",
+  approved: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  rejected: "bg-destructive/10 text-destructive border-destructive/30",
+};
+
+// Debtor approval (PDF sent by email — Approve/Reject from the email link).
+const Q_DEBTOR_LABELS: Record<string, string> = {
+  pending: "Awaiting debtor",
+  approved: "Approved by debtor",
+  rejected: "Rejected by debtor",
+};
+
+const Q_DEBTOR_TONES: Record<string, string> = {
+  pending: "bg-violet-500/10 text-violet-600 border-violet-500/30",
   approved: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
   rejected: "bg-destructive/10 text-destructive border-destructive/30",
 };
@@ -195,6 +214,19 @@ function QuotationsPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["quotations"] });
       toast.success("Quotation deleted");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  // Email the quotation PDF to the debtor for their approval.
+  const sendToDebtor = useMutation({
+    mutationFn: async (id: string) => {
+      const res = (await api.quotations.sendToDebtor(id)) as any;
+      return res?.sentTo ?? "the debtor";
+    },
+    onSuccess: (sentTo) => {
+      qc.invalidateQueries({ queryKey: ["quotations"] });
+      toast.success(`Quotation PDF sent to ${sentTo}`);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -345,6 +377,18 @@ function QuotationsPage() {
                               />
                             </div>
                           )}
+                          {q.debtor_approval_status && (
+                            <div className="mt-1">
+                              <StatusPill
+                                status={q.debtor_approval_status}
+                                label={
+                                  Q_DEBTOR_LABELS[q.debtor_approval_status] ??
+                                  q.debtor_approval_status
+                                }
+                                tone={Q_DEBTOR_TONES[q.debtor_approval_status]}
+                              />
+                            </div>
+                          )}
                         </td>
                         <td className="px-5 py-3 text-right">
                           <div className="flex justify-end gap-1">
@@ -378,6 +422,22 @@ function QuotationsPage() {
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             )}
+                            {canWrite &&
+                              ["draft", "sent", "accepted", "rejected"].includes(q.status) && (
+                                <button
+                                  onClick={() => sendToDebtor.mutate(q.id)}
+                                  disabled={sendToDebtor.isPending}
+                                  className="inline-flex items-center gap-1 rounded-md border border-violet-500/40 px-2 py-1 text-[10px] text-violet-600 hover:bg-violet-500/10 disabled:opacity-50"
+                                  title="Email the quotation PDF to the debtor for approval"
+                                >
+                                  {sendToDebtor.isPending ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Mail className="h-3 w-3" />
+                                  )}
+                                  Send to debtor
+                                </button>
+                              )}
                             <Link
                               to="/app/quotation/$quotationId"
                               params={{ quotationId: q.id }}

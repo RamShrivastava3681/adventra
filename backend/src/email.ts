@@ -31,7 +31,7 @@ export function isEmailConfigured(): boolean {
 // HTML templates
 // ---------------------------------------------------------------------------
 
-function wrapHTML(body: string): string {
+function wrapHTML(body: string, title = "📋 Invoice Due Reminder"): string {
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -41,7 +41,7 @@ function wrapHTML(body: string): string {
       <!-- Header -->
       <tr><td style="background:#1e293b;padding:24px 32px;">
         <table width="100%"><tr>
-          <td><h1 style="margin:0;color:#ffffff;font-size:18px;font-weight:600;">📋 Invoice Due Reminder</h1></td>
+          <td><h1 style="margin:0;color:#ffffff;font-size:18px;font-weight:600;">${title}</h1></td>
           <td align="right">
             <span style="display:inline-block;background:rgba(255,255,255,0.15);border-radius:6px;padding:4px 12px;font-size:11px;color:#cbd5e1;">Insight Factor</span>
           </td>
@@ -125,6 +125,18 @@ function renderLineItems(items: Array<{ description?: string; quantity?: number;
         </tbody>
       </table>
     </div>`;
+}
+
+// ---------------------------------------------------------------------------
+// HTML escaping for user-influenced fields interpolated into templates
+// ---------------------------------------------------------------------------
+
+function esc(value: unknown): string {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 // ---------------------------------------------------------------------------
@@ -453,6 +465,109 @@ export async function sendDebtorReminder(params: {
     return true;
   } catch (err) {
     console.error(`  ❌ Failed to send debtor reminder for ${params.invoiceNumber}:`, err);
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Quotation / Sales Order PDF approval email (sent to the debtor)
+// ---------------------------------------------------------------------------
+
+/**
+ * Email a quotation or sales order PDF to the debtor with Approve / Reject
+ * buttons. The debtor's decision is recorded via the public approval page
+ * (linked by a one-time token) and reflected back in the app tabs.
+ */
+export async function sendDocumentApprovalEmail(params: {
+  kind: "quotation" | "sales_order";
+  number: string;
+  grandTotal: number;
+  validUntil: string | null;
+  customerName: string;
+  customerEmail: string;
+  companyName: string;
+  pdfBuffer: Buffer;
+  pdfFilename: string;
+  approvalUrl: string;
+}): Promise<boolean> {
+  if (!isEmailConfigured()) {
+    console.log(`  ⚠ Email not configured — skipping approval email for ${params.number}`);
+    return false;
+  }
+
+  const kindLabel = params.kind === "quotation" ? "Quotation" : "Sales Order";
+  const subject = `${kindLabel} ${params.number} from ${params.companyName} — please review and approve`;
+  const total = params.grandTotal.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const validLabel = params.kind === "quotation" ? "Valid until" : "Expected delivery";
+  const safe = {
+    number: esc(params.number),
+    companyName: esc(params.companyName),
+    customerName: esc(params.customerName),
+  };
+
+  const body = `
+    <div style="margin-bottom:20px;">
+      <div style="font-size:13px;color:#64748b;margin-bottom:4px;">${esc(kindLabel.toUpperCase())} FOR YOUR APPROVAL</div>
+      <div style="font-size:22px;font-weight:700;color:#1e293b;">${safe.number}</div>
+    </div>
+
+    <p style="font-size:14px;color:#475569;margin:0 0 16px;line-height:1.6;">
+      Dear ${safe.customerName},<br><br>
+      Please find attached the ${esc(kindLabel.toLowerCase())} from <strong>${safe.companyName}</strong>.
+      Review the details and confirm your acceptance — a PDF copy is attached to this email.
+    </p>
+
+    <table cellpadding="0" cellspacing="0" style="width:100%;">
+      ${invoiceTableRow(kindLabel + " #", safe.number)}
+      ${invoiceTableRow("Amount (grand total)", `<strong>$${total}</strong>`)}
+      ${params.validUntil ? invoiceTableRow(validLabel, params.validUntil) : ""}
+      ${invoiceTableRow("Issued by", safe.companyName)}
+    </table>
+
+    <div style="margin-top:24px;padding:16px;background:#f0fdf4;border-radius:8px;border:1px solid #bbf7d0;">
+      <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#15803d;">
+        ✅ Please review the attached PDF and confirm:
+      </p>
+      <div style="text-align:center;margin-top:12px;">
+        <a href="${params.approvalUrl}" style="display:inline-block;background:#059669;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:600;">
+          ✅ Approve ${kindLabel}
+        </a>
+        <a href="${params.approvalUrl}" style="display:inline-block;background:#ffffff;color:#dc2626;text-decoration:none;padding:11px 26px;border-radius:8px;font-size:14px;font-weight:600;border:2px solid #fca5a5;margin-left:8px;">
+          ✕ Reject
+        </a>
+      </div>
+      <p style="margin:12px 0 0;font-size:11px;color:#64748b;">
+        Both buttons open a secure page where you can review the document and approve or reject it.
+      </p>
+    </div>
+
+    <p style="margin-top:24px;font-size:12px;color:#94a3b8;">
+      If you have any questions, please contact ${params.companyName} directly.
+    </p>
+  `;
+
+  try {
+    const transporter = getTransporter();
+    await transporter.sendMail({
+      from: `"${params.companyName}" <${config.smtp.user}>`,
+      to: params.customerEmail,
+      subject,
+      html: wrapHTML(body, `📄 ${kindLabel} for approval`),
+      attachments: [
+        {
+          filename: params.pdfFilename,
+          content: params.pdfBuffer,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+    console.log(`  ✅ Approval email sent: ${params.number} → ${params.customerEmail}`);
+    return true;
+  } catch (err) {
+    console.error(`  ❌ Failed to send approval email for ${params.number}:`, err);
     return false;
   }
 }
