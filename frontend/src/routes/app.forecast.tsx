@@ -594,15 +594,15 @@ function PageHeader({
   stockoutRisk: number;
 }) {
   return (
-    <header className="bg-slate-900">
+    <header className="border-b border-gray-200 bg-white">
       <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-4 py-6 md:flex-row md:items-center md:justify-between md:px-8 md:py-5">
         <div className="flex items-center gap-3.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 shadow-lg shadow-blue-600/30">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 shadow-sm shadow-blue-600/25">
             <Package className="h-5 w-5 text-white" />
           </div>
           <div>
-            <h1 className="text-lg font-semibold tracking-tight text-white">SKU Forecast</h1>
-            <p className="text-xs text-slate-400">Demand planning · reorder intelligence</p>
+            <h1 className="text-lg font-semibold tracking-tight text-gray-900">SKU Forecast</h1>
+            <p className="text-xs text-gray-500">Demand planning · reorder intelligence</p>
           </div>
         </div>
         <SummaryCards totalSkus={totalSkus} needReorder={needReorder} stockoutRisk={stockoutRisk} />
@@ -624,19 +624,19 @@ function SummaryCards({
     <div className="grid grid-cols-3 gap-3">
       <HeaderStat
         icon={<Package className="h-4 w-4" />}
-        iconClass="bg-blue-500/15 text-blue-400"
+        iconClass="bg-blue-50 text-blue-600"
         value={totalSkus}
         label="Total SKUs"
       />
       <HeaderStat
         icon={<AlertTriangle className="h-4 w-4" />}
-        iconClass="bg-amber-500/15 text-amber-400"
+        iconClass="bg-amber-50 text-amber-600"
         value={needReorder}
         label="Need Reorder"
       />
       <HeaderStat
         icon={<Zap className="h-4 w-4" />}
-        iconClass="bg-rose-500/15 text-rose-400"
+        iconClass="bg-rose-50 text-rose-600"
         value={stockoutRisk}
         label="Stockout Risk"
       />
@@ -657,16 +657,16 @@ function HeaderStat({
 }) {
   return (
     <div
-      className="min-w-0 rounded-xl border border-white/10 bg-white/[0.06] px-3.5 py-3"
+      className="min-w-0 rounded-xl border border-gray-200 bg-white px-3.5 py-3 shadow-sm"
       title={label}
     >
       <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${iconClass}`}>
         {icon}
       </div>
-      <div className="mt-2 text-xl font-bold tabular-nums leading-none text-white">
+      <div className="mt-2 text-xl font-bold tabular-nums leading-none text-gray-900">
         {value.toLocaleString()}
       </div>
-      <div className="mt-1 text-[11px] font-medium text-slate-400">{label}</div>
+      <div className="mt-1 text-[11px] font-medium text-gray-500">{label}</div>
     </div>
   );
 }
