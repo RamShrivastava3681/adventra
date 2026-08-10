@@ -51,6 +51,7 @@ import {
   ResponsiveContainer,
   Area,
   AreaChart,
+  Line,
 } from "recharts";
 import { toast } from "sonner";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
@@ -71,6 +72,8 @@ type Product = {
   safety_stock_days: number;
   unit_price: number;
   unit_cost: number;
+  /** Max retail price (MRP) — the selling price from the product catalogue. */
+  mrp: number | null;
   minimum_gross_margin_percentage: number | null;
   status: string;
   image_url: string | null;
@@ -149,6 +152,7 @@ function ForecastPage() {
           safety_stock_days: p.safetyStockDays ?? p.safety_stock_days ?? 30,
           unit_price: p.unitPrice ?? p.unit_price,
           unit_cost: p.unitCost ?? p.unit_cost,
+          mrp: p.mrp ?? null,
           minimum_gross_margin_percentage:
             p.minimumGrossMarginPercentage ?? p.minimum_gross_margin_percentage ?? null,
           status: p.status,
@@ -223,6 +227,7 @@ function ForecastPage() {
           safety_stock_days: p.safetyStockDays ?? p.safety_stock_days ?? 30,
           unit_price: p.unitPrice ?? p.unit_price ?? 0,
           unit_cost: p.unitCost ?? p.unit_cost ?? 0,
+          mrp: p.mrp ?? null,
           minimum_gross_margin_percentage:
             p.minimumGrossMarginPercentage ?? p.minimum_gross_margin_percentage ?? null,
           status: p.status ?? "active",
@@ -301,7 +306,7 @@ function ForecastPage() {
           momentum: f.momentumTag,
           daysOfCover: f.daysOfCover,
           unitCost: Number(p.unit_cost),
-          unitPrice: Number(p.unit_price),
+          unitPrice: sellingPriceOf(p),
           minimumGrossMarginPercentage: p.minimum_gross_margin_percentage ?? defaultMargin,
           supplierLeadTimeDays: p.lead_time_days,
           safetyStockDays: Number(p.safety_stock_days) || 30,
@@ -1595,6 +1600,14 @@ function fmtShortDate(d: string): string {
 
 // --------------- Edit pricing (recommendation stays read-only) ---------------
 
+/**
+ * The catalogue's selling price: MRP when set (> 0), else the default selling
+ * price. Mirrors the products page, which treats a 0/blank MRP as "not set".
+ */
+function sellingPriceOf(p: Pick<Product, "mrp" | "unit_price">): number {
+  return p.mrp && p.mrp > 0 ? p.mrp : p.unit_price;
+}
+
 // Margin is stored as a decimal (0.4 = 40%) but edited as a percent (40).
 // Legacy records may hold a raw percent (e.g. 40) — normalize those too.
 function marginStoredToPercent(v: number | null | undefined): string {
@@ -1633,9 +1646,10 @@ function EditPricingForm({
   // Margin is entered as a percentage (e.g. 40 = 40%) and stored as a decimal (0.4).
   const margin = Math.min(0.99, Math.max(0.01, (Number(marginPct) || 40) / 100));
   const cost = Number(unitCost) || 0;
-  // Margin floor: min permitted = unit price × (1 + margin). Unit cost does NOT affect it.
-  const price = Number(product.unit_price) || 0;
-  const minPermitted = price > 0 ? price * (1 + margin) : 0;
+  // Margin floor: min permitted = the price that preserves the configured
+  // margin on each sale: unit cost ÷ (1 − margin) — the same formula as the
+  // forecast engine and the products-page pricing preview.
+  const minPermitted = cost > 0 ? cost / (1 - margin) : 0;
   // Live preview: the demo ±% is applied to the unit COST, floored at the
   // margin minimum — exactly like the engine.
   const recommended = Math.round(Math.max(cost * (1 + changePct / 100), minPermitted) * 100) / 100;
@@ -1746,9 +1760,127 @@ function EditPricingForm({
               Save pricing
             </button>
             <span className="text-[9px] text-muted-foreground/60">
-              Only unit cost & margin are saved — unit price is never auto-changed.
+              Only unit cost & margin are saved — the selling price (MRP) is never auto-changed.
             </span>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Trend analysis summary (shown when a row is expanded)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function TrendAnalysisCard({ f }: { f: ForecastResult }) {
+  const ta = f.calculationBreakdown?.trendAnalysis;
+  // Prefer the full breakdown; fall back to the top-level aggregate fields for
+  // older persisted snapshots that lack the breakdown.
+  const slope = ta?.slope ?? f.trend ?? 0;
+  const strength = Math.min(1, Math.max(0, ta?.rSquared ?? f.trendStrength ?? 0));
+  const direction = ta?.direction ?? f.trendDirection ?? "stable";
+
+  const up = direction === "up";
+  const down = direction === "down";
+  const DirIcon = up ? TrendingUp : down ? TrendingDown : Minus;
+  const dirLabel = up ? "Growing" : down ? "Declining" : "Stable";
+  const sign = slope > 0 ? "+" : slope < 0 ? "−" : "";
+  const strengthPct = Math.round(strength * 100);
+
+  const tone = up ? "emerald" : down ? "rose" : "neutral";
+  const toneClasses = {
+    emerald: {
+      icon: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+      bar: "bg-emerald-500",
+      text: "text-emerald-600 dark:text-emerald-400",
+    },
+    rose: {
+      icon: "bg-rose-500/15 text-rose-600 dark:text-rose-400",
+      bar: "bg-rose-500",
+      text: "text-rose-600 dark:text-rose-400",
+    },
+    neutral: {
+      icon: "bg-muted/40 text-muted-foreground",
+      bar: "bg-muted-foreground/40",
+      text: "text-muted-foreground",
+    },
+  }[tone];
+
+  const first = f.history[0];
+  const last = f.history[f.history.length - 1];
+  const fmtTrajectoryMonth = (h: { month: string }) => {
+    const [y, m] = h.month.split("-").map(Number);
+    return `${(MONTH_NAMES[m - 1] ?? "").slice(0, 3)} ${String(y).slice(2)}`;
+  };
+
+  return (
+    <div className="rounded-xl border border-border/50 bg-card p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="text-xs uppercase tracking-widest text-muted-foreground">Trend analysis</h4>
+        <span className="text-[10px] text-muted-foreground/60">
+          {f.history.length}mo least-squares fit
+        </span>
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        {/* Direction */}
+        <div className="rounded-lg border border-border/30 bg-muted/20 px-3 py-2.5">
+          <div className="text-[8px] uppercase tracking-widest text-muted-foreground/70">
+            Direction
+          </div>
+          <div
+            className={`mt-1 flex items-center gap-1.5 text-sm font-semibold ${toneClasses.text}`}
+          >
+            <span
+              className={`flex h-5 w-5 items-center justify-center rounded-md ${toneClasses.icon}`}
+            >
+              <DirIcon className="h-3 w-3" />
+            </span>
+            {dirLabel}
+          </div>
+        </div>
+
+        {/* Monthly change */}
+        <div className="rounded-lg border border-border/30 bg-muted/20 px-3 py-2.5">
+          <div className="text-[8px] uppercase tracking-widest text-muted-foreground/70">
+            Monthly change
+          </div>
+          <div className="mt-1 font-mono text-sm font-semibold tabular-nums text-foreground">
+            {sign}
+            {Math.abs(slope).toFixed(1)}
+            <span className="ml-1 text-[9px] font-medium text-muted-foreground/70">units/mo</span>
+          </div>
+        </div>
+
+        {/* Strength */}
+        <div className="rounded-lg border border-border/30 bg-muted/20 px-3 py-2.5">
+          <div className="text-[8px] uppercase tracking-widest text-muted-foreground/70">
+            Strength
+          </div>
+          <div className="mt-1 flex items-center gap-2">
+            <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-muted">
+              <div
+                className={`h-full rounded-full transition-all ${toneClasses.bar}`}
+                style={{ width: `${strengthPct}%` }}
+              />
+            </div>
+            <span className={`font-mono text-xs font-semibold tabular-nums ${toneClasses.text}`}>
+              R² {strengthPct}%
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Trajectory footer */}
+      {first && last && (
+        <div className="mt-2 flex items-center justify-between gap-2 rounded-lg border border-border/30 bg-muted/20 px-3 py-2 text-[10px]">
+          <span className="text-muted-foreground">{f.history.length}-month trajectory</span>
+          <span className="font-mono font-semibold tabular-nums text-foreground/80">
+            {fmtTrajectoryMonth(first)} {first.qty.toLocaleString()}
+            <span className="mx-1.5 text-muted-foreground/50">→</span>
+            {fmtTrajectoryMonth(last)} {last.qty.toLocaleString()}
+          </span>
         </div>
       )}
     </div>
@@ -1773,26 +1905,37 @@ function ExpandedForecastDetail({
   // Build chart data: 12 history months + 6 forecast months
   const chartData = useMemo(() => {
     const data: any[] = [];
+    // Trend line of best fit over the history (same OLS fit as the engine):
+    // fitted(x) = meanY + slope × (x − meanX), with x = month index 1..n.
+    const ta = f.calculationBreakdown?.trendAnalysis;
+    const hasFit =
+      !!ta &&
+      typeof ta.meanY === "number" &&
+      typeof ta.slope === "number" &&
+      typeof ta.meanX === "number";
     // History
-    for (const h of f.history) {
+    f.history.forEach((h, i) => {
       const [y, m] = h.month.split("-").map(Number);
       const monthName = MONTH_NAMES[m - 1] ?? "";
+      const x = i + 1; // 1-based month index — same x axis as the engine
       data.push({
         month: `${monthName.slice(0, 3)}`,
         fullMonth: h.month,
         actual: h.qty,
+        trend: hasFit ? Math.max(0, ta.meanY + ta.slope * (x - ta.meanX)) : null,
         forecast: null,
         baseline: null,
         piLow: null,
         piHigh: null,
       });
-    }
+    });
     // Forecast
     for (const m of f.forecast) {
       data.push({
         month: m.monthName.slice(0, 3),
         fullMonth: m.month,
         actual: null,
+        trend: null,
         forecast: m.qty,
         baseline: m.baseline,
         piLow: m.predictionIntervalLow ?? null,
@@ -1830,12 +1973,19 @@ function ExpandedForecastDetail({
           )}
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-1.5 text-right">
+          <div
+            className="rounded-lg border border-border/40 bg-muted/20 px-3 py-1.5 text-right"
+            title={
+              (product.mrp ?? 0) > 0
+                ? "MRP (max retail price)"
+                : "MRP not set — showing default selling price"
+            }
+          >
             <div className="text-[8px] uppercase tracking-widest text-muted-foreground">
-              Unit price
+              MRP · selling
             </div>
             <div className="font-mono text-sm font-semibold tabular-nums">
-              ${Number(product.unit_price || 0).toFixed(2)}
+              ${sellingPriceOf(product).toFixed(2)}
             </div>
           </div>
           <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-1.5 text-right">
@@ -1852,6 +2002,9 @@ function ExpandedForecastDetail({
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
         {/* LEFT: Chart + 6-month forecast (3/5 width) */}
         <div className="lg:col-span-3 space-y-4">
+          {/* Trend analysis summary */}
+          <TrendAnalysisCard f={f} />
+
           {/* Demand trend chart */}
           <div className="rounded-xl border border-border/50 bg-card p-4">
             <div className="flex items-center justify-between mb-4">
@@ -1871,6 +2024,10 @@ function ExpandedForecastDetail({
                 <span className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-full bg-muted-foreground/40" />
                   Actual
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="h-0 w-4 border-t-2 border-dashed border-chart-3" />
+                  Trend line
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="h-2 w-2 border-2 border-primary/40 rounded-sm bg-transparent" />
@@ -1930,6 +2087,7 @@ function ExpandedForecastDetail({
                       const labels: Record<string, string> = {
                         actual: "Actual demand",
                         forecast: "Forecast",
+                        trend: "Trend (line of best fit)",
                         baseline: "Baseline",
                         piLow: "80% CI Low",
                         piHigh: "80% CI High",
@@ -1973,6 +2131,17 @@ function ExpandedForecastDetail({
                     dot={{ r: 4, fill: "hsl(var(--primary))", strokeWidth: 0 }}
                     strokeDasharray="5 3"
                     connectNulls={false}
+                  />
+                  {/* Line of best fit over the history months */}
+                  <Line
+                    type="monotone"
+                    dataKey="trend"
+                    stroke="hsl(var(--chart-3))"
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                    dot={false}
+                    activeDot={{ r: 3 }}
+                    connectNulls
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -2176,7 +2345,7 @@ function ExpandedForecastDetail({
                       </div>
                       <div className="flex items-center justify-between gap-2 border-t border-border/30 pt-2">
                         <div className="flex-1 min-w-0">
-                          <div className="text-[9px] text-muted-foreground">Current</div>
+                          <div className="text-[9px] text-muted-foreground">Current · MRP</div>
                           <div className="font-mono text-sm tabular-nums">
                             ${Number(pricingStrategy.conditions.unitPrice).toFixed(2)}
                           </div>

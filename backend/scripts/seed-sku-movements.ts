@@ -1,5 +1,5 @@
 // One-off seed script: creates confirmed inventory movements for a SKU from a
-// supplied ledger of entries. Supported SKUs: ADV-RC-001, ADV-DB-002.
+// supplied ledger of entries. Supported SKUs: ADV-RC-001, ADV-DB-002, ADV-JK-003.
 //
 // Run with:  cd backend && npx tsx scripts/seed-sku-movements.ts <SKU> [--dry-run] [--yes]
 //
@@ -66,6 +66,23 @@ const DATASETS: Record<string, Entry[]> = {
   { date: "2026-07-25", reference: "DSP-ADV-RC-001-202607", warehouse: "Main Warehouse", sku: "ADV-RC-001", product: "Adventra Trail Rain Cover", direction: "debit", quantity: 120, sourceType: "dispatch", status: "confirmed", notes: "Confirmed dispatch - Jul 2026" },
   { date: "2026-08-01", reference: "GRN-TEST-004",           warehouse: "Main Warehouse", sku: "ADV-RC-001", product: "Adventra Trail Rain Cover", direction: "credit", quantity: 72, sourceType: "goods_receipt", status: "confirmed", notes: "Confirmed GRN / stock receipt" },
   { date: "2026-08-25", reference: "DSP-ADV-RC-001-202608", warehouse: "Main Warehouse", sku: "ADV-RC-001", product: "Adventra Trail Rain Cover", direction: "debit", quantity: 49, sourceType: "dispatch", status: "confirmed", notes: "Confirmed dispatch - Aug 2026" },
+  ],
+
+  "ADV-JK-003": [
+  { date: "2025-08-01", reference: "OPEN-ADV-JK-003",     warehouse: "Main Warehouse", sku: "ADV-JK-003", product: "Adventra Storm Jacket", direction: "credit", quantity: 500, sourceType: "opening_stock", status: "confirmed", notes: "Opening stock for test" },
+  { date: "2025-09-25", reference: "DSP-ADV-JK-003-202509", warehouse: "Main Warehouse", sku: "ADV-JK-003", product: "Adventra Storm Jacket", direction: "debit", quantity: 40, sourceType: "dispatch", status: "confirmed", notes: "Confirmed dispatch - Sep 2025" },
+  { date: "2025-10-25", reference: "DSP-ADV-JK-003-202510", warehouse: "Main Warehouse", sku: "ADV-JK-003", product: "Adventra Storm Jacket", direction: "debit", quantity: 45, sourceType: "dispatch", status: "confirmed", notes: "Confirmed dispatch - Oct 2025" },
+  { date: "2025-11-25", reference: "DSP-ADV-JK-003-202511", warehouse: "Main Warehouse", sku: "ADV-JK-003", product: "Adventra Storm Jacket", direction: "debit", quantity: 50, sourceType: "dispatch", status: "confirmed", notes: "Confirmed dispatch - Nov 2025" },
+  { date: "2025-12-25", reference: "DSP-ADV-JK-003-202512", warehouse: "Main Warehouse", sku: "ADV-JK-003", product: "Adventra Storm Jacket", direction: "debit", quantity: 55, sourceType: "dispatch", status: "confirmed", notes: "Confirmed dispatch - Dec 2025" },
+  { date: "2026-01-25", reference: "DSP-ADV-JK-003-202601", warehouse: "Main Warehouse", sku: "ADV-JK-003", product: "Adventra Storm Jacket", direction: "debit", quantity: 60, sourceType: "dispatch", status: "confirmed", notes: "Confirmed dispatch - Jan 2026" },
+  { date: "2026-02-25", reference: "DSP-ADV-JK-003-202602", warehouse: "Main Warehouse", sku: "ADV-JK-003", product: "Adventra Storm Jacket", direction: "debit", quantity: 65, sourceType: "dispatch", status: "confirmed", notes: "Confirmed dispatch - Feb 2026" },
+  { date: "2026-03-01", reference: "GRN-ADV-JK-003-001",    warehouse: "Main Warehouse", sku: "ADV-JK-003", product: "Adventra Storm Jacket", direction: "credit", quantity: 445, sourceType: "goods_receipt", status: "confirmed", notes: "Confirmed GRN / stock receipt" },
+  { date: "2026-03-25", reference: "DSP-ADV-JK-003-202603", warehouse: "Main Warehouse", sku: "ADV-JK-003", product: "Adventra Storm Jacket", direction: "debit", quantity: 70, sourceType: "dispatch", status: "confirmed", notes: "Confirmed dispatch - Mar 2026" },
+  { date: "2026-04-25", reference: "DSP-ADV-JK-003-202604", warehouse: "Main Warehouse", sku: "ADV-JK-003", product: "Adventra Storm Jacket", direction: "debit", quantity: 80, sourceType: "dispatch", status: "confirmed", notes: "Confirmed dispatch - Apr 2026" },
+  { date: "2026-05-25", reference: "DSP-ADV-JK-003-202605", warehouse: "Main Warehouse", sku: "ADV-JK-003", product: "Adventra Storm Jacket", direction: "debit", quantity: 90, sourceType: "dispatch", status: "confirmed", notes: "Confirmed dispatch - May 2026" },
+  { date: "2026-06-25", reference: "DSP-ADV-JK-003-202606", warehouse: "Main Warehouse", sku: "ADV-JK-003", product: "Adventra Storm Jacket", direction: "debit", quantity: 110, sourceType: "dispatch", status: "confirmed", notes: "Confirmed dispatch - Jun 2026" },
+  { date: "2026-07-25", reference: "DSP-ADV-JK-003-202607", warehouse: "Main Warehouse", sku: "ADV-JK-003", product: "Adventra Storm Jacket", direction: "debit", quantity: 130, sourceType: "dispatch", status: "confirmed", notes: "Confirmed dispatch - Jul 2026" },
+  { date: "2026-08-25", reference: "DSP-ADV-JK-003-202608", warehouse: "Main Warehouse", sku: "ADV-JK-003", product: "Adventra Storm Jacket", direction: "debit", quantity: 100, sourceType: "dispatch", status: "confirmed", notes: "Confirmed dispatch - Aug 2026" },
   ],
 
   "ADV-DB-002": [

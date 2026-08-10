@@ -1412,13 +1412,13 @@ export function computePricingStrategy(params: {
     priceChangeRules,
   } = params;
 
-  // 1. Calculate minimum permitted price (from the product's current unit PRICE).
-  //    floor = unitPrice ÷ (1 − minGrossMargin) — the price that preserves the
-  //    configured gross margin on each sale. Unit cost does NOT affect this number.
-  //    e.g. price $100, 40% margin → floor $166.67.
+  // 1. Calculate minimum permitted price from the product's UNIT COST.
+  //    floor = unitCost ÷ (1 − minGrossMargin) — the price that preserves the
+  //    configured gross margin on each sale. The selling price does NOT affect
+  //    this number. e.g. cost $60, 40% margin → floor $100.
   const minGrossMargin = Math.max(0.01, Math.min(0.99, grossMarginPct));
   const minimumPrice =
-    unitPrice > 0 ? unitPrice / (1 - minGrossMargin) : 0;
+    unitCost > 0 ? unitCost / (1 - minGrossMargin) : 0;
 
   // 2. Determine inventory position
   const inventoryPosition = determineInventoryPosition(
@@ -1430,7 +1430,7 @@ export function computePricingStrategy(params: {
 
   // 2b. Recommended price — recommendation only, never auto-applied. The demo
   // percentage is applied to the SKU's CURRENT unit COST, floored at the
-  // minimum price (which is derived from the unit price, not the unit cost).
+  // minimum price (which is derived from the unit cost, not the selling price).
   const priceChange = resolvePriceChangePct({
     velocity,
     momentum,
