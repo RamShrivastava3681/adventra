@@ -241,6 +241,11 @@ const api = {
     generate: () => api.post("/alerts/generate"),
   },
 
+  // Audit trail (admin) — workflow activity feed
+  audit: {
+    activity: () => api.get<any[]>("/audit/activity"),
+  },
+
   // Accounting
   chartOfAccounts: {
     list: () => api.get<any[]>("/chart-of-accounts"),

@@ -95,8 +95,26 @@ import * as Journal from "../models/journal.js";
 import * as CDNote from "../models/credit-debit-note.js";
 import * as Combined from "../models/models-combined.js";
 import * as db from "../dynamodb.js";
+import * as AuditLog from "../models/audit-log.js";
 
 const router = Router();
+
+/** Record a workflow action in the immutable audit trail (fire-and-forget). */
+function trackAction(
+  req: Request,
+  action: string,
+  target: string | null,
+  detail?: Record<string, unknown>
+) {
+  const actor = (req as any).user;
+  void AuditLog.writeWorkflowAction(
+    { userId: actor?.userId, email: actor?.email, roles: actor?.roles },
+    action,
+    target,
+    detail,
+    { ip: req.ip, userAgent: req.headers["user-agent"] }
+  );
+}
 
 // Apply view-as middleware to all data routes
 router.use(viewAsMiddleware);
@@ -320,6 +338,14 @@ router.post("/stock-movements", authMiddleware, async (req, res) => {
     }
 
     const item = await StockMovement.create({ ...body, clientId });
+    trackAction(req, "stock.created", item.id, {
+      entityType: "stock",
+      entityRef: item.sku ?? item.itemName,
+      direction: item.direction,
+      quantity: item.quantity,
+      reason: item.reason ?? null,
+      status: item.status,
+    });
     // Trigger forecast recompute asynchronously (fire-and-forget)
     const { recomputeAll } = await import("../services/forecast-service.js");
     recomputeAll(req.user!.userId).catch((err: any) =>
@@ -342,6 +368,12 @@ router.post("/stock-movements/:id/confirm", authMiddleware, async (req, res) => 
       return res.status(400).json({ error: "Cannot confirm a cancelled movement" });
     }
     const flipped = await StockMovement.confirm(current.id, req.user!.userId, req.user!.email);
+    trackAction(req, "stock.confirmed", current.id, {
+      entityType: "stock",
+      entityRef: current.sku ?? current.itemName,
+      direction: current.direction,
+      quantity: current.quantity,
+    });
     if (!flipped) return res.json({ ...current, alreadyConfirmed: true });
     recomputeForecast(clientId);
     res.json(flipped);
@@ -363,6 +395,12 @@ router.post("/stock-movements/:id/cancel", authMiddleware, async (req, res) => {
     if (current.status === "cancelled") return res.json({ ...current, alreadyCancelled: true });
     // Atomic → cancelled flip: exactly one concurrent cancel wins.
     const flipped = await StockMovement.cancel(current.id, req.user!.userId, req.user!.email);
+    trackAction(req, "stock.cancelled", current.id, {
+      entityType: "stock",
+      entityRef: current.sku ?? current.itemName,
+      direction: current.direction,
+      quantity: current.quantity,
+    });
     if (!flipped) return res.json({ ...current, alreadyCancelled: true });
     // No reversal entry is ever created. Live stock only counts CONFIRMED
     // movements — a cancelled entry simply drops out of the balance, so its
@@ -781,6 +819,13 @@ router.post("/invoices", authMiddleware, async (req, res) => {
       invoiceNumber: body.invoiceNumber || `INV-${uuid().slice(0, 8).toUpperCase()}`,
       status: body.status || "draft",
     });
+    trackAction(req, "invoice.created", item.id, {
+      entityType: "invoice",
+      entityRef: item.invoiceNumber,
+      amount: item.amount,
+      status: item.status,
+      clientId,
+    });
     // Instant reminder check: if due date is close or past, send reminder immediately
     if (item.dueDate && item.status !== "paid" && item.status !== "rejected" && item.status !== "draft") {
       const { sendReminderForInvoice } = await import("../invoice-reminder.js");
@@ -815,6 +860,11 @@ router.post("/invoices/:id/issue", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Confirm the sales order before issuing this invoice" });
     }
     const updated = await Invoice.update(current.id, { status: "pending" });
+    trackAction(req, "invoice.issued", current.id, {
+      entityType: "invoice",
+      entityRef: current.invoiceNumber,
+      status: "pending",
+    });
     res.json(updated);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -842,6 +892,12 @@ router.post("/invoices/:id/payment", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Payment amount must be greater than zero" });
     }
     const updated = await Invoice.recordPayment(req.params.id, amt, req.body?.receiptDate || db.todayDate());
+    trackAction(req, "invoice.payment", current.id, {
+      entityType: "invoice",
+      entityRef: current.invoiceNumber,
+      amountReceived: amt,
+      amountPaid: updated?.amountPaid ?? 0,
+    });
     res.json(updated);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -921,6 +977,18 @@ router.put("/invoices/:id", authMiddleware, async (req, res) => {
       }
     }
     const updated = await Invoice.update(req.params.id, body);
+    // Audit trail — record checker/admin decisions and cancellations.
+    if (req.body.status && req.body.status !== current.status) {
+      const s = String(req.body.status);
+      if (["approved", "rejected", "disputed", "cancelled"].includes(s)) {
+        trackAction(req, `invoice.${s}`, current.id, {
+          entityType: "invoice",
+          entityRef: current.invoiceNumber,
+          status: s,
+          prevStatus: current.status,
+        });
+      }
+    }
     // Instant reminder check on update (e.g., status changed to approved)
     if (req.body.dueDate || req.body.status) {
       const inv = await Invoice.get(req.params.id);
@@ -1122,6 +1190,13 @@ router.post("/purchase-invoices", authMiddleware, async (req, res) => {
       }
     }
     const item = await PurchaseInvoice.create({ ...body, clientId, vendorId: body.vendorId });
+    trackAction(req, "purchase_invoice.created", item.id, {
+      entityType: "purchase_invoice",
+      entityRef: item.invoiceNumber,
+      amount: item.amount,
+      status: item.status,
+      supplier: item.supplierName,
+    });
     // Instant reminder check for purchase invoices too
     if (item.dueDate && !["paid", "rejected", "cancelled"].includes(item.status)) {
       const { sendReminderForInvoice } = await import("../invoice-reminder.js");
@@ -1233,6 +1308,35 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
       }
     }
     const updated = await PurchaseInvoice.update(req.params.id, body);
+    // Audit trail — record treasury payment recording (amountPaid delta).
+    if (body.amountPaid !== undefined && Number(body.amountPaid) !== Number(current.amountPaid ?? 0)) {
+      trackAction(req, "purchase_invoice.payment", current.id, {
+        entityType: "purchase_invoice",
+        entityRef: current.invoiceNumber,
+        amountPaid: Number(body.amountPaid) || 0,
+        prevAmountPaid: Number(current.amountPaid ?? 0),
+      });
+    }
+    // Audit trail — record workflow status transitions.
+    if (body.status && body.status !== current.status) {
+      const s = String(body.status);
+      const actionByStatus = {
+        verified: "purchase_invoice.verified",
+        approved_for_payment: "purchase_invoice.approved",
+        paid: "purchase_invoice.paid",
+        partially_paid: "purchase_invoice.partially_paid",
+        cancelled: "purchase_invoice.cancelled",
+      } as Record<string, string>;
+      if (actionByStatus[s]) {
+        trackAction(req, actionByStatus[s], current.id, {
+          entityType: "purchase_invoice",
+          entityRef: current.invoiceNumber,
+          status: s,
+          prevStatus: current.status,
+          amount: current.amount,
+        });
+      }
+    }
     // Instant reminder check on update
     if (body.dueDate || body.status) {
       const inv = await PurchaseInvoice.get(req.params.id);
@@ -1298,6 +1402,13 @@ router.post("/purchase-orders", authMiddleware, async (req, res) => {
     // funding workflow is maker → checker approval → treasury funding.
     body.proformaStatus = "pending_review";
     const item = await PurchaseOrder.create({ ...body, clientId: req.user!.userId });
+    trackAction(req, "proforma.created", item.id, {
+      entityType: "proforma",
+      entityRef: item.proformaNumber ?? item.poNumber,
+      side: item.side,
+      amount: item.poAmount ?? item.amount,
+      status: item.proformaStatus,
+    });
     res.status(201).json(item);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -1399,7 +1510,28 @@ router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
       try { body.lines = await validateProformaLines(req.user!.userId, body.lines); }
       catch (e: any) { return res.status(400).json({ error: e.message }); }
     }
-    res.json(await PurchaseOrder.update(req.params.id, body));
+    const updated = await PurchaseOrder.update(req.params.id, body);
+    // Audit trail — record maker/checker/treasury workflow transitions.
+    if (body.proformaStatus !== undefined && body.proformaStatus !== current.proformaStatus) {
+      const s = String(body.proformaStatus);
+      const actionByStatus = {
+        pending_review: "proforma.submitted",
+        approved: "proforma.approved",
+        rejected: "proforma.rejected",
+        funded: "proforma.funded",
+      } as Record<string, string>;
+      if (actionByStatus[s]) {
+        trackAction(req, actionByStatus[s], current.id, {
+          entityType: "proforma",
+          entityRef: current.proformaNumber ?? current.poNumber,
+          side: current.side,
+          status: s,
+          prevStatus: current.proformaStatus,
+          amount: current.poAmount ?? current.amount,
+        });
+      }
+    }
+    res.json(updated);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.delete("/purchase-orders/:id", authMiddleware, async (req, res) => {
@@ -1708,6 +1840,12 @@ router.post("/goods-receipts/:id/confirm", authMiddleware, async (req, res) => {
     const flipped = await GoodsReceipt.flipToConfirmed(receipt.id, req.user!.email);
     if (!flipped) return res.json({ ...receipt, alreadyConfirmed: true });
     await creditGoodsReceipt(clientId, flipped, po);
+    trackAction(req, "grn.confirmed", receipt.id, {
+      entityType: "grn",
+      entityRef: receipt.receiptNumber,
+      poNumber: receipt.poNumber,
+      lines: receipt.lines?.length ?? 0,
+    });
     await syncLinkedPurchaseInvoice(flipped);
     recomputeForecast(clientId);
     res.json(flipped);
@@ -1731,6 +1869,12 @@ router.post("/goods-receipts/:id/cancel", authMiddleware, async (req, res) => {
     if (wasCredited) {
       const po = await GoodsPO.get(receipt.goodsPurchaseOrderId);
       if (po) await reverseGoodsReceipt(clientId, receipt, po);
+    trackAction(req, "grn.cancelled", receipt.id, {
+      entityType: "grn",
+      entityRef: receipt.receiptNumber,
+      poNumber: receipt.poNumber,
+      wasCredited,
+    });
     }
     await syncLinkedPurchaseInvoice(flipped);
     recomputeForecast(clientId);
@@ -1971,7 +2115,26 @@ router.put("/quotations/:id", authMiddleware, async (req, res) => {
       body.lines = lines;
     }
     if (body.customerName === undefined && body.customerId) body.customerName = await resolveCustomerName(body.customerId);
-    res.json(await Quotation.update(req.params.id, body));
+    const updated = await Quotation.update(req.params.id, body);
+    // Audit trail — record maker submission / checker approval decisions.
+    if (body.approvalStatus !== undefined && body.approvalStatus !== current.approvalStatus) {
+      const s = String(body.approvalStatus);
+      const actionByStatus = {
+        pending_review: "quotation.submitted",
+        approved: "quotation.approved",
+        rejected: "quotation.rejected",
+      } as Record<string, string>;
+      if (actionByStatus[s]) {
+        trackAction(req, actionByStatus[s], current.id, {
+          entityType: "quotation",
+          entityRef: current.quotationNumber,
+          status: s,
+          prevStatus: current.approvalStatus ?? null,
+          amount: current.grandTotal,
+        });
+      }
+    }
+    res.json(updated);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.delete("/quotations/:id", authMiddleware, async (req, res) => {
@@ -2507,6 +2670,12 @@ router.post("/goods-dispatches/:id/confirm", authMiddleware, async (req, res) =>
     const flipped = await GoodsDispatch.flipToConfirmed(dispatch.id, req.user!.email);
     if (!flipped) return res.json({ ...dispatch, alreadyConfirmed: true });
     await debitSalesOrder(clientId, flipped, so);
+    trackAction(req, "dispatch.confirmed", dispatch.id, {
+      entityType: "dispatch",
+      entityRef: dispatch.dispatchNumber,
+      soNumber: dispatch.soNumber,
+      lines: dispatch.lines?.length ?? 0,
+    });
     recomputeForecast(clientId);
     res.json({ ...flipped, stockWarnings: warnings });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
@@ -2529,6 +2698,11 @@ router.post("/goods-dispatches/:id/cancel", authMiddleware, async (req, res) => 
     if (wasDebited) {
       const so = await GoodsSO.get(dispatch.goodsSalesOrderId);
       if (so) await reverseDispatch(clientId, dispatch, so);
+    trackAction(req, "dispatch.cancelled", dispatch.id, {
+      entityType: "dispatch",
+      entityRef: dispatch.dispatchNumber,
+      wasDebited,
+    });
     }
     recomputeForecast(clientId);
     res.json(flipped);
@@ -2610,6 +2784,11 @@ router.post("/goods-dispatches/:id/deliver", authMiddleware, async (req, res) =>
       delivered.push({ productId: dLine.productId, deliveredQty: qty });
     }
     const updated = await GoodsDispatch.markDelivered(dispatch.id, delivered, req.body.deliveryDate || null, req.user!.email);
+    trackAction(req, "dispatch.delivered", dispatch.id, {
+      entityType: "dispatch",
+      entityRef: dispatch.dispatchNumber,
+      deliveredQty: delivered.reduce((sum, d) => sum + d.deliveredQty, 0),
+    });
     res.json(updated);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
@@ -2674,6 +2853,11 @@ router.post("/goods-dispatches/:id/return", authMiddleware, async (req, res) => 
       });
     }
     const updated = await GoodsDispatch.recordReturned(dispatch.id, returned, req.user!.email);
+    trackAction(req, "dispatch.returned", dispatch.id, {
+      entityType: "dispatch",
+      entityRef: dispatch.dispatchNumber,
+      returnedQty: returned.reduce((sum, r) => sum + r.returnedQty, 0),
+    });
     if (so) {
       await GoodsSO.revokeDispatch(so.id, returned.map((r) => ({ productId: r.productId, dispatchedQty: r.returnedQty })));
     }
@@ -2691,7 +2875,16 @@ router.get("/expenses", authMiddleware, async (req, res) => {
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.post("/expenses", authMiddleware, async (req, res) => {
-  try { res.status(201).json(await Expense.create({ ...req.body, clientId: req.user!.userId })); } catch (err: any) { res.status(500).json({ error: err.message }); }
+  try {
+    const item = await Expense.create({ ...req.body, clientId: req.user!.userId });
+    trackAction(req, "expense.created", item.id, {
+      entityType: "expense",
+      entityRef: item.expenseRef,
+      category: item.category,
+      amount: item.amount,
+    });
+    res.status(201).json(item);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.put("/expenses/:id", authMiddleware, async (req, res) => {
   try { res.json(await Expense.update(req.params.id, req.body)); } catch (err: any) { res.status(500).json({ error: err.message }); }
@@ -2712,6 +2905,39 @@ router.put("/advances/:id", authMiddleware, async (req, res) => {
 });
 router.delete("/advances/:id", authMiddleware, async (req, res) => {
   try { await Advance.remove(req.params.id); res.json({ success: true }); } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+// ===================== AUDIT / ACTIVITY FEED =====================
+/**
+ * GET /audit/activity — admin-only workflow audit trail (newest first).
+ * Actor display names are resolved live from the User table (contactName
+ * preferred, email fallback). System/security noise is filtered out.
+ */
+router.get("/audit/activity", authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const NOISE_PREFIXES = ["auth.", "csrf.", "view_as.", "access.denied"];
+    // GSI2 returns only the newest entries (bounded) — the append-only log
+    // never triggers a full scan. Filter noise, then cap the feed.
+    const entries = (await AuditLog.list({ limit: 1000 }))
+      .filter((e) => !NOISE_PREFIXES.some((p) => e.action.startsWith(p)))
+      .slice(0, 200);
+    const users = await db.scanByType("User");
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const enriched = entries.map((e) => {
+      const u = e.actorId ? byId.get(e.actorId) : null;
+      // Request metadata (ip/userAgent/statusCode) is not needed by the UI.
+      const rest = { ...e };
+      delete rest.ip;
+      delete rest.userAgent;
+      delete rest.statusCode;
+      return {
+        ...rest,
+        actorName: u ? u.contactName || u.email || e.actorEmail : e.actorEmail,
+        actorRoles: u ? (u.roles ?? []) : ((e.detail?.actorRoles as string[]) ?? []),
+      };
+    });
+    res.json(enriched);
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
 // ===================== ALERTS =====================
