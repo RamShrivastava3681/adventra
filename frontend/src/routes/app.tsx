@@ -37,7 +37,10 @@ import {
   PackageCheck,
   ShoppingBag,
   ScrollText,
+  Sun,
+  Moon,
 } from "lucide-react";
+import { useTheme, type Theme } from "@/lib/theme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CommandDialog,
@@ -240,6 +243,7 @@ function AppLayout() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const { theme, toggleTheme } = useTheme();
 
   // ── View-as (reporting manager impersonation) ──
   // When a viewAsUserId is in the URL, the sidebar mirrors the team member's
@@ -409,6 +413,27 @@ function AppLayout() {
   // otherwise it reflects the signed-in user's roles.
   const navSections = buildNavSections(effectiveRoles);
 
+  // Current page label, shown in the top bar for orientation.
+  const currentPage = (() => {
+    // Detail / preview routes that don't share a nav-item prefix.
+    const DETAIL_LABELS: [string, string][] = [
+      ["/app/quotation/", "Quotation"],
+      ["/app/challan/", "Dispatch"],
+      ["/app/invoice-preview/", "Invoice"],
+      ["/app/note-preview/", "Credit / Debit note"],
+    ];
+    for (const [prefix, label] of DETAIL_LABELS) if (pathname.startsWith(prefix)) return label;
+    for (const s of navSections) {
+      if (s.type === "single" && (pathname === s.to || pathname.startsWith(s.to + "/")))
+        return s.label;
+      if (s.type === "group") {
+        const item = s.items.find((n) => pathname === n.to || pathname.startsWith(n.to + "/"));
+        if (item) return item.label;
+      }
+    }
+    return "";
+  })();
+
   // Resolve the currently active flyout section data
   const activeFlyoutSection = activeFlyout
     ? (navSections.find(
@@ -453,13 +478,17 @@ function AppLayout() {
           closeSidebar();
           closeAll();
         }}
-        className={`flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+        className={`group flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
           active
-            ? "bg-blue-50 text-accent"
-            : "text-slate-500 hover:bg-blue-50/50 hover:text-slate-700"
+            ? "bg-primary/10 text-primary shadow-sm"
+            : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
         }`}
       >
-        <Icon className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-slate-400"}`} />
+        <Icon
+          className={`h-4 w-4 shrink-0 transition-colors duration-200 ${
+            active ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+          }`}
+        />
         <span className="truncate">{n.label}</span>
         {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />}
       </Link>
@@ -473,8 +502,15 @@ function AppLayout() {
     <>
       {/* Brand header */}
       <div className="flex items-center gap-3 px-5 py-5 border-b border-sidebar-border shrink-0">
-        <img src="/logo.png" alt="Adventra" className="h-9 w-auto rounded-[12px] object-contain" />
-        <div>
+        <div className="relative">
+          <img
+            src="/logo.png"
+            alt="Adventra"
+            className="h-9 w-auto rounded-[12px] object-contain ring-1 ring-sidebar-border"
+          />
+          <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-sidebar" />
+        </div>
+        <div className="min-w-0">
           <div className="font-display text-lg leading-tight tracking-tight text-sidebar-foreground">
             Adventra
           </div>
@@ -492,7 +528,7 @@ function AppLayout() {
         >
           <Search className="h-3.5 w-3.5" />
           <span className="flex-1 text-left">Quick navigate...</span>
-          <kbd className="hidden rounded-md border border-sidebar-border bg-white px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-muted-foreground md:inline-flex">
+          <kbd className="hidden rounded-md border border-sidebar-border bg-card px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-muted-foreground md:inline-flex">
             <Command className="h-2.5 w-2.5" />K
           </kbd>
         </button>
@@ -513,13 +549,17 @@ function AppLayout() {
                 onClick={() => {
                   if (mobile) setMobileOpen(false);
                 }}
-                className={`flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+                className={`group flex items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                   active
-                    ? "bg-blue-50 text-accent"
-                    : "text-slate-500 hover:bg-blue-50/50 hover:text-slate-700"
+                    ? "bg-primary/10 text-primary shadow-sm"
+                    : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
                 }`}
               >
-                <Icon className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-slate-400"}`} />
+                <Icon
+                  className={`h-4 w-4 shrink-0 transition-colors duration-200 ${
+                    active ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
+                  }`}
+                />
                 <span className="truncate">{section.label}</span>
                 {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />}
               </Link>
@@ -544,22 +584,22 @@ function AppLayout() {
                     }
                     className={`flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                       hasActiveChild
-                        ? "bg-blue-50 text-accent"
-                        : "text-slate-500 hover:bg-blue-50/50 hover:text-slate-700"
+                        ? "bg-primary/10 text-primary"
+                        : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
                     }`}
                   >
                     <Icon
-                      className={`h-4 w-4 shrink-0 ${hasActiveChild ? "text-accent" : "text-slate-400"}`}
+                      className={`h-4 w-4 shrink-0 ${hasActiveChild ? "text-primary" : "text-muted-foreground"}`}
                     />
                     <span className="flex-1 truncate text-left">{section.label}</span>
                     <ChevronDown
                       className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
                         mobileExpanded === section.label ? "rotate-180" : ""
-                      } ${hasActiveChild ? "text-accent" : "text-slate-400"}`}
+                      } ${hasActiveChild ? "text-primary" : "text-muted-foreground"}`}
                     />
                   </button>
                   {mobileExpanded === section.label && (
-                    <div className="ml-3 mt-0.5 space-y-0.5 border-l-2 border-blue-100 pl-2 animate-in slide-in-from-top-1 fade-in duration-150">
+                    <div className="ml-3 mt-0.5 space-y-0.5 border-l-2 border-primary/20 pl-2 animate-in slide-in-from-top-1 fade-in duration-150">
                       {section.items.map((n) => renderNavLink(n, () => setMobileOpen(false)))}
                     </div>
                   )}
@@ -570,18 +610,18 @@ function AppLayout() {
                   onClick={() => setActiveFlyout(isOpen ? null : section.label)}
                   className={`flex w-full items-center gap-3 rounded-[10px] px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                     hasActiveChild || isOpen
-                      ? "bg-blue-50 text-accent"
-                      : "text-slate-500 hover:bg-blue-50/50 hover:text-slate-700"
-                  } ${isOpen ? "ring-1 ring-blue-200" : ""}`}
+                      ? "bg-primary/10 text-primary"
+                      : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                  } ${isOpen ? "ring-1 ring-primary/30" : ""}`}
                 >
                   <Icon
-                    className={`h-4 w-4 shrink-0 ${hasActiveChild ? "text-accent" : "text-slate-400"}`}
+                    className={`h-4 w-4 shrink-0 ${hasActiveChild ? "text-primary" : "text-muted-foreground"}`}
                   />
                   <span className="flex-1 truncate text-left">{section.label}</span>
                   <ChevronRight
                     className={`h-3.5 w-3.5 shrink-0 transition-transform duration-200 ${
-                      isOpen ? "translate-x-0.5 text-accent" : ""
-                    } ${hasActiveChild ? "text-accent" : "text-slate-400"}`}
+                      isOpen ? "translate-x-0.5 text-primary" : ""
+                    } ${hasActiveChild ? "text-primary" : "text-muted-foreground"}`}
                   />
                 </button>
               )}
@@ -592,16 +632,23 @@ function AppLayout() {
 
       {/* User footer */}
       <div className="border-t border-sidebar-border p-3 shrink-0">
-        <div className="rounded-[12px] bg-slate-50/80 p-3 transition-colors hover:bg-slate-100/80 border border-sidebar-border/50">
-          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-            Signed in as
-          </div>
-          <div className="mt-0.5 truncate text-sm font-medium text-sidebar-foreground">
-            {user?.email}
+        <div className="rounded-[12px] bg-muted/50 p-3 transition-colors hover:bg-muted/70 border border-sidebar-border/50">
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-bold text-primary">
+              {(user?.email || "U").charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <div className="truncate text-sm font-medium text-sidebar-foreground">
+                {user?.email}
+              </div>
+              <div className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
+                Signed in as
+              </div>
+            </div>
           </div>
           <button
             onClick={handleSignOut}
-            className="mt-2.5 inline-flex items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className="mt-2.5 inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border/60 px-2 py-1.5 text-xs text-muted-foreground transition-colors hover:border-destructive/40 hover:bg-destructive/5 hover:text-destructive"
           >
             <LogOut className="h-3.5 w-3.5" /> Sign out
           </button>
@@ -628,12 +675,24 @@ function AppLayout() {
           <img src="/logo.png" alt="Adventra" className="h-7 w-auto rounded-[8px] object-contain" />
           <span className="font-display text-sm tracking-tight">Adventra</span>
         </div>
-        <button
-          onClick={() => setCmdOpen(true)}
-          className="ml-auto rounded-md border border-border p-2 text-muted-foreground"
-        >
-          <Search className="h-4 w-4" />
-        </button>
+        <div className="ml-auto flex items-center gap-1.5">
+          <Link
+            to="/app/alerts"
+            aria-label="Alerts"
+            title="Alerts"
+            className="rounded-md border border-border p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <BellRing className="h-4 w-4" />
+          </Link>
+          <button
+            onClick={() => setCmdOpen(true)}
+            aria-label="Quick navigate"
+            className="rounded-md border border-border p-2 text-muted-foreground"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+          <ThemeToggle theme={theme} onToggle={toggleTheme} />
+        </div>
       </div>
 
       {/* Desktop sidebar */}
@@ -646,12 +705,12 @@ function AppLayout() {
             {/* Backdrop */}
             <div className="fixed inset-0 z-40" onClick={() => setActiveFlyout(null)} />
             {/* Flyout panel */}
-            <div className="fixed left-64 top-0 z-50 flex h-full w-60 flex-col border-r border-border bg-white shadow-2xl animate-in slide-in-from-left-2 fade-in duration-200">
+            <div className="fixed left-64 top-0 z-50 flex h-full w-60 flex-col border-r border-border bg-popover shadow-2xl animate-in slide-in-from-left-2 fade-in duration-200">
               {/* Flyout header */}
               <div className="flex items-center gap-3 px-4 h-14 shrink-0 border-b border-border">
                 <button
                   onClick={() => setActiveFlyout(null)}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-slate-100 hover:text-foreground"
+                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
                 >
                   <ChevronRight className="h-4 w-4 rotate-180" />
                 </button>
@@ -674,12 +733,12 @@ function AppLayout() {
                       }}
                       className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
                         active
-                          ? "bg-blue-50 text-accent"
-                          : "text-slate-600 hover:bg-slate-50 hover:text-slate-800"
+                          ? "bg-primary/10 text-primary"
+                          : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
                       }`}
                     >
                       <ItemIcon
-                        className={`h-4 w-4 shrink-0 ${active ? "text-accent" : "text-slate-400"}`}
+                        className={`h-4 w-4 shrink-0 ${active ? "text-primary" : "text-muted-foreground"}`}
                       />
                       <span className="truncate">{n.label}</span>
                       {active && <span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" />}
@@ -693,7 +752,7 @@ function AppLayout() {
       </aside>
 
       {/* Main content area */}
-      <main className="flex-1 min-w-0 bg-background pt-14 md:pt-0">
+      <main className="app-surface flex-1 min-w-0 pt-14 md:pt-0">
         {/* View-as banner — shown on every page while impersonating a team member */}
         {viewAsActive && (
           <ViewAsBanner
@@ -708,9 +767,34 @@ function AppLayout() {
             onExit={() => navigate({ to: "/app/reports", search: {} })}
           />
         )}
-        {/* Top bar with profile */}
-        <div className="hidden md:flex items-center justify-end gap-3 border-b border-border bg-background px-6 py-2.5">
-          <DropdownMenu>
+        {/* Top bar with page title, notifications, theme toggle & profile */}
+        <div className="hidden md:flex items-center justify-between gap-2 border-b border-border bg-background px-6 py-2.5">
+          <div className="flex min-w-0 items-center gap-2">
+            {currentPage ? (
+              <>
+                <span className="truncate font-display text-base tracking-tight text-foreground">
+                  {currentPage}
+                </span>
+                <span className="hidden h-1 w-1 shrink-0 rounded-full bg-border lg:block" />
+                <span className="hidden truncate text-xs text-muted-foreground lg:block">
+                  {consoleLabel}
+                </span>
+              </>
+            ) : (
+              <span className="truncate text-xs text-muted-foreground">{consoleLabel}</span>
+            )}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            <Link
+              to="/app/alerts"
+              aria-label="Alerts"
+              title="Alerts"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+              <BellRing className="h-4 w-4" />
+            </Link>
+            <ThemeToggle theme={theme} onToggle={toggleTheme} />
+            <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button className="flex items-center gap-2.5 rounded-lg px-2 py-1.5 text-sm transition-colors hover:bg-muted/50">
                 <Avatar className="h-7 w-7">
@@ -755,9 +839,12 @@ function AppLayout() {
                 <LogOut className="mr-2 h-4 w-4" /> Sign out
               </DropdownMenuItem>
             </DropdownMenuContent>
-          </DropdownMenu>
+            </DropdownMenu>
+          </div>
         </div>
-        <Outlet />
+        <div key={pathname.split("/").slice(0, 3).join("/")} className="page-enter">
+          <Outlet />
+        </div>
       </main>
 
       {/* ─── Command palette ─────────────────────────────── */}
@@ -815,5 +902,20 @@ function AppLayout() {
         </CommandList>
       </CommandDialog>
     </div>
+  );
+}
+
+// ─── Light / dark theme toggle ──────────────────────────────────
+function ThemeToggle({ theme, onToggle }: { theme: Theme; onToggle: () => void }) {
+  const dark = theme === "dark";
+  return (
+    <button
+      onClick={onToggle}
+      aria-label={dark ? "Switch to light theme" : "Switch to dark theme"}
+      title={dark ? "Switch to light theme" : "Switch to dark theme"}
+      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-background text-muted-foreground shadow-sm transition-all duration-200 hover:border-primary/40 hover:text-primary"
+    >
+      {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+    </button>
   );
 }

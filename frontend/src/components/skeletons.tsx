@@ -157,7 +157,7 @@ export function DashboardSkeleton() {
 /* ------------------------------------------------------------------ */
 export function PageHeaderSkeleton() {
   return (
-    <div className="border-b border-border/60 bg-white/50 px-6 py-4 md:px-10">
+    <div className="border-b border-border/60 bg-card/50 px-6 py-4 md:px-10">
       <Skeleton className="h-3 w-24" />
       <Skeleton className="mt-1.5 h-6 w-48" />
       <Skeleton className="mt-1.5 h-3 w-72" />

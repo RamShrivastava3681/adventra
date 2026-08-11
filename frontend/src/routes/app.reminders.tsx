@@ -457,6 +457,7 @@ function RemindersPage() {
         eyebrow="Invoice Reminders"
         title="Reminder History"
         description="Audit trail of every invoice reminder sent — to admins and debtors. Reminders are also sent instantly when invoices are created or updated."
+        icon={<Mail className="h-5 w-5" />}
         actions={
           <div className="flex items-center gap-2">
             <ManualReminderSection />

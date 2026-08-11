@@ -14,6 +14,7 @@ import {
   Ban,
   CheckCircle2,
   Send,
+  FileSignature,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -95,7 +96,7 @@ const PF_DOC_LABELS: Record<string, string> = {
 };
 const PF_DOC_TONES: Record<string, string> = {
   received: "bg-sky-500/10 text-sky-600 border-sky-500/30",
-  reviewed: "bg-blue-500/10 text-blue-600 border-blue-500/30",
+  reviewed: "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
   converted_to_po: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
   expired: "bg-muted/60 text-muted-foreground border-border",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
@@ -312,6 +313,7 @@ function ProformasPage() {
         eyebrow="Proforma invoices"
         title="Proformas & advances"
         description="Purchase proformas are supplier quotations with catalogue lines that can be converted into a purchase order. Sales proformas are customer proforma invoices entered into the system — catalogue lines, totals and an optional advance request, convertible into a sales order. Proformas never create inventory entries."
+        icon={<FileSignature className="h-5 w-5" />}
         actions={
           canCreate ? (
             <div className="flex gap-2">

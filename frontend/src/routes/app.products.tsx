@@ -228,6 +228,7 @@ function ProductsPage() {
         eyebrow="Catalog"
         title="Products & SKUs"
         description="Master catalog of every SKU you sell. The catalogue only defines the product — stock, sales and purchases hang off the SKU elsewhere."
+        icon={<Package className="h-5 w-5" />}
         breadcrumbs={[{ label: "Dashboard", href: "/app/dashboard" }, { label: "Catalog" }]}
         actions={
           canWrite ? (

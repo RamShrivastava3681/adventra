@@ -11,7 +11,7 @@ import {
   fmtDate,
   daysBetween,
 } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Mail, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Plus, X, Loader2, Link2, Mail, AlertTriangle, CheckCircle2, ShoppingCart } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
@@ -210,6 +210,7 @@ function PurchasesPage() {
         eyebrow="Procurement"
         title="Purchase invoices"
         description="Invoices you receive from suppliers, linked to the purchase order they bill. A purchase invoice records the supplier payable — it never touches stock. Only a confirmed GRN credits inventory."
+        icon={<ShoppingCart className="h-5 w-5" />}
         actions={
           canCreate ? (
             <button

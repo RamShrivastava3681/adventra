@@ -18,6 +18,7 @@ import {
   Ban,
   Package,
   Pencil,
+  Boxes,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -222,6 +223,7 @@ function InventoryPage() {
         eyebrow="Inventory"
         title="Inventory"
         description="Live stock is confirmed credit entries minus confirmed debit entries. Goods receipts credit stock automatically and dispatched invoices debit it; manual entries (opening stock, adjustments, damage, samples, returns) start as drafts and confirm when verified."
+        icon={<Boxes className="h-5 w-5" />}
         actions={
           canWrite ? (
             <button

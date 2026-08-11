@@ -19,6 +19,7 @@ import {
   Eye,
   Mail,
   FileCheck,
+  FileText,
   Ban,
   Trash2,
 } from "lucide-react";
@@ -207,6 +208,7 @@ function InvoicesPage() {
         eyebrow="Invoices"
         title={isAdmin ? "Invoice queue" : "Your invoices"}
         description="Sales invoices bill the customer after goods are dispatched. Creating an invoice never reduces stock — only a confirmed dispatch debits inventory. Drafts are reviewed and sent to the checker, then the funding queue."
+        icon={<FileText className="h-5 w-5" />}
         breadcrumbs={[{ label: "Dashboard", href: "/app/dashboard" }, { label: "Invoices" }]}
         actions={
           canCreate ? (

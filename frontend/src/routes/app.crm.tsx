@@ -68,6 +68,7 @@ function CRMPage() {
         eyebrow="Sales"
         title="CRM / Salesforce"
         description={`Manage leads, opportunities, and activities. ${scopeLabel}.`}
+        icon={<Users className="h-5 w-5" />}
         actions={
           canWrite ? (
             <div className="flex gap-2">

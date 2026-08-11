@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card } from "@/components/ledger-ui";
-import { Shield, Loader2 } from "lucide-react";
+import { Shield, Loader2, Settings } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/settings")({
@@ -57,7 +57,7 @@ function SettingsPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="Account" title="Settings" />
+      <PageHeader eyebrow="Account" title="Settings" icon={<Settings className="h-5 w-5" />} />
       <div className="grid gap-6 p-6 md:grid-cols-2 md:p-10">
         <Card title="Company profile">
           <div className="space-y-3">

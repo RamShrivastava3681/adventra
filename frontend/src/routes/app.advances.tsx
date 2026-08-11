@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Trash2 } from "lucide-react";
+import { Plus, X, Loader2, Link2, Trash2, Wallet } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { toast } from "sonner";
@@ -67,6 +67,7 @@ function AdvancesPage() {
         eyebrow="Advances"
         title="Advance payments"
         description="Money received from customers or paid to suppliers ahead of the final invoice. Each advance is tied to a specific invoice."
+        icon={<Wallet className="h-5 w-5" />}
         actions={
           canWrite ? (
             <div className="flex gap-2">

@@ -47,6 +47,7 @@ function VendorsPage() {
         eyebrow="Procurement"
         title="Suppliers"
         description="The vendors you buy from. Track contacts, terms, and open payables."
+        icon={<Building2 className="h-5 w-5" />}
         actions={
           <button
             onClick={() => setOpen(true)}

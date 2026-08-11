@@ -14,6 +14,7 @@ export function PageHeader({
   actions,
   breadcrumbs,
   backTo,
+  icon,
 }: {
   eyebrow?: string;
   title: string;
@@ -21,9 +22,10 @@ export function PageHeader({
   actions?: ReactNode;
   breadcrumbs?: BreadcrumbItem[];
   backTo?: string;
+  icon?: ReactNode;
 }) {
   return (
-    <div className="border-b border-border bg-white/50 px-6 py-7 md:px-10">
+    <div className="border-b border-border bg-card/50 px-6 py-7 md:px-10">
       {/* Breadcrumbs */}
       {breadcrumbs && breadcrumbs.length > 0 && (
         <nav className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground/70">
@@ -50,21 +52,59 @@ export function PageHeader({
         </nav>
       )}
       <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          {eyebrow && (
-            <p className="text-[10px] uppercase tracking-[0.2em] text-accent font-semibold">
-              {eyebrow}
-            </p>
+        <div className="flex items-start gap-4">
+          {icon && (
+            <div className="mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              {icon}
+            </div>
           )}
-          <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground md:text-4xl">
-            {title}
-          </h1>
-          {description && (
-            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{description}</p>
-          )}
+          <div>
+            {eyebrow && (
+              <p className="text-[10px] uppercase tracking-[0.2em] text-accent font-semibold">
+                {eyebrow}
+              </p>
+            )}
+            <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground md:text-4xl">
+              {title}
+            </h1>
+            {description && (
+              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{description}</p>
+            )}
+          </div>
         </div>
         {actions && <div className="flex items-center gap-2">{actions}</div>}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Shared empty-state block — consistent illustration, title, description and
+ * optional call-to-action across every list page.
+ */
+export function EmptyState({
+  icon,
+  title,
+  description,
+  action,
+}: {
+  icon?: ReactNode;
+  title: string;
+  description?: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
+      {icon && (
+        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-border bg-muted/50 text-muted-foreground">
+          {icon}
+        </div>
+      )}
+      <h3 className="font-display text-base font-semibold text-foreground">{title}</h3>
+      {description && (
+        <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">{description}</p>
+      )}
+      {action && <div className="mt-5">{action}</div>}
     </div>
   );
 }
@@ -129,23 +169,25 @@ export function StatusPill({
   tone?: string;
 }) {
   const map: Record<string, string> = {
-    pending: "bg-slate-100 text-slate-500",
-    approved: "bg-blue-50 text-blue-600",
-    advanced: "bg-emerald-50 text-emerald-600",
-    paid: "bg-emerald-50 text-emerald-600",
-    overdue: "bg-red-50 text-red-600",
-    rejected: "bg-red-50 text-red-600",
-    critical: "bg-red-50 text-red-600",
-    warning: "bg-amber-50 text-amber-600",
-    info: "bg-blue-50 text-blue-600",
-    draft: "bg-slate-100 text-slate-500",
-    verified: "bg-blue-50 text-blue-600",
-    approved_for_payment: "bg-violet-50 text-violet-600",
-    partially_paid: "bg-amber-50 text-amber-600",
-    cancelled: "bg-red-50 text-red-600",
+    pending: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
+    approved: "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400",
+    advanced: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400",
+    paid: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400",
+    overdue: "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400",
+    rejected: "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400",
+    critical: "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400",
+    warning: "bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400",
+    info: "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400",
+    draft: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
+    verified: "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400",
+    approved_for_payment: "bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-400",
+    partially_paid: "bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400",
+    cancelled: "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400",
   };
   return (
-    <span className={`status-pill ${tone ?? map[status] ?? "bg-slate-100 text-slate-500"}`}>
+    <span
+      className={`status-pill ${tone ?? map[status] ?? "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}
+    >
       {label ?? status}
     </span>
   );

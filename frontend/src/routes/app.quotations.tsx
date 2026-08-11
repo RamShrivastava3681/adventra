@@ -115,7 +115,7 @@ const Q_STATUS_LABELS: Record<string, string> = {
 
 const Q_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
-  sent: "bg-blue-500/10 text-blue-600 border-blue-500/30",
+  sent: "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
   accepted: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
   rejected: "bg-destructive/10 text-destructive border-destructive/30",
   expired: "bg-amber-500/10 text-amber-600 border-amber-500/30",
@@ -254,6 +254,7 @@ function QuotationsPage() {
         eyebrow="Sales"
         title="Quotations"
         description="An offer to a customer or prospect. Quotations never affect inventory or accounting — stock moves only after a confirmed dispatch."
+        icon={<ScrollText className="h-5 w-5" />}
         actions={
           canWrite ? (
             <button
@@ -1201,7 +1202,7 @@ function QModal({
                     type="button"
                     onClick={() => changeStatus("sent", "Quotation sent")}
                     disabled={statusBusy}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-blue-500/50 px-3 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-500/10 disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
                   >
                     {statusBusy ? (
                       <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1254,7 +1255,7 @@ function QModal({
                   type="button"
                   onClick={() => convert.mutate()}
                   disabled={convert.isPending}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-teal-500/50 px-3 py-1.5 text-xs font-medium text-teal-600 hover:bg-teal-500/10 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
                 >
                   {convert.isPending ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />

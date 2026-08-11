@@ -377,6 +377,7 @@ function QueuePage() {
       <PageHeader
         eyebrow={isTreasury ? "Treasury desk" : isAdmin ? "Operations" : "Approved queue"}
         title="Funding queue"
+        icon={<Banknote className="h-5 w-5" />}
         description={
           isTreasury
             ? "Approved invoices awaiting settlement. Advances already paid against the same PO are deducted from the amount due."

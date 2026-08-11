@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card } from "@/components/ledger-ui";
-import { Loader2, Save, FileText } from "lucide-react";
+import { Loader2, Save, FileText, Palette } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/template")({
@@ -103,6 +103,7 @@ function TemplatePage() {
         eyebrow="Branding"
         title="Invoice template"
         description="Branding and boilerplate used whenever you generate a sales invoice or credit / debit note from inside the platform."
+        icon={<Palette className="h-5 w-5" />}
       />
 
       <div className="grid gap-6 p-6 md:p-10 lg:grid-cols-5">

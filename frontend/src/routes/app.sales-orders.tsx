@@ -18,6 +18,7 @@ import {
   FileDown,
   Mail,
   CircleDollarSign,
+  ShoppingBag,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -116,7 +117,7 @@ const SO_STATUS_LABELS: Record<string, string> = {
 
 const SO_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
-  confirmed: "bg-blue-500/10 text-blue-600 border-blue-500/30",
+  confirmed: "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
   partially_dispatched: "bg-amber-500/10 text-amber-600 border-amber-500/30",
   fully_dispatched: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
@@ -251,6 +252,7 @@ function SalesOrdersPage() {
         eyebrow="Sales"
         title="Sales orders"
         description="A sales order records the customer's confirmed order. It never debits inventory — stock reduces only after a confirmed dispatch."
+        icon={<ShoppingBag className="h-5 w-5" />}
         actions={
           canWrite ? (
             <button

@@ -2,6 +2,9 @@
 @source "../src";
 @import "tw-animate-css";
 
+/* Class-based dark mode: `.dark` on <html> switches the whole palette. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 /* ============================================================
    ADVENTRA — Premium light-mode enterprise fintech dashboard.
    Inspired by Stripe Dashboard, Linear, Ramp, Brex, Mercury.
@@ -122,12 +125,186 @@
   --sidebar-ring: #00b8ff;
 }
 
+/* ============================================================
+   DARK THEME — deep navy surfaces, same cyan brand accent.
+   Activated by adding `.dark` to <html> (see theme provider).
+   ============================================================ */
+.dark {
+  color-scheme: dark;
+
+  --background: #0b1220;
+  --foreground: #e2e8f0;
+
+  --card: #0f1729;
+  --card-foreground: #e2e8f0;
+
+  --popover: #111c31;
+  --popover-foreground: #e2e8f0;
+
+  /* Primary: bright cyan accent (unchanged brand colour) */
+  --primary: #00b8ff;
+  --primary-foreground: #06283a;
+
+  /* Secondary: subtle dark surface */
+  --secondary: #1b2537;
+  --secondary-foreground: #e2e8f0;
+
+  /* Muted: dark grey surfaces */
+  --muted: #1b2537;
+  --muted-foreground: #94a3b8;
+
+  /* Accent: cyan (same as primary for consistency) */
+  --accent: #00b8ff;
+  --accent-foreground: #06283a;
+
+  /* Destructive / warning / success — lightened for dark contrast */
+  --destructive: #f87171;
+  --destructive-foreground: #450a0a;
+  --warning: #fbbf24;
+  --warning-foreground: #1a1206;
+  --success: #34d399;
+  --success-foreground: #06281c;
+
+  /* Borders & inputs */
+  --border: #223047;
+  --input: #0d1526;
+  --ring: #00b8ff;
+
+  /* Chart colors — keep brand palette */
+  --chart-1: #00b8ff;
+  --chart-2: #3b82f6;
+  --chart-3: #a78bfa;
+  --chart-4: #fbbf24;
+  --chart-5: #34d399;
+
+  /* Sidebar — deep navy with cyan accents */
+  --sidebar: #0d1428;
+  --sidebar-foreground: #e2e8f0;
+  --sidebar-primary: #00b8ff;
+  --sidebar-primary-foreground: #06283a;
+  --sidebar-accent: #17223a;
+  --sidebar-accent-foreground: #e2e8f0;
+  --sidebar-border: #223047;
+  --sidebar-ring: #00b8ff;
+}
+
+/* Dark-mode adjustments for hand-written utility classes */
+.dark .bg-vault {
+  background-color: #0d1428;
+}
+.dark .btn-primary {
+  color: #06283a;
+}
+.dark .btn-secondary {
+  background: #1b2537;
+  color: #e2e8f0;
+  border-color: #223047;
+}
+.dark .btn-secondary:hover {
+  border-color: #00b8ff;
+  color: #00b8ff;
+}
+.dark .btn-danger {
+  background: rgba(248, 113, 113, 0.12);
+  color: #fca5a5;
+  border-color: rgba(248, 113, 113, 0.3);
+}
+.dark .btn-danger:hover {
+  background: rgba(248, 113, 113, 0.2);
+  border-color: rgba(252, 165, 165, 0.5);
+}
+.dark .table-premium th {
+  background: #0f1729;
+  color: #94a3b8;
+  border-bottom-color: #223047;
+}
+.dark .table-premium td {
+  border-bottom-color: #1b2537;
+}
+.dark .table-premium tr:hover td {
+  background-color: #111c31;
+}
+.dark .table-premium tr:nth-child(even) td {
+  background-color: #0e1526;
+}
+.dark .table-premium tr:nth-child(even):hover td {
+  background-color: #16213a;
+}
+.dark .shadow-card {
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.35),
+    0 1px 2px rgba(0, 0, 0, 0.25);
+}
+.dark .shadow-card-hover {
+  box-shadow:
+    0 4px 20px rgba(0, 0, 0, 0.4),
+    0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.dark .shadow-dropdown {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+.dark .shadow-modal {
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+}
+.dark .shadow-vault {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+}
+.dark .grid-lines {
+  background-image:
+    linear-gradient(to right, rgba(148, 163, 184, 0.14) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.14) 1px, transparent 1px);
+}
+.dark .metric-card {
+  background: #0f1729;
+  border-color: #223047;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+}
+.dark .metric-card:hover {
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+}
+.dark .metric-value {
+  color: #e2e8f0;
+}
+
 @layer base {
   * {
     border-color: var(--color-border);
     transition-property: background-color, border-color, color;
     transition-duration: 200ms;
     transition-timing-function: ease-out;
+  }
+  /* Keyboard focus — visible everywhere, never doubled on components that
+     define their own focus-visible utilities (those live in a later layer). */
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background-color: rgba(0, 184, 255, 0.2);
+    color: var(--color-foreground);
+  }
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--color-muted-foreground) 28%, transparent);
+    border-radius: 9999px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in oklab, var(--color-muted-foreground) 45%, transparent);
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--color-muted-foreground) 35%, transparent)
+      transparent;
   }
   html,
   body {
@@ -151,10 +328,6 @@
   .font-mono {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
-  }
-  ::selection {
-    background-color: rgba(0, 184, 255, 0.2);
-    color: var(--color-foreground);
   }
 }
 
@@ -363,5 +536,37 @@ input[type="number"] {
     display: flex;
     min-height: 100vh;
     width: 100%;
+  }
+
+  /* App surface — soft ambient colour wash behind every page so the layout
+     has depth without distracting from the content cards on top. */
+  .app-surface {
+    background-color: var(--color-background);
+    background-image:
+      radial-gradient(
+        900px 420px at 88% -8%,
+        color-mix(in oklab, var(--color-primary) 9%, transparent),
+        transparent 62%
+      ),
+      radial-gradient(
+        760px 420px at -12% 108%,
+        color-mix(in oklab, var(--color-primary) 6%, transparent),
+        transparent 60%
+      );
+  }
+
+  /* Soft entrance for route changes (applied to the Outlet wrapper). */
+  .page-enter {
+    animation: page-enter 280ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes page-enter {
+    from {
+      opacity: 0;
+      transform: translateY(4px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 }

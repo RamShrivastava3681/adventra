@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader } from "@/components/ledger-ui";
-import { MapPin, Plane, Receipt, CalendarDays, CheckCircle, XCircle, Loader2 } from "lucide-react";
+import { MapPin, Plane, Receipt, CalendarDays, CheckCircle, XCircle, Loader2, Inbox } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/requests")({
@@ -12,7 +12,7 @@ export const Route = createFileRoute("/app/requests")({
 });
 
 const TYPE_CONFIG = {
-  visit: { icon: MapPin, label: "Visit", color: "bg-blue-100 text-blue-700" },
+  visit: { icon: MapPin, label: "Visit", color: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" },
   travel: { icon: Plane, label: "Travel", color: "bg-purple-100 text-purple-700" },
   expense: { icon: Receipt, label: "Expense", color: "bg-amber-100 text-amber-700" },
   leave: { icon: CalendarDays, label: "Leave", color: "bg-rose-100 text-rose-700" },
@@ -66,6 +66,7 @@ function RequestsPage() {
       <PageHeader
         eyebrow="Requests"
         title="Team requests"
+        icon={<Inbox className="h-5 w-5" />}
         description={
           pendingCount > 0
             ? `${pendingCount} pending request${pendingCount > 1 ? "s" : ""} awaiting review`
@@ -123,7 +124,7 @@ function RequestsPage() {
               return (
                 <div
                   key={req.id}
-                  className="rounded-xl border border-border bg-white p-4 shadow-sm"
+                  className="rounded-xl border border-border bg-card p-4 shadow-sm"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div className="flex-1 min-w-0">

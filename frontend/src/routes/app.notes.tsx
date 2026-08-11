@@ -94,6 +94,7 @@ function NotesPage() {
         eyebrow="Adjustments"
         title="Credit & debit notes"
         description="Raise credit notes (refunds, discounts) and debit notes (extra charges, claims). Every note routes to the Checker desk for approval, then the Funding queue, where Treasury applies it — automatically adjusting the linked sales or purchase invoice."
+        icon={<FileMinus className="h-5 w-5" />}
         actions={
           canCreate ? (
             <button

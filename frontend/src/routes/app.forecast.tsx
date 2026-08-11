@@ -54,6 +54,7 @@ import {
   Line,
 } from "recharts";
 import { toast } from "sonner";
+import { PageHeader } from "@/components/ledger-ui";
 import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 
@@ -533,12 +534,19 @@ function ForecastPage() {
   };
 
   return (
-    <div className="min-h-screen bg-white">
-      {/* ── Dark navy header ─────────────────────────────────────── */}
+    <div className="min-h-screen">
       <PageHeader
-        totalSkus={analyses.length}
-        needReorder={summary.toReorder}
-        stockoutRisk={summary.critical}
+        eyebrow="Demand planning"
+        title="SKU Forecast"
+        description="Reorder intelligence powered by 12 months of stock-movement history."
+        icon={<TrendingUp className="h-5 w-5" />}
+        actions={
+          <SummaryCards
+            totalSkus={analyses.length}
+            needReorder={summary.toReorder}
+            stockoutRisk={summary.critical}
+          />
+        }
       />
 
       <div className="mx-auto w-full max-w-[1440px] space-y-5 px-4 py-6 md:px-8 md:py-8">
@@ -589,33 +597,6 @@ function ForecastPage() {
    Header + summary cards
    ═══════════════════════════════════════════════════════════════════════ */
 
-function PageHeader({
-  totalSkus,
-  needReorder,
-  stockoutRisk,
-}: {
-  totalSkus: number;
-  needReorder: number;
-  stockoutRisk: number;
-}) {
-  return (
-    <header className="border-b border-gray-200 bg-white">
-      <div className="mx-auto flex w-full max-w-[1440px] flex-col gap-5 px-4 py-6 md:flex-row md:items-center md:justify-between md:px-8 md:py-5">
-        <div className="flex items-center gap-3.5">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-600 shadow-sm shadow-blue-600/25">
-            <Package className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <h1 className="text-lg font-semibold tracking-tight text-gray-900">SKU Forecast</h1>
-            <p className="text-xs text-gray-500">Demand planning · reorder intelligence</p>
-          </div>
-        </div>
-        <SummaryCards totalSkus={totalSkus} needReorder={needReorder} stockoutRisk={stockoutRisk} />
-      </div>
-    </header>
-  );
-}
-
 function SummaryCards({
   totalSkus,
   needReorder,
@@ -629,7 +610,7 @@ function SummaryCards({
     <div className="grid grid-cols-3 gap-3">
       <HeaderStat
         icon={<Package className="h-4 w-4" />}
-        iconClass="bg-blue-50 text-blue-600"
+        iconClass="bg-primary/10 text-primary"
         value={totalSkus}
         label="Total SKUs"
       />
@@ -662,16 +643,16 @@ function HeaderStat({
 }) {
   return (
     <div
-      className="min-w-0 rounded-xl border border-gray-200 bg-white px-3.5 py-3 shadow-sm"
+      className="min-w-0 rounded-xl border border-border bg-card px-3.5 py-3 shadow-sm"
       title={label}
     >
       <div className={`flex h-7 w-7 items-center justify-center rounded-lg ${iconClass}`}>
         {icon}
       </div>
-      <div className="mt-2 text-xl font-bold tabular-nums leading-none text-gray-900">
+      <div className="mt-2 text-xl font-bold tabular-nums leading-none text-foreground">
         {value.toLocaleString()}
       </div>
-      <div className="mt-1 text-[11px] font-medium text-gray-500">{label}</div>
+      <div className="mt-1 text-[11px] font-medium text-muted-foreground">{label}</div>
     </div>
   );
 }
@@ -718,23 +699,23 @@ function FiltersToolbar({
   const activeExtra = EXTRA_FILTERS.some((o) => o.value === filter);
 
   return (
-    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-gray-200 bg-white p-4 shadow-card">
+    <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-4 shadow-card">
       {/* Search */}
       <div className="relative min-w-[220px] flex-1">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
           value={q}
           onChange={(e) => onQ(e.target.value)}
           placeholder="Search SKU or product name…"
           aria-label="Search SKU or product name"
-          className="h-11 w-full rounded-[10px] border border-gray-200 bg-white pl-9 pr-9 text-sm text-gray-900 outline-none transition-all placeholder:text-gray-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
+          className="h-11 w-full rounded-[10px] border border-border bg-card pl-9 pr-9 text-sm text-foreground outline-none transition-all placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/15"
         />
         {q && (
           <button
             onClick={() => onQ("")}
             aria-label="Clear search"
             title="Clear search"
-            className="absolute right-2.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            className="absolute right-2.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-muted-foreground"
           >
             <X className="h-3.5 w-3.5" />
           </button>
@@ -747,7 +728,7 @@ function FiltersToolbar({
           value={category}
           onChange={(e) => onCategory(e.target.value)}
           aria-label="Filter by category"
-          className="h-11 cursor-pointer appearance-none rounded-[10px] border border-gray-200 bg-white pl-3.5 pr-9 text-sm text-gray-700 outline-none transition-all hover:border-gray-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
+          className="h-11 cursor-pointer appearance-none rounded-[10px] border border-border bg-card pl-3.5 pr-9 text-sm text-foreground outline-none transition-all hover:border-primary/40 focus:border-primary focus:ring-2 focus:ring-primary/15"
         >
           <option value="all">All categories</option>
           {categories.map((c) => (
@@ -756,7 +737,7 @@ function FiltersToolbar({
             </option>
           ))}
         </select>
-        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       </div>
 
       {/* Velocity */}
@@ -765,14 +746,14 @@ function FiltersToolbar({
           value={velocityValue}
           onChange={(e) => onFilter(e.target.value as FilterT)}
           aria-label="Filter by velocity"
-          className="h-11 cursor-pointer appearance-none rounded-[10px] border border-gray-200 bg-white pl-3.5 pr-9 text-sm text-gray-700 outline-none transition-all hover:border-gray-300 focus:border-blue-600 focus:ring-2 focus:ring-blue-600/15"
+          className="h-11 cursor-pointer appearance-none rounded-[10px] border border-border bg-card pl-3.5 pr-9 text-sm text-foreground outline-none transition-all hover:border-primary/40 focus:border-primary focus:ring-2 focus:ring-primary/15"
         >
           <option value="all">All velocities</option>
           <option value="fast">Fast</option>
           <option value="medium">Steady</option>
           <option value="slow">Slow</option>
         </select>
-        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
       </div>
 
       {/* More filters */}
@@ -780,15 +761,15 @@ function FiltersToolbar({
         <PopoverTrigger asChild>
           <button
             title="More filters"
-            className="inline-flex h-11 items-center gap-2 rounded-[10px] border border-gray-200 bg-white px-3.5 text-sm font-medium text-gray-700 transition-all hover:border-gray-300 hover:bg-gray-50"
+            className="inline-flex h-11 items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 text-sm font-medium text-foreground transition-all hover:border-primary/40 hover:bg-muted"
           >
-            <SlidersHorizontal className="h-4 w-4 text-gray-500" />
+            <SlidersHorizontal className="h-4 w-4 text-muted-foreground" />
             More filters
-            {activeExtra && <span className="h-1.5 w-1.5 rounded-full bg-blue-600" />}
+            {activeExtra && <span className="h-1.5 w-1.5 rounded-full bg-primary" />}
           </button>
         </PopoverTrigger>
         <PopoverContent align="start" sideOffset={6} className="w-56 p-1.5 shadow-dropdown">
-          <p className="px-2 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
+          <p className="px-2 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             Quick filters
           </p>
           <div className="flex flex-col">
@@ -800,12 +781,12 @@ function FiltersToolbar({
                   onClick={() => onFilter(active ? "all" : o.value)}
                   className={`flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
                     active
-                      ? "bg-blue-50 font-medium text-blue-700"
-                      : "text-gray-700 hover:bg-gray-50"
+                      ? "bg-primary/10 font-medium text-primary"
+                      : "text-foreground hover:bg-muted"
                   }`}
                 >
                   {active ? (
-                    <Check className="h-4 w-4 shrink-0 text-blue-600" />
+                    <Check className="h-4 w-4 shrink-0 text-primary" />
                   ) : (
                     <span className="h-4 w-4 shrink-0" />
                   )}
@@ -830,21 +811,21 @@ function FiltersToolbar({
           Live
         </span>
         {computedDate && (
-          <span className="hidden text-xs text-gray-400 lg:block">Computed {computedDate}</span>
+          <span className="hidden text-xs text-muted-foreground lg:block">Computed {computedDate}</span>
         )}
         <button
           onClick={onRecompute}
           disabled={recomputing}
           title="Recompute forecasts now"
-          className="inline-flex h-11 items-center gap-2 rounded-[10px] border border-gray-200 bg-white px-3.5 text-sm font-medium text-gray-700 transition-all hover:border-gray-300 hover:bg-gray-50 disabled:opacity-50"
+          className="inline-flex h-11 items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 text-sm font-medium text-foreground transition-all hover:border-primary/40 hover:bg-muted disabled:opacity-50"
         >
-          <RefreshCw className={`h-4 w-4 text-gray-500 ${recomputing ? "animate-spin" : ""}`} />
+          <RefreshCw className={`h-4 w-4 text-muted-foreground ${recomputing ? "animate-spin" : ""}`} />
           {recomputing ? "Computing…" : "Recompute"}
         </button>
         <button
           onClick={onExport}
           title="Export the current view as CSV"
-          className="inline-flex h-11 items-center gap-2 rounded-[10px] bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/30"
+          className="inline-flex h-11 items-center gap-2 rounded-[10px] bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30"
         >
           <Download className="h-4 w-4" />
           Export
@@ -886,7 +867,7 @@ function SKUTable({
   onPageChange: (p: number) => void;
 }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white shadow-card">
+    <div className="rounded-xl border border-border bg-card shadow-card">
       {/* ── Mobile: cards ── */}
       <div className="md:hidden">
         {rows.map((a) => (
@@ -910,8 +891,8 @@ function SKUTable({
       <div className="hidden overflow-x-clip rounded-t-xl md:block">
         <table className="w-full min-w-[980px] text-sm">
           <thead className="sticky top-14 z-10 md:top-0">
-            <tr className="border-b border-gray-200 bg-[#FAFAFA]">
-              <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+            <tr className="border-b border-border bg-muted/40">
+              <th className="px-6 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Product
               </th>
               <SortableTh
@@ -922,10 +903,10 @@ function SKUTable({
                 onSort={onSort}
                 className="hidden md:table-cell"
               />
-              <th className="hidden px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-gray-500 lg:table-cell">
+              <th className="hidden px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wide text-muted-foreground lg:table-cell">
                 Momentum
               </th>
-              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 In Stock
               </th>
               <SortableTh
@@ -936,7 +917,7 @@ function SKUTable({
                 onSort={onSort}
                 className="hidden md:table-cell"
               />
-              <th className="hidden px-4 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-gray-500 xl:table-cell">
+              <th className="hidden px-4 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground xl:table-cell">
                 Monthly Forecast
               </th>
               <SortableTh
@@ -955,7 +936,7 @@ function SKUTable({
                 onSort={onSort}
                 className="hidden md:table-cell"
               />
-              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+              <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
                 Action
               </th>
               <th className="w-12 px-2 py-3" aria-label="Expand row" />
@@ -980,13 +961,13 @@ function SKUTable({
       </div>
 
       {/* ── Pagination footer ── */}
-      <div className="flex flex-col items-center justify-between gap-3 border-t border-gray-100 px-6 py-4 sm:flex-row">
-        <p className="text-sm text-gray-500">
+      <div className="flex flex-col items-center justify-between gap-3 border-t border-border/60 px-6 py-4 sm:flex-row">
+        <p className="text-sm text-muted-foreground">
           Showing{" "}
-          <span className="font-medium text-gray-900">
+          <span className="font-medium text-foreground">
             {total === 0 ? 0 : (page - 1) * pageSize + 1}–{Math.min(total, page * pageSize)}
           </span>{" "}
-          of <span className="font-medium text-gray-900">{total}</span> SKUs
+          of <span className="font-medium text-foreground">{total}</span> SKUs
         </p>
         <Pagination page={page} pageCount={pageCount} onPageChange={onPageChange} />
       </div>
@@ -1023,16 +1004,16 @@ function SortableTh({
       <button
         onClick={() => onSort(sortKey)}
         title={`Sort by ${label.toLowerCase()}`}
-        className={`group inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors hover:text-gray-900 ${
-          active ? "text-gray-900" : "text-gray-500"
+        className={`group inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide transition-colors hover:text-foreground ${
+          active ? "text-foreground" : "text-muted-foreground"
         }`}
       >
         {label}
         {active ? (
           effective === "asc" ? (
-            <ChevronUp className="h-3.5 w-3.5 text-blue-600" />
+            <ChevronUp className="h-3.5 w-3.5 text-primary" />
           ) : (
-            <ChevronDown className="h-3.5 w-3.5 text-blue-600" />
+            <ChevronDown className="h-3.5 w-3.5 text-primary" />
           )
         ) : (
           <ArrowUpDown className="h-3.5 w-3.5 opacity-0 transition-opacity group-hover:opacity-60" />
@@ -1071,8 +1052,8 @@ function TableRow({
     <>
       <tr
         onClick={onToggle}
-        className={`cursor-pointer border-b border-gray-100 transition-colors duration-150 last:border-0 hover:bg-gray-50 ${
-          expanded ? "bg-gray-50/70" : ""
+        className={`cursor-pointer border-b border-border/60 transition-colors duration-150 last:border-0 hover:bg-muted ${
+          expanded ? "bg-muted/70" : ""
         }`}
       >
         {/* Product */}
@@ -1082,16 +1063,16 @@ function TableRow({
               <img
                 src={imgSrc}
                 alt={product.name}
-                className="h-10 w-10 shrink-0 rounded-lg border border-gray-200 object-cover"
+                className="h-10 w-10 shrink-0 rounded-lg border border-border object-cover"
               />
             ) : (
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-gray-100 text-[11px] font-bold text-gray-500">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-[11px] font-bold text-muted-foreground">
                 {product.sku.slice(0, 2).toUpperCase() || "?"}
               </div>
             )}
             <div className="min-w-0">
-              <div className="truncate text-sm font-semibold text-gray-900">{product.name}</div>
-              <div className="mt-0.5 truncate text-xs text-gray-500">
+              <div className="truncate text-sm font-semibold text-foreground">{product.name}</div>
+              <div className="mt-0.5 truncate text-xs text-muted-foreground">
                 {product.sku}
                 {product.category && <> · {product.category}</>}
               </div>
@@ -1116,7 +1097,7 @@ function TableRow({
         {/* In stock */}
         <td
           className={`px-4 py-4 text-right text-sm font-medium tabular-nums ${
-            stock <= 0 ? "text-red-600" : "text-gray-900"
+            stock <= 0 ? "text-red-600" : "text-foreground"
           }`}
         >
           {stock.toLocaleString()}
@@ -1125,14 +1106,14 @@ function TableRow({
         {/* Days cover */}
         <td
           className={`hidden px-4 py-4 text-right text-sm tabular-nums md:table-cell ${
-            coverDanger ? "font-medium text-red-600" : "text-gray-900"
+            coverDanger ? "font-medium text-red-600" : "text-foreground"
           }`}
         >
           {f.daysOfCover === Infinity ? "∞" : `${Math.round(f.daysOfCover)} days`}
         </td>
 
         {/* Monthly forecast */}
-        <td className="hidden px-4 py-4 text-center text-sm font-medium tabular-nums text-gray-900 xl:table-cell">
+        <td className="hidden px-4 py-4 text-center text-sm font-medium tabular-nums text-foreground xl:table-cell">
           {nextMonthQty.toLocaleString()}
         </td>
 
@@ -1156,18 +1137,18 @@ function TableRow({
               {fmtShortDate(f.estimatedStockoutDate)}
             </span>
           ) : (
-            <span className="text-sm text-gray-400">—</span>
+            <span className="text-sm text-muted-foreground">—</span>
           )}
         </td>
 
         {/* Recommended order */}
         <td className="hidden px-4 py-4 text-right md:table-cell">
           {needsReorder ? (
-            <span className="text-sm font-semibold tabular-nums text-gray-900">
+            <span className="text-sm font-semibold tabular-nums text-foreground">
               {f.recommendedReorder.toLocaleString()}
             </span>
           ) : (
-            <span className="text-sm text-gray-400">—</span>
+            <span className="text-sm text-muted-foreground">—</span>
           )}
         </td>
 
@@ -1185,7 +1166,7 @@ function TableRow({
             }}
             aria-label={expanded ? "Collapse row details" : "Expand row details"}
             title={expanded ? "Collapse details" : "Expand details"}
-            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors duration-150 hover:bg-gray-100 hover:text-gray-700"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground"
           >
             <ChevronRight
               className={`h-4 w-4 transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}
@@ -1196,7 +1177,7 @@ function TableRow({
 
       {/* Expanded detail panel */}
       {expanded && (
-        <tr className="border-b border-gray-100 bg-gray-50/60">
+        <tr className="border-b border-border/60 bg-muted/60">
           <td colSpan={10} className="px-6">
             <ExpandedForecastDetail
               product={product}
@@ -1236,7 +1217,7 @@ function MobileRowCard({
   const stockoutDays = f.estimatedStockoutDate ? daysRemaining(f.estimatedStockoutDate) : null;
 
   return (
-    <div className="border-b border-gray-100 px-4 py-4 last:border-0">
+    <div className="border-b border-border/60 px-4 py-4 last:border-0">
       <button
         onClick={onToggle}
         className="flex w-full items-start gap-3 text-left"
@@ -1246,16 +1227,16 @@ function MobileRowCard({
           <img
             src={imgSrc}
             alt={product.name}
-            className="h-10 w-10 shrink-0 rounded-lg border border-gray-200 object-cover"
+            className="h-10 w-10 shrink-0 rounded-lg border border-border object-cover"
           />
         ) : (
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-gray-100 text-[11px] font-bold text-gray-500">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted text-[11px] font-bold text-muted-foreground">
             {product.sku.slice(0, 2).toUpperCase() || "?"}
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <div className="truncate text-sm font-semibold text-gray-900">{product.name}</div>
-          <div className="truncate text-xs text-gray-500">
+          <div className="truncate text-sm font-semibold text-foreground">{product.name}</div>
+          <div className="truncate text-xs text-muted-foreground">
             {product.sku}
             {product.category && <> · {product.category}</>}
           </div>
@@ -1263,14 +1244,14 @@ function MobileRowCard({
             <span className={`font-medium ${velocityColor(velocityTag)}`}>
               {velocityLabel(velocityTag)}
             </span>
-            <span className="text-gray-300">·</span>
+            <span className="text-muted-foreground">·</span>
             <span className={`font-medium ${momentumColor(f.momentumTag)}`}>
               {momentumLabel(f.momentumTag)}
             </span>
           </div>
         </div>
         <ChevronRight
-          className={`mt-1 h-4 w-4 shrink-0 text-gray-400 transition-transform duration-150 ${
+          className={`mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 ${
             expanded ? "rotate-90" : ""
           }`}
         />
@@ -1294,17 +1275,17 @@ function MobileRowCard({
                 ? stockoutDays !== null && stockoutDays <= 7
                   ? "font-medium text-red-600"
                   : "text-amber-600"
-                : "text-gray-400"
+                : "text-muted-foreground"
             }`}
           >
             {f.estimatedStockoutDate ? fmtShortDate(f.estimatedStockoutDate) : "—"}
           </span>
-          <span className="mx-2 text-gray-300">·</span>
-          <span className="text-gray-500">
+          <span className="mx-2 text-muted-foreground">·</span>
+          <span className="text-muted-foreground">
             Order:{" "}
             <span
               className={`font-medium tabular-nums ${
-                needsReorder ? "text-gray-900" : "text-gray-400"
+                needsReorder ? "text-foreground" : "text-muted-foreground"
               }`}
             >
               {needsReorder ? f.recommendedReorder.toLocaleString() : "—"}
@@ -1315,7 +1296,7 @@ function MobileRowCard({
       </div>
 
       {expanded && (
-        <div className="mt-4 rounded-xl border border-gray-200 bg-white p-4">
+        <div className="mt-4 rounded-xl border border-border bg-card p-4">
           <ExpandedForecastDetail
             product={product}
             f={f}
@@ -1330,11 +1311,11 @@ function MobileRowCard({
 
 function MiniStat({ label, value, danger }: { label: string; value: string; danger?: boolean }) {
   return (
-    <div className="rounded-lg border border-gray-100 bg-gray-50/60 px-2 py-2">
-      <div className="text-[10px] font-medium uppercase tracking-wide text-gray-400">{label}</div>
+    <div className="rounded-lg border border-border/60 bg-muted/60 px-2 py-2">
+      <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
       <div
         className={`mt-0.5 text-sm font-semibold tabular-nums ${
-          danger ? "text-red-600" : "text-gray-900"
+          danger ? "text-red-600" : "text-foreground"
         }`}
       >
         {value}
@@ -1360,7 +1341,7 @@ function ActionButton({
           onClick();
         }}
         title="Expand details to review this reorder"
-        className="inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-all hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/30 active:scale-[0.98]"
+        className="inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-all hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-[0.98]"
       >
         <ShoppingCart className="h-4 w-4" />
         Order {qty.toLocaleString()}
@@ -1374,9 +1355,9 @@ function ActionButton({
         onClick();
       }}
       title="Review pricing strategy"
-      className="inline-flex h-10 items-center gap-2 rounded-lg border border-gray-200 bg-white px-4 text-sm font-medium text-gray-700 transition-all hover:border-gray-300 hover:bg-gray-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600/30 active:scale-[0.98]"
+      className="inline-flex h-10 items-center gap-2 rounded-lg border border-border bg-card px-4 text-sm font-medium text-foreground transition-all hover:border-primary/40 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30 active:scale-[0.98]"
     >
-      <BadgePercent className="h-4 w-4 text-gray-500" />
+      <BadgePercent className="h-4 w-4 text-muted-foreground" />
       Review Price
     </button>
   );
@@ -1413,14 +1394,14 @@ function Pagination({
         onClick={() => onPageChange(page - 1)}
         disabled={page <= 1}
         title="Previous page"
-        className="inline-flex h-8 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 text-sm text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex h-8 items-center gap-1 rounded-lg border border-border bg-card px-2.5 text-sm text-foreground transition-colors hover:border-primary/40 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
       >
         <ChevronLeft className="h-4 w-4" />
         <span className="hidden sm:inline">Previous</span>
       </button>
       {getPageItems(page, pageCount).map((it, i) =>
         it === "…" ? (
-          <span key={`e-${i}`} className="px-1 text-sm text-gray-400">
+          <span key={`e-${i}`} className="px-1 text-sm text-muted-foreground">
             …
           </span>
         ) : (
@@ -1431,8 +1412,8 @@ function Pagination({
             aria-current={it === page ? "page" : undefined}
             className={`h-8 min-w-8 rounded-lg px-2 text-sm tabular-nums transition-colors ${
               it === page
-                ? "bg-gray-100 font-semibold text-gray-900"
-                : "text-gray-500 hover:bg-gray-50 hover:text-gray-900"
+                ? "bg-muted font-semibold text-foreground"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground"
             }`}
           >
             {it}
@@ -1443,7 +1424,7 @@ function Pagination({
         onClick={() => onPageChange(page + 1)}
         disabled={page >= pageCount}
         title="Next page"
-        className="inline-flex h-8 items-center gap-1 rounded-lg border border-gray-200 bg-white px-2.5 text-sm text-gray-700 transition-colors hover:border-gray-300 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-40"
+        className="inline-flex h-8 items-center gap-1 rounded-lg border border-border bg-card px-2.5 text-sm text-foreground transition-colors hover:border-primary/40 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
       >
         <span className="hidden sm:inline">Next</span>
         <ChevronRight className="h-4 w-4" />
@@ -1458,12 +1439,12 @@ function Pagination({
 
 function EmptyState() {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white px-6 py-20 text-center shadow-card">
-      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100">
-        <Package className="h-6 w-6 text-gray-400" />
+    <div className="rounded-xl border border-border bg-card px-6 py-20 text-center shadow-card">
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
+        <Package className="h-6 w-6 text-muted-foreground" />
       </div>
-      <h3 className="mt-4 text-base font-semibold text-gray-900">No products yet</h3>
-      <p className="mx-auto mt-1 max-w-sm text-sm text-gray-500">
+      <h3 className="mt-4 text-base font-semibold text-foreground">No products yet</h3>
+      <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
         Add products and record stock movements to see demand forecasts and reorder recommendations.
       </p>
     </div>
@@ -1472,17 +1453,17 @@ function EmptyState() {
 
 function NoResults({ onReset }: { onReset: () => void }) {
   return (
-    <div className="rounded-xl border border-gray-200 bg-white px-6 py-20 text-center shadow-card">
-      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-gray-100">
-        <SearchX className="h-6 w-6 text-gray-400" />
+    <div className="rounded-xl border border-border bg-card px-6 py-20 text-center shadow-card">
+      <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-muted">
+        <SearchX className="h-6 w-6 text-muted-foreground" />
       </div>
-      <h3 className="mt-4 text-base font-semibold text-gray-900">No SKUs match your filters</h3>
-      <p className="mx-auto mt-1 max-w-sm text-sm text-gray-500">
+      <h3 className="mt-4 text-base font-semibold text-foreground">No SKUs match your filters</h3>
+      <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
         Try adjusting your search or clearing the active filters.
       </p>
       <button
         onClick={onReset}
-        className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700"
+        className="mt-5 inline-flex h-10 items-center gap-2 rounded-lg bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90"
       >
         Clear filters
       </button>
@@ -1492,11 +1473,11 @@ function NoResults({ onReset }: { onReset: () => void }) {
 
 function SKUTableSkeleton() {
   return (
-    <div className="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-card">
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-card">
       <div className="hidden overflow-x-auto md:block">
         <table className="w-full min-w-[980px] text-sm">
           <thead>
-            <tr className="border-b border-gray-200 bg-[#FAFAFA]">
+            <tr className="border-b border-border bg-muted/40">
               {Array.from({ length: 9 }).map((_, i) => (
                 <th key={i} className="px-4 py-3 first:pl-6">
                   <Skeleton className="h-3 w-16" />
@@ -1506,7 +1487,7 @@ function SKUTableSkeleton() {
           </thead>
           <tbody>
             {Array.from({ length: 8 }).map((_, r) => (
-              <tr key={r} className="border-b border-gray-100">
+              <tr key={r} className="border-b border-border/60">
                 {Array.from({ length: 9 }).map((_, c) => (
                   <td key={c} className="px-4 py-5 first:pl-6">
                     <div className="flex items-center gap-3">
@@ -1555,7 +1536,7 @@ function velocityLabel(t: VelocityTag): string {
 
 function velocityColor(t: VelocityTag): string {
   if (t === "fast_mover") return "text-emerald-600";
-  if (t === "medium_mover") return "text-gray-600";
+  if (t === "medium_mover") return "text-muted-foreground";
   if (t === "slow_mover") return "text-amber-600";
   return "text-rose-600";
 }
@@ -1573,9 +1554,9 @@ function momentumLabel(t: MomentumTag): string {
 
 function momentumColor(t: MomentumTag): string {
   if (t === "accelerating") return "text-emerald-600";
-  if (t === "stable") return "text-gray-600";
+  if (t === "stable") return "text-muted-foreground";
   if (t === "declining") return "text-amber-600";
-  return "text-gray-400";
+  return "text-muted-foreground";
 }
 
 /** True when `a` is a newer persisted snapshot than `b` (by computedDate, then updatedAt). */

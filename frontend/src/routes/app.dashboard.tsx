@@ -7,11 +7,12 @@ import {
   Stat,
   Card,
   StatusPill,
+  EmptyState,
   fmtMoney,
   fmtDate,
   daysBetween,
 } from "@/components/ledger-ui";
-import { Activity, Paperclip, X, Link2 } from "lucide-react";
+import { Activity, Paperclip, X, Link2, FileText, Receipt, LayoutDashboard } from "lucide-react";
 import { DocumentList, type DocMeta } from "@/components/document-uploader";
 import { DashboardSkeleton } from "@/components/skeletons";
 import {
@@ -167,6 +168,7 @@ function Dashboard() {
         eyebrow="Portfolio"
         title="Portfolio dashboard"
         description="Live receivables, advances, and income across every client — the same real numbers for the whole team."
+        icon={<LayoutDashboard className="h-5 w-5" />}
         actions={
           <Link
             to="/app/queue"
@@ -274,18 +276,27 @@ function Dashboard() {
                         <stop offset="100%" stopColor="#0066FF" stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="month" stroke="#94A3B8" fontSize={11} tickLine={false} />
+                    <CartesianGrid
+                      stroke="var(--color-border)"
+                      strokeDasharray="3 3"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="month"
+                      stroke="var(--color-muted-foreground)"
+                      fontSize={11}
+                      tickLine={false}
+                    />
                     <YAxis
-                      stroke="#94A3B8"
+                      stroke="var(--color-muted-foreground)"
                       fontSize={11}
                       tickLine={false}
                       tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
                     />
                     <Tooltip
                       contentStyle={{
-                        background: "#FFFFFF",
-                        border: "1px solid #E2E8F0",
+                        background: "var(--color-popover)",
+                        border: "1px solid var(--color-border)",
                         borderRadius: 12,
                         fontSize: 12,
                         boxShadow: "0 4px 20px rgba(15,23,42,0.06)",
@@ -352,10 +363,11 @@ function Dashboard() {
               }
             >
               {(alertsQ.data ?? []).length === 0 ? (
-                <div className="py-8 text-center text-sm text-muted-foreground">
-                  <Activity className="mx-auto mb-3 h-6 w-6" />
-                  No alerts
-                </div>
+                <EmptyState
+                  icon={<Activity className="h-6 w-6" />}
+                  title="No alerts"
+                  description="You're all caught up — new alerts will surface here."
+                />
               ) : (
                 <ul className="space-y-2">
                   {(alertsQ.data ?? []).map((a) => (
@@ -394,9 +406,11 @@ function Dashboard() {
             }
           >
             {invoices.length === 0 ? (
-              <div className="py-10 text-center text-sm text-muted-foreground">
-                No invoices yet.
-              </div>
+              <EmptyState
+                icon={<FileText className="h-6 w-6" />}
+                title="No invoices yet"
+                description="Create your first invoice to start building the portfolio."
+              />
             ) : (
               <div className="-mx-5 overflow-x-auto">
                 <table className="table-premium w-full text-sm">
@@ -449,9 +463,11 @@ function Dashboard() {
             }
           >
             {expenses.length === 0 ? (
-              <div className="py-10 text-center text-sm text-muted-foreground">
-                No expenses logged.
-              </div>
+              <EmptyState
+                icon={<Receipt className="h-6 w-6" />}
+                title="No expenses logged"
+                description="Recorded expenses will appear here."
+              />
             ) : (
               <div className="-mx-5 overflow-x-auto">
                 <table className="table-premium w-full text-sm">
@@ -540,18 +556,27 @@ function Dashboard() {
                       return { name: d.name.slice(0, 14), exposure };
                     })}
                   >
-                    <CartesianGrid stroke="#E2E8F0" strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="name" stroke="#94A3B8" fontSize={11} tickLine={false} />
+                    <CartesianGrid
+                      stroke="var(--color-border)"
+                      strokeDasharray="3 3"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="name"
+                      stroke="var(--color-muted-foreground)"
+                      fontSize={11}
+                      tickLine={false}
+                    />
                     <YAxis
-                      stroke="#94A3B8"
+                      stroke="var(--color-muted-foreground)"
                       fontSize={11}
                       tickLine={false}
                       tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
                     />
                     <Tooltip
                       contentStyle={{
-                        background: "#FFFFFF",
-                        border: "1px solid #E2E8F0",
+                        background: "var(--color-popover)",
+                        border: "1px solid var(--color-border)",
                         borderRadius: 12,
                         fontSize: 12,
                         boxShadow: "0 4px 20px rgba(15,23,42,0.06)",

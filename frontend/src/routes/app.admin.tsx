@@ -32,7 +32,7 @@ const ROLE_OPTIONS = [
 ] as const;
 
 const ROLE_COLORS: Record<string, string> = {
-  sales_rep: "bg-blue-100 text-blue-700",
+  sales_rep: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
   operations: "bg-purple-100 text-purple-700",
   checker: "bg-amber-100 text-amber-700",
   treasury: "bg-emerald-100 text-emerald-700",
@@ -225,6 +225,7 @@ function AdminPage() {
         eyebrow="Operations"
         title="Risk & operations console"
         description="Generate alerts, manage team roles, and act on exceptions."
+        icon={<Shield className="h-5 w-5" />}
         actions={
           <div className="flex items-center gap-2">
             <button

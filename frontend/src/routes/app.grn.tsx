@@ -223,6 +223,7 @@ function GrnPage() {
         eyebrow="Procurement"
         title="Goods received (GRN)"
         description="The GRN is the only document that credits inventory. Record a draft when goods arrive, then confirm it — accepted quantities enter stock and the linked PO's received quantity updates. Cancelling a confirmed GRN reverses the stock with a debit entry."
+        icon={<PackageCheck className="h-5 w-5" />}
         actions={
           canWrite ? (
             <button

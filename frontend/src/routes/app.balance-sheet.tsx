@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { PageHeader, Card, fmtAccounting, fmtDate } from "@/components/ledger-ui";
 import { useAuth } from "@/lib/auth-context";
-import { AlertTriangle, Download, FileSpreadsheet, Plus, Printer, Trash2, X } from "lucide-react";
+import { AlertTriangle, Download, FileSpreadsheet, Plus, Printer, Trash2, X, Scale } from "lucide-react";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { toast } from "sonner";
 
@@ -566,6 +566,7 @@ function BalanceSheetPage() {
         eyebrow="Financial statements"
         title="Balance Sheet"
         description="As of the selected date. Auto-updates from invoices, purchases, inventory, advances, accounts and manual entries."
+        icon={<Scale className="h-5 w-5" />}
         actions={
           <div className="flex flex-wrap gap-2 print:hidden">
             <button

@@ -125,7 +125,7 @@ const PO_STATUS_LABELS: Record<string, string> = {
 
 const PO_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
-  approved: "bg-blue-500/10 text-blue-600 border-blue-500/30",
+  approved: "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
   sent: "bg-indigo-500/10 text-indigo-600 border-indigo-500/30",
   partially_received: "bg-amber-500/10 text-amber-600 border-amber-500/30",
   fully_received: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
@@ -256,6 +256,7 @@ function PurchaseOrdersPage() {
         eyebrow="Procurement"
         title="Purchase orders"
         description="Purchase requests/commitments against the product catalogue. A PO never creates inventory — goods are credited to stock when a GRN is recorded."
+        icon={<ClipboardList className="h-5 w-5" />}
         actions={
           canWrite ? (
             <button
@@ -1607,7 +1608,7 @@ function POModal({
                 <button
                   type="button"
                   onClick={() => changeStatus("sent")}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-indigo-500/50 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-500/10"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
                 >
                   <Send className="h-3.5 w-3.5" /> Mark sent
                 </button>

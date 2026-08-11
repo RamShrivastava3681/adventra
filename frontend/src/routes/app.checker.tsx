@@ -306,6 +306,7 @@ function CheckerPage() {
       <PageHeader
         eyebrow="Checker desk"
         title="Maker–checker review"
+        icon={<ClipboardCheck className="h-5 w-5" />}
         description={
           canReview
             ? "Newly submitted invoices and credit/debit notes wait here for your approval. Approving releases invoices into the funding queue and routes notes to Treasury for application."

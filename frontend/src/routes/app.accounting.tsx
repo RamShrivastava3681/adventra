@@ -10,6 +10,7 @@ import {
   X,
   Loader2,
   BookOpen,
+  Calculator,
   Wallet,
   ListTree,
   FileText,
@@ -54,6 +55,7 @@ function AccountingPage() {
         eyebrow="Double-entry bookkeeping"
         title="Accounting"
         description="Every financial movement becomes a balanced journal. Manage the chart of accounts, post manual journals, and drill into every line."
+        icon={<Calculator className="h-5 w-5" />}
       />
       <div className="px-6">
         <div className="flex flex-wrap gap-1 border-b border-border mb-6">

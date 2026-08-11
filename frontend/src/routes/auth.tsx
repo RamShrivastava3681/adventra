@@ -4,12 +4,36 @@ import { z } from "zod";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { toast } from "sonner";
-import { Loader2 } from "lucide-react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  Building2,
+  Check,
+  Loader2,
+  Lock,
+  Mail,
+  ShieldCheck,
+} from "lucide-react";
 
 export const Route = createFileRoute("/auth")({
   validateSearch: z.object({ mode: z.enum(["signin", "signup"]).optional() }),
   component: AuthPage,
 });
+
+const PERKS = [
+  "Advance against approved invoices in hours",
+  "Live debtor risk, aging and alerts in real time",
+  "Audit-ready accounting built in",
+];
+
+const STATS: [string, string][] = [
+  ["$2B+", "Invoices funded"],
+  ["48h", "Average advance"],
+  ["SOC 2", "Certified platform"],
+];
+
+const INPUT_CLS =
+  "h-11 w-full rounded-lg border border-border bg-input pl-10 pr-3.5 text-sm text-foreground placeholder:text-muted-foreground shadow-sm outline-none transition-all focus:border-primary focus:ring-2 focus:ring-primary/15";
 
 function AuthPage() {
   const { mode: initialMode } = Route.useSearch();
@@ -51,119 +75,189 @@ function AuthPage() {
   };
 
   return (
-    <div className="min-h-screen grid md:grid-cols-2">
-      {/* Left brand */}
-      <div className="relative hidden border-r border-border bg-vault p-12 md:flex md:flex-col md:justify-between">
+    <div className="relative min-h-screen overflow-hidden grid md:grid-cols-2">
+      {/* Ambient background wash — same language as the landing page */}
+      <div
+        className="pointer-events-none absolute -left-40 top-1/4 h-[480px] w-[480px] rounded-full bg-primary/5 blur-3xl"
+        aria-hidden
+      />
+
+      {/* ── Left brand panel ── */}
+      <div className="relative hidden overflow-hidden border-r border-border bg-vault p-12 md:flex md:flex-col md:justify-between">
         <div className="absolute inset-0 grid-lines opacity-20" aria-hidden />
-        <Link to="/" className="relative flex items-center gap-2">
+        <div
+          className="absolute -right-32 -top-24 h-96 w-96 rounded-full bg-primary/10 blur-3xl"
+          aria-hidden
+        />
+        <div
+          className="absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-primary/5 blur-3xl"
+          aria-hidden
+        />
+
+        <Link to="/" className="relative flex items-center gap-2.5">
           <img src="/logo.png" alt="Adventra" className="h-8 w-auto rounded-md object-contain" />
-          <span className="font-display text-xl">Adventra</span>
+          <span className="font-display text-xl tracking-tight">Adventra</span>
         </Link>
+
         <div className="relative">
-          <p className="text-xs uppercase tracking-[0.2em] text-primary">Vault access</p>
-          <h2 className="mt-3 font-display text-4xl leading-tight text-balance">
+          <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card/70 px-3 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
+            </span>
+            Vault access
+          </div>
+          <h2 className="mt-5 font-display text-4xl leading-[1.1] tracking-tight text-balance">
             Capital moves at the speed of conviction.
           </h2>
-          <p className="mt-4 max-w-md text-sm text-muted-foreground">
+          <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
             Submit invoices, advance against them, and monitor the entire receivables book in one
             room.
           </p>
+          <ul className="mt-8 space-y-3">
+            {PERKS.map((perk) => (
+              <li key={perk} className="flex items-center gap-2.5 text-sm text-foreground/80">
+                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <Check className="h-3 w-3" />
+                </span>
+                {perk}
+              </li>
+            ))}
+          </ul>
         </div>
-        <div className="relative text-xs text-muted-foreground">
-          SOC 2 · ISO 27001 · 256-bit at rest
+
+        <div className="relative">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+            {STATS.map(([value, label]) => (
+              <div key={label}>
+                <div className="font-mono text-lg font-bold text-foreground">{value}</div>
+                <div className="text-[11px] text-muted-foreground">{label}</div>
+              </div>
+            ))}
+          </div>
+          <div className="mt-6 text-xs text-muted-foreground">
+            SOC 2 · ISO 27001 · 256-bit at rest
+          </div>
         </div>
       </div>
 
-      {/* Right form */}
+      {/* ── Right form panel ── */}
       <div className="flex items-center justify-center p-6 md:p-12">
         <div className="w-full max-w-md">
-          <h1 className="font-display text-3xl">
-            {mode === "signup" ? "Create your account" : "Sign in"}
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {mode === "signup"
-              ? "Create an account to submit invoices and request advances."
-              : "Resume monitoring your receivables."}
-          </p>
+          <Link
+            to="/"
+            className="mb-6 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+          >
+            <ArrowLeft className="h-3.5 w-3.5" /> Back to site
+          </Link>
 
-          <form onSubmit={onSubmit} className="mt-8 space-y-4">
-            {mode === "signup" && (
-              <Field label="Company name">
+          <div className="rounded-2xl border border-border bg-card p-6 shadow-xl md:p-8">
+            {/* Mobile brand */}
+            <div className="mb-6 flex items-center gap-2 md:hidden">
+              <img
+                src="/logo.png"
+                alt="Adventra"
+                className="h-7 w-auto rounded-md object-contain"
+              />
+              <span className="font-display text-lg tracking-tight">Adventra</span>
+            </div>
+
+            <h1 className="font-display text-2xl tracking-tight text-foreground md:text-3xl">
+              {mode === "signup" ? "Create your account" : "Welcome back"}
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {mode === "signup"
+                ? "Create an account to submit invoices and request advances."
+                : "Resume monitoring your receivables."}
+            </p>
+
+            <form onSubmit={onSubmit} className="mt-7 space-y-4">
+              {mode === "signup" && (
+                <Field label="Company name" icon={<Building2 className="h-4 w-4" />}>
+                  <input
+                    value={companyName}
+                    onChange={(e) => setCompanyName(e.target.value)}
+                    required
+                    className={INPUT_CLS}
+                    placeholder="Acme Manufacturing"
+                  />
+                </Field>
+              )}
+              <Field label="Email" icon={<Mail className="h-4 w-4" />}>
                 <input
-                  value={companyName}
-                  onChange={(e) => setCompanyName(e.target.value)}
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   required
-                  className="input"
-                  placeholder="Acme Manufacturing"
+                  className={INPUT_CLS}
+                  placeholder="you@company.com"
                 />
               </Field>
-            )}
-            <Field label="Email">
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                className="input"
-                placeholder="you@company.com"
-              />
-            </Field>
-            <Field label="Password">
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={6}
-                className="input"
-                placeholder="••••••••"
-              />
-            </Field>
+              <Field label="Password" icon={<Lock className="h-4 w-4" />}>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={6}
+                  className={INPUT_CLS}
+                  placeholder="••••••••"
+                />
+              </Field>
 
-            <button disabled={loading} type="submit" className="btn-primary mt-2 w-full px-4 py-3">
-              {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {mode === "signup" ? "Create account" : "Sign in"}
-            </button>
-          </form>
+              <button
+                disabled={loading}
+                type="submit"
+                className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {mode === "signup" ? "Create account" : "Sign in"}
+                {!loading && <ArrowRight className="h-4 w-4" />}
+              </button>
+            </form>
 
-          <p className="mt-6 text-center text-sm text-muted-foreground">
-            {mode === "signup" ? "Already have an account?" : "New here?"}{" "}
-            <button
-              onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
-              className="text-primary underline-offset-4 hover:underline"
-            >
-              {mode === "signup" ? "Sign in" : "Create account"}
-            </button>
-          </p>
+            <div className="mt-6 border-t border-border pt-5 text-center text-sm text-muted-foreground">
+              {mode === "signup" ? "Already have an account?" : "New here?"}{" "}
+              <button
+                onClick={() => setMode(mode === "signup" ? "signin" : "signup")}
+                className="font-medium text-primary underline-offset-4 hover:underline"
+              >
+                {mode === "signup" ? "Sign in" : "Create account"}
+              </button>
+            </div>
+
+            <p className="mt-5 flex items-center justify-center gap-1.5 text-[11px] text-muted-foreground">
+              <ShieldCheck className="h-3.5 w-3.5" /> Protected with 256-bit encryption
+            </p>
+          </div>
         </div>
       </div>
-
-      <style>{`
-        .input {
-          width: 100%;
-          background: #F8FAFC;
-          border: 1px solid #E2E8F0;
-          color: #0F172A;
-          border-radius: 10px;
-          padding: 0.65rem 0.85rem;
-          font-size: 0.875rem;
-          outline: none;
-          transition: all 200ms ease;
-        }
-        .input::placeholder { color: #94A3B8; }
-        .input:focus { border-color: #00B8FF; box-shadow: 0 0 0 3px rgba(0,184,255,0.1); }
-      `}</style>
     </div>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({
+  label,
+  icon,
+  children,
+}: {
+  label: string;
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <label className="block">
-      <span className="mb-1.5 block text-xs uppercase tracking-widest text-muted-foreground">
+      <span className="mb-1.5 block text-xs font-medium uppercase tracking-widest text-muted-foreground">
         {label}
       </span>
-      {children}
+      <div className="relative">
+        {icon && (
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">
+            {icon}
+          </span>
+        )}
+        {children}
+      </div>
     </label>
   );
 }

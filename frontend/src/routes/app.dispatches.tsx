@@ -125,7 +125,7 @@ const DISPATCH_STATUS_LABELS: Record<string, string> = {
 
 const DISPATCH_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
-  confirmed: "bg-blue-500/10 text-blue-600 border-blue-500/30",
+  confirmed: "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
   partially_delivered: "bg-amber-500/10 text-amber-600 border-amber-500/30",
   delivered: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
@@ -243,6 +243,7 @@ function DispatchesPage() {
         eyebrow="Inventory"
         title="Dispatch"
         description="The most important stock document on the sales side — a confirmed dispatch creates the automatic debit inventory entry."
+        icon={<Truck className="h-5 w-5" />}
         actions={
           canWrite ? (
             <button

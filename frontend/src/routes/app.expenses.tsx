@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { Plus, Trash2, X, Loader2, Link2, Paperclip } from "lucide-react";
+import { Plus, Trash2, X, Loader2, Link2, Paperclip, Receipt } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, DocumentList, type DocMeta } from "@/components/document-uploader";
@@ -67,6 +67,7 @@ function ExpensesPage() {
         eyebrow="Operating costs"
         title="Expenses"
         description="Log logistics, insurance, interest, and other operating costs — link each to a sales or purchase invoice for true per-deal economics."
+        icon={<Receipt className="h-5 w-5" />}
         actions={
           canCreate ? (
             <button

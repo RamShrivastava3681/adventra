@@ -115,20 +115,20 @@ function StatCard({
   color?: string;
 }) {
   const colorMap: Record<string, string> = {
-    blue: "from-blue-500/10 to-blue-500/5 border-blue-200/50 text-blue-700",
+    blue: "from-blue-500/10 to-blue-500/5 border-blue-200/50 text-blue-700 dark:border-blue-800/50 dark:text-blue-300",
     purple: "from-purple-500/10 to-purple-500/5 border-purple-200/50 text-purple-700",
     amber: "from-amber-500/10 to-amber-500/5 border-amber-200/50 text-amber-700",
     emerald: "from-emerald-500/10 to-emerald-500/5 border-emerald-200/50 text-emerald-700",
     rose: "from-rose-500/10 to-rose-500/5 border-rose-200/50 text-rose-700",
-    slate: "from-slate-500/10 to-slate-500/5 border-slate-200/50 text-slate-700",
+    slate: "from-slate-500/10 to-slate-500/5 border-slate-200/50 text-slate-700 dark:border-slate-700/50 dark:text-slate-300",
   };
   const iconBgMap: Record<string, string> = {
-    blue: "bg-blue-100 text-blue-600",
+    blue: "bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400",
     purple: "bg-purple-100 text-purple-600",
     amber: "bg-amber-100 text-amber-600",
     emerald: "bg-emerald-100 text-emerald-600",
     rose: "bg-rose-100 text-rose-600",
-    slate: "bg-slate-100 text-slate-600",
+    slate: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
   };
 
   return (
@@ -165,7 +165,7 @@ function StatusDist({
     <div className="space-y-1.5">
       {Object.entries(data).map(([key, count]) => {
         const pct = ((count / total) * 100).toFixed(0);
-        const c = colorMap[key] || "bg-slate-100 text-slate-600";
+        const c = colorMap[key] || "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300";
         const StatusIcon = STATUS_ICONS[key] || AlertCircle;
         return (
           <div key={key} className="flex items-center gap-2">
@@ -204,14 +204,14 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   const borderMap: Record<string, string> = {
-    blue: "border-blue-200/50",
+    blue: "border-blue-200/50 dark:border-blue-800/50",
     purple: "border-purple-200/50",
     amber: "border-amber-200/50",
     emerald: "border-emerald-200/50",
     rose: "border-rose-200/50",
   };
   const headerMap: Record<string, string> = {
-    blue: "text-blue-700 bg-blue-50/50",
+    blue: "text-blue-700 bg-blue-50/50 dark:text-blue-300 dark:bg-blue-950/30",
     purple: "text-purple-700 bg-purple-50/50",
     amber: "text-amber-700 bg-amber-50/50",
     emerald: "text-emerald-700 bg-emerald-50/50",
@@ -219,7 +219,7 @@ function SectionCard({
   };
 
   return (
-    <div className={`rounded-xl border ${borderMap[color]} bg-white shadow-sm overflow-hidden`}>
+    <div className={`rounded-xl border ${borderMap[color]} bg-card shadow-sm overflow-hidden`}>
       <div
         className={`flex items-center gap-2 border-b ${borderMap[color]} px-5 py-3 ${headerMap[color]}`}
       >
@@ -277,7 +277,7 @@ function UserProgressView({ onExit: _onExit }: { onExit?: () => void }) {
     pending: "bg-amber-100 text-amber-700",
     approved: "bg-emerald-100 text-emerald-700",
     rejected: "bg-red-100 text-red-700",
-    new: "bg-blue-100 text-blue-700",
+    new: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
     contacted: "bg-purple-100 text-purple-700",
     qualified: "bg-cyan-100 text-cyan-700",
     proposal: "bg-indigo-100 text-indigo-700",
@@ -286,13 +286,13 @@ function UserProgressView({ onExit: _onExit }: { onExit?: () => void }) {
     lost: "bg-red-100 text-red-700",
     paid: "bg-emerald-100 text-emerald-700",
     overdue: "bg-red-100 text-red-700",
-    advanced: "bg-blue-100 text-blue-700",
+    advanced: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
   };
 
   return (
     <div className="space-y-6">
       {/* User Profile Card */}
-      <div className="rounded-xl border border-border bg-white p-6 shadow-sm">
+      <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
         <div className="flex items-start gap-5">
           <div className="flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary/20 to-primary/5">
             <UserCircle className="h-8 w-8 text-primary/60" />
@@ -763,7 +763,7 @@ function WorkspaceSubmissions({ readOnly = false }: { readOnly?: boolean }) {
               }}
               className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-medium transition-all ${
                 isActive
-                  ? "bg-white text-foreground shadow-sm"
+                  ? "bg-card text-foreground shadow-sm"
                   : "text-muted-foreground hover:text-foreground"
               }`}
             >
@@ -775,7 +775,7 @@ function WorkspaceSubmissions({ readOnly = false }: { readOnly?: boolean }) {
 
       {/* New submission form */}
       {!readOnly && showForm && (
-        <div className="mt-4 rounded-xl border border-border bg-white p-5 shadow-sm">
+        <div className="mt-4 rounded-xl border border-border bg-card p-5 shadow-sm">
           <div className="mb-4 flex items-center justify-between">
             <span className="text-sm font-medium">New {activeTab}</span>
             <button
@@ -815,7 +815,7 @@ function WorkspaceSubmissions({ readOnly = false }: { readOnly?: boolean }) {
           submissions.map((s: any) => (
             <div
               key={s.id}
-              className="flex items-center justify-between rounded-xl border border-border bg-white p-4 shadow-sm"
+              className="flex items-center justify-between rounded-xl border border-border bg-card p-4 shadow-sm"
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
@@ -867,7 +867,7 @@ function TeamMemberWorkspaceView() {
           onClick={() => setView("workspace")}
           className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-medium transition-all ${
             view === "workspace"
-              ? "bg-white text-foreground shadow-sm"
+              ? "bg-card text-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
@@ -877,7 +877,7 @@ function TeamMemberWorkspaceView() {
           onClick={() => setView("overview")}
           className={`flex flex-1 items-center justify-center gap-2 rounded-lg px-3 py-2.5 text-xs font-medium transition-all ${
             view === "overview"
-              ? "bg-white text-foreground shadow-sm"
+              ? "bg-card text-foreground shadow-sm"
               : "text-muted-foreground hover:text-foreground"
           }`}
         >
@@ -904,6 +904,7 @@ function WorkspacePage() {
           eyebrow="Reporting Manager"
           title="Team Member Workspace"
           description="Everything this team member has entered — use the sidebar tabs to browse their pages"
+          icon={<Briefcase className="h-5 w-5" />}
           backTo="/app/reports"
         />
         <div className="p-6 md:p-10">
@@ -917,7 +918,11 @@ function WorkspacePage() {
   // Regular workspace view (submissions)
   return (
     <div>
-      <PageHeader eyebrow="My Workspace" title="Submit & track your requests" />
+      <PageHeader
+        eyebrow="My Workspace"
+        title="Submit & track your requests"
+        icon={<Briefcase className="h-5 w-5" />}
+      />
       <div className="p-6 md:p-10">
         <WorkspaceSubmissions />
       </div>

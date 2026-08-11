@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney } from "@/components/ledger-ui";
-import { Plus, Loader2, Save, Trash2, X } from "lucide-react";
+import { Plus, Loader2, Save, Trash2, X, Truck } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 
@@ -162,6 +162,7 @@ function SuppliersPage() {
         eyebrow="Onboarding"
         title="Suppliers"
         description="The companies whose invoices you finance. Track contacts and lifecycle status."
+        icon={<Truck className="h-5 w-5" />}
         actions={
           <button
             onClick={openNew}

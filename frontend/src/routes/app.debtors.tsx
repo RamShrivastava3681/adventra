@@ -4,7 +4,7 @@ import { useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
-import { Plus, X, Loader2, ShieldAlert } from "lucide-react";
+import { Plus, X, Loader2, ShieldAlert, Building2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/debtors")({
@@ -49,6 +49,7 @@ function DebtorsPage() {
         eyebrow="Counterparties"
         title="Debtor book"
         description="Payment terms and live exposure across every payer."
+        icon={<Building2 className="h-5 w-5" />}
         actions={
           isAdmin && (
             <button

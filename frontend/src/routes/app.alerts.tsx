@@ -36,6 +36,7 @@ function AlertsPage() {
         eyebrow="Surveillance"
         title="Alerts"
         description="Real-time signals across overdue invoices, credit-limit breaches, and risk migrations."
+        icon={<BellRing className="h-5 w-5" />}
         actions={
           <span className="rounded-full border border-border px-3 py-1 text-xs">
             <span className="num text-primary">{unread}</span> unread

@@ -23,6 +23,7 @@ import {
   BellRing,
   Mail,
   Palette,
+  BarChart3,
 } from "lucide-react";
 
 export const Route = createFileRoute("/app/reports")({
@@ -40,7 +41,7 @@ const ROLE_ICONS: Record<string, any> = {
 };
 
 const ROLE_COLORS: Record<string, string> = {
-  sales_rep: "bg-blue-100 text-blue-700 border-blue-200",
+  sales_rep: "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/40",
   operations: "bg-purple-100 text-purple-700 border-purple-200",
   checker: "bg-amber-100 text-amber-700 border-amber-200",
   treasury: "bg-emerald-100 text-emerald-700 border-emerald-200",
@@ -89,6 +90,7 @@ function ReportsPage() {
       <PageHeader
         eyebrow="Reporting Manager"
         title="My Reports"
+        icon={<BarChart3 className="h-5 w-5" />}
         description={`You have ${reports.length} team member${reports.length !== 1 ? "s" : ""} assigned to you.`}
       />
 
@@ -118,7 +120,7 @@ function ReportsPage() {
               return (
                 <div
                   key={report.id}
-                  className="group relative rounded-xl border border-border bg-white p-5 shadow-sm transition-all duration-200 hover:shadow-md hover:border-primary/20"
+                  className="group relative rounded-xl border border-border bg-card p-5 shadow-sm transition-all duration-200 hover:shadow-md hover:border-primary/20"
                 >
                   {/* Role badge */}
                   <div
