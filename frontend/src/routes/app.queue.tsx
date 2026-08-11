@@ -59,7 +59,6 @@ type Row = {
   issue_date: string | null;
   status: string;
   party: string;
-  client?: string;
 };
 
 function QueuePage() {
@@ -331,8 +330,7 @@ function QueuePage() {
         due_date: i.due_date,
         issue_date: i.issue_date,
         status: i.status,
-        party: i.debtor?.name ?? "—",
-        client: i.client?.company_name,
+        party: partyMap[i.debtor_id] ?? i.debtor?.name ?? "—",
       };
     }),
     ...((purchasesQ.data ?? []) as Array<Record<string, any>>).map((p): Row => {
@@ -358,8 +356,7 @@ function QueuePage() {
         due_date: p.due_date,
         issue_date: p.issue_date,
         status: p.status,
-        party: p.supplier_name ?? p.vendor?.name ?? "—",
-        client: "—",
+        party: p.supplier_name ?? partyMap[p.vendor_id] ?? p.vendor?.name ?? "—",
       };
     }),
   ]
@@ -425,7 +422,7 @@ function QueuePage() {
 
         <Card>
           {salesQ.isLoading || purchasesQ.isLoading ? (
-            <TableSkeleton rows={5} cols={11} />
+            <TableSkeleton rows={5} cols={10} />
           ) : rows.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
               <Banknote className="mx-auto mb-3 h-8 w-8 opacity-40" />
@@ -438,8 +435,7 @@ function QueuePage() {
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Type</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
-                    {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
-                    <th className="px-5 py-2 text-left font-normal">Party</th>
+                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
                     <th className="px-5 py-2 text-right font-normal">Gross</th>
                     <th className="px-5 py-2 text-right font-normal">Advance applied</th>
                     <th className="px-5 py-2 text-right font-normal">Balance</th>
@@ -485,9 +481,6 @@ function QueuePage() {
                               </div>
                             )}
                           </td>
-                          {isAdmin && (
-                            <td className="px-5 py-3 text-muted-foreground">{r.client ?? "—"}</td>
-                          )}
                           <td className="px-5 py-3">{r.party}</td>
                           <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
                           <td className="px-5 py-3 text-right num text-primary">
@@ -512,7 +505,7 @@ function QueuePage() {
                           </td>
                         </tr>
                         <tr className="border-b border-border/60 md:hidden">
-                          <td colSpan={isAdmin ? 11 : 10} className="px-5 pb-4 pt-0 text-left">
+                          <td colSpan={10} className="px-5 pb-4 pt-0 text-left">
                             <div className="flex justify-start">{action}</div>
                           </td>
                         </tr>
@@ -584,7 +577,7 @@ function QueuePage() {
 
         <Card title="Approved credit / debit notes — ready to apply">
           {notesQ.isLoading ? (
-            <TableSkeleton rows={3} cols={9} />
+            <TableSkeleton rows={3} cols={8} />
           ) : (notesQ.data ?? []).length === 0 ? (
             <div className="py-6 text-center text-sm text-muted-foreground">
               No approved notes waiting to be applied.
@@ -596,7 +589,6 @@ function QueuePage() {
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Type</th>
                     <th className="px-5 py-2 text-left font-normal">Number</th>
-                    {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
                     <th className="px-5 py-2 text-left font-normal">Linked invoice</th>
                     <th className="px-5 py-2 text-left font-normal">Counterparty</th>
                     <th className="px-5 py-2 text-right font-normal">Invoice now</th>
@@ -630,11 +622,6 @@ function QueuePage() {
                           </span>
                         </td>
                         <td className="px-5 py-3 font-mono text-xs">{n.note_number}</td>
-                        {isAdmin && (
-                          <td className="px-5 py-3 text-muted-foreground">
-                            {n.client?.company_name ?? "—"}
-                          </td>
-                        )}
                         <td className="px-5 py-3 font-mono text-xs">{linkLabel}</td>
                         <td className="px-5 py-3 text-muted-foreground">{n.counterparty ?? "—"}</td>
                         <td className="px-5 py-3 text-right num">

@@ -31,7 +31,15 @@ export function isEmailConfigured(): boolean {
 // HTML templates
 // ---------------------------------------------------------------------------
 
-function wrapHTML(body: string, title = "📋 Invoice Due Reminder"): string {
+function wrapHTML(
+  body: string,
+  title = "📋 Invoice Due Reminder",
+  opts?: { company?: string; footer?: string },
+): string {
+  const company = opts?.company || "Insight Factor";
+  const footerText =
+    opts?.footer ||
+    "This is an automated reminder from Insight Factor. Please review and take appropriate action.";
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -43,7 +51,7 @@ function wrapHTML(body: string, title = "📋 Invoice Due Reminder"): string {
         <table width="100%"><tr>
           <td><h1 style="margin:0;color:#ffffff;font-size:18px;font-weight:600;">${title}</h1></td>
           <td align="right">
-            <span style="display:inline-block;background:rgba(255,255,255,0.15);border-radius:6px;padding:4px 12px;font-size:11px;color:#cbd5e1;">Insight Factor</span>
+            <span style="display:inline-block;background:rgba(255,255,255,0.15);border-radius:6px;padding:4px 12px;font-size:11px;color:#cbd5e1;">${esc(company)}</span>
           </td>
         </tr></table>
       </td></tr>
@@ -53,8 +61,8 @@ function wrapHTML(body: string, title = "📋 Invoice Due Reminder"): string {
       </td></tr>
       <!-- Footer -->
       <tr><td style="padding:16px 32px;border-top:1px solid #e2e8f0;">
-        <p style="margin:0 0 4px;font-size:11px;color:#94a3b8;">This is an automated reminder from Insight Factor. Please review and take appropriate action.</p>
-        <p style="margin:0;font-size:11px;color:#94a3b8;">${config.smtp.user} · Insight Factor</p>
+        <p style="margin:0 0 4px;font-size:11px;color:#94a3b8;">${esc(footerText)}</p>
+        <p style="margin:0;font-size:11px;color:#94a3b8;">${config.smtp.user} · ${esc(company)}</p>
       </td></tr>
     </table>
   </td></tr></table>
@@ -478,6 +486,114 @@ export async function sendDebtorReminder(params: {
  * buttons. The debtor's decision is recorded via the public approval page
  * (linked by a one-time token) and reflected back in the app tabs.
  */
+// ---------------------------------------------------------------------------
+// NOA email (sent to the buyer/debtor with the invoice PDF attached)
+// ---------------------------------------------------------------------------
+
+/**
+ * Email the Notice of Assignment to the debtor (buyer). The invoice PDF is
+ * attached so the buyer can verify the details directly, and the link opens
+ * the public NOA page where they can accept / reject / comment.
+ */
+export async function sendInvoiceNoaEmail(params: {
+  invoiceNumber: string;
+  amount: number;
+  dueDate: string | null;
+  issueDate: string | null;
+  debtorName: string;
+  debtorEmail: string;
+  companyName: string;
+  noaUrl: string;
+  pdfBuffer: Buffer;
+  pdfFilename: string;
+}): Promise<boolean> {
+  if (!isEmailConfigured()) {
+    console.log(`  ⚠ Email not configured — skipping NOA email for invoice ${params.invoiceNumber}`);
+    return false;
+  }
+
+  const total = params.amount.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+  const safe = {
+    number: esc(params.invoiceNumber),
+    companyName: esc(params.companyName),
+    debtorName: esc(params.debtorName),
+  };
+  const subject = `Notice of Assignment — Invoice ${safe.number}`;
+
+  const body = `
+    <div style="margin-bottom:20px;">
+      <div style="font-size:13px;color:#64748b;margin-bottom:4px;">NOTICE OF ASSIGNMENT</div>
+      <div style="font-size:22px;font-weight:700;color:#1e293b;">Invoice ${safe.number}</div>
+    </div>
+
+    <p style="font-size:14px;color:#475569;margin:0 0 16px;line-height:1.6;">
+      Dear ${safe.debtorName},<br><br>
+      Please be advised that <strong>${safe.companyName}</strong> has assigned the receivables
+      under the invoice below to a factoring facility. Payment, when due, should be remitted
+      to the assignee. Kindly verify the invoice details and confirm your acknowledgement
+      using the link below — a PDF copy of the invoice is attached to this email.
+    </p>
+
+    <table cellpadding="0" cellspacing="0" style="width:100%;">
+      ${invoiceTableRow("Invoice #", safe.number)}
+      ${invoiceTableRow("Issue date", params.issueDate || "—")}
+      ${invoiceTableRow("Due date", params.dueDate || "—")}
+      ${invoiceTableRow("Amount", `<strong>$${total}</strong>`)}
+      ${invoiceTableRow("Assigned by", safe.companyName)}
+    </table>
+
+    <div style="margin-top:24px;padding:16px;background:#f0f9ff;border-radius:8px;border:1px solid #bae6fd;">
+      <p style="margin:0 0 8px;font-size:12px;font-weight:600;color:#0369a1;">
+        ✅ Please verify and confirm this assignment:
+      </p>
+      <div style="text-align:center;margin-top:12px;">
+        <a href="${params.noaUrl}" style="display:inline-block;background:#1e293b;color:#ffffff;text-decoration:none;padding:12px 28px;border-radius:8px;font-size:14px;font-weight:600;">
+          🔗 Verify Invoice
+        </a>
+      </div>
+      <p style="margin:12px 0 0;font-size:11px;color:#64748b;">
+        This link opens a secure page where you can accept, reject, or add comments.
+      </p>
+    </div>
+
+    <p style="margin-top:24px;font-size:12px;color:#94a3b8;">
+      If you have any questions, please contact ${safe.companyName} directly.
+    </p>
+  `;
+
+  try {
+    const transporter = getTransporter();
+    await transporter.sendMail({
+      from: `"${params.companyName}" <${config.smtp.user}>`,
+      to: params.debtorEmail,
+      subject,
+      html: wrapHTML(
+        body,
+        `🔖 Notice of Assignment · Invoice ${safe.number}`,
+        {
+          company: params.companyName,
+          footer: `This is a Notice of Assignment from ${params.companyName}. Please verify the attached invoice and confirm your acknowledgement.`,
+        },
+      ),
+      attachments: [
+        {
+          filename: params.pdfFilename,
+          content: params.pdfBuffer,
+          contentType: "application/pdf",
+        },
+      ],
+    });
+    console.log(`  ✅ NOA email sent: ${params.invoiceNumber} → ${params.debtorEmail}`);
+    return true;
+  } catch (err) {
+    console.error(`  ❌ Failed to send NOA email for ${params.invoiceNumber}:`, err);
+    return false;
+  }
+}
+
 export async function sendDocumentApprovalEmail(params: {
   kind: "quotation" | "sales_order";
   number: string;

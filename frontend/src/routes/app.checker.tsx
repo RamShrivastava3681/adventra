@@ -42,7 +42,6 @@ type Row = {
   issue_date: string | null;
   due_date: string | null;
   party: string;
-  client?: string;
   client_id?: string | null;
   noa_status?: string;
   noa_comments?: string | null;
@@ -267,8 +266,7 @@ function CheckerPage() {
         net,
         issue_date: i.issue_date,
         due_date: i.due_date,
-        party: i.debtor?.name ?? "—",
-        client: i.client?.company_name,
+        party: partyMap[i.debtor_id] ?? i.debtor?.name ?? "—",
         client_id: i.client_id,
         noa_status: i.noa_status,
         noa_comments: i.noa_comments,
@@ -292,8 +290,7 @@ function CheckerPage() {
         net,
         issue_date: p.issue_date,
         due_date: p.due_date,
-        party: p.supplier_name ?? p.vendor?.name ?? "—",
-        client: "—",
+        party: p.supplier_name ?? partyMap[p.vendor_id] ?? p.vendor?.name ?? "—",
         client_id: p.client_id,
       };
     }),
@@ -362,7 +359,7 @@ function CheckerPage() {
 
         <Card>
           {salesQ.isLoading || purchasesQ.isLoading ? (
-            <TableSkeleton rows={4} cols={11} />
+            <TableSkeleton rows={4} cols={10} />
           ) : rows.length === 0 ? (
             <div className="py-10 text-center text-sm text-muted-foreground">
               <ClipboardCheck className="mx-auto mb-3 h-8 w-8 opacity-40" />
@@ -375,8 +372,7 @@ function CheckerPage() {
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Type</th>
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
-                    {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
-                    <th className="px-5 py-2 text-left font-normal">Party</th>
+                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
                     <th className="px-5 py-2 text-right font-normal">Gross</th>
                     <th className="px-5 py-2 text-right font-normal">Advance</th>
                     <th className="px-5 py-2 text-right font-normal">
@@ -407,9 +403,6 @@ function CheckerPage() {
                         </span>
                       </td>
                       <td className="px-5 py-3 font-mono text-xs">{r.invoice_number}</td>
-                      {isAdmin && (
-                        <td className="px-5 py-3 text-muted-foreground">{r.client ?? "—"}</td>
-                      )}
                       <td className="px-5 py-3">{r.party}</td>
                       <td className="px-5 py-3 text-right num">
                         {fmtMoney(r.amount)}
@@ -581,7 +574,7 @@ function CheckerPage() {
 
         <Card title="Quotations awaiting price approval">
           {quotationsQ.isLoading ? (
-            <TableSkeleton rows={3} cols={8} />
+            <TableSkeleton rows={3} cols={7} />
           ) : (quotationsQ.data ?? []).length === 0 ? (
             <div className="py-6 text-center text-sm text-muted-foreground">
               No quotations awaiting approval.
@@ -592,7 +585,6 @@ function CheckerPage() {
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Quotation</th>
-                    {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
                     <th className="px-5 py-2 text-left font-normal">Customer</th>
                     <th className="px-5 py-2 text-right font-normal">Lines revised</th>
                     <th className="px-5 py-2 text-right font-normal">Original total</th>
@@ -623,11 +615,6 @@ function CheckerPage() {
                             </div>
                           </div>
                         </td>
-                        {isAdmin && (
-                          <td className="px-5 py-3 text-muted-foreground">
-                            {q.client?.company_name ?? "—"}
-                          </td>
-                        )}
                         <td className="px-5 py-3">{q.customer_name ?? "—"}</td>
                         <td className="px-5 py-3 text-right num">
                           <span
@@ -703,7 +690,7 @@ function CheckerPage() {
 
         <Card title="Credit / debit notes awaiting approval">
           {notesQ.isLoading ? (
-            <TableSkeleton rows={3} cols={8} />
+            <TableSkeleton rows={3} cols={7} />
           ) : (notesQ.data ?? []).length === 0 ? (
             <div className="py-6 text-center text-sm text-muted-foreground">
               No notes awaiting approval.
@@ -715,7 +702,6 @@ function CheckerPage() {
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Type</th>
                     <th className="px-5 py-2 text-left font-normal">Number</th>
-                    {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
                     <th className="px-5 py-2 text-left font-normal">Counterparty</th>
                     <th className="px-5 py-2 text-left font-normal">Linked invoice</th>
                     <th className="px-5 py-2 text-left font-normal">Reason</th>
@@ -743,11 +729,6 @@ function CheckerPage() {
                           </span>
                         </td>
                         <td className="px-5 py-3 font-mono text-xs">{n.note_number}</td>
-                        {isAdmin && (
-                          <td className="px-5 py-3 text-muted-foreground">
-                            {n.client?.company_name ?? "—"}
-                          </td>
-                        )}
                         <td className="px-5 py-3 text-muted-foreground">{n.counterparty ?? "—"}</td>
                         <td className="px-5 py-3 font-mono text-xs">{link}</td>
                         <td

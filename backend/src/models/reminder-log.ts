@@ -23,6 +23,8 @@ export interface ReminderLog {
   isOverdue: boolean;
   status: "sent" | "failed";
   counterpartyName: string;
+  /** Distinguishes NOA emails from plain payment reminders (absent on legacy rows). */
+  kind?: "noa" | "reminder";
 }
 
 export async function list(): Promise<ReminderLog[]> {
@@ -39,6 +41,8 @@ export async function create(data: {
   isOverdue: boolean;
   status: "sent" | "failed";
   counterpartyName: string;
+  /** Defaults to "reminder" — pass "noa" for Notice of Assignment emails. */
+  kind?: "noa" | "reminder";
 }): Promise<ReminderLog> {
   const id = uuid();
   const now = db.nowISO();
@@ -59,6 +63,7 @@ export async function create(data: {
     isOverdue: data.isOverdue,
     status: data.status,
     counterpartyName: data.counterpartyName,
+    kind: data.kind ?? "reminder",
   };
   await db.putItem(item);
   return item;

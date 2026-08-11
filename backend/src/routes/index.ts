@@ -21,6 +21,7 @@ import { requireAdmin, requireChecker } from "../middleware/roles.js";
 import { requireRole } from "../middleware/roles.js";
 import * as User from "../models/user.js";
 import * as Submission from "../models/submission.js";
+import * as ReminderLog from "../models/reminder-log.js";
 
 // ─── View-As middleware (for reporting managers to see their reports' data) ──
 // NOTE: this runs via router.use() BEFORE the per-route authMiddleware, so it
@@ -631,7 +632,11 @@ function assertInvoiceMatchesSO(so: any, lines: any[], debtorId: string | null) 
 }
 
 router.get("/invoices", authMiddleware, async (req, res) => {
-  try { res.json(await Invoice.list(req.user!.userId)); } catch (err: any) { res.status(500).json({ error: err.message }); }
+  try {
+    // ?scope=all returns every client's invoices — used by the shared dashboard.
+    const scopeAll = req.query.scope === "all";
+    res.json(await Invoice.list(scopeAll ? undefined : req.user!.userId));
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.get("/invoices/:id", authMiddleware, async (req, res) => {
   try {
@@ -639,6 +644,94 @@ router.get("/invoices/:id", authMiddleware, async (req, res) => {
     if (!item) return res.status(404).json({ error: "Not found" });
     res.json(item);
   } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+
+/**
+ * POST /invoices/:id/send-noa — email the Notice of Assignment to the buyer
+ * (debtor) with the invoice PDF attached, then mark the NOA as sent.
+ */
+router.post("/invoices/:id/send-noa", authMiddleware, async (req, res) => {
+  try {
+    const inv = await Invoice.get(req.params.id);
+    if (!inv) return res.status(404).json({ error: "Invoice not found" });
+    // Only the invoice owner or an admin may email the NOA.
+    const userRoles = req.user!.roles || [];
+    const isAdmin = userRoles.includes("factor_admin");
+    if (!isAdmin && inv.clientId !== req.user!.userId) {
+      return res.status(403).json({ error: "Only the invoice owner or an admin can send the NOA" });
+    }
+    const debtor = inv.debtorId ? await Debtor.get(inv.debtorId) : null;
+    const email = debtor?.contactEmail?.trim() || null;
+    if (!email) {
+      return res.status(400).json({
+        error: `No contact email on file for "${debtor?.name || "the debtor"}" — add one in the Debtors tab first`,
+      });
+    }
+
+    const { isEmailConfigured } = await import("../email.js");
+    if (!isEmailConfigured()) {
+      return res.status(400).json({
+        error: "SMTP is not configured — set SMTP_HOST / SMTP_USER / SMTP_PASS to send the NOA email",
+      });
+    }
+
+    if (!inv.noaToken) {
+      return res.status(400).json({ error: "Invoice has no NOA token — cannot build the verification link" });
+    }
+
+    // Build the invoice PDF (white background, "Adventra" branding, debtor details).
+    const company = await resolveCompanyName(inv.clientId);
+    const companyName = "Adventra";
+    const { invoiceToPdfData, buildInvoicePdf } = await import("../lib/document-pdf.js");
+    const pdfData = invoiceToPdfData(inv, debtor, companyName, company.contact);
+    const pdf = await buildInvoicePdf(pdfData);
+
+    const filename = `${pdfData.number.replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`;
+    const noaUrl = `${config.appUrl}/noa/${inv.noaToken}`;
+    const { sendInvoiceNoaEmail } = await import("../email.js");
+    const sent = await sendInvoiceNoaEmail({
+      invoiceNumber: inv.invoiceNumber,
+      amount: pdfData.grandTotal,
+      dueDate: inv.dueDate || null,
+      issueDate: inv.issueDate || null,
+      debtorName: debtor?.name || "Customer",
+      debtorEmail: email,
+      companyName,
+      noaUrl,
+      pdfBuffer: pdf,
+      pdfFilename: filename,
+    });
+    if (!sent) {
+      return res.status(400).json({ error: "Failed to send the email — check the SMTP configuration" });
+    }
+
+    const updated = await Invoice.update(inv.id, {
+      noaStatus: "sent",
+      noaSentAt: db.nowISO(),
+    });
+
+    // Audit trail — consistent with the reminder flow.
+    try {
+      await ReminderLog.create({
+        invoiceId: inv.id,
+        invoiceNumber: inv.invoiceNumber,
+        type: "sales",
+        recipient: "debtor",
+        recipientEmail: email,
+        daysUntilDue: 0,
+        isOverdue: false,
+        status: "sent",
+        counterpartyName: debtor?.name || "",
+        kind: "noa",
+      });
+    } catch (err) {
+      console.error(`  ⚠ Failed to create NOA reminder log for ${inv.invoiceNumber}:`, err);
+    }
+
+    res.json({ success: true, sentTo: email, invoice: updated });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
 });
 
 /**
@@ -973,7 +1066,11 @@ async function syncLinkedPurchaseInvoice(receipt: any, previousPiId?: string) {
 }
 
 router.get("/purchase-invoices", authMiddleware, async (req, res) => {
-  try { res.json(await PurchaseInvoice.list(req.user!.userId)); } catch (err: any) { res.status(500).json({ error: err.message }); }
+  try {
+    // ?scope=all returns every client's purchase invoices — used by the shared dashboard.
+    const scopeAll = req.query.scope === "all";
+    res.json(await PurchaseInvoice.list(scopeAll ? undefined : req.user!.userId));
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.post("/purchase-invoices", authMiddleware, async (req, res) => {
   try {
@@ -2587,7 +2684,11 @@ router.post("/goods-dispatches/:id/return", authMiddleware, async (req, res) => 
 
 // ===================== EXPENSES =====================
 router.get("/expenses", authMiddleware, async (req, res) => {
-  try { res.json(await Expense.list(req.user!.userId)); } catch (err: any) { res.status(500).json({ error: err.message }); }
+  try {
+    // ?scope=all returns every client's expenses — used by the shared dashboard.
+    const scopeAll = req.query.scope === "all";
+    res.json(await Expense.list(scopeAll ? undefined : req.user!.userId));
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 router.post("/expenses", authMiddleware, async (req, res) => {
   try { res.status(201).json(await Expense.create({ ...req.body, clientId: req.user!.userId })); } catch (err: any) { res.status(500).json({ error: err.message }); }

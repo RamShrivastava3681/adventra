@@ -16,7 +16,6 @@ import {
   X,
   Loader2,
   Send,
-  Copy,
   Eye,
   Mail,
   FileCheck,
@@ -140,25 +139,17 @@ function InvoicesPage() {
 
   const sendNoa = useMutation({
     mutationFn: async (id: string) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const patch: any = { noa_status: "sent", noa_sent_at: new Date().toISOString() };
-      await api.invoices.update(id, patch);
+      return api.invoices.sendNoa(id);
     },
-    onSuccess: (_, id) => {
+    onSuccess: (data, id) => {
       qc.invalidateQueries({ queryKey: ["invoices"] });
-      const inv = (invoicesQ.data ?? []).find((x: any) => x.id === id);
-      const link = `${window.location.origin}/noa/${inv?.noa_token}`;
-      navigator.clipboard?.writeText(link).catch(() => {});
-      toast.success(`NOA link copied — share with ${inv?.debtor?.contact_email || "debtor"}`);
+      qc.invalidateQueries({ queryKey: ["checker-sales"] });
+      qc.invalidateQueries({ queryKey: ["queue-sales"] });
+      qc.invalidateQueries({ queryKey: ["reminder-logs"] });
+      toast.success(`NOA emailed to ${data.sentTo || "the buyer"}`);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
-
-  const copyNoa = (i: any) => {
-    const link = `${window.location.origin}/noa/${i.noa_token}`;
-    navigator.clipboard?.writeText(link).catch(() => {});
-    toast.success("NOA link copied");
-  };
 
   const sendReminder = useMutation({
     mutationFn: async (invoiceId: string) => {
@@ -414,14 +405,6 @@ function InvoicesPage() {
                                 className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10"
                               >
                                 <Send className="h-3 w-3" /> Send NOA
-                              </button>
-                            )}
-                            {i.noa_status !== "not_sent" && (
-                              <button
-                                onClick={() => copyNoa(i)}
-                                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:bg-muted"
-                              >
-                                <Copy className="h-3 w-3" /> Copy NOA link
                               </button>
                             )}
                             {canCreate &&
@@ -1336,6 +1319,22 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
     .filter(Boolean)
     .join(", ");
   const lines = invoice.lines ?? [];
+
+  // NOA send history — pulled from the ReminderLog audit trail.
+  const reminderLogsQ = useQuery({
+    queryKey: ["reminder-logs"],
+    queryFn: () => api.reminderLogs.list(),
+    refetchInterval: 30_000,
+  });
+  const noaLogs = (reminderLogsQ.data ?? [])
+    .filter(
+      (l: any) =>
+        l.invoiceId === invoice.id &&
+        (l.kind === "noa" || (l.recipient === "debtor" && l.type === "sales")),
+    )
+    .sort((a: any, b: any) => String(b.sentAt ?? "").localeCompare(String(a.sentAt ?? "")));
+  const noaLogTime = (iso: string) =>
+    new Date(iso).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
@@ -1473,6 +1472,60 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
               </div>
             </div>
           )}
+
+          {/* NOA send history */}
+          <div className="rounded-md border border-border/60 p-4">
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                NOA send history
+              </div>
+              {reminderLogsQ.isLoading && (
+                <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Loading…
+                </span>
+              )}
+            </div>
+            {noaLogs.length === 0 ? (
+              <div className="rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground">
+                No NOA emails have been sent for this invoice yet.
+              </div>
+            ) : (
+              <ul className="space-y-2">
+                {noaLogs.map((l: any) => (
+                  <li
+                    key={l.id}
+                    className="flex items-start justify-between gap-3 rounded-md border border-border/60 bg-background/40 p-3 text-xs"
+                  >
+                    <div>
+                      <div className="flex items-center gap-1.5">
+                        <span
+                          className={`inline-flex h-1.5 w-1.5 rounded-full ${
+                            l.status === "sent" ? "bg-success" : "bg-destructive"
+                          }`}
+                        />
+                        <span className="font-medium text-foreground">
+                          {l.status === "sent" ? "NOA emailed" : "Send failed"}
+                        </span>
+                        {l.kind === "noa" && (
+                          <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-primary">
+                            NOA
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-0.5 text-muted-foreground">
+                        {l.counterpartyName || "Debtor"}
+                        {l.recipientEmail ? ` · ${l.recipientEmail}` : ""}
+                      </div>
+                    </div>
+                    <div className="text-right text-muted-foreground">
+                      <div className="font-medium">{fmtDate(l.sentAt)}</div>
+                      <div className="text-[10px]">{noaLogTime(l.sentAt)}</div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
           <div className="flex justify-end gap-2 border-t border-border pt-3">
             <Link

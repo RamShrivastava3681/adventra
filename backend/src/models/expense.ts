@@ -12,9 +12,12 @@ export interface Expense {
   createdAt: string; updatedAt: string;
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, { entityType: "Expense", limit: 500, reverse: true });
-  return items as Expense[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, { entityType: "Expense", limit: 500, reverse: true });
+    return items as Expense[];
+  }
+  return db.scanByType("Expense", { limit: 2000 }) as Promise<Expense[]>;
 }
 
 export async function get(id: string) { return db.getItem(`EXPENSE#${id}`) as Promise<Expense | null>; }

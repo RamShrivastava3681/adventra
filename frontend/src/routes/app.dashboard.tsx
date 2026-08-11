@@ -2,7 +2,6 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import api from "@/lib/api-client";
-import { useAuth } from "@/lib/auth-context";
 import {
   PageHeader,
   Stat,
@@ -33,29 +32,30 @@ export const Route = createFileRoute("/app/dashboard")({
 });
 
 function Dashboard() {
-  const { isAdmin, isTreasury, user } = useAuth();
   const [viewingExpense, setViewingExpense] = useState<any | null>(null);
 
+  // The dashboard is shared by every user — it always shows the whole
+  // portfolio's real numbers (scope=all), not just the caller's own client.
   const invoicesQ = useQuery({
-    queryKey: ["invoices", isAdmin ? "all" : user?.id],
+    queryKey: ["invoices", "all"],
     queryFn: async () => {
-      const data = await api.invoices.list();
+      const data = await api.invoices.list("all");
       return data.reverse();
     },
   });
 
   const purchasesQ = useQuery({
-    queryKey: ["purchase_invoices", isAdmin ? "all" : user?.id],
+    queryKey: ["purchase_invoices", "all"],
     queryFn: async () => {
-      const data = await api.purchaseInvoices.list();
+      const data = await api.purchaseInvoices.list("all");
       return data.reverse();
     },
   });
 
   const expensesQ = useQuery({
-    queryKey: ["expenses", isAdmin ? "all" : user?.id],
+    queryKey: ["expenses", "all"],
     queryFn: async () => {
-      const data = await api.expenses.list();
+      const data = await api.expenses.list("all");
       return data.reverse();
     },
   });
@@ -75,6 +75,9 @@ function Dashboard() {
       return data;
     },
   });
+  // Backend list endpoints don't nest the debtor object — resolve names by id.
+  const debtorName = (id?: string | null) =>
+    (debtorsQ.data ?? []).find((d: any) => d.id === id)?.name ?? "—";
 
   const isDashboardLoading =
     invoicesQ.isLoading ||
@@ -158,35 +161,18 @@ function Dashboard() {
     { current: 0, b1: 0, b2: 0, b3: 0, b4: 0 },
   );
 
-  const eyebrow = isAdmin ? "Factor console" : isTreasury ? "Treasury desk" : "Trader portal";
-  const titleText = isAdmin
-    ? "Portfolio command"
-    : isTreasury
-      ? "Funding overview"
-      : "Trading ledger";
-
   return (
     <div>
       <PageHeader
-        eyebrow={eyebrow}
-        title={titleText}
-        description={
-          isAdmin
-            ? "Live receivables, advances, and risk across every client."
-            : isTreasury
-              ? "Approved invoices and outstanding advances."
-              : "Sales, purchases, and income from your trading book."
-        }
+        eyebrow="Portfolio"
+        title="Portfolio dashboard"
+        description="Live receivables, advances, and income across every client — the same real numbers for the whole team."
         actions={
           <Link
-            to={isTreasury ? "/app/queue" : "/app/invoices"}
+            to="/app/queue"
             className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
           >
-            {isTreasury
-              ? "Open funding queue"
-              : isAdmin
-                ? "Open invoice queue"
-                : "New sales invoice"}
+            Open funding queue
           </Link>
         }
       />
@@ -195,9 +181,8 @@ function Dashboard() {
         <DashboardSkeleton />
       ) : (
         <div className="space-y-6 p-6 md:p-10">
-          {/* Income stats — hidden for treasury (focused on funding) */}
-          {!isTreasury && (
-            <div className="grid gap-4 md:grid-cols-4">
+          {/* Income stats */}
+          <div className="grid gap-4 md:grid-cols-4">
               <Stat
                 label="Sales (gross)"
                 value={fmtMoney(salesTotal)}
@@ -213,15 +198,13 @@ function Dashboard() {
                 value={fmtMoney(gross)}
                 delta={`${marginPct.toFixed(1)}% margin`}
                 tone={gross >= 0 ? "good" : "bad"}
-              />
-              <Stat
-                label="Net income"
-                value={fmtMoney(net)}
-                delta={`After ${fmtMoney(expenseTotal)} expenses`}
-                tone={net >= 0 ? "good" : "bad"}
-              />
-            </div>
-          )}
+              />            <Stat
+              label="Net income"
+              value={fmtMoney(net)}
+              delta={`After ${fmtMoney(expenseTotal)} expenses`}
+              tone={net >= 0 ? "good" : "bad"}
+            />
+          </div>
 
           {/* Operational stats */}
           <div className="grid gap-4 md:grid-cols-4">
@@ -273,7 +256,7 @@ function Dashboard() {
           </div>
 
           {/* Income trend */}
-          {!isTreasury && incomeTrend.length > 0 && (
+          {incomeTrend.length > 0 && (
             <Card
               title="Gross vs net income"
               action={<span className="text-xs text-muted-foreground">Last 8 months</span>}
@@ -432,7 +415,7 @@ function Dashboard() {
                     {invoices.slice(0, 6).map((i: any) => (
                       <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3 font-mono text-xs">{i.invoice_number}</td>
-                        <td className="px-5 py-3">{i.debtor?.name ?? "—"}</td>
+                        <td className="px-5 py-3">{debtorName(i.debtor_id)}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(i.amount)}</td>
                         <td className="px-5 py-3 text-muted-foreground">{fmtDate(i.due_date)}</td>
                         <td
@@ -457,90 +440,88 @@ function Dashboard() {
           </Card>
 
           {/* Recent expenses */}
-          {!isTreasury && (
-            <Card
-              title="Recent expenses"
-              action={
-                <Link to="/app/expenses" className="text-xs text-primary">
-                  View all →
-                </Link>
-              }
-            >
-              {expenses.length === 0 ? (
-                <div className="py-10 text-center text-sm text-muted-foreground">
-                  No expenses logged.
-                </div>
-              ) : (
-                <div className="-mx-5 overflow-x-auto">
-                  <table className="table-premium w-full text-sm">
-                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                      <tr className="border-b border-border">
-                        <th className="px-5 py-2 text-left font-normal">Date</th>
-                        <th className="px-5 py-2 text-left font-normal">Category</th>
-                        <th className="px-5 py-2 text-left font-normal">Linked transaction</th>
-                        <th className="px-5 py-2 text-left font-normal">Description</th>
-                        <th className="px-5 py-2 text-right font-normal">Docs</th>
-                        <th className="px-5 py-2 text-right font-normal">Amount</th>
-                        <th className="px-5 py-2 text-right font-normal" />
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {expenses.slice(0, 6).map((e: any) => {
-                        const link = e.invoice?.invoice_number
-                          ? { kind: "Sale", num: e.invoice.invoice_number }
-                          : e.purchase?.invoice_number
-                            ? { kind: "Purchase", num: e.purchase.invoice_number }
-                            : null;
-                        const docCount = Array.isArray(e.documents) ? e.documents.length : 0;
-                        return (
-                          <tr key={e.id} className="border-b border-border/60 hover:bg-muted/30">
-                            <td className="px-5 py-3">{fmtDate(e.expense_date)}</td>
-                            <td className="px-5 py-3 capitalize">{e.category}</td>
-                            <td className="px-5 py-3">
-                              {link ? (
-                                <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background/40 px-2 py-0.5 text-xs">
-                                  <Link2 className="h-3 w-3 text-primary" />
-                                  <span className="text-muted-foreground">{link.kind}</span>
-                                  <span className="font-mono">{link.num}</span>
-                                </span>
-                              ) : (
-                                <span className="text-xs text-muted-foreground">Unlinked</span>
-                              )}
-                            </td>
-                            <td className="px-5 py-3 text-muted-foreground">
-                              {e.description ?? "—"}
-                            </td>
-                            <td className="px-5 py-3 text-right">
-                              {docCount > 0 ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-                                  <Paperclip className="h-3 w-3" />
-                                  {docCount}
-                                </span>
-                              ) : (
-                                <span className="text-[10px] text-muted-foreground">—</span>
-                              )}
-                            </td>
-                            <td className="px-5 py-3 text-right num">{fmtMoney(e.amount)}</td>
-                            <td className="px-5 py-3 text-right">
-                              <button
-                                onClick={() => setViewingExpense(e)}
-                                className="rounded-md border border-border px-2 py-1 text-[10px] uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary"
-                              >
-                                Details
-                              </button>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </Card>
-          )}
+          <Card
+            title="Recent expenses"
+            action={
+              <Link to="/app/expenses" className="text-xs text-primary">
+                View all →
+              </Link>
+            }
+          >
+            {expenses.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">
+                No expenses logged.
+              </div>
+            ) : (
+              <div className="-mx-5 overflow-x-auto">
+                <table className="table-premium w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-5 py-2 text-left font-normal">Date</th>
+                      <th className="px-5 py-2 text-left font-normal">Category</th>
+                      <th className="px-5 py-2 text-left font-normal">Linked transaction</th>
+                      <th className="px-5 py-2 text-left font-normal">Description</th>
+                      <th className="px-5 py-2 text-right font-normal">Docs</th>
+                      <th className="px-5 py-2 text-right font-normal">Amount</th>
+                      <th className="px-5 py-2 text-right font-normal" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {expenses.slice(0, 6).map((e: any) => {
+                      const link = e.invoice?.invoice_number
+                        ? { kind: "Sale", num: e.invoice.invoice_number }
+                        : e.purchase?.invoice_number
+                          ? { kind: "Purchase", num: e.purchase.invoice_number }
+                          : null;
+                      const docCount = Array.isArray(e.documents) ? e.documents.length : 0;
+                      return (
+                        <tr key={e.id} className="border-b border-border/60 hover:bg-muted/30">
+                          <td className="px-5 py-3">{fmtDate(e.expense_date)}</td>
+                          <td className="px-5 py-3 capitalize">{e.category}</td>
+                          <td className="px-5 py-3">
+                            {link ? (
+                              <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background/40 px-2 py-0.5 text-xs">
+                                <Link2 className="h-3 w-3 text-primary" />
+                                <span className="text-muted-foreground">{link.kind}</span>
+                                <span className="font-mono">{link.num}</span>
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Unlinked</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3 text-muted-foreground">
+                            {e.description ?? "—"}
+                          </td>
+                          <td className="px-5 py-3 text-right">
+                            {docCount > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                                <Paperclip className="h-3 w-3" />
+                                {docCount}
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-muted-foreground">—</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3 text-right num">{fmtMoney(e.amount)}</td>
+                          <td className="px-5 py-3 text-right">
+                            <button
+                              onClick={() => setViewingExpense(e)}
+                              className="rounded-md border border-border px-2 py-1 text-[10px] uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary"
+                            >
+                              Details
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
 
-          {/* Debtor concentration for admin */}
-          {isAdmin && (debtorsQ.data ?? []).length > 0 && (
+          {/* Debtor concentration */}
+          {(debtorsQ.data ?? []).length > 0 && (
             <Card
               title="Debtor concentration"
               action={

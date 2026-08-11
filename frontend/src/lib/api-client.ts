@@ -125,7 +125,8 @@ const api = {
 
   // Invoices (Sales)
   invoices: {
-    list: () => api.get<any[]>("/invoices"),
+    // scope="all" returns every client's invoices (shared dashboard).
+    list: (scope?: "all") => api.get<any[]>(`/invoices${scope ? `?scope=${scope}` : ""}`),
     get: (id: string) => api.get<any>(`/invoices/${id}`),
     create: (data: any) => api.post<any>("/invoices", data),
     update: (id: string, data: any) => api.put<any>(`/invoices/${id}`, data),
@@ -133,11 +134,15 @@ const api = {
     issue: (id: string) => api.post<any>(`/invoices/${id}/issue`, {}),
     recordPayment: (id: string, data: { amountReceived: number; receiptDate?: string }) =>
       api.post<any>(`/invoices/${id}/payment`, data),
+    // Email the Notice of Assignment to the buyer with the invoice PDF attached.
+    sendNoa: (id: string) => api.post<any>(`/invoices/${id}/send-noa`, {}),
   },
 
   // Purchase Invoices
   purchaseInvoices: {
-    list: () => api.get<any[]>("/purchase-invoices"),
+    // scope="all" returns every client's purchase invoices (shared dashboard).
+    list: (scope?: "all") =>
+      api.get<any[]>(`/purchase-invoices${scope ? `?scope=${scope}` : ""}`),
     create: (data: any) => api.post<any>("/purchase-invoices", data),
     update: (id: string, data: any) => api.put<any>(`/purchase-invoices/${id}`, data),
     delete: (id: string) => api.delete(`/purchase-invoices/${id}`),
@@ -214,7 +219,8 @@ const api = {
 
   // Expenses
   expenses: {
-    list: () => api.get<any[]>("/expenses"),
+    // scope="all" returns every client's expenses (shared dashboard).
+    list: (scope?: "all") => api.get<any[]>(`/expenses${scope ? `?scope=${scope}` : ""}`),
     create: (data: any) => api.post<any>("/expenses", data),
     update: (id: string, data: any) => api.put<any>(`/expenses/${id}`, data),
     delete: (id: string) => api.delete(`/expenses/${id}`),

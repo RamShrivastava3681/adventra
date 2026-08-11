@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Adventra — Live Demo Speech</title>
+<style>
+:root {
+  --bg: #f6f5f2; --card: #ffffff; --ink: #1d2329; --muted: #5c6670;
+  --accent: #0e4f8a; --accent-2: #0066FF; --line: #e3e0d9;
+  --code-bg: #f0ede6; --table-head: #0e4f8a; --quote-bg: #eef3fb;
+  --quote-line: #0066FF; --radius: 14px;
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0; background: var(--bg); color: var(--ink);
+  font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.62; font-size: 16px;
+}
+.container { max-width: 900px; margin: 0 auto; padding: 48px 28px 120px; }
+h1 { font-size: 2rem; line-height: 1.25; margin: 0 0 6px; letter-spacing: -0.02em; color: #0b1f33; }
+h2 {
+  font-size: 1.45rem; margin: 52px 0 14px; padding-top: 18px;
+  border-top: 2px solid var(--line); color: #0b1f33; letter-spacing: -0.01em;
+}
+h3 { font-size: 1.12rem; margin: 28px 0 8px; color: var(--accent); }
+h4 { font-size: 1rem; margin: 20px 0 6px; }
+p { margin: 10px 0; }
+a { color: var(--accent-2); text-decoration: none; border-bottom: 1px solid transparent; }
+a:hover { border-bottom-color: currentColor; }
+strong { color: #0b1f33; }
+hr { border: none; border-top: 1px solid var(--line); margin: 38px 0; }
+code {
+  background: var(--code-bg); border: 1px solid #e2ddd2; border-radius: 6px;
+  padding: 1px 6px; font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+  font-size: 0.86em; color: #12365e;
+}
+pre {
+  background: #12202e; color: #d6e4f2; border-radius: var(--radius);
+  padding: 16px 20px; overflow-x: auto; font-size: 0.88rem; line-height: 1.55;
+}
+pre code { background: none; border: none; color: inherit; padding: 0; }
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 14px 0; }
+.table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+th, td { text-align: left; padding: 9px 14px; border-bottom: 1px solid var(--line); vertical-align: top; }
+thead th {
+  background: var(--table-head); color: #fff; font-weight: 600;
+  font-size: 0.82rem; letter-spacing: 0.02em; white-space: nowrap;
+}
+thead th:first-child { border-radius: 12px 0 0 0; }
+thead th:last-child { border-radius: 0 12px 0 0; }
+tbody tr:nth-child(even) { background: #faf9f6; }
+tbody tr:hover { background: #eef3fb; }
+td code { white-space: nowrap; }
+blockquote {
+  margin: 18px 0; padding: 14px 18px; background: var(--quote-bg);
+  border-left: 4px solid var(--quote-line); border-radius: 0 10px 10px 0;
+  color: #1d3a5f; font-size: 1.02rem;
+}
+blockquote code { background: #dce7f7; border-color: #c4d4ec; color: #12365e; }
+ul, ol { padding-left: 26px; }
+li { margin: 5px 0; }
+.toc {
+  background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 20px 26px; margin: 26px 0;
+}
+.toc h2 { border: none; margin: 0 0 10px; padding: 0; font-size: 1.05rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
+.toc ol { margin: 0; padding-left: 22px; columns: 2; column-gap: 34px; font-size: 0.92rem; }
+.toc li { break-inside: avoid; }
+.hero {
+  background: linear-gradient(135deg, #0e4f8a, #0066FF); color: #fff;
+  border-radius: var(--radius); padding: 26px 30px; margin-bottom: 8px;
+}
+.hero h1 { color: #fff; }
+.hero p, .hero strong { color: #d7e6fa; }
+.hero code { background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.3); color: #eaffff; }
+.badge {
+  display: inline-block; background: rgba(255,255,255,0.16); border-radius: 999px;
+  padding: 3px 12px; font-size: 0.78rem; letter-spacing: 0.04em; margin-bottom: 10px;
+}
+footer { margin-top: 70px; padding-top: 18px; border-top: 2px solid var(--line); color: var(--muted); font-size: 0.85rem; }
+
+/* ── Print: one part per A4 page ─────────────────────────────── */
+@media print {
+  @page { size: A4; margin: 13mm 14mm; }
+  body { background: #fff; font-size: 11.5pt; }
+  .container { max-width: none; padding: 0; }
+  h2 { page-break-before: always; margin-top: 0; }
+  h2:first-of-type { page-break-before: auto; }
+  .hero, .toc, pre, .table-wrap, blockquote { break-inside: avoid; }
+  a { color: inherit; border-bottom: none; }
+}
+@media (max-width: 720px) {
+  .toc ol { columns: 1; }
+  body { font-size: 15px; }
+  .container { padding: 24px 16px 90px; }
+}
+</style>
+</head>
+<body>
+<div class="container">
+<div class="hero"><span class="badge">🎤 Live demo speech · ~10 minutes</span>
+<h1 id="-adventra--live-demo-speech">🎤 Adventra — Live Demo Speech</h1>
+<blockquote><strong>What this is:</strong> a word-for-word script you can deliver while demoing Adventra to clients, investors, or your own team. It covers <strong>every role</strong>, <strong>every tab</strong>, and the <strong>entire demand-forecasting engine</strong> — every formula, in plain language with real numbers. Read it straight through (~10 minutes) or use the appendix cheat sheet for a live walkthrough.</blockquote>
+<p><strong>How to use this script</strong></p>
+</div>
+<ul><li><strong>Bold = say it out loud.</strong> (Parentheses = stage direction: click, point, pause.)</li><li>Sections are roughly one page each when printed, so you can cut any page without breaking the flow.</li><li>Short on time? Read Parts 1, 2, 4, 5 and 7 — that's the whole story in about six pages.</li><li>Every forecasting number in Part 5 is the <em>actual output</em> of the engine in <code>frontend/src/lib/forecast-engine.ts</code>, run against a real example product (Trekking Backpack <code>TB-1001</code>).</li></ul>
+<hr/>
+<h2 id="part-1--opening-what-adventra-is">Part 1 — Opening: what Adventra is</h2>
+<blockquote><strong>"Good morning everyone. I'm going to show you Adventra — a receivables-factoring and debtor-monitoring platform that turns outstanding invoices into working capital, without losing sight of risk."</strong></blockquote>
+<p><strong>"Let me set the scene. A trading company lives on its cash flow. Every day it ships goods, raises invoices, and waits — sometimes 30, 60, even 90 days — to get paid. That waiting is money sitting still. Adventra does three things about it:</strong></p>
+<ol><li><strong>Submit</strong> — the company's sales invoices come into the platform and are checked by a second pair of eyes.</li><li><strong>Advance</strong> — once approved, the treasury desk funds against those invoices, often the same day.</li><li><strong>Collect</strong> — the platform watches every debtor, chases payments with automated reminders, and tracks aging, concentration, and credit risk live.</li></ol>
+<p><strong>And beneath all of it — the part I'm most proud of — is a demand-forecasting engine that tells you, for every single product, when you'll run out of stock and exactly how much to reorder. I'll spend the last part of this demo on that, formula by formula."</strong></p>
+<p>(Point at the landing page: the stat strip and live monitoring panels.)</p>
+<hr/>
+<h2 id="part-2--the-people-every-role-at-a-glance">Part 2 — The people: every role at a glance</h2>
+<blockquote><strong>"Adventra is one platform with six job-specific consoles. Each person logs in and sees only the tabs their job needs. No noise. Here's who's who:"</strong></blockquote>
+<div class="table-wrap"><table><thead><tr><th>Role</th><th>Console</th><th>What they own</th></tr></thead><tbody><tr><td><strong>Admin</strong> (<code>factor_admin</code>)</td><td><strong>Factor console</strong></td><td>Everything — the full portfolio, all tabs, approvals, team roles, configuration</td></tr><tr><td><strong>Checker</strong></td><td><strong>Checker desk</strong></td><td>The second pair of eyes — maker-checker approval of every submitted transaction</td></tr><tr><td><strong>Treasury</strong></td><td><strong>Treasury desk</strong></td><td>The funding queue — disbursing advances, releasing reserves on collection</td></tr><tr><td><strong>Operations</strong></td><td><strong>Operations desk</strong></td><td>Day-to-day transactions — buying, receiving, selling, shipping</td></tr><tr><td><strong>Sales rep</strong></td><td><strong>Sales workspace</strong></td><td>Leads, quotations, debtors, suppliers — the front of the funnel</td></tr><tr><td><strong>Reporting manager</strong></td><td><strong>Reporting console</strong></td><td>Team output, per-member progress, "view-as" inspection, approval requests</td></tr><tr><td><strong>Client</strong></td><td><strong>Trader portal</strong></td><td>The base role every new account starts with, before roles are assigned</td></tr></tbody></table></div>
+<blockquote><strong>"Notice the pattern: the closer you get to money, the fewer tabs you see. The admin sees everything; the checker sees what needs checking; the sales rep sees only sales."</strong></blockquote>
+<hr/>
+<h2 id="part-3--the-consoles-what-each-role-sees">Part 3 — The consoles: what each role sees</h2>
+<blockquote><strong>"One login — six different sidebars. Let me show you what each console looks like."</strong></blockquote>
+<p><strong>Factor console (Admin)</strong> — the full map:</p>
+<ul><li><strong>Single tabs:</strong> Dashboard · Checker · Funding queue</li><li><strong>Transactions (13):</strong> Purchase invoices, Purchase orders, Goods received (GRN), Quotations, Sales orders, Dispatch, Sales invoices, Proforma invoices, Debtors, Suppliers, Credit/Debit notes, Expenses, Advances</li><li><strong>Catalog & Inventory:</strong> Product catalog, Demand forecasting, Inventory</li><li><strong>Sales:</strong> Leads (CRM), Quotations, Debtors, Suppliers</li><li><strong>System:</strong> Alerts, Reminders, Operations (admin), Invoice template, Settings</li></ul>
+<p><strong>Checker desk:</strong> Dashboard · My Workspace · Checker · the 13 Transactions</p>
+<p><strong>Treasury desk:</strong> Dashboard · My Workspace · Funding queue · the 13 Transactions</p>
+<p><strong>Operations desk:</strong> Dashboard · My Workspace · the 13 Transactions</p>
+<p><strong>Sales workspace:</strong> Dashboard · My Workspace · Sales (Leads, Quotations, Debtors, Suppliers)</p>
+<p><strong>Reporting console:</strong> Dashboard · My Reports · Requests · Settings</p>
+<p><strong>Trader portal (client):</strong> Dashboard</p>
+<p>(Click through a couple of roles — or use "View as" from the Reporting console to walk in a sales rep's shoes. A banner shows you're impersonating, and every page scopes to that person's data.)</p>
+<hr/>
+<h2 id="part-4--every-tab-one-breath-each">Part 4 — Every tab, one breath each</h2>
+<blockquote><strong>"Here's the whole map — thirty-four pages, one line each — so you know exactly what lives behind every tab."</strong></blockquote>
+<div class="table-wrap"><table><thead><tr><th>Tab</th><th>What it is</th></tr></thead><tbody><tr><td><strong>Landing page</strong></td><td>Capabilities and live monitoring panels — where visitors first meet the product</td></tr><tr><td><strong>Sign in / Sign up</strong></td><td>Free account creation, no card required</td></tr><tr><td><strong>Dashboard</strong></td><td>The command center — income KPIs, funding KPIs, settlement quality, aging waterfall, live alerts feed</td></tr><tr><td><strong>My Workspace</strong></td><td>Personal requests — visits, travel, expenses, leave; submit and track</td></tr><tr><td><strong>Checker</strong></td><td>Maker-checker approval queue for every submitted transaction</td></tr><tr><td><strong>Funding queue</strong></td><td>Treasury's disbursement list — approved invoices and advances awaiting funding</td></tr><tr><td><strong>Purchase invoices</strong></td><td>The cost side of each deal — supplier invoices with PO details</td></tr><tr><td><strong>Purchase orders</strong></td><td>Orders placed with suppliers</td></tr><tr><td><strong>Goods received (GRN)</strong></td><td>Receiving stock against purchase orders — the stock-in event</td></tr><tr><td><strong>Quotations</strong></td><td>Sales quotes, with a rich quotation detail page — convert to orders</td></tr><tr><td><strong>Sales orders</strong></td><td>Confirmed customer orders</td></tr><tr><td><strong>Dispatch</strong></td><td>Shipping and challans — the stock-out event, with per-dispatch detail</td></tr><tr><td><strong>Sales invoices</strong></td><td>The money-maker — submit, then checker, then funding queue; printable branded preview</td></tr><tr><td><strong>Proforma invoices</strong></td><td>Raised against a PO to take or release an advance; applied to the final invoice with the same PO</td></tr><tr><td><strong>Credit / Debit notes</strong></td><td>Credit = refunds/discounts; Debit = extra charges/claims; both flow through approval to the linked invoice</td></tr><tr><td><strong>Debtors</strong></td><td>Credit limits, risk scores, and live exposure for every payer</td></tr><tr><td><strong>Suppliers</strong></td><td>Onboarding the companies whose invoices you finance — terms, credit lines, lifecycle</td></tr><tr><td><strong>Vendors</strong></td><td>The companies you buy from — contacts, payment terms, open payables</td></tr><tr><td><strong>Expenses</strong></td><td>Logistics, insurance, interest — link each to a sales or purchase invoice for true per-deal economics</td></tr><tr><td><strong>Advances</strong></td><td>Money received or paid ahead of the final invoice — always tied to an invoice</td></tr><tr><td><strong>Products & SKUs</strong></td><td>The master catalog — price, cost, reorder level, lead time; powers forecasting and low-stock alerts</td></tr><tr><td><strong>Demand forecasting</strong></td><td>The engine — full treatment in Part 5</td></tr><tr><td><strong>Inventory</strong></td><td>A double-entry stock ledger — every movement is a dated, valued journal entry</td></tr><tr><td><strong>CRM / Leads</strong></td><td>Lead pipeline, opportunities, activities — per-user scope</td></tr><tr><td><strong>Alerts</strong></td><td>Real-time surveillance — overdue invoices, credit-limit breaches, severity-tagged, unread counts</td></tr><tr><td><strong>Reminders</strong></td><td>Automated email nudges that keep collections on schedule</td></tr><tr><td><strong>Operations (admin)</strong></td><td>Generate alerts, manage team roles, act on exceptions</td></tr><tr><td><strong>Invoice template</strong></td><td>Brand the platform's generated invoices and notes</td></tr><tr><td><strong>Accounting</strong></td><td>Chart of accounts and journals — every financial movement is a balanced entry</td></tr><tr><td><strong>Balance sheet</strong></td><td>As-of-date statement that auto-updates from every module</td></tr><tr><td><strong>My Reports</strong></td><td>Reporting manager view — per-team-member progress</td></tr><tr><td><strong>Requests</strong></td><td>Team approval requests surfaced across the organization</td></tr><tr><td><strong>Profile</strong></td><td>Personal info and photo</td></tr><tr><td><strong>Settings</strong></td><td>Company profile, admin bootstrap</td></tr></tbody></table></div>
+<blockquote><strong>"Thirty-four pages — but because of role walls, any single user sees only ten to fifteen. That's the design philosophy in one line: the right information, at the right time, for the right person."</strong></blockquote>
+<hr/>
+<h2 id="part-5--the-forecasting-engine-every-formula">Part 5 — The forecasting engine: every formula</h2>
+<blockquote><strong>"Now the star of the show. The Demand Forecast page answers one question for every product: 'If I do nothing, when do I run out of stock — and how much should I order so I don't?'"</strong></blockquote>
+<p><strong>"The engine is a fourteen-step pipeline over the last twelve months of sales. Let me walk it with a real product — the Trekking Backpack, TB-1001: unit cost $25, unit price $59.99, fourteen-day supplier lead time, thirty units on hand, today is August 4th, 2026. Every number I say is the real output of the code."</strong></p>
+<h3 id="step-0--the-12-months-of-history">Step 0 — The 12 months of history</h3>
+<p>The engine reads the last 12 months of <strong>outbound</strong> stock movements (incoming stock is ignored for demand):</p>
+<p><code>24, 20, 14, 10, 12, 8, 9, 12, 16, 22, 28, 30</code> → <strong>205 units total</strong>.</p>
+<p><strong>"But January — 8 units — was a stockout month. The shelves were empty for half the month. If we train the forecast on 8, we'll under-order forever. So the engine fixes it."</strong></p>
+<h3 id="step-1--availability-correction-fixing-stockout-months">Step 1 — Availability correction (fixing stockout months)</h3>
+<pre><code>availabilityRate = inStockDays ÷ daysInMonth
+corrected         = min( actual ÷ max(availabilityRate, 0.70),  actual × 1.4 )</code></pre>
+<p>January: <code>15 ÷ 31 = 0.48</code> → <code>min(8 ÷ 0.70, 11.2) = 11.2</code>.</p>
+<p>The <strong>0.70 divisor floor</strong> stops wild inflation, and the <strong>1.4× cap</strong> means one bad month can't distort demand permanently. Corrected total: <strong>208.2 units</strong>.</p>
+<h3 id="step-2--baseline-a-321-weighted-average">Step 2 — Baseline: a 3/2/1 weighted average</h3>
+<p><strong>"Recent months matter more than old months. The newest 3 count triple, the middle 3 double, the oldest 6 single:"</strong></p>
+<pre><code>w          = [1,1,1,1,1,1,2,2,2,3,3,3]
+weightedAvg = Σ(yᵢ·wᵢ) ÷ Σ(wᵢ) = 405.2 ÷ 21 = 19.30</code></pre>
+<p>The page shows <strong>Monthly avg = 19</strong>.</p>
+<h3 id="step-3--trend-the-line-of-best-fit">Step 3 — Trend: the line of best fit</h3>
+<pre><code>slope = (n·Σxy − Σx·Σy) ÷ (n·Σx² − (Σx)²) = 1330.8 ÷ 1716 = +0.78 units/month
+R²    = 1 − ssRes ÷ ssTot = 0.15      → "trend strength 15%"
+direction: slope must beat |meanY| × 2% (= 0.35) → +0.78 &gt; 0.35 → "up"</code></pre>
+<p><strong>"Demand is rising about 0.8 units a month. R² tells us how reliably the data follows that line — 15% is noisy, but the direction is still up."</strong></p>
+<h3 id="step-4--seasonality-the-month-personality">Step 4 — Seasonality: the month personality</h3>
+<pre><code>overallAvg = Σy ÷ 12 = 17.35
+factor     = monthAvg ÷ overallAvg,  clamped to 0.5–2.0</code></pre>
+<p>September: <code>20 ÷ 17.35 = ×1.15</code>. January is ×0.65, July ×1.73. <strong>"Backpacks sell in summer — the data says so; we just measure it."</strong></p>
+<h3 id="step-5--business-factors-your-judgment-quantified">Step 5 — Business factors: your judgment, quantified</h3>
+<p>Five optional multipliers: trekking season, weather, promotions, regional demand, events (each defaults to 1.0 = no effect):</p>
+<pre><code>factors = trekking × weather × promotion × regional × event
+final   = clamp(baseline × factors, 0.7 × baseline, 1.5 × baseline)</code></pre>
+<p><strong>"No matter what you type, factors can only move the forecast between 70% and 150% of normal. One lucky day can't make you buy a truckload."</strong></p>
+<h3 id="step-6--the-monthly-forecast-month-by-month">Step 6 — The monthly forecast, month by month</h3>
+<pre><code>baseline        = max(0, weightedBaseline + slope × i) × seasonalFactor    (i = 1…6)
+dailyRate       = final ÷ daysInMonth
+monthlySafety   = dailyRate × safetyStockDays (30)
+suggestedOrder  = running &lt; final + safety ? ceil(final + safety − running) : 0</code></pre>
+<p>September: <code>(19.30 + 0.78) × 1.153 = 35.48 → 35 units</code>.</p>
+<div class="table-wrap"><table><thead><tr><th>Month</th><th>Forecast</th><th>Daily</th><th>Safety</th><th>Suggested order</th></tr></thead><tbody><tr><td>Sep 2026</td><td>35</td><td>1.2</td><td>36</td><td><strong>41</strong></td></tr><tr><td>Oct 2026</td><td>25</td><td>0.8</td><td>24</td><td><strong>51</strong></td></tr><tr><td>Nov 2026</td><td>19</td><td>0.6</td><td>18</td><td><strong>38</strong></td></tr><tr><td>Dec 2026</td><td>23</td><td>0.7</td><td>21</td><td><strong>46</strong></td></tr><tr><td>Jan 2027</td><td>22</td><td>0.7</td><td>21</td><td><strong>44</strong></td></tr><tr><td>Feb 2027</td><td>18</td><td>0.6</td><td>18</td><td><strong>38</strong></td></tr></tbody></table></div>
+<p><strong>"Running stock starts at 30. September needs 35 units plus a 36-unit safety buffer — that's 71; you have 30, so buy 41. October already starts at zero, so it wants a full top-up of 51."</strong></p>
+<h3 id="step-7--the-prediction-interval-the-honest-range-80-confidence">Step 7 — The prediction interval: the honest range (80% confidence)</h3>
+<pre><code>se      = √( Σresidual² ÷ (n−2) ) = 9.79
+sePred  = se × √( 1 + 1/n + (i − meanX)² ÷ ssx ) = 11.50
+half    = round(1.28 × sePred) = 15     →   September: 20.5 – 50.5</code></pre>
+<p><strong>"We're 80% sure September lands between 20 and 50 units. Notice the bands widen the further we look — the engine is honest about uncertainty. And with fewer than 3 months of history it falls back to a simple ±30% range."</strong></p>
+<h3 id="step-8--days-of-cover">Step 8 — Days of cover</h3>
+<pre><code>last3DailyAvg = (Jun + Jul + Aug) ÷ (30 + 31 + 31) = 80 ÷ 92 = 0.87/day
+daysOfCover   = round(inventoryPosition ÷ last3DailyAvg) = round(30 ÷ 0.87) = 34 days</code></pre>
+<p>Inventory position = on hand + confirmed inbound − committed customer orders.</p>
+<h3 id="step-9--the-reorder-recommendation">Step 9 — The reorder recommendation</h3>
+<pre><code>requiredStock = dailyAvg × (leadTime + safetyStockDays) = 0.87 × 44 = 38.26
+recommended   = max(0, requiredStock − inventoryPosition) = 38.26 − 30 = 8.26 → 9</code></pre>
+<p>Then three business rules, in order: <strong>cap by max cover</strong> (180 days) so you never over-buy; <strong>respect the MOQ</strong> (if you order at all, order at least the minimum); <strong>round up to the order multiple</strong> (e.g. boxes of 25). <strong>"Buy 9 today — and the page even values it: 9 × $25 = $225 at cost."</strong></p>
+<h3 id="step-10--momentum-speeding-up-or-slowing-down">Step 10 — Momentum: speeding up or slowing down?</h3>
+<pre><code>recent = last-3-months avg = (22+28+30) ÷ 3 = 26.67
+≥ baseline × 120% (= 23.15) → accelerating   ·   ≥ baseline × 60% → stable   ·   else declining</code></pre>
+<p>26.67 → <strong>accelerating</strong>. <strong>"People suddenly want more backpacks."</strong></p>
+<h3 id="step-11--velocity-how-fast-versus-the-neighborhood">Step 11 — Velocity: how fast, versus the neighborhood</h3>
+<p>Within each category, products are ranked by recent average; <code>position = (rank + 1) ÷ group size</code>:</p>
+<pre><code>≤ 20% → fast mover · ≤ 50% → medium · else slow · zero sales → dead</code></pre>
+<p>TB-1001 is rank 2 of 5 in Backpacks → 0.40 → <strong>medium mover</strong>. <strong>"Velocity is always about your neighborhood, not the absolute number."</strong></p>
+<h3 id="step-12--risks-stockout-and-overstock">Step 12 — Risks: stockout and overstock</h3>
+<pre><code>coverVsLead = daysOfCover ÷ leadTime = 34 ÷ 14 = 2.43
+&lt; 1.0 → stockout HIGH · &lt; 1.5 → medium · else low   →  low ✅
+daysOfCover &gt; 180 → overstock HIGH · &gt; 135 → medium →  34 → low ✅</code></pre>
+<h3 id="step-13--the-timeline-three-dates-that-matter">Step 13 — The timeline: three dates that matter</h3>
+<pre><code>stockoutDate  = today + daysOfCover = Aug 4 + 34 = Sep 7
+reorderByDate = stockoutDate − leadTime = Sep 7 − 14 = Aug 24   ← last safe day to order
+refillDate    = today + leadTime = Aug 18</code></pre>
+<p>Urgency: <strong>critical</strong> if you've already passed the reorder-by date, <strong>warning</strong> inside the lead window, otherwise <strong>safe</strong>. Today: <strong>safe</strong>.</p>
+<h3 id="step-14--pricing-strategy">Step 14 — Pricing strategy</h3>
+<pre><code>minimumPrice = unitPrice ÷ (1 − minMargin) = $59.99 ÷ 0.60 = $99.98   (40% margin floor)</code></pre>
+<p>Then eight decision rules — from <strong>clearance</strong> (dead product, too much stock: cut price 20–40%) to <strong>protect margin</strong> (fast mover, low stock: maybe raise 3–5%). Our backpack is a medium mover, accelerating → <strong>hold price</strong>.</p>
+<blockquote><strong>"And every number I just showed you is auditable — click any forecast and it expands to show the complete calculation breakdown, number by number. No black box."</strong></blockquote>
+<hr/>
+<h2 id="part-6--closing">Part 6 — Closing</h2>
+<blockquote><strong>"So that's Adventra in ten minutes. One platform, six consoles, thirty-four pages, and a forecasting engine that turns twelve months of history into a buying decision with a date on it. Submit, advance, collect — while aging, concentration, and credit risk move live. Thank you — I'm happy to take questions."</strong></blockquote>
+<p>(Useful answers: "The approval step always gates funding — nothing gets money without a check." / "The forecast recomputes live and persists daily snapshots — it refreshes every 60 seconds." / "Role changes are validated against a known-role allowlist and every privileged action is audit-logged.")</p>
+<hr/>
+<h2 id="appendix--live-demo-cheat-sheet-the-ten-clicks">Appendix — Live-demo cheat sheet (the ten clicks)</h2>
+<ol><li><strong>Landing page</strong> → stat strip, live monitoring panels</li><li><strong>Sign in</strong> → show the role badge and console label</li><li><strong>Dashboard</strong> → aging waterfall chart</li><li><strong>Sales invoices</strong> → create one → watch it land on the <strong>Checker</strong> desk</li><li><strong>Checker</strong> approves → the invoice enters the <strong>Funding queue</strong></li><li><strong>Treasury</strong> funds → status becomes "advanced"</li><li><strong>Products</strong> → open TB-1001 → reorder level and lead time</li><li><strong>Inventory</strong> → stock ledger → drill into a linked invoice</li><li><strong>Demand forecast</strong> → expand TB-1001 → walk the calculation breakdown</li><li><strong>Alerts</strong> → show a credit-limit breach firing in real time</li></ol>
+<footer>
+<p>Adventra demo speech — covers every role, every tab, and the full demand-forecasting engine (14 formula steps).<br/>
+Generated from <code>DEMO-SPEECH.md</code> · Numbers in Part 5 are the real output of <code>forecastSKU()</code> in <code>frontend/src/lib/forecast-engine.ts</code>.</p>
+</footer>
+</div>
+</body>
+</html>
