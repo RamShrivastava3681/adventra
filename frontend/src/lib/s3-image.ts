@@ -4,7 +4,7 @@ const API_URL = import.meta.env.VITE_API_URL || "/api";
 
 /**
  * Extract the S3 object key from a stored public URL, e.g.
- *   https://adventra.s3.ap-south-1.amazonaws.com/<key>  →  <key>
+ *   https://whizunik.s3.ap-south-1.amazonaws.com/<key>  →  <key>
  * Returns null for anything that isn't an S3 URL (pasted external links,
  * data: URIs, …) so those pass through untouched.
  */

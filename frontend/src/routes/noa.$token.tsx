@@ -19,8 +19,10 @@ function NoaPage() {
   const noaQ = useQuery({
     queryKey: ["noa", token],
     queryFn: async () => {
+      // Response shape: { invoice, debtor, clientCompany } — the debtor's
+      // name/contact live on `debtor`, and `clientCompany` is the assignor.
       const data = await api.noa.get(token);
-      return data.invoice ?? null;
+      return data;
     },
   });
 
@@ -46,13 +48,16 @@ function NoaPage() {
     return (
       <div className="grid min-h-screen place-items-center text-muted-foreground">Loading…</div>
     );
-  const inv = noaQ.data;
+  const inv = noaQ.data?.invoice ?? null;
   if (!inv)
     return (
       <div className="grid min-h-screen place-items-center text-muted-foreground">
         This Notice of Assignment link is invalid or expired.
       </div>
     );
+  const debtorName = noaQ.data?.debtor?.name ?? "—";
+  const debtorContact = noaQ.data?.debtor?.contact_name ?? "—";
+  const clientCompany = noaQ.data?.clientCompany || "Your supplier";
 
   const decided = ["accepted", "rejected", "commented"].includes(inv.noa_status);
 
@@ -70,7 +75,7 @@ function NoaPage() {
 
       <div className="rounded-xl border border-border bg-card p-6 shadow-vault">
         <p className="text-sm text-muted-foreground">
-          {inv.client_company || "Your supplier"} has assigned the following invoice to a factoring
+          {clientCompany} has assigned the following invoice to a factoring
           facility. Please digitally verify the invoice details and confirm that payment, when due,
           will be remitted to the assignee.
         </p>
@@ -78,11 +83,11 @@ function NoaPage() {
         <dl className="mt-6 grid grid-cols-2 gap-4 text-sm">
           <div>
             <dt className="text-xs uppercase tracking-widest text-muted-foreground">Debtor</dt>
-            <dd>{inv.debtor_name}</dd>
+            <dd>{debtorName}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-widest text-muted-foreground">Contact</dt>
-            <dd>{inv.debtor_contact_name || "—"}</dd>
+            <dd>{debtorContact}</dd>
           </div>
           <div>
             <dt className="text-xs uppercase tracking-widest text-muted-foreground">Invoice #</dt>

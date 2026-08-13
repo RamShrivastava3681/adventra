@@ -502,17 +502,9 @@ function AppLayout() {
     <>
       {/* Brand header */}
       <div className="flex items-center gap-3 px-5 py-5 border-b border-sidebar-border shrink-0">
-        <div className="relative">
-          <img
-            src="/logo.png"
-            alt="Adventra"
-            className="h-9 w-auto rounded-[12px] object-contain ring-1 ring-sidebar-border"
-          />
-          <span className="absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full bg-primary ring-2 ring-sidebar" />
-        </div>
         <div className="min-w-0">
           <div className="font-display text-lg leading-tight tracking-tight text-sidebar-foreground">
-            Adventra
+            Whizunik
           </div>
           <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
             {consoleLabel}
@@ -672,8 +664,7 @@ function AppLayout() {
           </SheetContent>
         </Sheet>
         <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="Adventra" className="h-7 w-auto rounded-[8px] object-contain" />
-          <span className="font-display text-sm tracking-tight">Adventra</span>
+          <span className="font-display text-sm tracking-tight">Whizunik</span>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <Link

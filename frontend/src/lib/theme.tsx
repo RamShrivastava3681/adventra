@@ -2,7 +2,7 @@ import * as React from "react";
 
 export type Theme = "light" | "dark";
 
-const STORAGE_KEY = "adventra-theme";
+const STORAGE_KEY = "whizunik-theme";
 
 function getInitialTheme(): Theme {
   if (typeof window === "undefined") return "light";

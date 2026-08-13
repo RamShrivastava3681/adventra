@@ -147,7 +147,7 @@ function InvoicesPage() {
       qc.invalidateQueries({ queryKey: ["checker-sales"] });
       qc.invalidateQueries({ queryKey: ["queue-sales"] });
       qc.invalidateQueries({ queryKey: ["reminder-logs"] });
-      toast.success(`NOA emailed to ${data.sentTo || "the buyer"}`);
+      toast.success(`NOA emailed to ${data.sent_to || data.sentTo || "the buyer"}`);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });

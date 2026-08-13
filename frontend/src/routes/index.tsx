@@ -13,12 +13,12 @@ import {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Adventra — Receivables factoring & monitoring" },
+      { title: "Whizunik — Receivables factoring & monitoring" },
       {
         name: "description",
         content: "Submit invoices, advance capital in hours, and monitor debtor risk in real time.",
       },
-      { property: "og:title", content: "Adventra — Receivables factoring & monitoring" },
+      { property: "og:title", content: "Whizunik — Receivables factoring & monitoring" },
       {
         property: "og:description",
         content: "Institutional-grade factoring and live receivables monitoring.",
@@ -68,8 +68,8 @@ function Landing() {
       <header className="border-b border-border/60 bg-background/70 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link to="/" className="flex items-center gap-2.5">
-            <img src="/logo.png" alt="Adventra" className="h-8 w-auto rounded-md object-contain" />
-            <span className="font-display text-xl tracking-tight">Adventra</span>
+            <img src="/logo.png" alt="Whizunik" className="h-8 w-auto rounded-md object-contain" />
+            <span className="font-display text-xl tracking-tight">Whizunik</span>
           </Link>
           <div className="flex items-center gap-2">
             <Link
@@ -115,7 +115,7 @@ function Landing() {
               <em className="not-italic text-primary">conviction</em>.
             </h1>
             <p className="mt-6 max-w-xl text-lg text-muted-foreground">
-              Adventra is the platform for receivables factoring and debtor monitoring — submit
+              Whizunik is the platform for receivables factoring and debtor monitoring — submit
               invoices, advance capital, and watch risk in real time.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
@@ -217,7 +217,7 @@ function Landing() {
               Everything a factoring desk touches — in one room.
             </h2>
             <p className="mt-4 text-muted-foreground">
-              From first invoice to final recovery, Adventra keeps the whole lifecycle monitored,
+              From first invoice to final recovery, Whizunik keeps the whole lifecycle monitored,
               approved and accounted for.
             </p>
           </div>
@@ -267,7 +267,7 @@ function Landing() {
       </section>
 
       <footer className="border-t border-border/60 py-8 text-center text-xs text-muted-foreground">
-        © Adventra · SOC 2 · ISO 27001 · 256-bit at rest
+        © Whizunik · SOC 2 · ISO 27001 · 256-bit at rest
       </footer>
     </div>
   );

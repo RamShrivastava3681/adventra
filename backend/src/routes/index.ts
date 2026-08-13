@@ -3258,7 +3258,9 @@ router.get("/noa/:token", publicTokenLimiter, async (req, res) => {
     const invoice = await Invoice.getByNOAToken(req.params.token);
     if (!invoice) return res.status(404).json({ error: "Not found" });
     const debtor = await Debtor.get(invoice.debtorId);
-    res.json({ invoice, debtor });
+    // The assignor's company name — the NOA page shows who is assigning the invoice.
+    const company = await resolveCompanyName(invoice.clientId);
+    res.json({ invoice, debtor, clientCompany: company.name });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 

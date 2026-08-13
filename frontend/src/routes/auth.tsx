@@ -95,8 +95,8 @@ function AuthPage() {
         />
 
         <Link to="/" className="relative flex items-center gap-2.5">
-          <img src="/logo.png" alt="Adventra" className="h-8 w-auto rounded-md object-contain" />
-          <span className="font-display text-xl tracking-tight">Adventra</span>
+          <img src="/logo.png" alt="Whizunik" className="h-8 w-auto rounded-md object-contain" />
+          <span className="font-display text-xl tracking-tight">Whizunik</span>
         </Link>
 
         <div className="relative">
@@ -156,10 +156,10 @@ function AuthPage() {
             <div className="mb-6 flex items-center gap-2 md:hidden">
               <img
                 src="/logo.png"
-                alt="Adventra"
+                alt="Whizunik"
                 className="h-7 w-auto rounded-md object-contain"
               />
-              <span className="font-display text-lg tracking-tight">Adventra</span>
+              <span className="font-display text-lg tracking-tight">Whizunik</span>
             </div>
 
             <h1 className="font-display text-2xl tracking-tight text-foreground md:text-3xl">

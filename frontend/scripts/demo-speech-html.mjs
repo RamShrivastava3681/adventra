@@ -258,14 +258,14 @@ const doc = `<!DOCTYPE html>
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Adventra — Live Demo Speech</title>
+<title>Whizunik — Live Demo Speech</title>
 <style>${css}</style>
 </head>
 <body>
 <div class="container">
 ${html.join("\n")}
 <footer>
-<p>Adventra demo speech — covers every role, every tab, and the full demand-forecasting engine (14 formula steps).<br/>
+<p>Whizunik demo speech — covers every role, every tab, and the full demand-forecasting engine (14 formula steps).<br/>
 Generated from <code>DEMO-SPEECH.md</code> · Numbers in Part 5 are the real output of <code>forecastSKU()</code> in <code>frontend/src/lib/forecast-engine.ts</code>.</p>
 </footer>
 </div>
