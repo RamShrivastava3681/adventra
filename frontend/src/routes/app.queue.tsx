@@ -19,9 +19,11 @@ import {
   FileMinus,
   FilePlus,
   Sparkles,
+  Eye,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
+import { InvoiceDetailModal, ProformaDetailModal } from "@/components/document-view";
 
 export const Route = createFileRoute("/app/queue")({
   component: QueuePage,
@@ -59,6 +61,8 @@ type Row = {
   issue_date: string | null;
   status: string;
   party: string;
+  /** Raw document from the list endpoint — powers the read-only View modal. */
+  raw: any;
 };
 
 function QueuePage() {
@@ -309,6 +313,8 @@ function QueuePage() {
 
   const [closeFor, setCloseFor] = useState<Row | null>(null);
   const [payFor, setPayFor] = useState<Row | null>(null);
+  const [viewInv, setViewInv] = useState<{ kind: "sale" | "purchase"; raw: any } | null>(null);
+  const [viewPf, setViewPf] = useState<any | null>(null);
 
   const rows: Row[] = [
     ...((salesQ.data ?? []) as Array<Record<string, any>>).map((i): Row => {
@@ -331,6 +337,7 @@ function QueuePage() {
         issue_date: i.issue_date,
         status: i.status,
         party: partyMap[i.debtor_id] ?? i.debtor?.name ?? "—",
+        raw: i,
       };
     }),
     ...((purchasesQ.data ?? []) as Array<Record<string, any>>).map((p): Row => {
@@ -357,6 +364,7 @@ function QueuePage() {
         issue_date: p.issue_date,
         status: p.status,
         party: p.supplier_name ?? partyMap[p.vendor_id] ?? p.vendor?.name ?? "—",
+        raw: p,
       };
     }),
   ]
@@ -474,8 +482,17 @@ function QueuePage() {
                               {r.kind === "sale" ? "Sale (AR)" : "Purchase (AP)"}
                             </span>
                           </td>
-                          <td className="px-5 py-3 font-mono text-xs">
-                            <div>{r.invoice_number}</div>
+                          <td className="px-5 py-3">
+                            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                              <span className="font-mono text-xs">{r.invoice_number}</span>
+                              <button
+                                onClick={() => setViewInv({ kind: r.kind, raw: r.raw })}
+                                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-sans text-muted-foreground hover:border-primary hover:text-primary"
+                                title="View invoice details"
+                              >
+                                <Eye className="h-3 w-3" /> View
+                              </button>
+                            </div>
                             {r.po_number && (
                               <div className="text-[10px] text-muted-foreground">
                                 PO {r.po_number}
@@ -543,7 +560,18 @@ function QueuePage() {
                 <tbody>
                   {(proformasQ.data ?? []).map((p: any) => (
                     <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
-                      <td className="px-5 py-3 font-mono text-xs">{p.proforma_number ?? "—"}</td>
+                      <td className="px-5 py-3">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="font-mono text-xs">{p.proforma_number ?? "—"}</span>
+                          <button
+                            onClick={() => setViewPf(p)}
+                            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-sans text-muted-foreground hover:border-primary hover:text-primary"
+                            title="View proforma details"
+                          >
+                            <Eye className="h-3 w-3" /> View
+                          </button>
+                        </div>
+                      </td>
                       <td className="px-5 py-3 font-mono text-xs">{p.po_number}</td>
                       <td className="px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground">
                         {p.side}
@@ -575,6 +603,15 @@ function QueuePage() {
             </div>
           )}
         </Card>
+
+        {viewInv && (
+          <InvoiceDetailModal
+            invoice={viewInv.raw}
+            kind={viewInv.kind}
+            onClose={() => setViewInv(null)}
+          />
+        )}
+        {viewPf && <ProformaDetailModal pf={viewPf} onClose={() => setViewPf(null)} />}
 
         <Card title="Approved credit / debit notes — ready to apply">
           {notesQ.isLoading ? (

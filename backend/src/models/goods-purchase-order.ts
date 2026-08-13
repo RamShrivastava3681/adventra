@@ -51,11 +51,15 @@ export interface GoodsPurchaseOrder {
   documents: any[];
   status: string;
   /**
-   * The last manually-set status (draft / approved / sent / cancelled).
-   * Receipt-driven statuses (partially/fully_received) are derived and this
-   * field is the fallback when receipts are fully revoked.
+   * The last manually-set status (draft / pending_review / approved / sent /
+   * cancelled). Receipt-driven statuses (partially/fully_received) are derived
+   * and this field is the fallback when receipts are fully revoked.
    */
   manualStatus: string;
+  /** Who reviewed this PO at the maker–checker step (checker/admin id). null = not yet reviewed. */
+  reviewedBy: string | null;
+  /** When the checker reviewed this PO. null = not yet reviewed. */
+  reviewedAt: string | null;
   /** Supplier (vendor) approval via the emailed PDF. null = never sent. */
   supplierApprovalStatus: "pending" | "approved" | "rejected" | null;
   /** One-time secure token embedded in the approval link — nulled on response. */
@@ -78,8 +82,22 @@ export interface GoodsPurchaseOrder {
   updatedAt: string;
 }
 
-export const PO_STATUSES = ["draft", "approved", "sent", "partially_received", "fully_received", "cancelled"] as const;
-const MANUAL_STATUSES = ["draft", "approved", "sent", "cancelled"];
+export const PO_STATUSES = [
+  "draft",
+  "pending_review",
+  "approved",
+  "sent",
+  "partially_received",
+  "fully_received",
+  "cancelled",
+] as const;
+const MANUAL_STATUSES = [
+  "draft",
+  "pending_review",
+  "approved",
+  "sent",
+  "cancelled",
+];
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -106,12 +124,23 @@ export function computeTotals(lines: GoodsPOLine[], freight: number) {
     ),
   );
   const f = Number(freight) || 0;
-  return { totalQty, subtotal, gstTotal, freight: round2(f), grandTotal: round2(subtotal + gstTotal + f) };
+  return {
+    totalQty,
+    subtotal,
+    gstTotal,
+    freight: round2(f),
+    grandTotal: round2(subtotal + gstTotal + f),
+  };
 }
 
-export function recomputeStatus(po: Pick<GoodsPurchaseOrder, "status" | "manualStatus" | "lines">): string {
+export function recomputeStatus(
+  po: Pick<GoodsPurchaseOrder, "status" | "manualStatus" | "lines">,
+): string {
   const lines = po.lines ?? [];
-  if (lines.length > 0 && lines.every((l) => (l.receivedQty ?? 0) >= l.orderedQty && l.orderedQty > 0)) {
+  if (
+    lines.length > 0 &&
+    lines.every((l) => (l.receivedQty ?? 0) >= l.orderedQty && l.orderedQty > 0)
+  ) {
     return "fully_received";
   }
   if (lines.some((l) => (l.receivedQty ?? 0) > 0)) {
@@ -121,7 +150,11 @@ export function recomputeStatus(po: Pick<GoodsPurchaseOrder, "status" | "manualS
 }
 
 export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, { entityType: "GoodsPurchaseOrder", limit: 500, reverse: true });
+  const { items } = await db.queryByGSI1(clientId, {
+    entityType: "GoodsPurchaseOrder",
+    limit: 500,
+    reverse: true,
+  });
   return items as GoodsPurchaseOrder[];
 }
 
@@ -129,12 +162,17 @@ export async function get(id: string) {
   return db.getItem(`GOODS_PO#${id}`) as Promise<GoodsPurchaseOrder | null>;
 }
 
-export async function create(data: Partial<GoodsPurchaseOrder> & { clientId: string }) {
+export async function create(
+  data: Partial<GoodsPurchaseOrder> & { clientId: string },
+) {
   const id = uuid();
   const now = db.nowISO();
   const lines = computeLineTotals((data.lines ?? []) as GoodsPOLine[]);
   const totals = computeTotals(lines, data.freight ?? 0);
-  const status = data.status && PO_STATUSES.includes(data.status as any) ? data.status : "draft";
+  const status =
+    data.status && PO_STATUSES.includes(data.status as any)
+      ? data.status
+      : "draft";
   const item: GoodsPurchaseOrder = {
     pk: `GOODS_PO#${id}`,
     sk: `GOODS_PO#${id}`,
@@ -156,6 +194,8 @@ export async function create(data: Partial<GoodsPurchaseOrder> & { clientId: str
     documents: data.documents || [],
     status,
     manualStatus: status,
+    reviewedBy: data.reviewedBy || null,
+    reviewedAt: data.reviewedAt || null,
     supplierApprovalStatus: (data.supplierApprovalStatus as any) || null,
     supplierApprovalToken: data.supplierApprovalToken || null,
     supplierApprovalSentAt: data.supplierApprovalSentAt || null,
@@ -174,11 +214,33 @@ export async function create(data: Partial<GoodsPurchaseOrder> & { clientId: str
 export async function update(id: string, updates: Partial<GoodsPurchaseOrder>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
   const allowed = [
-    "poNumber", "poDate", "supplierId", "supplierName", "warehouse", "expectedDeliveryDate",
-    "paymentTerms", "buyerId", "buyerName", "notes", "documents", "status", "manualStatus",
-    "supplierApprovalStatus", "supplierApprovalToken", "supplierApprovalSentAt",
-    "supplierApprovalRespondedAt", "supplierApprovalComments", "supplierApprovalEmail",
-    "lines", "totalQty", "subtotal", "gstTotal", "freight", "grandTotal",
+    "poNumber",
+    "poDate",
+    "supplierId",
+    "supplierName",
+    "warehouse",
+    "expectedDeliveryDate",
+    "paymentTerms",
+    "buyerId",
+    "buyerName",
+    "notes",
+    "documents",
+    "status",
+    "manualStatus",
+    "reviewedBy",
+    "reviewedAt",
+    "supplierApprovalStatus",
+    "supplierApprovalToken",
+    "supplierApprovalSentAt",
+    "supplierApprovalRespondedAt",
+    "supplierApprovalComments",
+    "supplierApprovalEmail",
+    "lines",
+    "totalQty",
+    "subtotal",
+    "gstTotal",
+    "freight",
+    "grandTotal",
   ];
   for (const k of allowed) {
     if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k];
@@ -189,11 +251,15 @@ export async function update(id: string, updates: Partial<GoodsPurchaseOrder>) {
   if (updates.lines !== undefined || updates.freight !== undefined) {
     const current = await get(id);
     const lines = computeLineTotals(
-      updates.lines !== undefined ? (updates.lines as GoodsPOLine[]) : ((current?.lines ?? []) as GoodsPOLine[]),
+      updates.lines !== undefined
+        ? (updates.lines as GoodsPOLine[])
+        : ((current?.lines ?? []) as GoodsPOLine[]),
     );
     patch.lines = lines;
     const freight =
-      updates.freight !== undefined ? Number(updates.freight) || 0 : current?.freight ?? 0;
+      updates.freight !== undefined
+        ? Number(updates.freight) || 0
+        : (current?.freight ?? 0);
     Object.assign(patch, computeTotals(lines, freight));
   }
   // Track the manual status so receipt-derived statuses can fall back to it.
@@ -208,12 +274,18 @@ export async function remove(id: string) {
 }
 
 /** Add received quantities (from a GRN) to PO lines and recompute the status. */
-export async function recordReceipt(poId: string, received: Array<{ productId: string; receivedQty: number }>) {
+export async function recordReceipt(
+  poId: string,
+  received: Array<{ productId: string; receivedQty: number }>,
+) {
   const po = await get(poId);
   if (!po) throw new Error("PO not found");
-  if (po.status === "cancelled") throw new Error("Cannot receive against a cancelled PO");
-  if (po.status === "draft") throw new Error("Approve and send the PO before receiving goods");
-  if (po.status === "fully_received") throw new Error("PO is already fully received");
+  if (po.status === "cancelled")
+    throw new Error("Cannot receive against a cancelled PO");
+  if (po.status === "draft" || po.status === "pending_review")
+    throw new Error("Approve and send the PO before receiving goods");
+  if (po.status === "fully_received")
+    throw new Error("PO is already fully received");
   const lines = (po.lines ?? []).map((l) => {
     const r = received.find((x) => x.productId === l.productId);
     return r ? { ...l, receivedQty: (l.receivedQty ?? 0) + r.receivedQty } : l;
@@ -222,12 +294,17 @@ export async function recordReceipt(poId: string, received: Array<{ productId: s
 }
 
 /** Subtract received quantities (when a GRN is revoked/deleted) and recompute the status. */
-export async function revokeReceipt(poId: string, revoked: Array<{ productId: string; receivedQty: number }>) {
+export async function revokeReceipt(
+  poId: string,
+  revoked: Array<{ productId: string; receivedQty: number }>,
+) {
   const po = await get(poId);
   if (!po) throw new Error("PO not found");
   const lines = (po.lines ?? []).map((l) => {
     const r = revoked.find((x) => x.productId === l.productId);
-    return r ? { ...l, receivedQty: Math.max(0, (l.receivedQty ?? 0) - r.receivedQty) } : l;
+    return r
+      ? { ...l, receivedQty: Math.max(0, (l.receivedQty ?? 0) - r.receivedQty) }
+      : l;
   });
   return update(poId, { lines, status: recomputeStatus({ ...po, lines }) });
 }

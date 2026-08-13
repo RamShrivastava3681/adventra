@@ -4,9 +4,16 @@ import { useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { ClipboardCheck, Check, X, Lock, FileMinus, FilePlus, ScrollText } from "lucide-react";
+import { ClipboardCheck, Check, X, Lock, FileMinus, FilePlus, ScrollText, Eye } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
+import {
+  InvoiceDetailModal,
+  ProformaDetailModal,
+  QuotationDetailModal,
+  PurchaseOrderDetailModal,
+  SalesOrderDetailModal,
+} from "@/components/document-view";
 
 export const Route = createFileRoute("/app/checker")({
   component: CheckerPage,
@@ -45,6 +52,8 @@ type Row = {
   client_id?: string | null;
   noa_status?: string;
   noa_comments?: string | null;
+  /** Raw document from the list endpoint — powers the read-only View modal. */
+  raw: any;
 };
 
 function CheckerPage() {
@@ -52,6 +61,11 @@ function CheckerPage() {
   const canReview = isAdmin || isChecker;
   const qc = useQueryClient();
   const [side, setSide] = useState<"all" | "sale" | "purchase">("all");
+  const [viewInv, setViewInv] = useState<{ kind: "sale" | "purchase"; raw: any } | null>(null);
+  const [viewPf, setViewPf] = useState<any | null>(null);
+  const [viewQ, setViewQ] = useState<any | null>(null);
+  const [viewPo, setViewPo] = useState<any | null>(null);
+  const [viewSo, setViewSo] = useState<any | null>(null);
 
   const salesQ = useQuery({
     queryKey: ["checker-sales"],
@@ -199,6 +213,63 @@ function CheckerPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  // Goods purchase orders awaiting the checker's approval.
+  const posQ = useQuery({
+    queryKey: ["checker-pos"],
+    queryFn: async () => {
+      const data = await api.goodsPurchaseOrders.list();
+      return data.filter((p: any) => p.status === "pending_review");
+    },
+  });
+
+  const reviewPO = useMutation({
+    mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "draft" }) => {
+      // Approve → Approved (can then be sent to the supplier). Reject → back
+      // to draft so the maker can fix and resubmit.
+      await api.goodsPurchaseOrders.update(id, {
+        status: decision,
+        reviewed_by: user!.id,
+        reviewed_at: new Date().toISOString(),
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["checker-pos"] });
+      qc.invalidateQueries({ queryKey: ["goods-pos"] });
+      qc.invalidateQueries({ queryKey: ["goods-pos-for-pi"] });
+      qc.invalidateQueries({ queryKey: ["goods-pos-for-convert"] });
+      toast.success("Purchase order decision recorded");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  // Goods sales orders awaiting the checker's approval.
+  const sosQ = useQuery({
+    queryKey: ["checker-sos"],
+    queryFn: async () => {
+      const data = await api.goodsSalesOrders.list();
+      return data.filter((s: any) => s.status === "pending_review");
+    },
+  });
+
+  const reviewSO = useMutation({
+    mutationFn: async ({ id, decision }: { id: string; decision: "confirmed" | "draft" }) => {
+      // Approve → Confirmed (can then be dispatched). Reject → back to draft.
+      await api.goodsSalesOrders.update(id, {
+        status: decision,
+        reviewed_by: user!.id,
+        reviewed_at: new Date().toISOString(),
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["checker-sos"] });
+      qc.invalidateQueries({ queryKey: ["goods-sos"] });
+      qc.invalidateQueries({ queryKey: ["pf-sales-orders"] });
+      qc.invalidateQueries({ queryKey: ["invoices-by-so"] });
+      toast.success("Sales order decision recorded");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
   // Build PO -> open advance total lookup per side (DB is source of truth)
   const saleIds = (salesQ.data ?? []).map((i: any) => i.id);
   const purIds = (purchasesQ.data ?? []).map((p: any) => p.id);
@@ -270,6 +341,7 @@ function CheckerPage() {
         client_id: i.client_id,
         noa_status: i.noa_status,
         noa_comments: i.noa_comments,
+        raw: i,
       };
     }),
     ...((purchasesQ.data ?? []) as Array<Record<string, any>>).map((p): Row => {
@@ -292,6 +364,7 @@ function CheckerPage() {
         due_date: p.due_date,
         party: p.supplier_name ?? partyMap[p.vendor_id] ?? p.vendor?.name ?? "—",
         client_id: p.client_id,
+        raw: p,
       };
     }),
   ].filter((r) => side === "all" || r.kind === side);
@@ -309,13 +382,13 @@ function CheckerPage() {
         icon={<ClipboardCheck className="h-5 w-5" />}
         description={
           canReview
-            ? "Newly submitted invoices and credit/debit notes wait here for your approval. Approving releases invoices into the funding queue and routes notes to Treasury for application."
-            : "View-only. Only the checker (or admin) can approve invoices and notes."
+            ? "Newly submitted invoices, proformas, quotations, purchase orders and sales orders wait here for your approval. Approving releases invoices into the funding queue, routes notes to Treasury for application, and lets POs/SOs move to the next step."
+            : "View-only. Only the checker (or admin) can approve documents."
         }
       />
 
       <div className="space-y-6 p-6 md:p-10">
-        <div className="grid gap-4 md:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-3">
           <Card title="Pending sales invoices">
             <div className="num text-3xl text-primary">{pendingSales}</div>
             <div className="mt-1 text-xs text-muted-foreground">
@@ -338,6 +411,18 @@ function CheckerPage() {
             <div className="num text-3xl text-primary">{(quotationsQ.data ?? []).length}</div>
             <div className="mt-1 text-xs text-muted-foreground">
               Updated prices awaiting approval
+            </div>
+          </Card>
+          <Card title="Pending purchase orders">
+            <div className="num text-3xl text-primary">{(posQ.data ?? []).length}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Awaiting approval before sending to supplier
+            </div>
+          </Card>
+          <Card title="Pending sales orders">
+            <div className="num text-3xl text-primary">{(sosQ.data ?? []).length}</div>
+            <div className="mt-1 text-xs text-muted-foreground">
+              Awaiting approval before dispatch
             </div>
           </Card>
         </div>
@@ -403,7 +488,18 @@ function CheckerPage() {
                           {r.kind === "sale" ? "Sale (AR)" : "Purchase (AP)"}
                         </span>
                       </td>
-                      <td className="px-5 py-3 font-mono text-xs">{r.invoice_number}</td>
+                      <td className="px-5 py-3">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="font-mono text-xs">{r.invoice_number}</span>
+                          <button
+                            onClick={() => setViewInv({ kind: r.kind, raw: r.raw })}
+                            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-sans text-muted-foreground hover:border-primary hover:text-primary"
+                            title="View invoice details"
+                          >
+                            <Eye className="h-3 w-3" /> View
+                          </button>
+                        </div>
+                      </td>
                       <td className="px-5 py-3">{r.party}</td>
                       <td className="px-5 py-3 text-right num">
                         {fmtMoney(r.amount)}
@@ -519,7 +615,18 @@ function CheckerPage() {
                     const selfCreated = p.client_id === user?.id && !isAdmin;
                     return (
                       <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3 font-mono text-xs">{p.proforma_number ?? "—"}</td>
+                        <td className="px-5 py-3">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="font-mono text-xs">{p.proforma_number ?? "—"}</span>
+                            <button
+                              onClick={() => setViewPf(p)}
+                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-sans text-muted-foreground hover:border-primary hover:text-primary"
+                              title="View proforma details"
+                            >
+                              <Eye className="h-3 w-3" /> View
+                            </button>
+                          </div>
+                        </td>
                         <td className="px-5 py-3 font-mono text-xs">{p.po_number}</td>
                         <td className="px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground">
                           {p.side}
@@ -614,6 +721,13 @@ function CheckerPage() {
                                 {fmtDate(q.quotation_date)}
                               </div>
                             </div>
+                            <button
+                              onClick={() => setViewQ(q)}
+                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-sans text-muted-foreground hover:border-primary hover:text-primary"
+                              title="View quotation details"
+                            >
+                              <Eye className="h-3 w-3" /> View
+                            </button>
                           </div>
                         </td>
                         <td className="px-5 py-3">{q.customer_name ?? "—"}</td>
@@ -688,6 +802,220 @@ function CheckerPage() {
             </div>
           )}
         </Card>
+
+        <Card title="Purchase orders awaiting approval">
+          {posQ.isLoading ? (
+            <TableSkeleton rows={3} cols={6} />
+          ) : (posQ.data ?? []).length === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              No purchase orders awaiting approval.
+            </div>
+          ) : (
+            <div className="-mx-5 overflow-x-auto">
+              <table className="table-premium w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">PO</th>
+                    <th className="px-5 py-2 text-left font-normal">Supplier</th>
+                    <th className="px-5 py-2 text-left font-normal">Delivery</th>
+                    <th className="px-5 py-2 text-right font-normal">Qty</th>
+                    <th className="px-5 py-2 text-right font-normal">Grand total</th>
+                    <th className="px-5 py-2 text-left font-normal">Issued</th>
+                    <th className="px-5 py-2 text-right font-normal">Decision</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(posQ.data ?? []).map((p: any) => {
+                    const selfCreated = p.client_id === user?.id && !isAdmin;
+                    const totalQty = (p.lines ?? []).reduce(
+                      (s: number, l: any) => s + (Number(l.ordered_qty) || 0),
+                      0,
+                    );
+                    return (
+                      <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="font-mono text-xs">{p.po_number}</span>
+                            <button
+                              onClick={() => setViewPo(p)}
+                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-sans text-muted-foreground hover:border-primary hover:text-primary"
+                              title="View purchase order details"
+                            >
+                              <Eye className="h-3 w-3" /> View
+                            </button>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3">{p.supplier_name ?? "—"}</td>
+                        <td className="px-5 py-3 text-xs text-muted-foreground">
+                          {p.warehouse || "—"}
+                          {p.expected_delivery_date ? (
+                            <div className="text-[10px]">
+                              by {fmtDate(p.expected_delivery_date)}
+                            </div>
+                          ) : null}
+                        </td>
+                        <td className="px-5 py-3 text-right num">{totalQty.toLocaleString()}</td>
+                        <td className="px-5 py-3 text-right num font-medium">
+                          {fmtMoney(p.grand_total)}
+                        </td>
+                        <td className="px-5 py-3 text-sm">{fmtDate(p.po_date)}</td>
+                        <td className="px-5 py-3 text-right">
+                          {canReview ? (
+                            selfCreated ? (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground"
+                                title="Segregation of duties: you cannot review a purchase order you created"
+                              >
+                                <Lock className="h-3 w-3" /> Self-created
+                              </span>
+                            ) : (
+                              <div className="inline-flex gap-1">
+                                <button
+                                  onClick={() =>
+                                    reviewPO.mutate({ id: p.id, decision: "approved" })
+                                  }
+                                  className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10"
+                                >
+                                  <Check className="h-3 w-3" /> Approve
+                                </button>
+                                <button
+                                  onClick={() => reviewPO.mutate({ id: p.id, decision: "draft" })}
+                                  className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
+                                >
+                                  <X className="h-3 w-3" /> Reject
+                                </button>
+                              </div>
+                            )
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+                              <Lock className="h-3 w-3" /> Checker only
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        <Card title="Sales orders awaiting approval">
+          {sosQ.isLoading ? (
+            <TableSkeleton rows={3} cols={6} />
+          ) : (sosQ.data ?? []).length === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              No sales orders awaiting approval.
+            </div>
+          ) : (
+            <div className="-mx-5 overflow-x-auto">
+              <table className="table-premium w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">SO</th>
+                    <th className="px-5 py-2 text-left font-normal">Customer</th>
+                    <th className="px-5 py-2 text-left font-normal">Dispatch</th>
+                    <th className="px-5 py-2 text-right font-normal">Qty</th>
+                    <th className="px-5 py-2 text-right font-normal">Grand total</th>
+                    <th className="px-5 py-2 text-left font-normal">Ordered</th>
+                    <th className="px-5 py-2 text-right font-normal">Decision</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(sosQ.data ?? []).map((s: any) => {
+                    const selfCreated = s.client_id === user?.id && !isAdmin;
+                    const totalQty = (s.lines ?? []).reduce(
+                      (sum: number, l: any) => sum + (Number(l.ordered_qty) || 0),
+                      0,
+                    );
+                    return (
+                      <tr key={s.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <span className="font-mono text-xs">{s.so_number}</span>
+                            <button
+                              onClick={() => setViewSo(s)}
+                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-sans text-muted-foreground hover:border-primary hover:text-primary"
+                              title="View sales order details"
+                            >
+                              <Eye className="h-3 w-3" /> View
+                            </button>
+                          </div>
+                        </td>
+                        <td className="px-5 py-3">{s.customer_name ?? "—"}</td>
+                        <td className="px-5 py-3 text-xs text-muted-foreground">
+                          {s.expected_dispatch_date ? (
+                            <>
+                              from {fmtDate(s.expected_dispatch_date)}
+                              {s.expected_delivery_date ? (
+                                <div className="text-[10px]">
+                                  to {fmtDate(s.expected_delivery_date)}
+                                </div>
+                              ) : null}
+                            </>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-right num">{totalQty.toLocaleString()}</td>
+                        <td className="px-5 py-3 text-right num font-medium">
+                          {fmtMoney(s.grand_total)}
+                        </td>
+                        <td className="px-5 py-3 text-sm">{fmtDate(s.order_date)}</td>
+                        <td className="px-5 py-3 text-right">
+                          {canReview ? (
+                            selfCreated ? (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground"
+                                title="Segregation of duties: you cannot review a sales order you created"
+                              >
+                                <Lock className="h-3 w-3" /> Self-created
+                              </span>
+                            ) : (
+                              <div className="inline-flex gap-1">
+                                <button
+                                  onClick={() =>
+                                    reviewSO.mutate({ id: s.id, decision: "confirmed" })
+                                  }
+                                  className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10"
+                                >
+                                  <Check className="h-3 w-3" /> Approve
+                                </button>
+                                <button
+                                  onClick={() => reviewSO.mutate({ id: s.id, decision: "draft" })}
+                                  className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
+                                >
+                                  <X className="h-3 w-3" /> Reject
+                                </button>
+                              </div>
+                            )
+                          ) : (
+                            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+                              <Lock className="h-3 w-3" /> Checker only
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+
+        {viewInv && (
+          <InvoiceDetailModal
+            invoice={viewInv.raw}
+            kind={viewInv.kind}
+            onClose={() => setViewInv(null)}
+          />
+        )}
+        {viewPf && <ProformaDetailModal pf={viewPf} onClose={() => setViewPf(null)} />}
+        {viewQ && <QuotationDetailModal q={viewQ} onClose={() => setViewQ(null)} />}
+        {viewPo && <PurchaseOrderDetailModal po={viewPo} onClose={() => setViewPo(null)} />}
+        {viewSo && <SalesOrderDetailModal so={viewSo} onClose={() => setViewSo(null)} />}
 
         <Card title="Credit / debit notes awaiting approval">
           {notesQ.isLoading ? (

@@ -64,11 +64,16 @@ export interface GoodsSalesOrder {
   documents: any[];
   status: string;
   /**
-   * The last manually-set status (draft / confirmed / cancelled).
-   * Dispatch-driven statuses (partially/fully dispatched) are derived and this
-   * field is the fallback when dispatch quantities are fully revoked.
+   * The last manually-set status (draft / pending_review / confirmed /
+   * cancelled). Dispatch-driven statuses (partially/fully dispatched) are
+   * derived and this field is the fallback when dispatch quantities are fully
+   * revoked.
    */
   manualStatus: string;
+  /** Who reviewed this SO at the maker–checker step (checker/admin id). null = not yet reviewed. */
+  reviewedBy: string | null;
+  /** When the checker reviewed this SO. null = not yet reviewed. */
+  reviewedAt: string | null;
   /** Debtor (customer) approval via the emailed PDF. null = never sent. */
   debtorApprovalStatus: "pending" | "approved" | "rejected" | null;
   /** One-time secure token embedded in the approval link — nulled on response. */
@@ -92,26 +97,39 @@ export interface GoodsSalesOrder {
   updatedAt: string;
 }
 
-export const SO_STATUSES = ["draft", "confirmed", "partially_dispatched", "fully_dispatched", "cancelled"] as const;
-const MANUAL_STATUSES = ["draft", "confirmed", "cancelled"];
+export const SO_STATUSES = [
+  "draft",
+  "pending_review",
+  "confirmed",
+  "partially_dispatched",
+  "fully_dispatched",
+  "cancelled",
+] as const;
+const MANUAL_STATUSES = ["draft", "pending_review", "confirmed", "cancelled"];
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
 /** Gross value before discount for a line: orderedQty × unitPrice. */
-function grossValue(l: Pick<GoodsSalesOrderLine, "orderedQty" | "unitPrice">): number {
+function grossValue(
+  l: Pick<GoodsSalesOrderLine, "orderedQty" | "unitPrice">,
+): number {
   return (Number(l.orderedQty) || 0) * (Number(l.unitPrice) || 0);
 }
 
 /** Discounted value a line sells for: gross × (1 − discountPct/100). */
-function netValue(l: Pick<GoodsSalesOrderLine, "orderedQty" | "unitPrice" | "discountPct">): number {
+function netValue(
+  l: Pick<GoodsSalesOrderLine, "orderedQty" | "unitPrice" | "discountPct">,
+): number {
   const g = grossValue(l);
   const disc = Math.min(100, Math.max(0, Number(l.discountPct) || 0));
   return g * (1 - disc / 100);
 }
 
-function computeLineTotals(lines: GoodsSalesOrderLine[]): GoodsSalesOrderLine[] {
+function computeLineTotals(
+  lines: GoodsSalesOrderLine[],
+): GoodsSalesOrderLine[] {
   return lines.map((l) => {
     const orderedQty = Number(l.orderedQty) || 0;
     const unitPrice = Number(l.unitPrice) || 0;
@@ -124,7 +142,9 @@ function computeLineTotals(lines: GoodsSalesOrderLine[]): GoodsSalesOrderLine[] 
       orderedQty,
       unitPrice,
       discountPct,
-      lineTotal: round2(orderedQty * unitPrice * (1 - (discountPct ?? 0) / 100)),
+      lineTotal: round2(
+        orderedQty * unitPrice * (1 - (discountPct ?? 0) / 100),
+      ),
       dispatchedQty: l.dispatchedQty ?? 0,
       notes: l.notes || null,
     };
@@ -135,20 +155,33 @@ export function computeTotals(lines: GoodsSalesOrderLine[], freight: number) {
   const normalized = computeLineTotals(lines);
   const totalQty = normalized.reduce((s, l) => s + l.orderedQty, 0);
   const subtotal = round2(normalized.reduce((s, l) => s + l.lineTotal, 0));
-  const totalDiscount = round2(normalized.reduce((s, l) => s + (grossValue(l) - netValue(l)), 0));
+  const totalDiscount = round2(
+    normalized.reduce((s, l) => s + (grossValue(l) - netValue(l)), 0),
+  );
   const gstTotal = round2(
-    normalized.reduce(
-      (s, l) => s + (netValue(l) * (l.gstRate ?? 0)) / 100,
-      0,
-    ),
+    normalized.reduce((s, l) => s + (netValue(l) * (l.gstRate ?? 0)) / 100, 0),
   );
   const f = Number(freight) || 0;
-  return { totalQty, subtotal, totalDiscount, gstTotal, freight: round2(f), grandTotal: round2(subtotal + gstTotal + f) };
+  return {
+    totalQty,
+    subtotal,
+    totalDiscount,
+    gstTotal,
+    freight: round2(f),
+    grandTotal: round2(subtotal + gstTotal + f),
+  };
 }
 
-export function recomputeStatus(so: Pick<GoodsSalesOrder, "status" | "manualStatus" | "lines">): string {
+export function recomputeStatus(
+  so: Pick<GoodsSalesOrder, "status" | "manualStatus" | "lines">,
+): string {
   const lines = so.lines ?? [];
-  if (lines.length > 0 && lines.every((l) => (l.dispatchedQty ?? 0) >= l.orderedQty && l.orderedQty > 0)) {
+  if (
+    lines.length > 0 &&
+    lines.every(
+      (l) => (l.dispatchedQty ?? 0) >= l.orderedQty && l.orderedQty > 0,
+    )
+  ) {
     return "fully_dispatched";
   }
   if (lines.some((l) => (l.dispatchedQty ?? 0) > 0)) {
@@ -158,7 +191,11 @@ export function recomputeStatus(so: Pick<GoodsSalesOrder, "status" | "manualStat
 }
 
 export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, { entityType: "GoodsSalesOrder", limit: 500, reverse: true });
+  const { items } = await db.queryByGSI1(clientId, {
+    entityType: "GoodsSalesOrder",
+    limit: 500,
+    reverse: true,
+  });
   return items as GoodsSalesOrder[];
 }
 
@@ -166,12 +203,17 @@ export async function get(id: string) {
   return db.getItem(`GOODS_SO#${id}`) as Promise<GoodsSalesOrder | null>;
 }
 
-export async function create(data: Partial<GoodsSalesOrder> & { clientId: string }) {
+export async function create(
+  data: Partial<GoodsSalesOrder> & { clientId: string },
+) {
   const id = uuid();
   const now = db.nowISO();
   const lines = computeLineTotals((data.lines ?? []) as GoodsSalesOrderLine[]);
   const totals = computeTotals(lines, data.freight ?? 0);
-  const status = data.status && SO_STATUSES.includes(data.status as any) ? data.status : "draft";
+  const status =
+    data.status && SO_STATUSES.includes(data.status as any)
+      ? data.status
+      : "draft";
   const item: GoodsSalesOrder = {
     pk: `GOODS_SO#${id}`,
     sk: `GOODS_SO#${id}`,
@@ -204,6 +246,8 @@ export async function create(data: Partial<GoodsSalesOrder> & { clientId: string
     documents: data.documents || [],
     status,
     manualStatus: status,
+    reviewedBy: data.reviewedBy || null,
+    reviewedAt: data.reviewedAt || null,
     lines,
     ...totals,
     createdAt: now,
@@ -216,13 +260,39 @@ export async function create(data: Partial<GoodsSalesOrder> & { clientId: string
 export async function update(id: string, updates: Partial<GoodsSalesOrder>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
   const allowed = [
-    "soNumber", "orderDate", "customerId", "customerName", "contactPerson", "billingAddress",
-    "deliveryAddress",    "salespersonId", "salespersonName", "linkedQuotationId",
-    "linkedQuotationNumber", "paymentTerms", "expectedDispatchDate", "expectedDeliveryDate",
-    "notes", "documents", "status", "manualStatus",
-    "lines", "totalQty", "subtotal", "totalDiscount", "gstTotal", "freight", "grandTotal",
-    "debtorApprovalStatus", "debtorApprovalToken", "debtorApprovalSentAt",
-    "debtorApprovalRespondedAt", "debtorApprovalComments", "debtorApprovalEmail",
+    "soNumber",
+    "orderDate",
+    "customerId",
+    "customerName",
+    "contactPerson",
+    "billingAddress",
+    "deliveryAddress",
+    "salespersonId",
+    "salespersonName",
+    "linkedQuotationId",
+    "linkedQuotationNumber",
+    "paymentTerms",
+    "expectedDispatchDate",
+    "expectedDeliveryDate",
+    "notes",
+    "documents",
+    "status",
+    "manualStatus",
+    "reviewedBy",
+    "reviewedAt",
+    "lines",
+    "totalQty",
+    "subtotal",
+    "totalDiscount",
+    "gstTotal",
+    "freight",
+    "grandTotal",
+    "debtorApprovalStatus",
+    "debtorApprovalToken",
+    "debtorApprovalSentAt",
+    "debtorApprovalRespondedAt",
+    "debtorApprovalComments",
+    "debtorApprovalEmail",
   ];
   for (const k of allowed) {
     if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k];
@@ -233,11 +303,15 @@ export async function update(id: string, updates: Partial<GoodsSalesOrder>) {
   if (updates.lines !== undefined || updates.freight !== undefined) {
     const current = await get(id);
     const lines = computeLineTotals(
-      updates.lines !== undefined ? (updates.lines as GoodsSalesOrderLine[]) : ((current?.lines ?? []) as GoodsSalesOrderLine[]),
+      updates.lines !== undefined
+        ? (updates.lines as GoodsSalesOrderLine[])
+        : ((current?.lines ?? []) as GoodsSalesOrderLine[]),
     );
     patch.lines = lines;
     const freight =
-      updates.freight !== undefined ? Number(updates.freight) || 0 : current?.freight ?? 0;
+      updates.freight !== undefined
+        ? Number(updates.freight) || 0
+        : (current?.freight ?? 0);
     Object.assign(patch, computeTotals(lines, freight));
   }
   // Track the manual status so dispatch-derived statuses can fall back to it.
@@ -252,26 +326,42 @@ export async function remove(id: string) {
 }
 
 /** Add dispatched quantities (from a dispatch note) to SO lines and recompute the status. */
-export async function recordDispatch(soId: string, dispatched: Array<{ productId: string; dispatchedQty: number }>) {
+export async function recordDispatch(
+  soId: string,
+  dispatched: Array<{ productId: string; dispatchedQty: number }>,
+) {
   const so = await get(soId);
   if (!so) throw new Error("Sales order not found");
-  if (so.status === "cancelled") throw new Error("Cannot dispatch against a cancelled sales order");
-  if (so.status === "draft") throw new Error("Confirm the sales order before dispatching goods");
-  if (so.status === "fully_dispatched") throw new Error("Sales order is already fully dispatched");
+  if (so.status === "cancelled")
+    throw new Error("Cannot dispatch against a cancelled sales order");
+  if (so.status === "draft" || so.status === "pending_review")
+    throw new Error("Confirm the sales order before dispatching goods");
+  if (so.status === "fully_dispatched")
+    throw new Error("Sales order is already fully dispatched");
   const lines = (so.lines ?? []).map((l) => {
     const d = dispatched.find((x) => x.productId === l.productId);
-    return d ? { ...l, dispatchedQty: (l.dispatchedQty ?? 0) + d.dispatchedQty } : l;
+    return d
+      ? { ...l, dispatchedQty: (l.dispatchedQty ?? 0) + d.dispatchedQty }
+      : l;
   });
   return update(soId, { lines, status: recomputeStatus({ ...so, lines }) });
 }
 
 /** Subtract dispatched quantities (when a dispatch note is revoked/cancelled) and recompute the status. */
-export async function revokeDispatch(soId: string, revoked: Array<{ productId: string; dispatchedQty: number }>) {
+export async function revokeDispatch(
+  soId: string,
+  revoked: Array<{ productId: string; dispatchedQty: number }>,
+) {
   const so = await get(soId);
   if (!so) throw new Error("Sales order not found");
   const lines = (so.lines ?? []).map((l) => {
     const d = revoked.find((x) => x.productId === l.productId);
-    return d ? { ...l, dispatchedQty: Math.max(0, (l.dispatchedQty ?? 0) - d.dispatchedQty) } : l;
+    return d
+      ? {
+          ...l,
+          dispatchedQty: Math.max(0, (l.dispatchedQty ?? 0) - d.dispatchedQty),
+        }
+      : l;
   });
   return update(soId, { lines, status: recomputeStatus({ ...so, lines }) });
 }

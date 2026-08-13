@@ -112,6 +112,7 @@ type CatalogueProduct = {
 
 const PO_STATUSES = [
   "draft",
+  "pending_review",
   "approved",
   "sent",
   "partially_received",
@@ -121,6 +122,7 @@ const PO_STATUSES = [
 
 const PO_STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
+  pending_review: "Awaiting checker",
   approved: "Approved",
   sent: "Sent",
   partially_received: "Partially received",
@@ -130,7 +132,10 @@ const PO_STATUS_LABELS: Record<string, string> = {
 
 const PO_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
-  approved: "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
+  pending_review:
+    "bg-amber-500/10 text-amber-600 border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-400 dark:border-amber-500/40",
+  approved:
+    "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
   sent: "bg-indigo-500/10 text-indigo-600 border-indigo-500/30",
   partially_received: "bg-amber-500/10 text-amber-600 border-amber-500/30",
   fully_received: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
@@ -263,7 +268,9 @@ function PurchaseOrdersPage() {
 
   const stats = useMemo(() => {
     const pos = posQ.data ?? [];
-    const open = pos.filter((p) => ["draft", "approved", "sent"].includes(p.status));
+    const open = pos.filter((p) =>
+      ["draft", "pending_review", "approved", "sent"].includes(p.status),
+    );
     const commitment = open.reduce((s, p) => s + Number(p.grand_total || 0), 0);
     let receivedValue = 0;
     for (const p of pos) {
@@ -473,23 +480,21 @@ function PurchaseOrdersPage() {
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             )}
-                            {canWrite &&
-                              (["draft", "approved"].includes(p.status) ||
-                                p.supplier_approval_status === "rejected") && (
-                                <button
-                                  onClick={() => sendToSupplier.mutate(p.id)}
-                                  disabled={sendToSupplier.isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-violet-500/40 px-2 py-1 text-[10px] text-violet-600 hover:bg-violet-500/10 disabled:opacity-50"
-                                  title="Email the purchase order PDF to the supplier for approval"
-                                >
-                                  {sendToSupplier.isPending ? (
-                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                  ) : (
-                                    <Send className="h-3 w-3" />
-                                  )}
-                                  Send to supplier
-                                </button>
-                              )}
+                            {canWrite && p.status === "approved" && (
+                              <button
+                                onClick={() => sendToSupplier.mutate(p.id)}
+                                disabled={sendToSupplier.isPending}
+                                className="inline-flex items-center gap-1 rounded-md border border-violet-500/40 px-2 py-1 text-[10px] text-violet-600 hover:bg-violet-500/10 disabled:opacity-50"
+                                title="Email the purchase order PDF to the supplier for approval"
+                              >
+                                {sendToSupplier.isPending ? (
+                                  <Loader2 className="h-3 w-3 animate-spin" />
+                                ) : (
+                                  <Send className="h-3 w-3" />
+                                )}
+                                Send to supplier
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -510,6 +515,7 @@ function PurchaseOrdersPage() {
           products={productsQ.data ?? []}
           suppliers={suppliersQ.data ?? []}
           lastPrices={lastPrices}
+          canWrite={canWrite}
           canApprove={isAdmin || isChecker}
           onClose={() => setOpen(false)}
           onSaved={() => {
@@ -579,6 +585,7 @@ function POModal({
   products,
   suppliers,
   lastPrices,
+  canWrite,
   canApprove,
   onClose,
   onSaved,
@@ -589,6 +596,7 @@ function POModal({
   products: CatalogueProduct[];
   suppliers: Array<{ id: string; name: string }>;
   lastPrices: Map<string, number>;
+  canWrite: boolean;
   canApprove: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -950,7 +958,11 @@ function POModal({
     try {
       await api.goodsPurchaseOrders.update(po.id, { status: next });
       onSaved();
-      toast.success(`PO ${PO_STATUS_LABELS[next] ?? next}`);
+      const msg: Record<string, string> = {
+        pending_review: "PO submitted for checker review",
+        draft: "PO returned to draft",
+      };
+      toast.success(msg[next] ?? `PO ${PO_STATUS_LABELS[next] ?? next}`);
       onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
@@ -1655,14 +1667,32 @@ function POModal({
           {/* Status actions + save */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
             <div className="flex flex-wrap gap-2">
-              {isEdit && canApprove && status === "draft" && (
+              {isEdit && canWrite && status === "draft" && (
                 <button
                   type="button"
-                  onClick={() => changeStatus("approved")}
+                  onClick={() => changeStatus("pending_review")}
                   className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
                 >
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+                  <Send className="h-3.5 w-3.5" /> Submit for review
                 </button>
+              )}
+              {isEdit && status === "pending_review" && canApprove && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => changeStatus("approved")}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-success/50 px-3 py-1.5 text-xs font-medium text-success hover:bg-success/10"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => changeStatus("draft")}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-destructive/50 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+                  >
+                    <X className="h-3.5 w-3.5" /> Reject
+                  </button>
+                </>
               )}
               {isEdit && status === "approved" && (
                 <button

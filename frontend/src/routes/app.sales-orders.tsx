@@ -17,6 +17,8 @@ import {
   Truck,
   FileDown,
   Mail,
+  Send,
+  CheckCircle2,
   CircleDollarSign,
   ShoppingBag,
   type LucideIcon,
@@ -131,6 +133,7 @@ type Quotation = {
 
 const SO_STATUSES = [
   "draft",
+  "pending_review",
   "confirmed",
   "partially_dispatched",
   "fully_dispatched",
@@ -139,6 +142,7 @@ const SO_STATUSES = [
 
 const SO_STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
+  pending_review: "Awaiting checker",
   confirmed: "Confirmed",
   partially_dispatched: "Partially dispatched",
   fully_dispatched: "Fully dispatched",
@@ -147,7 +151,10 @@ const SO_STATUS_LABELS: Record<string, string> = {
 
 const SO_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
-  confirmed: "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
+  pending_review:
+    "bg-amber-500/10 text-amber-600 border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-400 dark:border-amber-500/40",
+  confirmed:
+    "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
   partially_dispatched: "bg-amber-500/10 text-amber-600 border-amber-500/30",
   fully_dispatched: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
@@ -181,7 +188,7 @@ function round2(n: number): number {
 }
 
 function SalesOrdersPage() {
-  const { user, isSalesRep } = useAuth();
+  const { user, isSalesRep, isAdmin, isChecker } = useAuth();
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -258,7 +265,7 @@ function SalesOrdersPage() {
 
   const stats = useMemo(() => {
     const sos = sosQ.data ?? [];
-    const open = sos.filter((s) => ["draft", "confirmed"].includes(s.status));
+    const open = sos.filter((s) => ["draft", "pending_review", "confirmed"].includes(s.status));
     const orderBook = open.reduce((sum, s) => sum + Number(s.grand_total || 0), 0);
     let dispatchedValue = 0;
     for (const s of sos) {
@@ -488,7 +495,7 @@ function SalesOrdersPage() {
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             )}
-                            {canWrite && ["draft", "confirmed"].includes(s.status) && (
+                            {canWrite && s.status === "confirmed" && (
                               <button
                                 onClick={() => sendToDebtor.mutate(s.id)}
                                 disabled={sendToDebtor.isPending}
@@ -523,6 +530,7 @@ function SalesOrdersPage() {
           customers={customersQ.data ?? []}
           quotations={quotationsQ.data ?? []}
           canWrite={canWrite}
+          canApprove={isAdmin || isChecker}
           onClose={() => setOpen(false)}
           onSaved={() => {
             qc.invalidateQueries({ queryKey: ["goods-sos"] });
@@ -554,6 +562,7 @@ function SOModal({
   customers,
   quotations,
   canWrite,
+  canApprove,
   onClose,
   onSaved,
 }: {
@@ -563,6 +572,7 @@ function SOModal({
   customers: Customer[];
   quotations: Quotation[];
   canWrite: boolean;
+  canApprove: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -762,7 +772,12 @@ function SOModal({
     try {
       await api.goodsSalesOrders.update(so.id, { status: next });
       onSaved();
-      toast.success(`SO ${SO_STATUS_LABELS[next] ?? next}`);
+      const msg: Record<string, string> = {
+        pending_review: "SO submitted for checker review",
+        draft: "SO returned to draft",
+        confirmed: "SO confirmed",
+      };
+      toast.success(msg[next] ?? `SO ${SO_STATUS_LABELS[next] ?? next}`);
       onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
@@ -931,7 +946,8 @@ function SOModal({
                           notes: l.notes ?? "",
                           // Keep any quantities already dispatched on this line.
                           dispatched_qty:
-                            existing.find((x) => x.product_id === l.product_id)?.dispatched_qty ?? 0,
+                            existing.find((x) => x.product_id === l.product_id)?.dispatched_qty ??
+                            0,
                         };
                       }),
                     );
@@ -1219,9 +1235,36 @@ function SOModal({
           {/* Status actions + save */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
             <div className="flex flex-wrap gap-2">
+              {isEdit && canWrite && status === "draft" && (
+                <button
+                  type="button"
+                  onClick={() => changeStatus("pending_review")}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+                >
+                  <Send className="h-3.5 w-3.5" /> Submit for review
+                </button>
+              )}
+              {isEdit && status === "pending_review" && canApprove && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => changeStatus("confirmed")}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-success/50 px-3 py-1.5 text-xs font-medium text-success hover:bg-success/10"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => changeStatus("draft")}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-destructive/50 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+                  >
+                    <X className="h-3.5 w-3.5" /> Reject
+                  </button>
+                </>
+              )}
               {isEdit &&
                 canWrite &&
-                status === "draft" &&
+                status === "confirmed" &&
                 so?.debtor_approval_status !== "rejected" && (
                   <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-violet-600">
                     <Mail className="h-3 w-3" /> The customer confirms via the emailed link
