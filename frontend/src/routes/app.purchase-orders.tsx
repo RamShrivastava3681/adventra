@@ -57,6 +57,11 @@ type PO = {
   notes: string | null;
   documents: DocMeta[];
   status: string;
+  supplier_approval_status: "pending" | "approved" | "rejected" | null;
+  supplier_approval_sent_at: string | null;
+  supplier_approval_responded_at: string | null;
+  supplier_approval_comments: string | null;
+  supplier_approval_email: string | null;
   lines: POLine[];
   total_qty: number;
   subtotal: number;
@@ -130,6 +135,19 @@ const PO_STATUS_TONES: Record<string, string> = {
   partially_received: "bg-amber-500/10 text-amber-600 border-amber-500/30",
   fully_received: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
+};
+
+// Supplier approval (PO PDF sent by email — Approve/Reject from the email link).
+const PO_SUPPLIER_LABELS: Record<string, string> = {
+  pending: "Awaiting supplier",
+  approved: "Approved by supplier",
+  rejected: "Rejected by supplier",
+};
+
+const PO_SUPPLIER_TONES: Record<string, string> = {
+  pending: "bg-violet-500/10 text-violet-600 border-violet-500/30",
+  approved: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  rejected: "bg-destructive/10 text-destructive border-destructive/30",
 };
 
 const PAYMENT_TERMS = [
@@ -224,6 +242,19 @@ function PurchaseOrdersPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["goods-pos"] });
       toast.success("Purchase order deleted");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  // Email the purchase order PDF to the supplier for their approval.
+  const sendToSupplier = useMutation({
+    mutationFn: async (id: string) => {
+      const res = (await api.goodsPurchaseOrders.sendToSupplier(id)) as any;
+      return res?.sentTo ?? "the supplier";
+    },
+    onSuccess: (sentTo) => {
+      qc.invalidateQueries({ queryKey: ["goods-pos"] });
+      toast.success(`Purchase order PDF sent to ${sentTo} for approval`);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -379,6 +410,18 @@ function PurchaseOrdersPage() {
                             label={PO_STATUS_LABELS[p.status] ?? p.status}
                             tone={PO_STATUS_TONES[p.status]}
                           />
+                          {p.supplier_approval_status && (
+                            <div className="mt-1">
+                              <StatusPill
+                                status={p.supplier_approval_status}
+                                label={
+                                  PO_SUPPLIER_LABELS[p.supplier_approval_status] ??
+                                  p.supplier_approval_status
+                                }
+                                tone={PO_SUPPLIER_TONES[p.supplier_approval_status]}
+                              />
+                            </div>
+                          )}
                         </td>
                         <td className="px-5 py-3 text-right">
                           <div className="flex justify-end gap-1">
@@ -430,6 +473,23 @@ function PurchaseOrdersPage() {
                                 <Trash2 className="h-3.5 w-3.5" />
                               </button>
                             )}
+                            {canWrite &&
+                              (["draft", "approved"].includes(p.status) ||
+                                p.supplier_approval_status === "rejected") && (
+                                <button
+                                  onClick={() => sendToSupplier.mutate(p.id)}
+                                  disabled={sendToSupplier.isPending}
+                                  className="inline-flex items-center gap-1 rounded-md border border-violet-500/40 px-2 py-1 text-[10px] text-violet-600 hover:bg-violet-500/10 disabled:opacity-50"
+                                  title="Email the purchase order PDF to the supplier for approval"
+                                >
+                                  {sendToSupplier.isPending ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <Send className="h-3 w-3" />
+                                  )}
+                                  Send to supplier
+                                </button>
+                              )}
                           </div>
                         </td>
                       </tr>

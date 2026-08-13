@@ -164,6 +164,8 @@ const api = {
     create: (data: any) => api.post<any>("/goods-purchase-orders", data),
     update: (id: string, data: any) => api.put<any>(`/goods-purchase-orders/${id}`, data),
     delete: (id: string) => api.delete(`/goods-purchase-orders/${id}`),
+    // Email the PO PDF to the supplier for their approval.
+    sendToSupplier: (id: string) => api.post<any>(`/goods-purchase-orders/${id}/send-to-supplier`, {}),
   },
 
   // Goods Receipts (GRNs — credit inventory when goods arrive)

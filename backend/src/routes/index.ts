@@ -2208,16 +2208,21 @@ router.post("/quotations/:id/convert", authMiddleware, async (req, res) => {
 // The public /approvals/:token endpoints are token-authenticated (rate-limited,
 // no login) and one-time: the token is cleared once the debtor responds.
 
-/** Locate a document by its one-time debtor approval token. */
-async function findApprovalDoc(token: string): Promise<{ kind: "quotation" | "sales_order"; doc: any } | null> {
-  const [quotations, sos] = await Promise.all([
+/** Locate a document by its one-time approval token (debtor or supplier). */
+async function findApprovalDoc(
+  token: string,
+): Promise<{ kind: "quotation" | "sales_order" | "purchase_order"; doc: any } | null> {
+  const [quotations, sos, pos] = await Promise.all([
     db.scanByType("Quotation"),
     db.scanByType("GoodsSalesOrder"),
+    db.scanByType("GoodsPurchaseOrder"),
   ]);
   const q = (quotations as any[]).find((x) => x.debtorApprovalToken === token);
   if (q) return { kind: "quotation", doc: q };
   const so = (sos as any[]).find((x) => x.debtorApprovalToken === token);
   if (so) return { kind: "sales_order", doc: so };
+  const po = (pos as any[]).find((x) => x.supplierApprovalToken === token);
+  if (po) return { kind: "purchase_order", doc: po };
   return null;
 }
 
@@ -2280,6 +2285,95 @@ async function sendDocumentToDebtor(
   return { token, email, filename: `${data.number.replace(/[^A-Za-z0-9-_]/g, "_")}.pdf` };
 }
 
+/** Shared send-to-supplier logic: build the PO PDF, email it, return the fresh token. */
+async function sendPurchaseOrderToSupplier(
+  po: any,
+  clientId: string,
+): Promise<{ token: string; email: string; filename: string }> {
+  // The PO supplier can be either a Supplier or a legacy Vendor record — try
+  // both masters so the email is always resolved.
+  let supplierName: string | null = po.supplierName || null;
+  let email: string | null = null;
+  if (po.supplierId) {
+    const supplier = await Supplier.get(po.supplierId);
+    if (supplier) {
+      supplierName = supplier.companyName || supplierName;
+      email = supplier.contactEmail?.trim() || null;
+    } else {
+      const vendor = await Vendor.get(po.supplierId);
+      if (vendor) {
+        supplierName = vendor.name || supplierName;
+        email = vendor.contactEmail?.trim() || null;
+      }
+    }
+  }
+  if (!email) {
+    throw new Error(
+      `No contact email on file for "${supplierName || "the supplier"}" — add one in the Suppliers tab first`,
+    );
+  }
+  const { isEmailConfigured } = await import("../email.js");
+  if (!isEmailConfigured()) {
+    throw new Error("SMTP is not configured — set SMTP_HOST / SMTP_USER / SMTP_PASS to send approval emails");
+  }
+
+  const company = await resolveCompanyName(clientId);
+  const { purchaseOrderToPdfData, buildDocumentPdf } = await import("../lib/document-pdf.js");
+  const data = purchaseOrderToPdfData(po, company.name, company.contact);
+  const pdf = await buildDocumentPdf(data);
+
+  const token = uuid();
+  const approvalUrl = `${config.appUrl}/approve/${token}`;
+  const { sendDocumentApprovalEmail } = await import("../email.js");
+  const sent = await sendDocumentApprovalEmail({
+    kind: "purchase_order",
+    number: data.number,
+    grandTotal: data.grandTotal,
+    validUntil: data.validUntil,
+    customerName: supplierName || "Supplier",
+    customerEmail: email,
+    companyName: company.name,
+    pdfBuffer: pdf,
+    pdfFilename: `${data.number.replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`,
+    approvalUrl,
+  });
+  if (!sent) throw new Error("Failed to send the email — check the SMTP configuration");
+  return { token, email, filename: `${data.number.replace(/[^A-Za-z0-9-_]/g, "_")}.pdf` };
+}
+
+/** POST /goods-purchase-orders/:id/send-to-supplier — email the PO PDF for approval. */
+router.post("/goods-purchase-orders/:id/send-to-supplier", authMiddleware, async (req, res) => {
+  try {
+    const po = await GoodsPO.get(req.params.id);
+    if (!po) return res.status(404).json({ error: "Purchase order not found" });
+    if (!["draft", "approved"].includes(po.status)) {
+      return res.status(400).json({
+        error: "Only draft or approved purchase orders can be sent to the supplier",
+      });
+    }
+    const sent = await sendPurchaseOrderToSupplier(po, req.user!.userId);
+    const updated = await GoodsPO.update(po.id, {
+      supplierApprovalStatus: "pending",
+      supplierApprovalToken: sent.token,
+      supplierApprovalSentAt: db.nowISO(),
+      supplierApprovalRespondedAt: null,
+      supplierApprovalComments: null,
+      supplierApprovalEmail: sent.email,
+      status: "sent",
+      manualStatus: "sent",
+    });
+    trackAction(req, "purchase_order.sent_to_supplier", po.id, {
+      entityType: "purchase_order",
+      entityRef: po.poNumber,
+      sentTo: sent.email,
+      amount: po.grandTotal,
+    });
+    res.json({ success: true, sentTo: sent.email, document: updated });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
 /** POST /quotations/:id/send-to-debtor — email the quotation PDF for approval. */
 router.post("/quotations/:id/send-to-debtor", authMiddleware, async (req, res) => {
   try {
@@ -2337,7 +2431,7 @@ router.post("/goods-sales-orders/:id/send-to-debtor", authMiddleware, async (req
  * Whitelisted summary of a document for the public debtor page — never expose
  * internal fields (clientId, salespersonId, approval reviewers, tokens…).
  */
-function publicApprovalSummary(kind: "quotation" | "sales_order", doc: any) {
+function publicApprovalSummary(kind: "quotation" | "sales_order" | "purchase_order", doc: any) {
   const base = {
     id: doc.id,
     status: doc.status,
@@ -2367,41 +2461,72 @@ function publicApprovalSummary(kind: "quotation" | "sales_order", doc: any) {
     gstTotal: Number(doc.gstTotal) || 0,
     freight: Number(doc.freight) || 0,
     grandTotal: Number(doc.grandTotal) || 0,
-    debtorApprovalStatus: doc.debtorApprovalStatus ?? null,
-    debtorApprovalComments: doc.debtorApprovalComments ?? null,
+    // Normalize so the public approval page can read one field set: for a
+    // purchase order the supplier approval mirrors the debtor approval fields.
+    debtorApprovalStatus:
+      kind === "purchase_order"
+        ? (doc.supplierApprovalStatus ?? null)
+        : (doc.debtorApprovalStatus ?? null),
+    debtorApprovalComments:
+      kind === "purchase_order"
+        ? (doc.supplierApprovalComments ?? null)
+        : (doc.debtorApprovalComments ?? null),
   };
-  return kind === "quotation"
-    ? {
-        ...base,
-        quotationNumber: doc.quotationNumber,
-        quotationDate: doc.quotationDate,
-        validUntil: doc.validUntil,
-      }
-    : {
-        ...base,
-        soNumber: doc.soNumber,
-        orderDate: doc.orderDate,
-        expectedDeliveryDate: doc.expectedDeliveryDate,
-      };
+  if (kind === "quotation") {
+    return { ...base, quotationNumber: doc.quotationNumber, quotationDate: doc.quotationDate, validUntil: doc.validUntil };
+  }
+  if (kind === "purchase_order") {
+    return {
+      ...base,
+      customerName: doc.supplierName ?? null,
+      poNumber: doc.poNumber,
+      poDate: doc.poDate,
+      expectedDeliveryDate: doc.expectedDeliveryDate,
+    };
+  }
+  return {
+    ...base,
+    soNumber: doc.soNumber,
+    orderDate: doc.orderDate,
+    expectedDeliveryDate: doc.expectedDeliveryDate,
+  };
 }
 
-/** GET /approvals/:token — public, one-time token lookup for the debtor page. */
+/** GET /approvals/:token — public, one-time token lookup for the approval page. */
 router.get("/approvals/:token", publicTokenLimiter, async (req, res) => {
   try {
     const found = await findApprovalDoc(req.params.token);
     if (!found) return res.status(404).json({ error: "Not found" });
-    const debtor = found.doc.customerId ? await Debtor.get(found.doc.customerId) : null;
+    // Resolve the sending party: debtor for sales docs, supplier for a PO.
+    let party: { name: string; contactName: string | null; contactEmail: string | null } | null = null;
+    if (found.kind === "purchase_order") {
+      const supplier = found.doc.supplierId ? await Supplier.get(found.doc.supplierId) : null;
+      if (supplier) {
+        party = {
+          name: supplier.companyName || supplier.contactName || "Supplier",
+          contactName: supplier.contactName,
+          contactEmail: supplier.contactEmail,
+        };
+      }
+    } else {
+      const debtor = found.doc.customerId ? await Debtor.get(found.doc.customerId) : null;
+      if (debtor) {
+        party = {
+          name: debtor.name,
+          contactName: debtor.contactName,
+          contactEmail: debtor.contactEmail,
+        };
+      }
+    }
     res.json({
       kind: found.kind,
       document: publicApprovalSummary(found.kind, found.doc),
-      debtor: debtor
-        ? { name: debtor.name, contactName: debtor.contactName, contactEmail: debtor.contactEmail }
-        : null,
+      debtor: party,
     });
   } catch (err: any) { res.status(500).json({ error: err.message }); }
 });
 
-/** POST /approvals/:token/respond — record the debtor's decision (one-time, atomic). */
+/** POST /approvals/:token/respond — record the party's decision (one-time, atomic). */
 router.post("/approvals/:token/respond", publicTokenLimiter, async (req, res) => {
   try {
     const { decision, comments } = req.body || {};
@@ -2417,41 +2542,59 @@ router.post("/approvals/:token/respond", publicTokenLimiter, async (req, res) =>
     }
     const { kind, doc } = found;
 
-    // Never clobber a document that has moved past the sendable state — e.g. a
-    // quotation that was already converted to an SO, or an SO that is already
-    // dispatched/cancelled. The debtor's decision is still recorded; the
-    // lifecycle status stays untouched.
-    const locked =
+    // Per-kind config: which lifecycle statuses are "locked" (the document has
+    // moved past the sendable state, so the decision is recorded but the
+    // lifecycle status stays untouched), which approval fields to write, and
+    // what status to set on approval/rejection.
+    const cfg =
       kind === "quotation"
-        ? ["converted_to_so", "expired"].includes(doc.status)
-        : ["partially_dispatched", "fully_dispatched", "cancelled"].includes(doc.status);
+        ? {
+            locked: ["converted_to_so", "expired"],
+            field: "debtorApproval",
+            pk: `QUOTATION#${doc.id}`,
+            onApprove: "accepted",
+            onReject: "rejected",
+          }
+        : kind === "sales_order"
+          ? {
+              locked: ["partially_dispatched", "fully_dispatched", "cancelled"],
+              field: "debtorApproval",
+              pk: `GOODS_SO#${doc.id}`,
+              onApprove: "confirmed",
+              onReject: "draft",
+            }
+          : {
+              locked: ["partially_received", "fully_received", "cancelled"],
+              field: "supplierApproval",
+              pk: `GOODS_PO#${doc.id}`,
+              onApprove: "sent",
+              onReject: "draft",
+            };
 
+    const locked = cfg.locked.includes(doc.status);
+    const f = cfg.field;
     const patch: Record<string, any> = {
-      debtorApprovalStatus: decision,
-      debtorApprovalRespondedAt: db.nowISO(),
-      debtorApprovalComments: comments || null,
-      debtorApprovalToken: null,
+      [`${f}Status`]: decision,
+      [`${f}RespondedAt`]: db.nowISO(),
+      [`${f}Comments`]: comments || null,
+      [`${f}Token`]: null,
     };
     if (!locked) {
-      patch.status =
-        kind === "quotation"
-          ? decision === "approved"
-            ? "accepted"
-            : "rejected"
-          : decision === "approved"
-            ? "confirmed"
-            : "draft";
-      if (kind === "sales_order") patch.manualStatus = patch.status;
+      patch.status = decision === "approved" ? cfg.onApprove : cfg.onReject;
+      // Keep the manual status in sync so receipt/dispatch-derived statuses
+      // can fall back to the right state when fully revoked.
+      if (kind === "sales_order" || kind === "purchase_order") {
+        patch.manualStatus = patch.status;
+      }
     }
 
     // Atomic claim: the token must still match, so exactly one concurrent
     // response wins — the loser gets a 404 (link already used).
-    const pk = kind === "quotation" ? `QUOTATION#${doc.id}` : `GOODS_SO#${doc.id}`;
     const claimed = await db.updateItemIf(
-      pk,
-      pk,
+      cfg.pk,
+      cfg.pk,
       patch,
-      "debtorApprovalToken = :tok",
+      `${f}Token = :tok`,
       { ":tok": req.params.token },
     );
     if (!claimed) {

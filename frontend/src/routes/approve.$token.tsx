@@ -44,7 +44,7 @@ function ApprovePage() {
     queryFn: async () => {
       const data = await api.approvals.get(token);
       return data as {
-        kind: "quotation" | "sales_order";
+        kind: "quotation" | "sales_order" | "purchase_order";
         document: any;
         debtor: { name?: string; contact_email?: string | null } | null;
       };
@@ -91,8 +91,22 @@ function ApprovePage() {
     );
 
   const isQuotation = data.kind === "quotation";
-  const number = isQuotation ? doc.quotation_number : doc.so_number;
-  const dateField = isQuotation ? doc.quotation_date : doc.order_date;
+  const isPurchaseOrder = data.kind === "purchase_order";
+  const docLabel = isQuotation
+    ? "quotation"
+    : isPurchaseOrder
+      ? "purchase order"
+      : "sales order";
+  const number = isQuotation
+    ? doc.quotation_number
+    : isPurchaseOrder
+      ? doc.po_number
+      : doc.so_number;
+  const dateField = isQuotation
+    ? doc.quotation_date
+    : isPurchaseOrder
+      ? doc.po_date
+      : doc.order_date;
   const validUntil = isQuotation ? doc.valid_until : doc.expected_delivery_date;
   const lines: ApproveLine[] = doc.lines ?? [];
   const responded = doc.debtor_approval_status === "approved" || doc.debtor_approval_status === "rejected";
@@ -116,7 +130,8 @@ function ApprovePage() {
             <FileCheck2 className="h-6 w-6 text-primary" />
             <div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                {isQuotation ? "Quotation" : "Sales Order"} approval
+                {isQuotation ? "Quotation" : isPurchaseOrder ? "Purchase Order" : "Sales Order"}{" "}
+                approval
               </div>
               <div className="font-display text-lg leading-tight">{number}</div>
             </div>
@@ -149,20 +164,22 @@ function ApprovePage() {
         ) : (
           <div id="approval-sheet" className="rounded-xl border border-border bg-card p-6 shadow-card print:border-0 print:p-0 print:shadow-none">
             <p className="text-sm text-muted-foreground">
-              {data.debtor?.name || "Your company"} has sent you this{" "}
-              {isQuotation ? "quotation" : "sales order"}. Please review the details below and
-              confirm your acceptance. A PDF copy was attached to the email you received.
+              {data.debtor?.name || "Your company"} has sent you this {docLabel}. Please review the
+              details below and confirm your acceptance. A PDF copy was attached to the email you
+              received.
             </p>
 
             <dl className="mt-6 grid grid-cols-2 gap-4 text-sm md:grid-cols-3">
               <div>
                 <dt className="text-xs uppercase tracking-widest text-muted-foreground">
-                  {isQuotation ? "Quotation #" : "SO #"}
+                  {isQuotation ? "Quotation #" : isPurchaseOrder ? "PO #" : "SO #"}
                 </dt>
                 <dd className="font-mono">{number}</dd>
               </div>
               <div>
-                <dt className="text-xs uppercase tracking-widest text-muted-foreground">Customer</dt>
+                <dt className="text-xs uppercase tracking-widest text-muted-foreground">
+                  {isPurchaseOrder ? "Supplier" : "Customer"}
+                </dt>
                 <dd>{doc.customer_name ?? "—"}</dd>
               </div>
               <div>
@@ -171,7 +188,7 @@ function ApprovePage() {
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-widest text-muted-foreground">
-                  {isQuotation ? "Date" : "Order date"}
+                  {isQuotation ? "Date" : isPurchaseOrder ? "PO date" : "Order date"}
                 </dt>
                 <dd>{fmtDate(dateField)}</dd>
               </div>
@@ -257,8 +274,7 @@ function ApprovePage() {
                   onClick={() => setMode("approved")}
                   className="inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-success px-4 py-3 text-sm font-semibold text-white transition hover:brightness-95"
                 >
-                  <Check className="h-4 w-4" /> Approve{" "}
-                  {isQuotation ? "quotation" : "sales order"}
+                  <Check className="h-4 w-4" /> Approve {docLabel}
                 </button>
                 <button
                   onClick={() => setMode("rejected")}

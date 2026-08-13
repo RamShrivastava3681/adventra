@@ -39,6 +39,7 @@ import {
   ScrollText,
   Sun,
   Moon,
+  BarChart3,
 } from "lucide-react";
 import { useTheme, type Theme } from "@/lib/theme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -104,6 +105,7 @@ function buildNavSections(roles: string[]): NavSection[] {
       { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
       { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
       { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
+      { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
       {
         type: "group",
         label: "Transactions",
@@ -119,6 +121,7 @@ function buildNavSections(roles: string[]): NavSection[] {
       { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
       { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
       { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
+      { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
       {
         type: "group",
         label: "Transactions",
@@ -133,6 +136,7 @@ function buildNavSections(roles: string[]): NavSection[] {
     return [
       { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
       { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
+      { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
       {
         type: "group",
         label: "Transactions",
@@ -166,6 +170,7 @@ function buildNavSections(roles: string[]): NavSection[] {
     return [
       { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
       { type: "single", label: "My Reports", icon: Users, to: "/app/reports" },
+      { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
       { type: "single", label: "Requests", icon: ClipboardList, to: "/app/requests" },
       {
         type: "group",
@@ -182,6 +187,7 @@ function buildNavSections(roles: string[]): NavSection[] {
       { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
       { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
       { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
+      { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
       {
         type: "group",
         label: "Transactions",
@@ -317,6 +323,7 @@ function AppLayout() {
       "/app/advances",
       "/app/expenses",
       "/app/notes",
+      "/app/reporting",
     ];
     const salesmanAllowed = [
       "/app/dashboard",
@@ -364,7 +371,7 @@ function AppLayout() {
     } else if (
       isReportingManager &&
       pathname.startsWith("/app/") &&
-      !["/app/dashboard", "/app/reports", "/app/requests", ...SHARED_ROUTES].some(
+      !["/app/dashboard", "/app/reports", "/app/reporting", "/app/requests", ...SHARED_ROUTES].some(
         (p) => pathname === p || pathname.startsWith(p + "/"),
       )
     ) {

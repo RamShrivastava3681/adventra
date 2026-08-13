@@ -56,6 +56,18 @@ export interface GoodsPurchaseOrder {
    * field is the fallback when receipts are fully revoked.
    */
   manualStatus: string;
+  /** Supplier (vendor) approval via the emailed PDF. null = never sent. */
+  supplierApprovalStatus: "pending" | "approved" | "rejected" | null;
+  /** One-time secure token embedded in the approval link — nulled on response. */
+  supplierApprovalToken: string | null;
+  /** When the "send to supplier" email with the PDF was dispatched. */
+  supplierApprovalSentAt: string | null;
+  /** When the supplier clicked approve/reject. */
+  supplierApprovalRespondedAt: string | null;
+  /** Optional comments left by the supplier (usually with a rejection). */
+  supplierApprovalComments: string | null;
+  /** The email address the PDF was sent to. */
+  supplierApprovalEmail: string | null;
   lines: GoodsPOLine[];
   totalQty: number;
   subtotal: number;
@@ -144,6 +156,12 @@ export async function create(data: Partial<GoodsPurchaseOrder> & { clientId: str
     documents: data.documents || [],
     status,
     manualStatus: status,
+    supplierApprovalStatus: (data.supplierApprovalStatus as any) || null,
+    supplierApprovalToken: data.supplierApprovalToken || null,
+    supplierApprovalSentAt: data.supplierApprovalSentAt || null,
+    supplierApprovalRespondedAt: data.supplierApprovalRespondedAt || null,
+    supplierApprovalComments: data.supplierApprovalComments || null,
+    supplierApprovalEmail: data.supplierApprovalEmail || null,
     lines,
     ...totals,
     createdAt: now,
@@ -158,6 +176,8 @@ export async function update(id: string, updates: Partial<GoodsPurchaseOrder>) {
   const allowed = [
     "poNumber", "poDate", "supplierId", "supplierName", "warehouse", "expectedDeliveryDate",
     "paymentTerms", "buyerId", "buyerName", "notes", "documents", "status", "manualStatus",
+    "supplierApprovalStatus", "supplierApprovalToken", "supplierApprovalSentAt",
+    "supplierApprovalRespondedAt", "supplierApprovalComments", "supplierApprovalEmail",
     "lines", "totalQty", "subtotal", "gstTotal", "freight", "grandTotal",
   ];
   for (const k of allowed) {

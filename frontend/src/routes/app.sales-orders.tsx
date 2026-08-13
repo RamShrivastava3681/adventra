@@ -99,6 +99,36 @@ type Customer = {
   postal_code: string | null;
 };
 
+type QuotationLine = {
+  product_id: string;
+  sku: string | null;
+  name: string;
+  unit: string;
+  quantity: number;
+  unit_price: number;
+  updated_unit_price: number | null;
+  discount_type: "pct" | "amount" | null;
+  discount_value: number | null;
+  gst_rate: number | null;
+  line_total: number;
+  notes: string | null;
+};
+
+type Quotation = {
+  id: string;
+  status: string;
+  quotation_number: string;
+  customer_id: string | null;
+  customer_name: string | null;
+  contact_person: string | null;
+  billing_address: string | null;
+  delivery_address: string | null;
+  payment_terms: string | null;
+  expected_delivery_date: string | null;
+  freight: number;
+  lines: QuotationLine[];
+};
+
 const SO_STATUSES = [
   "draft",
   "confirmed",
@@ -195,8 +225,8 @@ function SalesOrdersPage() {
   const quotationsQ = useQuery({
     queryKey: ["quotations-for-so"],
     queryFn: async () => {
-      const data = (await api.quotations.list()) as any[];
-      return data.filter((q: any) => ["draft", "sent", "accepted"].includes(q.status));
+      const data = (await api.quotations.list()) as Quotation[];
+      return data.filter((q) => ["draft", "sent", "accepted"].includes(q.status));
     },
   });
 
@@ -531,7 +561,7 @@ function SOModal({
   so: SO | null;
   products: CatalogueProduct[];
   customers: Customer[];
-  quotations: Array<{ id: string; quotation_number: string; customer_name: string | null }>;
+  quotations: Quotation[];
   canWrite: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -851,11 +881,63 @@ function SOModal({
                   value={f.linked_quotation_id}
                   onChange={(id) => {
                     const qt = quotations.find((x) => x.id === id);
-                    setF({
-                      ...f,
+                    if (!qt) {
+                      setF({ ...f, linked_quotation_id: id, linked_quotation_number: "" });
+                      return;
+                    }
+                    // Fetch the quotation's details into the sales order: the
+                    // header (customer, addresses, payment terms, freight) and
+                    // the line items with the maker's revised price — the
+                    // updated unit price wins when the checker approved one.
+                    setF((prev) => ({
+                      ...prev,
                       linked_quotation_id: id,
-                      linked_quotation_number: qt?.quotation_number ?? "",
-                    });
+                      linked_quotation_number: qt.quotation_number,
+                      customer_id: qt.customer_id ?? prev.customer_id,
+                      contact_person: qt.contact_person ?? prev.contact_person,
+                      billing_address: qt.billing_address ?? prev.billing_address,
+                      delivery_address: qt.delivery_address ?? prev.delivery_address,
+                      payment_terms: qt.payment_terms ?? prev.payment_terms,
+                      expected_delivery_date:
+                        qt.expected_delivery_date?.slice(0, 10) ?? prev.expected_delivery_date,
+                      freight: qt.freight != null ? String(qt.freight) : prev.freight,
+                    }));
+                    setLines((existing) =>
+                      (qt.lines ?? []).map((l) => {
+                        const unitPrice =
+                          l.updated_unit_price != null ? l.updated_unit_price : l.unit_price;
+                        // SO lines only carry a percentage discount — convert a
+                        // flat quotation discount the same way convert does.
+                        let discountPct = "";
+                        if (l.discount_type === "pct" && l.discount_value != null) {
+                          discountPct = String(l.discount_value);
+                        } else if (l.discount_type === "amount" && l.discount_value != null) {
+                          const gross = (Number(l.quantity) || 0) * unitPrice;
+                          if (gross > 0) {
+                            discountPct = String(
+                              Math.round((l.discount_value / gross) * 100 * 100) / 100,
+                            );
+                          }
+                        }
+                        return {
+                          product_id: l.product_id,
+                          sku: l.sku,
+                          name: l.name,
+                          unit: l.unit || "piece",
+                          ordered_qty: String(l.quantity),
+                          unit_price: String(unitPrice),
+                          discount_pct: discountPct,
+                          gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
+                          notes: l.notes ?? "",
+                          // Keep any quantities already dispatched on this line.
+                          dispatched_qty:
+                            existing.find((x) => x.product_id === l.product_id)?.dispatched_qty ?? 0,
+                        };
+                      }),
+                    );
+                    toast.info(
+                      `Copied ${(qt.lines ?? []).length} item${(qt.lines ?? []).length === 1 ? "" : "s"} from ${qt.quotation_number} — prices use the approved quotation price`,
+                    );
                   }}
                   placeholder="None"
                   disabled={!editable}

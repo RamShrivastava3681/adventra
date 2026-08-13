@@ -595,7 +595,7 @@ export async function sendInvoiceNoaEmail(params: {
 }
 
 export async function sendDocumentApprovalEmail(params: {
-  kind: "quotation" | "sales_order";
+  kind: "quotation" | "sales_order" | "purchase_order";
   number: string;
   grandTotal: number;
   validUntil: string | null;
@@ -611,13 +611,19 @@ export async function sendDocumentApprovalEmail(params: {
     return false;
   }
 
-  const kindLabel = params.kind === "quotation" ? "Quotation" : "Sales Order";
+  const kindLabel =
+    params.kind === "quotation"
+      ? "Quotation"
+      : params.kind === "purchase_order"
+        ? "Purchase Order"
+        : "Sales Order";
   const subject = `${kindLabel} ${params.number} from ${params.companyName} — please review and approve`;
   const total = params.grandTotal.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
   const validLabel = params.kind === "quotation" ? "Valid until" : "Expected delivery";
+  const recipientLabel = params.kind === "purchase_order" ? "Supplier" : "Customer";
   const safe = {
     number: esc(params.number),
     companyName: esc(params.companyName),
@@ -640,6 +646,7 @@ export async function sendDocumentApprovalEmail(params: {
       ${invoiceTableRow(kindLabel + " #", safe.number)}
       ${invoiceTableRow("Amount (grand total)", `<strong>$${total}</strong>`)}
       ${params.validUntil ? invoiceTableRow(validLabel, params.validUntil) : ""}
+      ${invoiceTableRow(recipientLabel, safe.customerName)}
       ${invoiceTableRow("Issued by", safe.companyName)}
     </table>
 

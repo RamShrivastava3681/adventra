@@ -12,7 +12,7 @@ import PDFDocument from "pdfkit";
  * never appear. Grand total is computed from those effective prices.
  */
 
-export type PdfDocKind = "quotation" | "sales_order";
+export type PdfDocKind = "quotation" | "sales_order" | "purchase_order";
 
 export interface DocumentPdfLine {
   sku: string | null;
@@ -128,7 +128,12 @@ function drawHeaderBand(doc: PDFKit.PDFDocument, data: DocumentPdfData) {
   }
 
   // Document type (right)
-  const kindLabel = data.kind === "quotation" ? "QUOTATION" : "SALES ORDER";
+  const kindLabel =
+    data.kind === "quotation"
+      ? "QUOTATION"
+      : data.kind === "purchase_order"
+        ? "PURCHASE ORDER"
+        : "SALES ORDER";
   doc
     .font("Helvetica-Bold")
     .fontSize(22)
@@ -167,7 +172,13 @@ function drawMetaRow(doc: PDFKit.PDFDocument, data: DocumentPdfData, startY: num
 
   doc.font("Helvetica").fontSize(9).fillColor(INK.slate600);
   doc.text(
-    `${data.kind === "quotation" ? "Quotation date" : "Order date"}: ${fmtDate(data.date)}`,
+    `${
+      data.kind === "quotation"
+        ? "Quotation date"
+        : data.kind === "purchase_order"
+          ? "PO date"
+          : "Order date"
+    }: ${fmtDate(data.date)}`,
     rightX,
     y,
     { width: rightW, align: "right" },
@@ -189,9 +200,11 @@ function drawParties(doc: PDFKit.PDFDocument, data: DocumentPdfData, startY: num
 
   const colWidth = (CONTENT_WIDTH - 24) / 2;
 
-  // BILL TO
+  // BILL TO (or SUPPLIER on a purchase order)
   doc.font("Helvetica-Bold").fontSize(8).fillColor(INK.slate500);
-  doc.text("BILL TO", PAGE.margin, y, { width: colWidth });
+  doc.text(data.kind === "purchase_order" ? "SUPPLIER" : "BILL TO", PAGE.margin, y, {
+    width: colWidth,
+  });
   y += 14;
   doc.font("Helvetica-Bold").fontSize(11).fillColor(INK.slate900);
   doc.text(truncate(data.customerName || "—", 40), PAGE.margin, y, { width: colWidth });
@@ -434,9 +447,9 @@ export function buildDocumentPdf(data: DocumentPdfData): Promise<Buffer> {
       margin: PAGE.margin,
       bufferPages: true,
       info: {
-        Title: `${data.kind === "quotation" ? "Quotation" : "Sales Order"} ${data.number}`,
+        Title: `${docTypeLabel(data.kind)} ${data.number}`,
         Author: data.companyName || "Adventra",
-        Subject: `${data.kind === "quotation" ? "Quotation" : "Sales Order"} for ${data.customerName || "customer"}`,
+        Subject: `${docTypeLabel(data.kind)} for ${data.customerName || "customer"}`,
       },
     });
 
@@ -490,6 +503,13 @@ function discountLabel(l: any): string {
   return money(value);
 }
 
+/** Human label for a document kind (used for PDF titles/metadata). */
+function docTypeLabel(kind: PdfDocKind): string {
+  if (kind === "quotation") return "Quotation";
+  if (kind === "purchase_order") return "Purchase Order";
+  return "Sales Order";
+}
+
 export function quotationToPdfData(q: any, companyName: string, companyContact?: string | null): DocumentPdfData {
   const lines: DocumentPdfLine[] = (q.lines ?? []).map((l: any) => {
     const unitPrice = effectiveUnitPrice(l);
@@ -524,6 +544,45 @@ export function quotationToPdfData(q: any, companyName: string, companyContact?:
     gstTotal: Number(q.gstTotal) || 0,
     freight: Number(q.freight) || 0,
     grandTotal: Number(q.grandTotal) || 0,
+    companyName,
+    companyContact,
+  };
+}
+
+export function purchaseOrderToPdfData(
+  po: any,
+  companyName: string,
+  companyContact?: string | null,
+): DocumentPdfData {
+  const lines: DocumentPdfLine[] = (po.lines ?? []).map((l: any) => ({
+    sku: l.sku ?? null,
+    name: l.name || "Item",
+    unit: l.unit || "unit",
+    quantity: Number(l.orderedQty ?? l.ordered_qty) || 0,
+    unitPrice: Number(l.unitPrice ?? l.unit_price) || 0,
+    discountLabel: "—",
+    gstRate: l.gstRate ?? l.gst_rate ?? null,
+    amount: Number(l.lineTotal ?? l.line_total) || 0,
+  }));
+  return {
+    kind: "purchase_order",
+    number: po.poNumber || po.po_number || "—",
+    date: po.poDate || po.po_date || "",
+    validUntil: po.expectedDeliveryDate ?? po.expected_delivery_date ?? null,
+    customerName: po.supplierName ?? po.supplier_name ?? null,
+    contactPerson: null,
+    billingAddress: null,
+    deliveryAddress: po.warehouse ?? null,
+    paymentTerms: po.paymentTerms ?? po.payment_terms ?? null,
+    expectedDeliveryDate: po.expectedDeliveryDate ?? po.expected_delivery_date ?? null,
+    salespersonName: po.buyerName ?? po.buyer_name ?? null,
+    notes: po.notes ?? null,
+    lines,
+    subtotal: Number(po.subtotal) || 0,
+    totalDiscount: 0,
+    gstTotal: Number(po.gstTotal) || 0,
+    freight: Number(po.freight) || 0,
+    grandTotal: Number(po.grandTotal) || 0,
     companyName,
     companyContact,
   };

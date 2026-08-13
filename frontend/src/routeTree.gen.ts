@@ -36,6 +36,7 @@ import { Route as AppPurchasesRouteImport } from './routes/app.purchases'
 import { Route as AppQueueRouteImport } from './routes/app.queue'
 import { Route as AppQuotationsRouteImport } from './routes/app.quotations'
 import { Route as AppRemindersRouteImport } from './routes/app.reminders'
+import { Route as AppReportingRouteImport } from './routes/app.reporting'
 import { Route as AppReportsRouteImport } from './routes/app.reports'
 import { Route as AppRequestsRouteImport } from './routes/app.requests'
 import { Route as AppSalesOrdersRouteImport } from './routes/app.sales-orders'
@@ -186,6 +187,11 @@ const AppRemindersRoute = AppRemindersRouteImport.update({
   path: '/reminders',
   getParentRoute: () => AppRoute,
 } as any)
+const AppReportingRoute = AppReportingRouteImport.update({
+  id: '/reporting',
+  path: '/reporting',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppReportsRoute = AppReportsRouteImport.update({
   id: '/reports',
   path: '/reports',
@@ -285,6 +291,7 @@ export interface FileRoutesByFullPath {
   '/app/queue': typeof AppQueueRoute
   '/app/quotations': typeof AppQuotationsRoute
   '/app/reminders': typeof AppRemindersRoute
+  '/app/reporting': typeof AppReportingRoute
   '/app/reports': typeof AppReportsRoute
   '/app/requests': typeof AppRequestsRoute
   '/app/sales-orders': typeof AppSalesOrdersRoute
@@ -328,6 +335,7 @@ export interface FileRoutesByTo {
   '/app/queue': typeof AppQueueRoute
   '/app/quotations': typeof AppQuotationsRoute
   '/app/reminders': typeof AppRemindersRoute
+  '/app/reporting': typeof AppReportingRoute
   '/app/reports': typeof AppReportsRoute
   '/app/requests': typeof AppRequestsRoute
   '/app/sales-orders': typeof AppSalesOrdersRoute
@@ -372,6 +380,7 @@ export interface FileRoutesById {
   '/app/queue': typeof AppQueueRoute
   '/app/quotations': typeof AppQuotationsRoute
   '/app/reminders': typeof AppRemindersRoute
+  '/app/reporting': typeof AppReportingRoute
   '/app/reports': typeof AppReportsRoute
   '/app/requests': typeof AppRequestsRoute
   '/app/sales-orders': typeof AppSalesOrdersRoute
@@ -417,6 +426,7 @@ export interface FileRouteTypes {
     | '/app/queue'
     | '/app/quotations'
     | '/app/reminders'
+    | '/app/reporting'
     | '/app/reports'
     | '/app/requests'
     | '/app/sales-orders'
@@ -460,6 +470,7 @@ export interface FileRouteTypes {
     | '/app/queue'
     | '/app/quotations'
     | '/app/reminders'
+    | '/app/reporting'
     | '/app/reports'
     | '/app/requests'
     | '/app/sales-orders'
@@ -503,6 +514,7 @@ export interface FileRouteTypes {
     | '/app/queue'
     | '/app/quotations'
     | '/app/reminders'
+    | '/app/reporting'
     | '/app/reports'
     | '/app/requests'
     | '/app/sales-orders'
@@ -718,6 +730,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppRemindersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/reporting': {
+      id: '/app/reporting'
+      path: '/reporting'
+      fullPath: '/app/reporting'
+      preLoaderRoute: typeof AppReportingRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/reports': {
       id: '/app/reports'
       path: '/reports'
@@ -844,6 +863,7 @@ interface AppRouteChildren {
   AppQueueRoute: typeof AppQueueRoute
   AppQuotationsRoute: typeof AppQuotationsRoute
   AppRemindersRoute: typeof AppRemindersRoute
+  AppReportingRoute: typeof AppReportingRoute
   AppReportsRoute: typeof AppReportsRoute
   AppRequestsRoute: typeof AppRequestsRoute
   AppSalesOrdersRoute: typeof AppSalesOrdersRoute
@@ -883,6 +903,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppQueueRoute: AppQueueRoute,
   AppQuotationsRoute: AppQuotationsRoute,
   AppRemindersRoute: AppRemindersRoute,
+  AppReportingRoute: AppReportingRoute,
   AppReportsRoute: AppReportsRoute,
   AppRequestsRoute: AppRequestsRoute,
   AppSalesOrdersRoute: AppSalesOrdersRoute,

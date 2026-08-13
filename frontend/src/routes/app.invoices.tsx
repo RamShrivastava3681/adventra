@@ -138,6 +138,11 @@ function InvoicesPage() {
     },
   });
 
+  // The backend invoice list doesn't nest the debtor — resolve the real name
+  // from the debtor master so the Debtor column always shows the actual name.
+  const debtorName = (id?: string | null) =>
+    (debtorsQ.data ?? []).find((d) => d.id === id)?.name ?? null;
+
   const sendNoa = useMutation({
     mutationFn: async (id: string) => {
       return api.invoices.sendNoa(id);
@@ -270,8 +275,7 @@ function InvoicesPage() {
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Invoice</th>
-                    {isAdmin && <th className="px-5 py-2 text-left font-normal">Client</th>}
-                    <th className="px-5 py-2 text-left font-normal">Customer</th>
+                    <th className="px-5 py-2 text-left font-normal">Debtor</th>
                     <th className="px-5 py-2 text-right font-normal">Grand total</th>
                     <th className="px-5 py-2 text-right font-normal">Received</th>
                     <th className="px-5 py-2 text-right font-normal">Balance</th>
@@ -322,12 +326,7 @@ function InvoicesPage() {
                             </div>
                           )}
                         </td>
-                        {isAdmin && (
-                          <td className="px-5 py-3 text-muted-foreground">
-                            {i.client?.company_name ?? "—"}
-                          </td>
-                        )}
-                        <td className="px-5 py-3">{i.debtor?.name ?? "—"}</td>
+                        <td className="px-5 py-3">{i.debtor?.name ?? debtorName(i.debtor_id) ?? "—"}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(grandTotal)}</td>
                         <td className="px-5 py-3 text-right num text-success">
                           {received > 0 ? fmtMoney(received) : "—"}
@@ -933,7 +932,7 @@ function NewInvoiceModal({
                   onChange={(e) => setForm({ ...form, issue_date: e.target.value })}
                 />
               </L>
-              <L label="Customer *">
+              <L label="Debtor *">
                 <SearchableSelect
                   value={form.debtor_id}
                   onChange={(v) => setForm({ ...form, debtor_id: v })}
@@ -1354,7 +1353,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
         </div>
         <div className="space-y-4 p-5 text-sm">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-            <D label="Customer" value={invoice.debtor?.name ?? "—"} />
+            <D label="Debtor" value={invoice.debtor?.name ?? "—"} />
             <D
               label="Status"
               value={<StatusPill status={invoice.status} label={DOC_LABELS[invoice.status]} />}
