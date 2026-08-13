@@ -370,7 +370,7 @@ function ForecastPage() {
         momentum: f.momentumTag,
         daysOfCover: f.daysOfCover,
         unitCost: Number(p.unit_cost),
-        unitPrice: Number(p.unit_price),
+        unitPrice: sellingPriceOf(p),
         minimumGrossMarginPercentage: p.minimum_gross_margin_percentage ?? defaultMargin,
         supplierLeadTimeDays: p.lead_time_days,
         safetyStockDays: Number(p.safety_stock_days) || 30,
@@ -1628,12 +1628,12 @@ function EditPricingForm({
   const margin = Math.min(0.99, Math.max(0.01, (Number(marginPct) || 40) / 100));
   const cost = Number(unitCost) || 0;
   // Margin floor: min permitted = the price that preserves the configured
-  // margin on each sale: unit cost ÷ (1 − margin) — the same formula as the
-  // forecast engine and the products-page pricing preview.
+  // margin on each sale: unit cost ÷ (1 − margin) — informational only, does
+  // not clamp the recommendation (same as the forecast engine).
   const minPermitted = cost > 0 ? cost / (1 - margin) : 0;
-  // Live preview: the demo ±% is applied to the unit COST, floored at the
-  // margin minimum — exactly like the engine.
-  const recommended = Math.round(Math.max(cost * (1 + changePct / 100), minPermitted) * 100) / 100;
+  // Live preview: the demo ±% is applied to the SKU's selling price (MRP) —
+  // exactly like the engine.
+  const recommended = Math.round(sellingPriceOf(product) * (1 + changePct / 100) * 100) / 100;
 
   const save = useMutation({
     mutationFn: async () => {

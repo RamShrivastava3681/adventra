@@ -1384,7 +1384,7 @@ export function resolvePriceChangePct(params: {
  * - Velocity (category-based relative sales speed)
  * - Momentum (sales trend vs historical average)
  * - Days of cover
- * - Unit price and minimum gross margin (the floor = unit price ÷ (1 − margin))
+ * - Unit price (MRP) and minimum gross margin (informational floor)
  */
 export function computePricingStrategy(params: {
   velocity: VelocityTag;
@@ -1428,8 +1428,10 @@ export function computePricingStrategy(params: {
   );
 
   // 2b. Recommended price — recommendation only, never auto-applied. The demo
-  // percentage is applied to the SKU's CURRENT unit COST, floored at the
-  // minimum price (which is derived from the unit cost, not the selling price).
+  // percentage is applied to the SKU's CURRENT selling price (MRP), NOT the
+  // unit cost or the margin floor. The margin-based minimumPrice is returned
+  // separately as informational guidance ("min permitted") but does not clamp
+  // the recommendation.
   const priceChange = resolvePriceChangePct({
     velocity,
     momentum,
@@ -1437,11 +1439,12 @@ export function computePricingStrategy(params: {
     rules: priceChangeRules,
   });
   const changePct = priceChange.changePct;
-  const recommendedRaw = unitCost * (1 + changePct / 100);
-  const recommendedPrice = Math.round(Math.max(recommendedRaw, minimumPrice) * 100) / 100;
+  const recommendedRaw = unitPrice * (1 + changePct / 100);
+  const recommendedPrice = Math.round(recommendedRaw * 100) / 100;
 
-  // Human-readable price target. When the margin floor already wins the clamp,
-  // say so directly instead of repeating an identical "(min $X)".
+  // Human-readable price target. When the MRP-based recommendation sits below
+  // the margin floor, point at the floor explicitly instead of repeating an
+  // identical "(min $X)".
   const priceTarget =
     recommendedPrice > minimumPrice
       ? `recommended ~${formatMoney(recommendedPrice)} (min ${formatMoney(minimumPrice)})`
