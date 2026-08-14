@@ -33,11 +33,11 @@ const ROLE_OPTIONS = [
 
 const ROLE_COLORS: Record<string, string> = {
   sales_rep: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
-  operations: "bg-purple-100 text-purple-700",
-  checker: "bg-amber-100 text-amber-700",
-  treasury: "bg-emerald-100 text-emerald-700",
-  reporting_manager: "bg-rose-100 text-rose-700",
-  factor_admin: "bg-red-100 text-red-700",
+  operations: "bg-primary-soft text-[#0a4a8a] dark:text-[#63baff]",
+  checker: "bg-warning/10 text-warning",
+  treasury: "bg-primary/10 text-primary",
+  reporting_manager: "bg-muted text-muted-foreground",
+  factor_admin: "bg-destructive/10 text-destructive",
 };
 
 const ROLE_LABELS: Record<string, string> = {

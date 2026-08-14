@@ -13,14 +13,14 @@ export const Route = createFileRoute("/app/requests")({
 
 const TYPE_CONFIG = {
   visit: { icon: MapPin, label: "Visit", color: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" },
-  travel: { icon: Plane, label: "Travel", color: "bg-purple-100 text-purple-700" },
-  expense: { icon: Receipt, label: "Expense", color: "bg-amber-100 text-amber-700" },
-  leave: { icon: CalendarDays, label: "Leave", color: "bg-rose-100 text-rose-700" },
+  travel: { icon: Plane, label: "Travel", color: "bg-primary-soft text-[#0a4a8a] dark:text-[#63baff]" },
+  expense: { icon: Receipt, label: "Expense", color: "bg-warning/10 text-warning" },
+  leave: { icon: CalendarDays, label: "Leave", color: "bg-muted text-muted-foreground" },
 } as const;
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-700",
-  approved: "bg-emerald-100 text-emerald-700",
+  pending: "bg-warning/10 text-warning",
+  approved: "bg-primary/10 text-primary",
   rejected: "bg-red-100 text-red-700",
 };
 
@@ -193,7 +193,7 @@ function RequestsPage() {
                         <button
                           onClick={() => updateStatus.mutate({ id: req.id, status: "approved" })}
                           disabled={updateStatus.isPending}
-                          className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[10px] font-medium text-emerald-700 transition-colors hover:bg-emerald-100 disabled:opacity-50"
+                          className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary-soft px-2.5 py-1.5 text-[10px] font-medium text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
                         >
                           <CheckCircle className="h-3.5 w-3.5" /> Approve
                         </button>

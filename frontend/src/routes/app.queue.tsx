@@ -653,7 +653,7 @@ function QueuePage() {
                       <tr key={n.id} className="border-b border-border/60 hover:bg-muted/30">
                         <td className="px-5 py-3">
                           <span
-                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${n.kind === "credit" ? "border-rose-500/30 text-rose-400" : "border-emerald-500/30 text-emerald-400"}`}
+                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${n.kind === "credit" ? "border-primary/30 text-primary" : "border-border-strong text-muted-foreground"}`}
                           >
                             <Icon className="h-3 w-3" />
                             {n.kind}

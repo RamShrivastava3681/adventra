@@ -50,8 +50,8 @@ const TABS = [
 type TabKey = (typeof TABS)[number]["key"];
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-amber-100 text-amber-700",
-  approved: "bg-emerald-100 text-emerald-700",
+  pending: "bg-warning/10 text-warning",
+  approved: "bg-primary/10 text-primary",
   rejected: "bg-red-100 text-red-700",
 };
 
@@ -72,11 +72,11 @@ const ROLE_ICONS: Record<string, any> = {
 
 const ROLE_COLORS: Record<string, string> = {
   sales_rep: "bg-blue-100 text-blue-700 border-blue-200",
-  operations: "bg-purple-100 text-purple-700 border-purple-200",
-  checker: "bg-amber-100 text-amber-700 border-amber-200",
-  treasury: "bg-emerald-100 text-emerald-700 border-emerald-200",
-  reporting_manager: "bg-rose-100 text-rose-700 border-rose-200",
-  factor_admin: "bg-red-100 text-red-700 border-red-200",
+  operations: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
+  checker: "bg-warning/10 text-warning border-warning/20",
+  treasury: "bg-primary/10 text-primary border-primary/20",
+  reporting_manager: "bg-muted text-muted-foreground border-border",
+  factor_admin: "bg-destructive/10 text-destructive border-destructive/20",
 };
 
 const ROLE_LABELS: Record<string, string> = {
@@ -116,18 +116,18 @@ function StatCard({
 }) {
   const colorMap: Record<string, string> = {
     blue: "from-blue-500/10 to-blue-500/5 border-blue-200/50 text-blue-700 dark:border-blue-800/50 dark:text-blue-300",
-    purple: "from-purple-500/10 to-purple-500/5 border-purple-200/50 text-purple-700",
-    amber: "from-amber-500/10 to-amber-500/5 border-amber-200/50 text-amber-700",
-    emerald: "from-emerald-500/10 to-emerald-500/5 border-emerald-200/50 text-emerald-700",
-    rose: "from-rose-500/10 to-rose-500/5 border-rose-200/50 text-rose-700",
+    purple: "from-primary/10 to-primary/5 border-primary/20 text-primary",
+    amber: "from-warning/10 to-warning/5 border-warning/20 text-warning",
+    emerald: "from-primary/15 to-primary/5 border-primary/20 text-primary",
+    rose: "from-muted/70 to-muted/40 border-border text-muted-foreground",
     slate: "from-slate-500/10 to-slate-500/5 border-slate-200/50 text-slate-700 dark:border-slate-700/50 dark:text-slate-300",
   };
   const iconBgMap: Record<string, string> = {
     blue: "bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400",
-    purple: "bg-purple-100 text-purple-600",
-    amber: "bg-amber-100 text-amber-600",
-    emerald: "bg-emerald-100 text-emerald-600",
-    rose: "bg-rose-100 text-rose-600",
+    purple: "bg-primary-soft text-[#0a4a8a] dark:text-[#63baff]",
+    amber: "bg-warning/10 text-warning",
+    emerald: "bg-primary/10 text-primary",
+    rose: "bg-muted text-muted-foreground",
     slate: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
   };
 
@@ -205,17 +205,17 @@ function SectionCard({
 }) {
   const borderMap: Record<string, string> = {
     blue: "border-blue-200/50 dark:border-blue-800/50",
-    purple: "border-purple-200/50",
-    amber: "border-amber-200/50",
-    emerald: "border-emerald-200/50",
-    rose: "border-rose-200/50",
+    purple: "border-primary/20",
+    amber: "border-warning/25",
+    emerald: "border-primary/20",
+    rose: "border-border",
   };
   const headerMap: Record<string, string> = {
     blue: "text-blue-700 bg-blue-50/50 dark:text-blue-300 dark:bg-blue-950/30",
-    purple: "text-purple-700 bg-purple-50/50",
-    amber: "text-amber-700 bg-amber-50/50",
-    emerald: "text-emerald-700 bg-emerald-50/50",
-    rose: "text-rose-700 bg-rose-50/50",
+    purple: "text-primary bg-primary-soft/60",
+    amber: "text-warning bg-warning/10",
+    emerald: "text-primary bg-primary/10",
+    rose: "text-muted-foreground bg-muted/50",
   };
 
   return (
@@ -274,17 +274,17 @@ function UserProgressView({ onExit: _onExit }: { onExit?: () => void }) {
   const isTreasury = user.roles.includes("treasury");
 
   const statusColorMap: Record<string, string> = {
-    pending: "bg-amber-100 text-amber-700",
-    approved: "bg-emerald-100 text-emerald-700",
+    pending: "bg-warning/10 text-warning",
+    approved: "bg-primary/10 text-primary",
     rejected: "bg-red-100 text-red-700",
     new: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
-    contacted: "bg-purple-100 text-purple-700",
-    qualified: "bg-cyan-100 text-cyan-700",
-    proposal: "bg-indigo-100 text-indigo-700",
-    negotiation: "bg-rose-100 text-rose-700",
-    won: "bg-emerald-100 text-emerald-700",
+    contacted: "bg-primary-soft text-[#0a4a8a] dark:text-[#63baff]",
+    qualified: "bg-primary/10 text-primary",
+    proposal: "bg-primary/10 text-primary",
+    negotiation: "bg-warning/10 text-warning",
+    won: "bg-primary/10 text-primary",
     lost: "bg-red-100 text-red-700",
-    paid: "bg-emerald-100 text-emerald-700",
+    paid: "bg-primary/10 text-primary",
     overdue: "bg-red-100 text-red-700",
     advanced: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
   };
@@ -533,8 +533,8 @@ function UserProgressView({ onExit: _onExit }: { onExit?: () => void }) {
                   key={act.id || i}
                   className="flex items-start gap-2 border-b border-border/40 pb-2 last:border-0 last:pb-0"
                 >
-                  <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-emerald-100">
-                    <div className="h-2 w-2 rounded-full bg-emerald-500" />
+                  <div className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10">
+                    <div className="h-2 w-2 rounded-full bg-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
                     <div className="text-xs font-medium truncate">{act.subject}</div>

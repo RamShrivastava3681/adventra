@@ -1202,7 +1202,7 @@ function PricingPreview({
         <span className="text-right font-mono tabular-nums">{fmtMoney(unitPrice)}</span>
         <span className="text-muted-foreground">Status</span>
         <span
-          className={`text-right font-medium ${warn ? "text-amber-600 dark:text-amber-400" : "text-emerald-600 dark:text-emerald-400"}`}
+          className={`text-right font-medium ${warn ? "text-warning" : "text-primary"}`}
         >
           {unitPrice <= 0
             ? "No selling price set"
@@ -1214,7 +1214,7 @@ function PricingPreview({
         </span>
       </div>
       {belowFloor && (
-        <div className="mt-1 text-[10px] text-amber-600 dark:text-amber-400">
+        <div className="mt-1 text-[10px] text-warning">
           The default selling price is below the minimum selling price of{" "}
           {fmtMoney(minSellingPrice)} — at {fmtMoney(unitPrice)} the actual gross margin is only{" "}
           {unitPrice > 0 ? Math.round((1 - unitCost / unitPrice) * 100) : 0}%.

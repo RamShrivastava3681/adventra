@@ -25,50 +25,50 @@ export function PageHeader({
   icon?: ReactNode;
 }) {
   return (
-    <div className="border-b border-border bg-card/50 px-6 py-7 md:px-10">
+    <div className="border-b border-border bg-background px-6 py-6 md:px-10">
       {/* Breadcrumbs */}
       {breadcrumbs && breadcrumbs.length > 0 && (
-        <nav className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground/70">
+        <nav className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
           {backTo && (
             <Link
               to={backTo as any}
-              className="mr-1 inline-flex items-center gap-1 text-muted-foreground/50 hover:text-foreground transition-colors"
+              className="mr-1 inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
             >
-              <ArrowLeft className="h-3 w-3" />
+              <ArrowLeft className="h-3.5 w-3.5" />
             </Link>
           )}
           {breadcrumbs.map((b, i) => (
             <span key={i} className="flex items-center gap-1.5">
-              {i > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground/30" />}
+              {i > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground/40" />}
               {b.href ? (
-                <Link to={b.href as any} className="hover:text-accent transition-colors">
+                <Link to={b.href as any} className="hover:text-primary transition-colors">
                   {b.label}
                 </Link>
               ) : (
-                <span className="text-muted-foreground/90">{b.label}</span>
+                <span className="text-muted-foreground">{b.label}</span>
               )}
             </span>
           ))}
         </nav>
       )}
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="flex items-start gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
           {icon && (
-            <div className="mt-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
               {icon}
             </div>
           )}
           <div>
             {eyebrow && (
-              <p className="text-[10px] uppercase tracking-[0.2em] text-accent font-semibold">
+              <p className="text-[10px] uppercase tracking-[0.18em] text-primary font-semibold">
                 {eyebrow}
               </p>
             )}
-            <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground md:text-4xl">
+            <h1 className="mt-0.5 text-[28px] font-semibold leading-tight tracking-tight text-foreground">
               {title}
             </h1>
             {description && (
-              <p className="mt-2 max-w-2xl text-sm text-muted-foreground">{description}</p>
+              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{description}</p>
             )}
           </div>
         </div>
@@ -96,11 +96,11 @@ export function EmptyState({
   return (
     <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
       {icon && (
-        <div className="mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-border bg-muted/50 text-muted-foreground">
+        <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary-soft text-primary">
           {icon}
         </div>
       )}
-      <h3 className="font-display text-base font-semibold text-foreground">{title}</h3>
+      <h3 className="text-base font-semibold text-foreground">{title}</h3>
       {description && (
         <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">{description}</p>
       )}
@@ -147,14 +147,14 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div className={`rounded-2xl border border-border bg-card shadow-card ${className}`}>
+    <div className={`rounded-xl border border-border bg-card shadow-card ${className}`}>
       {title && (
-        <div className="flex items-center justify-between border-b border-border px-6 py-4">
-          <h3 className="font-display text-lg text-foreground">{title}</h3>
+        <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
+          <h3 className="text-[15px] font-semibold tracking-tight text-foreground">{title}</h3>
           {action}
         </div>
       )}
-      <div className="p-6">{children}</div>
+      <div className="p-5">{children}</div>
     </div>
   );
 }
@@ -168,27 +168,62 @@ export function StatusPill({
   label?: string;
   tone?: string;
 }) {
+  // Blue family + neutral by default; restrained red reserved for critical
+  // states (overdue, rejected, cancelled, disputed). Never color alone —
+  // pills carry a status dot and explicit wording.
+  const neutral = "bg-muted text-muted-foreground border-transparent";
+  const blue = "bg-primary-soft text-[#0a4a8a] dark:text-[#63baff] border-transparent";
+  const darkBlue = "bg-surface-active text-[#1e4e79] dark:text-[#7fb5e8] border-transparent";
+  const red = "bg-destructive/10 text-destructive border-destructive/20";
+
   const map: Record<string, string> = {
-    pending: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
-    approved: "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400",
-    advanced: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400",
-    paid: "bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400",
-    overdue: "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400",
-    rejected: "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400",
-    critical: "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400",
-    warning: "bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400",
-    info: "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400",
-    draft: "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400",
-    verified: "bg-blue-50 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400",
-    approved_for_payment: "bg-violet-50 text-violet-600 dark:bg-violet-950/40 dark:text-violet-400",
-    partially_paid: "bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400",
-    cancelled: "bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400",
+    pending: neutral,
+    draft: neutral,
+    open: neutral,
+    new: neutral,
+    submitted: blue,
+    processing: blue,
+    in_review: blue,
+    under_review: blue,
+    pending_review: darkBlue,
+    pending_approval: darkBlue,
+    pending_acceptance: darkBlue,
+    pending_payment: darkBlue,
+    approved: blue,
+    approved_for_payment: blue,
+    verified: blue,
+    accepted: blue,
+    info: blue,
+    active: blue,
+    confirmed: blue,
+    sent: blue,
+    issued: blue,
+    advanced: blue,
+    funded: blue,
+    paid: blue,
+    settled: blue,
+    delivered: blue,
+    received: blue,
+    partially_received: darkBlue,
+    fully_received: blue,
+    partially_dispatched: darkBlue,
+    fully_dispatched: blue,
+    partially_paid: darkBlue,
+    converted_to_so: blue,
+    converted_to_po: blue,
+    warning: darkBlue,
+    attention: darkBlue,
+    short_paid: darkBlue,
+    expired: darkBlue,
+    disputed: red,
+    overdue: red,
+    rejected: red,
+    cancelled: red,
+    critical: red,
   };
   return (
-    <span
-      className={`status-pill ${tone ?? map[status] ?? "bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400"}`}
-    >
-      {label ?? status}
+    <span className={`status-pill ${tone ?? map[status] ?? neutral}`}>
+      {label ?? status.replace(/_/g, " ")}
     </span>
   );
 }

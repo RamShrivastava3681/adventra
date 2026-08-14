@@ -60,10 +60,10 @@ function QuotationPage() {
               <span
                 className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium ${
                   d.debtor_approval_status === "approved"
-                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-600"
+                    ? "border-primary/40 bg-primary-soft text-[#0a4a8a] dark:text-[#63baff]"
                     : d.debtor_approval_status === "rejected"
                       ? "border-destructive/40 bg-destructive/10 text-destructive"
-                      : "border-violet-500/40 bg-violet-500/10 text-violet-600"
+                      : "border-primary/40 bg-primary/10 text-primary"
                 }`}
                 title={
                   d.debtor_approval_comments
@@ -83,7 +83,7 @@ function QuotationPage() {
               <button
                 onClick={() => sendToDebtor.mutate()}
                 disabled={sendToDebtor.isPending}
-                className="inline-flex items-center gap-2 rounded-md border border-violet-500/40 px-4 py-2 text-sm font-medium text-violet-600 hover:bg-violet-500/10 disabled:opacity-50"
+                className="inline-flex items-center gap-2 rounded-md border border-primary/40 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
                 title="Email the quotation PDF to the debtor for approval"
               >
                 {sendToDebtor.isPending ? (

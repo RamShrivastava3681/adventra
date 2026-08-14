@@ -112,19 +112,16 @@ function Badge({
   const styles: Record<string, string> = {
     sales:
       "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800/40",
-    purchase:
-      "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/30 dark:text-purple-400 dark:border-purple-800/40",
+    purchase: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
     admin:
       "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
-    debtor:
-      "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800/40",
-    sent: "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800/40",
+    debtor: "bg-warning/10 text-warning border-warning/30",
+    sent: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
     failed:
       "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800/40",
     overdue:
       "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800/40",
-    upcoming:
-      "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-800/40",
+    upcoming: "bg-warning/10 text-warning border-warning/30",
   };
   return (
     <span
@@ -322,7 +319,7 @@ function InvoiceReminderModal({ onClose }: { onClose: () => void }) {
                           Due: {fmtDate(inv.due_date)}
                         </span>
                         <span
-                          className={`text-xs font-medium ${isOverdue ? "text-destructive" : "text-amber-600"}`}
+                          className={`text-xs font-medium ${isOverdue ? "text-destructive" : "text-warning"}`}
                         >
                           {isOverdue
                             ? `${Math.abs(dud)}d overdue`
@@ -484,7 +481,7 @@ function RemindersPage() {
                 ? `${Math.round((stats.sent / stats.total) * 100)}% success`
                 : undefined
             }
-            color="bg-emerald-100 text-emerald-600 dark:bg-emerald-950/30 dark:text-emerald-400"
+            color="bg-primary-soft text-[#0a4a8a] dark:text-[#63baff]"
           />
           <StatCard
             icon={XCircle}
@@ -497,13 +494,13 @@ function RemindersPage() {
             icon={Send}
             label="To Debtors"
             value={stats.debtors}
-            color="bg-amber-100 text-amber-600 dark:bg-amber-950/30 dark:text-amber-400"
+            color="bg-warning/10 text-warning"
           />
           <StatCard
             icon={TrendingUp}
             label="Overdue Alerts"
             value={stats.overdue}
-            color="bg-orange-100 text-orange-600 dark:bg-orange-950/30 dark:text-orange-400"
+            color="bg-warning/10 text-warning"
           />
           <StatCard
             icon={Clock}
@@ -671,7 +668,7 @@ function RemindersPage() {
                             </>
                           ) : (
                             <>
-                              <TrendingDown className="h-3.5 w-3.5 text-amber-500" />
+                              <TrendingDown className="h-3.5 w-3.5 text-warning" />
                               <Badge variant="upcoming">
                                 {log.daysUntilDue === 0 ? "Due today" : `${log.daysUntilDue}d left`}
                               </Badge>
@@ -709,7 +706,7 @@ function RemindersPage() {
           </div>
           <div className="flex items-center gap-2">
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" /> Sent
+              <span className="h-2 w-2 rounded-full bg-primary" /> Sent
             </span>
             <span className="inline-flex items-center gap-1">
               <span className="h-2 w-2 rounded-full bg-red-500" /> Failed

@@ -146,10 +146,10 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const ROLE_BADGE_COLORS: Record<string, string> = {
-  checker: "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400",
-  treasury: "border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400",
+  checker: "border-warning/40 bg-warning/10 text-warning",
+  treasury: "border-primary/40 bg-primary/10 text-primary",
   factor_admin: "border-slate-500/40 bg-slate-500/10 text-slate-600 dark:text-slate-300",
-  reporting_manager: "border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400",
+  reporting_manager: "border-primary/40 bg-primary-soft text-[#0a4a8a] dark:text-[#63baff]",
 };
 
 function roleBadgeClass(roles: string[] | undefined): string {
@@ -236,20 +236,20 @@ function activityMessage(e: AuditEntry): string {
 function activityMeta(e: AuditEntry): { icon: LucideIcon; chip: string } {
   const a = e.action;
   if (["invoice.payment", "purchase_invoice.paid", "purchase_invoice.partially_paid", "purchase_invoice.payment", "proforma.funded"].includes(a))
-    return { icon: Landmark, chip: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400" };
+    return { icon: Landmark, chip: "bg-primary/15 text-primary" };
   if (["invoice.approved", "purchase_invoice.approved", "proforma.approved", "quotation.approved"].includes(a))
-    return { icon: ShieldCheck, chip: "bg-green-500/15 text-green-600 dark:text-green-400" };
+    return { icon: ShieldCheck, chip: "bg-primary-soft text-[#0a4a8a] dark:text-[#63baff]" };
   if (["invoice.rejected", "proforma.rejected", "quotation.rejected"].includes(a))
-    return { icon: ShieldX, chip: "bg-red-500/15 text-red-600 dark:text-red-400" };
-  if (a === "invoice.disputed") return { icon: ShieldAlert, chip: "bg-amber-500/15 text-amber-600 dark:text-amber-400" };
-  if (a.startsWith("invoice.")) return { icon: Receipt, chip: "bg-blue-500/15 text-blue-600 dark:text-blue-400" };
-  if (a.startsWith("purchase_invoice.")) return { icon: FileSpreadsheet, chip: "bg-indigo-500/15 text-indigo-600 dark:text-indigo-400" };
-  if (a.startsWith("proforma.")) return { icon: FileText, chip: "bg-violet-500/15 text-violet-600 dark:text-violet-400" };
-  if (a.startsWith("quotation.")) return { icon: FileCheck2, chip: "bg-sky-500/15 text-sky-600 dark:text-sky-400" };
-  if (a.startsWith("grn.")) return { icon: PackageCheck, chip: "bg-teal-500/15 text-teal-600 dark:text-teal-400" };
-  if (a.startsWith("dispatch.")) return { icon: Truck, chip: "bg-orange-500/15 text-orange-600 dark:text-orange-400" };
-  if (a.startsWith("stock.")) return { icon: Package, chip: "bg-cyan-500/15 text-cyan-600 dark:text-cyan-400" };
-  if (a.startsWith("expense.")) return { icon: Wallet, chip: "bg-pink-500/15 text-pink-600 dark:text-pink-400" };
+    return { icon: ShieldX, chip: "bg-destructive/15 text-destructive" };
+  if (a === "invoice.disputed") return { icon: ShieldAlert, chip: "bg-warning/15 text-warning" };
+  if (a.startsWith("invoice.")) return { icon: Receipt, chip: "bg-primary/15 text-primary" };
+  if (a.startsWith("purchase_invoice.")) return { icon: FileSpreadsheet, chip: "bg-primary/15 text-primary" };
+  if (a.startsWith("proforma.")) return { icon: FileText, chip: "bg-primary/15 text-primary" };
+  if (a.startsWith("quotation.")) return { icon: FileCheck2, chip: "bg-primary/15 text-primary" };
+  if (a.startsWith("grn.")) return { icon: PackageCheck, chip: "bg-primary/15 text-primary" };
+  if (a.startsWith("dispatch.")) return { icon: Truck, chip: "bg-warning/15 text-warning" };
+  if (a.startsWith("stock.")) return { icon: Package, chip: "bg-primary/15 text-primary" };
+  if (a.startsWith("expense.")) return { icon: Wallet, chip: "bg-muted text-muted-foreground" };
   if (a.startsWith("admin.")) return { icon: Shield, chip: "bg-slate-500/15 text-slate-600 dark:text-slate-400" };
   return { icon: Activity, chip: "bg-muted text-muted-foreground" };
 }

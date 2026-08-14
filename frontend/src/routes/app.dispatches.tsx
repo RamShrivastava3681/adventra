@@ -126,10 +126,10 @@ const DISPATCH_STATUS_LABELS: Record<string, string> = {
 const DISPATCH_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
   confirmed: "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
-  partially_delivered: "bg-amber-500/10 text-amber-600 border-amber-500/30",
-  delivered: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  partially_delivered: "bg-warning/10 text-warning border-warning/30",
+  delivered: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
-  returned: "bg-fuchsia-500/10 text-fuchsia-600 border-fuchsia-500/30",
+  returned: "bg-destructive/10 text-destructive border-destructive/30",
 };
 
 function DispatchesPage() {
@@ -1074,7 +1074,7 @@ function DispatchDetailModal({
               <span className="rounded bg-success/10 px-2 py-1 text-success">
                 Delivered {delivered.toLocaleString()}
               </span>
-              <span className="rounded bg-fuchsia-500/10 px-2 py-1 text-fuchsia-600">
+              <span className="rounded bg-warning/10 px-2 py-1 text-warning">
                 Returned {returned.toLocaleString()}
               </span>
             </div>
@@ -1114,7 +1114,7 @@ function DispatchDetailModal({
                 <button
                   onClick={() => setReturnOpen(true)}
                   disabled={!!busy}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-fuchsia-500/40 px-3 py-1.5 text-xs font-medium text-fuchsia-600 hover:bg-fuchsia-500/10 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-warning/40 px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/10 disabled:opacity-50"
                 >
                   <Undo2 className="h-3.5 w-3.5" /> Record return
                 </button>
@@ -1400,7 +1400,7 @@ function ReturnModal({
           }}
           className="space-y-4 p-5"
         >
-          <div className="flex items-start gap-2 rounded-md border border-fuchsia-500/30 bg-fuchsia-500/5 p-3 text-xs text-fuchsia-700">
+          <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
             <Undo2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
               Returned quantities are credited back into inventory and removed from the sales

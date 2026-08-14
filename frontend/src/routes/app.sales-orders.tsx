@@ -151,12 +151,11 @@ const SO_STATUS_LABELS: Record<string, string> = {
 
 const SO_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
-  pending_review:
-    "bg-amber-500/10 text-amber-600 border-amber-500/30 dark:bg-amber-500/15 dark:text-amber-400 dark:border-amber-500/40",
+  pending_review: "bg-warning/10 text-warning border-warning/30 dark:text-warning",
   confirmed:
     "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
-  partially_dispatched: "bg-amber-500/10 text-amber-600 border-amber-500/30",
-  fully_dispatched: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  partially_dispatched: "bg-warning/10 text-warning border-warning/30",
+  fully_dispatched: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
 };
 
@@ -168,8 +167,8 @@ const SO_DEBTOR_LABELS: Record<string, string> = {
 };
 
 const SO_DEBTOR_TONES: Record<string, string> = {
-  pending: "bg-violet-500/10 text-violet-600 border-violet-500/30",
-  approved: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  pending: "bg-primary/10 text-primary border-primary/30",
+  approved: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   rejected: "bg-destructive/10 text-destructive border-destructive/30",
 };
 
@@ -499,7 +498,7 @@ function SalesOrdersPage() {
                               <button
                                 onClick={() => sendToDebtor.mutate(s.id)}
                                 disabled={sendToDebtor.isPending}
-                                className="inline-flex items-center gap-1 rounded-md border border-violet-500/40 px-2 py-1 text-[10px] text-violet-600 hover:bg-violet-500/10 disabled:opacity-50"
+                                className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
                                 title="Email the sales order PDF to the debtor for approval"
                               >
                                 {sendToDebtor.isPending ? (
@@ -1266,7 +1265,7 @@ function SOModal({
                 canWrite &&
                 status === "confirmed" &&
                 so?.debtor_approval_status !== "rejected" && (
-                  <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-violet-600">
+                  <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-primary">
                     <Mail className="h-3 w-3" /> The customer confirms via the emailed link
                     {so?.debtor_approval_email ? ` (sent to ${so.debtor_approval_email})` : ""}
                   </span>

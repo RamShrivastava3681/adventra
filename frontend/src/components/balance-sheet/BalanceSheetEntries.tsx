@@ -322,7 +322,7 @@ export function BalanceSheetEntries({ userId }: { userId: string }) {
         </div>
         <div className="text-xs text-muted-foreground">
           Balance check:{" "}
-          <span className={Math.abs(diff) < 0.01 ? "text-emerald-600" : "text-destructive"}>
+          <span className={Math.abs(diff) < 0.01 ? "text-primary" : "text-destructive"}>
             {Math.abs(diff) < 0.01 ? "Balanced" : `Off by ${fmtAccounting(diff)}`}
           </span>
         </div>
@@ -460,7 +460,7 @@ export function BalanceSheetEntries({ userId }: { userId: string }) {
         </div>
         <div className="mt-3 text-center text-xs">
           Assets − (Liabilities + Equity) ={" "}
-          <span className={Math.abs(diff) < 0.01 ? "text-emerald-600" : "text-destructive"}>
+          <span className={Math.abs(diff) < 0.01 ? "text-primary" : "text-destructive"}>
             {fmtAccounting(diff)}
           </span>
         </div>

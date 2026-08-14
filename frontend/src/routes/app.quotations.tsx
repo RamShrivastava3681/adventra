@@ -116,10 +116,10 @@ const Q_STATUS_LABELS: Record<string, string> = {
 const Q_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
   sent: "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
-  accepted: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  accepted: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   rejected: "bg-destructive/10 text-destructive border-destructive/30",
-  expired: "bg-amber-500/10 text-amber-600 border-amber-500/30",
-  converted_to_so: "bg-teal-500/10 text-teal-600 border-teal-500/30",
+  expired: "bg-warning/10 text-warning border-warning/30",
+  converted_to_so: "bg-primary/10 text-primary border-primary/30",
 };
 
 // Maker–checker price approval (separate from the quotation lifecycle status).
@@ -130,8 +130,8 @@ const Q_APPROVAL_LABELS: Record<string, string> = {
 };
 
 const Q_APPROVAL_TONES: Record<string, string> = {
-  pending_review: "bg-amber-500/10 text-amber-600 border-amber-500/30",
-  approved: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  pending_review: "bg-warning/10 text-warning border-warning/30",
+  approved: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   rejected: "bg-destructive/10 text-destructive border-destructive/30",
 };
 
@@ -143,8 +143,8 @@ const Q_DEBTOR_LABELS: Record<string, string> = {
 };
 
 const Q_DEBTOR_TONES: Record<string, string> = {
-  pending: "bg-violet-500/10 text-violet-600 border-violet-500/30",
-  approved: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  pending: "bg-primary/10 text-primary border-primary/30",
+  approved: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   rejected: "bg-destructive/10 text-destructive border-destructive/30",
 };
 
@@ -355,7 +355,7 @@ function QuotationsPage() {
                             "—"
                           )}
                           {expired && (
-                            <span className="ml-2 rounded bg-amber-500/10 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-amber-600">
+                            <span className="ml-2 rounded bg-warning/10 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-warning">
                               Past validity
                             </span>
                           )}
@@ -428,7 +428,7 @@ function QuotationsPage() {
                                 <button
                                   onClick={() => sendToDebtor.mutate(q.id)}
                                   disabled={sendToDebtor.isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-violet-500/40 px-2 py-1 text-[10px] text-violet-600 hover:bg-violet-500/10 disabled:opacity-50"
+                                  className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
                                   title="Email the quotation PDF to the debtor for approval"
                                 >
                                   {sendToDebtor.isPending ? (
@@ -1236,14 +1236,14 @@ function QModal({
                     {/* Accept/reject is decided by the customer via the emailed
                         approval link — never from this panel. The response is
                         fetched back and shown as the debtor status pill. */}
-                    <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-violet-600">
+                    <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-primary">
                       <Mail className="h-3 w-3" /> The customer accepts or rejects via the emailed
                       link{q?.debtor_approval_email ? ` (sent to ${q.debtor_approval_email})` : ""}
                     </span>
                     <button
                       type="button"
                       onClick={() => changeStatus("expired", "Quotation marked expired")}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/40 px-3 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-500/10"
+                      className="inline-flex items-center gap-1.5 rounded-md border border-warning/40 px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/10"
                     >
                       <Clock4 className="h-3.5 w-3.5" /> Mark expired
                     </button>
@@ -1266,13 +1266,13 @@ function QModal({
                 </button>
               )}
               {approval === "pending_review" && (
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-amber-600">
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-warning">
                   <Clock4 className="h-3 w-3" /> Waiting for the checker to review the updated
                   prices…
                 </span>
               )}
               {approval === "approved" && status !== "converted_to_so" && (
-                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-emerald-600">
+                <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-primary">
                   <CheckCircle2 className="h-3 w-3" /> Prices approved — you can now convert to a
                   sales order.
                 </span>

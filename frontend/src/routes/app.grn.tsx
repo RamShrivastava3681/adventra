@@ -117,7 +117,7 @@ const GRN_STATUS_LABELS: Record<string, string> = {
 };
 const GRN_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
-  confirmed: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  confirmed: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
 };
 

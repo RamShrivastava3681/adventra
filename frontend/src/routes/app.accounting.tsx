@@ -169,7 +169,7 @@ function ChartOfAccounts({ userId, isAdmin }: { userId?: string; isAdmin: boolea
                       <td className="py-2 text-right">{Number(a.tax_rate).toFixed(2)}</td>
                       <td className="py-2">
                         <span
-                          className={`text-xs ${a.status === "active" ? "text-emerald-600" : "text-muted-foreground"}`}
+                          className={`text-xs ${a.status === "active" ? "text-primary" : "text-muted-foreground"}`}
                         >
                           {a.status}
                         </span>
@@ -552,7 +552,7 @@ function ManualJournal({ userId }: { userId?: string }) {
 
         <div className="flex items-center justify-between">
           <div
-            className={`text-xs ${totals.balanced ? "text-emerald-600" : "text-muted-foreground"}`}
+            className={`text-xs ${totals.balanced ? "text-primary" : "text-muted-foreground"}`}
           >
             {totals.balanced
               ? "✓ Balanced"

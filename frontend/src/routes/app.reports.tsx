@@ -42,11 +42,11 @@ const ROLE_ICONS: Record<string, any> = {
 
 const ROLE_COLORS: Record<string, string> = {
   sales_rep: "bg-blue-100 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/40",
-  operations: "bg-purple-100 text-purple-700 border-purple-200",
-  checker: "bg-amber-100 text-amber-700 border-amber-200",
-  treasury: "bg-emerald-100 text-emerald-700 border-emerald-200",
-  reporting_manager: "bg-rose-100 text-rose-700 border-rose-200",
-  factor_admin: "bg-red-100 text-red-700 border-red-200",
+  operations: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
+  checker: "bg-warning/10 text-warning border-warning/20",
+  treasury: "bg-primary/10 text-primary border-primary/20",
+  reporting_manager: "bg-muted text-muted-foreground border-border",
+  factor_admin: "bg-destructive/10 text-destructive border-destructive/20",
 };
 
 const ROLE_LABELS: Record<string, string> = {

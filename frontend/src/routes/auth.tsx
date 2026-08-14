@@ -76,27 +76,13 @@ function AuthPage() {
 
   return (
     <div className="relative min-h-screen overflow-hidden grid md:grid-cols-2">
-      {/* Ambient background wash — same language as the landing page */}
-      <div
-        className="pointer-events-none absolute -left-40 top-1/4 h-[480px] w-[480px] rounded-full bg-primary/5 blur-3xl"
-        aria-hidden
-      />
-
       {/* ── Left brand panel ── */}
       <div className="relative hidden overflow-hidden border-r border-border bg-vault p-12 md:flex md:flex-col md:justify-between">
-        <div className="absolute inset-0 grid-lines opacity-20" aria-hidden />
-        <div
-          className="absolute -right-32 -top-24 h-96 w-96 rounded-full bg-primary/10 blur-3xl"
-          aria-hidden
-        />
-        <div
-          className="absolute -bottom-24 -left-24 h-72 w-72 rounded-full bg-primary/5 blur-3xl"
-          aria-hidden
-        />
+        <div className="absolute inset-0 grid-lines opacity-15" aria-hidden />
 
         <Link to="/" className="relative flex items-center gap-2.5">
           <img src="/logo.png" alt="Whizunik" className="h-8 w-auto rounded-md object-contain" />
-          <span className="font-display text-xl tracking-tight">Whizunik</span>
+          <span className="text-lg font-semibold tracking-tight">Whizunik</span>
         </Link>
 
         <div className="relative">
@@ -107,7 +93,7 @@ function AuthPage() {
             </span>
             Vault access
           </div>
-          <h2 className="mt-5 font-display text-4xl leading-[1.1] tracking-tight text-balance">
+          <h2 className="mt-5 text-[34px] font-semibold leading-[1.15] tracking-tight text-balance">
             Capital moves at the speed of conviction.
           </h2>
           <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
@@ -151,7 +137,7 @@ function AuthPage() {
             <ArrowLeft className="h-3.5 w-3.5" /> Back to site
           </Link>
 
-          <div className="rounded-2xl border border-border bg-card p-6 shadow-xl md:p-8">
+          <div className="rounded-xl border border-border bg-card p-6 shadow-modal md:p-8">
             {/* Mobile brand */}
             <div className="mb-6 flex items-center gap-2 md:hidden">
               <img
@@ -159,10 +145,10 @@ function AuthPage() {
                 alt="Whizunik"
                 className="h-7 w-auto rounded-md object-contain"
               />
-              <span className="font-display text-lg tracking-tight">Whizunik</span>
+              <span className="text-lg font-semibold tracking-tight">Whizunik</span>
             </div>
 
-            <h1 className="font-display text-2xl tracking-tight text-foreground md:text-3xl">
+            <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">
               {mode === "signup" ? "Create your account" : "Welcome back"}
             </h1>
             <p className="mt-2 text-sm text-muted-foreground">
@@ -208,7 +194,7 @@ function AuthPage() {
               <button
                 disabled={loading}
                 type="submit"
-                className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 py-3 text-sm font-medium text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-lg disabled:cursor-not-allowed disabled:opacity-60"
+                className="mt-2 inline-flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary px-5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
                 {mode === "signup" ? "Create account" : "Sign in"}

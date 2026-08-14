@@ -28,10 +28,10 @@ const STATUS_LABEL: Record<Status, string> = {
 
 function statusClass(s: Status) {
   if (s === "applied") return "bg-primary/15 text-primary border-primary/30";
-  if (s === "approved") return "bg-emerald-500/10 text-emerald-400 border-emerald-500/30";
+  if (s === "approved") return "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]";
   if (s === "rejected") return "bg-destructive/10 text-destructive border-destructive/30";
   if (s === "void") return "bg-muted text-muted-foreground border-border";
-  return "bg-amber-500/10 text-amber-400 border-amber-500/30";
+  return "bg-warning/10 text-warning border-warning/30";
 }
 
 function NotesPage() {
@@ -114,13 +114,13 @@ function NotesPage() {
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-3">
           <Card title="Pending checker">
-            <div className="num text-2xl text-amber-400">{pendingCount}</div>
+            <div className="num text-2xl text-warning">{pendingCount}</div>
             <div className="mt-1 text-xs text-muted-foreground">
               Awaiting maker–checker approval
             </div>
           </Card>
           <Card title="Approved · awaiting apply">
-            <div className="num text-2xl text-emerald-400">{approvedCount}</div>
+            <div className="num text-2xl text-primary">{approvedCount}</div>
             <div className="mt-1 text-xs text-muted-foreground">
               Sitting in the funding queue for treasury
             </div>
@@ -200,7 +200,7 @@ function NotesPage() {
                         <td className="px-5 py-3">{fmtDate(r.note_date)}</td>
                         <td className="px-5 py-3">
                           <span
-                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${r.kind === "credit" ? "border-rose-500/30 text-rose-400" : "border-emerald-500/30 text-emerald-400"}`}
+                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${r.kind === "credit" ? "border-primary/30 text-primary" : "border-border-strong text-muted-foreground"}`}
                           >
                             <Icon className="h-3 w-3" />
                             {r.kind}

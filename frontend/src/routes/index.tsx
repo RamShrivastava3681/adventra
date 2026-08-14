@@ -69,7 +69,7 @@ function Landing() {
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link to="/" className="flex items-center gap-2.5">
             <img src="/logo.png" alt="Whizunik" className="h-8 w-auto rounded-md object-contain" />
-            <span className="font-display text-xl tracking-tight">Whizunik</span>
+            <span className="text-lg font-semibold tracking-tight">Whizunik</span>
           </Link>
           <div className="flex items-center gap-2">
             <Link
@@ -91,15 +91,7 @@ function Landing() {
 
       {/* Hero */}
       <section className="relative overflow-hidden">
-        <div className="absolute inset-0 grid-lines opacity-30" aria-hidden />
-        <div
-          className="absolute -right-40 -top-24 h-[480px] w-[480px] rounded-full bg-primary/10 blur-3xl"
-          aria-hidden
-        />
-        <div
-          className="absolute -left-32 bottom-0 h-[360px] w-[360px] rounded-full bg-primary/5 blur-3xl"
-          aria-hidden
-        />
+        <div className="absolute inset-0 grid-lines opacity-20" aria-hidden />
 
         <div className="relative mx-auto grid max-w-7xl items-center gap-14 px-6 py-20 lg:grid-cols-2 lg:py-28">
           <div>
@@ -110,7 +102,7 @@ function Landing() {
               </span>
               Receivables factoring & monitoring
             </div>
-            <h1 className="mt-6 font-display text-5xl leading-[1.04] tracking-tight text-balance md:text-6xl">
+            <h1 className="mt-6 text-5xl font-semibold leading-[1.05] tracking-tight text-balance md:text-6xl">
               Capital moves at the speed of{" "}
               <em className="not-italic text-primary">conviction</em>.
             </h1>
@@ -148,59 +140,56 @@ function Landing() {
           </div>
 
           {/* Product preview */}
-          <div className="relative">
-            <div className="pointer-events-none absolute -inset-6 rounded-3xl bg-primary/5 blur-2xl" aria-hidden />
-            <div className="relative rounded-2xl border border-border bg-card p-5 shadow-xl">
-              <div className="flex items-center justify-between border-b border-border pb-4">
-                <div>
-                  <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
-                    Portfolio
-                  </div>
-                  <div className="font-display text-lg font-semibold tracking-tight text-foreground">
-                    Receivables dashboard
-                  </div>
+          <div className="relative rounded-xl border border-border bg-card p-5 shadow-card">
+            <div className="flex items-center justify-between border-b border-border pb-4">
+              <div>
+                <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
+                  Portfolio
                 </div>
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                  <Sparkles className="h-4 w-4" />
+                <div className="text-base font-semibold tracking-tight text-foreground">
+                  Receivables dashboard
                 </div>
               </div>
-              <div className="mt-4 grid grid-cols-3 gap-3">
-                {[
-                  { label: "Outstanding", value: "$1.24M", tone: "text-foreground" },
-                  { label: "Advanced", value: "$612k", tone: "text-foreground" },
-                  { label: "Overdue", value: "3", tone: "text-destructive" },
-                ].map((s) => (
-                  <div key={s.label} className="rounded-lg border border-border bg-background/40 p-3">
-                    <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                      {s.label}
-                    </div>
-                    <div className={`mt-1 font-mono text-base font-bold tabular-nums ${s.tone}`}>
-                      {s.value}
-                    </div>
-                  </div>
-                ))}
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-soft text-primary">
+                <Sparkles className="h-4 w-4" />
               </div>
-              <div className="mt-4 space-y-2.5">
-                {[
-                  { label: "Current", pct: 62, tone: "bg-success" },
-                  { label: "1–30 days", pct: 24, tone: "bg-primary" },
-                  { label: "31–60 days", pct: 9, tone: "bg-warning" },
-                  { label: "60+ days", pct: 5, tone: "bg-destructive" },
-                ].map((b) => (
-                  <div key={b.label}>
-                    <div className="flex justify-between text-xs">
-                      <span className="text-muted-foreground">{b.label}</span>
-                      <span className="font-mono text-foreground">{b.pct}%</span>
-                    </div>
-                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className={`h-full rounded-full ${b.tone} transition-all duration-700`}
-                        style={{ width: `${b.pct}%` }}
-                      />
-                    </div>
+            </div>
+            <div className="mt-4 grid grid-cols-3 gap-3">
+              {[
+                { label: "Outstanding", value: "$1.24M", tone: "text-foreground" },
+                { label: "Advanced", value: "$612k", tone: "text-primary" },
+                { label: "Overdue", value: "3", tone: "text-destructive" },
+              ].map((s) => (
+                <div key={s.label} className="rounded-lg border border-border bg-background/40 p-3">
+                  <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                    {s.label}
                   </div>
-                ))}
-              </div>
+                  <div className={`mt-1 font-mono text-base font-bold tabular-nums ${s.tone}`}>
+                    {s.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 space-y-2.5">
+              {[
+                { label: "Current", pct: 62, tone: "bg-[var(--color-chart-4)]" },
+                { label: "1–30 days", pct: 24, tone: "bg-[var(--color-chart-2)]" },
+                { label: "31–60 days", pct: 9, tone: "bg-[var(--color-chart-1)]" },
+                { label: "60+ days", pct: 5, tone: "bg-[var(--color-chart-3)]" },
+              ].map((b) => (
+                <div key={b.label}>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">{b.label}</span>
+                    <span className="font-mono text-foreground">{b.pct}%</span>
+                  </div>
+                  <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={`h-full rounded-full ${b.tone} transition-all duration-700`}
+                      style={{ width: `${b.pct}%` }}
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -213,7 +202,7 @@ function Landing() {
             <p className="text-[10px] uppercase tracking-[0.2em] text-primary font-semibold">
               One platform, every workflow
             </p>
-            <h2 className="mt-3 font-display text-3xl tracking-tight text-balance md:text-4xl">
+            <h2 className="mt-3 text-3xl font-semibold tracking-tight text-balance md:text-4xl">
               Everything a factoring desk touches — in one room.
             </h2>
             <p className="mt-4 text-muted-foreground">
@@ -225,14 +214,12 @@ function Landing() {
             {FEATURES.map((f) => (
               <div
                 key={f.title}
-                className="group rounded-2xl border border-border bg-card p-6 shadow-card transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-card-hover"
+                className="group rounded-xl border border-border bg-card p-6 transition-colors duration-150 hover:border-primary/30"
               >
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary transition-colors duration-200 group-hover:bg-primary group-hover:text-primary-foreground">
+                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-soft text-primary transition-colors duration-150">
                   <f.icon className="h-5 w-5" />
                 </div>
-                <h3 className="mt-4 font-display text-base font-semibold text-foreground">
-                  {f.title}
-                </h3>
+                <h3 className="mt-4 text-[15px] font-semibold text-foreground">{f.title}</h3>
                 <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{f.body}</p>
               </div>
             ))}
@@ -241,13 +228,9 @@ function Landing() {
       </section>
 
       {/* CTA */}
-      <section className="relative overflow-hidden border-t border-border/60">
-        <div
-          className="absolute inset-0 bg-gradient-to-br from-primary/10 via-transparent to-primary/5"
-          aria-hidden
-        />
-        <div className="relative mx-auto max-w-3xl px-6 py-20 text-center">
-          <h2 className="font-display text-3xl tracking-tight text-balance md:text-4xl">
+      <section className="border-t border-border/60 bg-primary/5">
+        <div className="mx-auto max-w-3xl px-6 py-20 text-center">
+          <h2 className="text-3xl font-semibold tracking-tight text-balance md:text-4xl">
             Put your receivables to work.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
@@ -258,7 +241,7 @@ function Landing() {
             <Link
               to="/auth"
               search={{ mode: "signup" }}
-              className="inline-flex items-center gap-2 rounded-lg bg-primary px-6 py-3 text-sm font-medium text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-lg"
+              className="inline-flex h-11 items-center gap-2 rounded-lg bg-primary px-6 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
             >
               Create your account <ArrowRight className="h-4 w-4" />
             </Link>

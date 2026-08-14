@@ -97,7 +97,7 @@ const PF_DOC_LABELS: Record<string, string> = {
 const PF_DOC_TONES: Record<string, string> = {
   received: "bg-sky-500/10 text-sky-600 border-sky-500/30",
   reviewed: "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
-  converted_to_po: "bg-emerald-500/10 text-emerald-600 border-emerald-500/30",
+  converted_to_po: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   expired: "bg-muted/60 text-muted-foreground border-border",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
 };

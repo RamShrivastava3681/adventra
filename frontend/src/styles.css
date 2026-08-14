@@ -6,20 +6,23 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ============================================================
-   WHIZUNIK — Premium light-mode enterprise fintech dashboard.
-   Inspired by Stripe Dashboard, Linear, Ramp, Brex, Mercury.
+   WHIZUNIK — Premium institutional fintech design system.
+   White + blue. Restraint, hierarchy, data-first.
+   Inspired by Amex restraint, Stripe clarity, Mercury polish,
+   Carbon / Atlassian token discipline.
    ============================================================ */
 
 @theme inline {
-  --font-display: "Fraunces", "Times New Roman", serif;
+  --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
 
+  /* Radius — institutional, not playful. Pills reserved for badges. */
   --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 12px;
-  --radius-xl: 14px;
-  --radius-2xl: 20px;
+  --radius-md: 8px;
+  --radius-lg: 10px;
+  --radius-xl: 12px;
+  --radius-2xl: 16px;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -42,9 +45,13 @@
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-input: var(--input);
   --color-ring: var(--ring);
   --color-ring-offset-background: var(--background);
+  --color-surface-subtle: var(--surface-subtle);
+  --color-surface-active: var(--surface-active);
+  --color-primary-soft: var(--primary-soft);
   --color-chart-1: var(--chart-1);
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
@@ -60,149 +67,143 @@
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
+/* ============================================================
+   LIGHT — white + institutional blue
+   ============================================================ */
 :root {
-  --radius: 12px;
+  color-scheme: light;
+  --radius: 10px;
 
-  /* Surface & backgrounds */
-  --background: #f8fafc;
-  --foreground: #0f172a;
-
-  /* Cards */
+  /* Surfaces */
+  --background: #ffffff;
+  --foreground: #111827;
+  --surface-subtle: #f7fafc;
+  --surface-active: #eef7ff;
   --card: #ffffff;
-  --card-foreground: #0f172a;
-
+  --card-foreground: #111827;
   --popover: #ffffff;
-  --popover-foreground: #0f172a;
+  --popover-foreground: #111827;
 
-  /* Primary: bright cyan accent */
-  --primary: #00b8ff;
+  /* Primary — deep institutional blue */
+  --primary: #006fcf;
   --primary-foreground: #ffffff;
+  --primary-soft: #e8f4ff;
 
-  /* Secondary: subtle light surface */
   --secondary: #f1f5f9;
-  --secondary-foreground: #0f172a;
+  --secondary-foreground: #111827;
 
-  /* Muted: light grey surfaces */
   --muted: #f1f5f9;
-  --muted-foreground: #64748b;
+  --muted-foreground: #536273;
 
-  /* Accent: cyan (same as primary for consistency) */
-  --accent: #00b8ff;
+  --accent: #006fcf;
   --accent-foreground: #ffffff;
 
-  /* Destructive */
-  --destructive: #dc2626;
+  /* States — blue for good/attention, restrained red only for critical */
+  --destructive: #c73a3f;
   --destructive-foreground: #ffffff;
-
-  /* Warning */
-  --warning: #f59e0b;
+  --warning: #1e4e79;
   --warning-foreground: #ffffff;
-
-  /* Success */
-  --success: #16a34a;
+  --success: #006fcf;
   --success-foreground: #ffffff;
 
   /* Borders & inputs */
-  --border: #e2e8f0;
+  --border: #dce5ee;
+  --border-strong: #c5d2df;
   --input: #ffffff;
-  --ring: #00b8ff;
+  --ring: #006fcf;
 
-  /* Chart colors — fintech palette */
-  --chart-1: #00b8ff; /* Cyan */
-  --chart-2: #0066ff; /* Blue */
-  --chart-3: #7c3aed; /* Purple */
-  --chart-4: #f59e0b; /* Amber */
-  --chart-5: #16a34a; /* Green */
+  /* Charts — blue family only */
+  --chart-1: #006fcf;
+  --chart-2: #3d9be9;
+  --chart-3: #0a4a8a;
+  --chart-4: #93c5f4;
+  --chart-5: #275e9c;
 
-  /* Sidebar — pristine white with cyan accents */
+  /* Sidebar — white, hairline separated */
   --sidebar: #ffffff;
-  --sidebar-foreground: #0f172a;
-  --sidebar-primary: #00b8ff;
+  --sidebar-foreground: #111827;
+  --sidebar-primary: #006fcf;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f0f9ff;
-  --sidebar-accent-foreground: #0f172a;
-  --sidebar-border: #e2e8f0;
-  --sidebar-ring: #00b8ff;
+  --sidebar-accent: #eef7ff;
+  --sidebar-accent-foreground: #0a4a8a;
+  --sidebar-border: #e5ebf2;
+  --sidebar-ring: #006fcf;
 }
 
 /* ============================================================
-   DARK THEME — deep navy surfaces, same cyan brand accent.
-   Activated by adding `.dark` to <html> (see theme provider).
+   DARK — premium financial terminal. Calm, low-glare, navy.
    ============================================================ */
 .dark {
   color-scheme: dark;
 
-  --background: #0b1220;
-  --foreground: #e2e8f0;
+  --background: #080d14;
+  --foreground: #f4f8fc;
+  --surface-subtle: #0d141d;
+  --surface-active: #162638;
+  --card: #0d141d;
+  --card-foreground: #f4f8fc;
+  --popover: #121c27;
+  --popover-foreground: #f4f8fc;
 
-  --card: #0f1729;
-  --card-foreground: #e2e8f0;
-
-  --popover: #111c31;
-  --popover-foreground: #e2e8f0;
-
-  /* Primary: bright cyan accent (unchanged brand colour) */
-  --primary: #00b8ff;
+  --primary: #3aa8ff;
   --primary-foreground: #06283a;
+  --primary-soft: #162638;
 
-  /* Secondary: subtle dark surface */
-  --secondary: #1b2537;
-  --secondary-foreground: #e2e8f0;
+  --secondary: #121c27;
+  --secondary-foreground: #f4f8fc;
 
-  /* Muted: dark grey surfaces */
-  --muted: #1b2537;
-  --muted-foreground: #94a3b8;
+  --muted: #121c27;
+  --muted-foreground: #728293;
 
-  /* Accent: cyan (same as primary for consistency) */
-  --accent: #00b8ff;
+  --accent: #3aa8ff;
   --accent-foreground: #06283a;
 
-  /* Destructive / warning / success — lightened for dark contrast */
   --destructive: #f87171;
   --destructive-foreground: #450a0a;
-  --warning: #fbbf24;
-  --warning-foreground: #1a1206;
-  --success: #34d399;
-  --success-foreground: #06281c;
+  --warning: #7fb5e8;
+  --warning-foreground: #0a2540;
+  --success: #3aa8ff;
+  --success-foreground: #06283a;
 
-  /* Borders & inputs */
-  --border: #223047;
-  --input: #0d1526;
-  --ring: #00b8ff;
+  --border: #223140;
+  --border-strong: #314355;
+  --input: #121c27;
+  --ring: #3aa8ff;
 
-  /* Chart colors — keep brand palette */
-  --chart-1: #00b8ff;
-  --chart-2: #3b82f6;
-  --chart-3: #a78bfa;
-  --chart-4: #fbbf24;
-  --chart-5: #34d399;
+  --chart-1: #3aa8ff;
+  --chart-2: #63baff;
+  --chart-3: #8ec8ff;
+  --chart-4: #1e5b8a;
+  --chart-5: #0a4a8a;
 
-  /* Sidebar — deep navy with cyan accents */
-  --sidebar: #0d1428;
-  --sidebar-foreground: #e2e8f0;
-  --sidebar-primary: #00b8ff;
+  --sidebar: #0d141d;
+  --sidebar-foreground: #f4f8fc;
+  --sidebar-primary: #3aa8ff;
   --sidebar-primary-foreground: #06283a;
-  --sidebar-accent: #17223a;
-  --sidebar-accent-foreground: #e2e8f0;
-  --sidebar-border: #223047;
-  --sidebar-ring: #00b8ff;
+  --sidebar-accent: #162638;
+  --sidebar-accent-foreground: #63baff;
+  --sidebar-border: #223140;
+  --sidebar-ring: #3aa8ff;
 }
 
 /* Dark-mode adjustments for hand-written utility classes */
 .dark .bg-vault {
-  background-color: #0d1428;
+  background-color: #0d141d;
 }
 .dark .btn-primary {
   color: #06283a;
 }
+.dark .btn-primary:hover {
+  background: #63baff;
+}
 .dark .btn-secondary {
-  background: #1b2537;
-  color: #e2e8f0;
-  border-color: #223047;
+  background: #121c27;
+  color: #f4f8fc;
+  border-color: #314355;
 }
 .dark .btn-secondary:hover {
-  border-color: #00b8ff;
-  color: #00b8ff;
+  border-color: #3aa8ff;
+  color: #3aa8ff;
 }
 .dark .btn-danger {
   background: rgba(248, 113, 113, 0.12);
@@ -214,63 +215,46 @@
   border-color: rgba(252, 165, 165, 0.5);
 }
 .dark .table-premium th {
-  background: #0f1729;
-  color: #94a3b8;
-  border-bottom-color: #223047;
+  background: #0d141d;
+  color: #728293;
+  border-bottom-color: #223140;
 }
 .dark .table-premium td {
-  border-bottom-color: #1b2537;
+  border-bottom-color: #162638;
 }
 .dark .table-premium tr:hover td {
-  background-color: #111c31;
-}
-.dark .table-premium tr:nth-child(even) td {
-  background-color: #0e1526;
-}
-.dark .table-premium tr:nth-child(even):hover td {
-  background-color: #16213a;
+  background-color: #121c27;
 }
 .dark .shadow-card {
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.35),
-    0 1px 2px rgba(0, 0, 0, 0.25);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
 }
 .dark .shadow-card-hover {
-  box-shadow:
-    0 4px 20px rgba(0, 0, 0, 0.4),
-    0 1px 3px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
 }
 .dark .shadow-dropdown {
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45);
 }
 .dark .shadow-modal {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
 }
-.dark .shadow-vault {
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
-}
 .dark .grid-lines {
   background-image:
-    linear-gradient(to right, rgba(148, 163, 184, 0.14) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(148, 163, 184, 0.14) 1px, transparent 1px);
+    linear-gradient(to right, rgba(148, 163, 184, 0.08) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(148, 163, 184, 0.08) 1px, transparent 1px);
 }
 .dark .metric-card {
-  background: #0f1729;
-  border-color: #223047;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-}
-.dark .metric-card:hover {
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+  background: #0d141d;
+  border-color: #223140;
 }
 .dark .metric-value {
-  color: #e2e8f0;
+  color: #f4f8fc;
 }
 
 @layer base {
   * {
     border-color: var(--color-border);
     transition-property: background-color, border-color, color;
-    transition-duration: 200ms;
+    transition-duration: 150ms;
     transition-timing-function: ease-out;
   }
   /* Keyboard focus — visible everywhere, never doubled on components that
@@ -280,7 +264,7 @@
     outline-offset: 2px;
   }
   ::selection {
-    background-color: rgba(0, 184, 255, 0.2);
+    background-color: rgba(0, 111, 207, 0.18);
     color: var(--color-foreground);
   }
   ::-webkit-scrollbar {
@@ -313,6 +297,7 @@
   }
   body {
     font-family: var(--font-sans);
+    font-size: 14px;
     font-feature-settings: "ss01", "cv11";
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -322,7 +307,7 @@
   h3,
   .font-display {
     font-family: var(--font-display);
-    letter-spacing: -0.02em;
+    letter-spacing: -0.015em;
   }
   .num,
   .font-mono {
@@ -348,35 +333,26 @@ input[type="number"] {
 }
 
 @layer utilities {
-  /* Card shadow — soft subtle elevation */
+  /* Elevation — used sparingly. Default surfaces rely on borders. */
   .shadow-card {
-    box-shadow:
-      0 1px 3px rgba(15, 23, 42, 0.04),
-      0 1px 2px rgba(15, 23, 42, 0.02);
+    box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04);
   }
   .shadow-card-hover {
-    box-shadow:
-      0 4px 20px rgba(15, 23, 42, 0.06),
-      0 1px 3px rgba(15, 23, 42, 0.04);
+    box-shadow: 0 4px 16px rgba(17, 24, 39, 0.08);
   }
   .shadow-dropdown {
-    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+    box-shadow: 0 4px 16px rgba(17, 24, 39, 0.1);
   }
   .shadow-modal {
-    box-shadow: 0 20px 60px rgba(15, 23, 42, 0.12);
-  }
-  .shadow-glow {
-    box-shadow:
-      0 0 0 1px rgba(0, 184, 255, 0.2),
-      0 8px 24px -4px rgba(0, 184, 255, 0.15);
+    box-shadow: 0 24px 64px rgba(17, 24, 39, 0.16);
   }
   .border-hairline {
-    border: 1px solid rgba(226, 232, 240, 0.7);
+    border: 1px solid var(--color-border);
   }
   .grid-lines {
     background-image:
-      linear-gradient(to right, rgba(226, 232, 240, 0.5) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(226, 232, 240, 0.5) 1px, transparent 1px);
+      linear-gradient(to right, rgba(203, 213, 225, 0.35) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(203, 213, 225, 0.35) 1px, transparent 1px);
     background-size: 64px 64px;
   }
   .bg-subtle {
@@ -389,146 +365,163 @@ input[type="number"] {
     background-color: #f1f5f9;
   }
   .shadow-vault {
-    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
+    box-shadow: 0 1px 3px rgba(17, 24, 39, 0.05);
   }
 
-  /* Premium table styles */
+  /* ── Financial tables ──
+     Clean header, hairline row rules, right-aligned numerals,
+     compact 48px rows. The table is the workhorse of this product. */
   .table-premium th {
-    font-size: 0.65rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #64748b;
-    padding: 0.75rem 1rem;
+    color: var(--color-muted-foreground);
+    padding: 0.625rem 1rem;
     text-align: left;
-    border-bottom: 1px solid #e2e8f0;
-    background: #f8fafc;
+    border-bottom: 1px solid var(--color-border);
+    background: transparent;
+    white-space: nowrap;
   }
   .table-premium td {
     padding: 0.75rem 1rem;
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid var(--color-border);
     font-size: 0.8125rem;
+    vertical-align: middle;
+  }
+  .table-premium tr:last-child td {
+    border-bottom: none;
   }
   .table-premium tr:hover td {
-    background-color: #f8fafc;
+    background-color: var(--color-surface-subtle);
   }
-  .table-premium tr:nth-child(even) td {
-    background-color: #fafbfc;
-  }
-  .table-premium tr:nth-child(even):hover td {
-    background-color: #f0f9ff;
+  .table-premium .num {
+    font-variant-numeric: tabular-nums;
   }
 
-  /* Button styles */
+  /* ── Buttons ──
+     One dominant action per page. Solid blue, 8px radius, 40px height. */
   .btn-primary {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    border-radius: 12px;
-    background: linear-gradient(135deg, #00b8ff, #0099d9);
-    color: #ffffff;
-    font-size: 0.8125rem;
-    font-weight: 500;
+    border-radius: 8px;
+    background: var(--color-primary);
+    color: var(--color-primary-foreground);
+    font-size: 0.875rem;
+    font-weight: 600;
     padding: 0.625rem 1.25rem;
-    box-shadow: 0 1px 3px rgba(0, 184, 255, 0.2);
-    transition: all 200ms ease;
+    height: 40px;
+    transition: background-color 150ms ease;
     cursor: pointer;
     border: none;
   }
   .btn-primary:hover {
-    background: #0099d9;
-    box-shadow: 0 4px 12px rgba(0, 184, 255, 0.3);
-    transform: translateY(-1px);
+    background: var(--color-primary-hover, #005fb3);
   }
   .btn-primary:active {
-    transform: translateY(0);
+    background: var(--color-primary-active, #004f97);
+  }
+  .btn-primary:disabled {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
   .btn-secondary {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    border-radius: 12px;
-    background: #ffffff;
-    color: #0f172a;
-    font-size: 0.8125rem;
+    border-radius: 8px;
+    background: var(--color-card);
+    color: var(--color-foreground);
+    font-size: 0.875rem;
     font-weight: 500;
     padding: 0.625rem 1.25rem;
-    border: 1px solid #e2e8f0;
-    transition: all 200ms ease;
+    height: 40px;
+    border: 1px solid var(--color-border-strong);
+    transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
     cursor: pointer;
   }
   .btn-secondary:hover {
-    border-color: #00b8ff;
-    color: #00b8ff;
-    box-shadow: 0 1px 3px rgba(0, 184, 255, 0.1);
+    border-color: var(--color-primary);
+    color: var(--color-primary);
   }
   .btn-danger {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    border-radius: 12px;
-    background: #fef2f2;
-    color: #dc2626;
+    border-radius: 8px;
+    background: rgba(199, 58, 63, 0.06);
+    color: var(--color-destructive);
     font-size: 0.8125rem;
     font-weight: 500;
     padding: 0.625rem 1.25rem;
-    border: 1px solid #fecaca;
-    transition: all 200ms ease;
+    border: 1px solid rgba(199, 58, 63, 0.28);
+    transition: all 150ms ease;
     cursor: pointer;
   }
   .btn-danger:hover {
-    background: #fee2e2;
-    border-color: #fca5a5;
+    background: rgba(199, 58, 63, 0.1);
+    border-color: rgba(199, 58, 63, 0.45);
   }
 
-  /* KPI Metric card */
+  /* ── Metric block ──
+     Flat, bordered, 12px radius, no floating shadow. Values are the hero. */
   .metric-card {
-    background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-radius: 16px;
-    padding: 1.5rem;
-    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.06);
-    transition: all 200ms ease;
+    background: var(--color-card);
+    border: 1px solid var(--color-border);
+    border-radius: 12px;
+    padding: 1.25rem 1.5rem;
+    transition: border-color 150ms ease;
   }
   .metric-card:hover {
-    box-shadow: 0 8px 30px rgba(15, 23, 42, 0.08);
-    transform: translateY(-2px);
+    border-color: var(--color-border-strong);
   }
   .metric-value {
     font-size: 1.75rem;
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: -0.02em;
-    color: #0f172a;
-    font-family: var(--font-mono);
+    color: var(--color-foreground);
     font-variant-numeric: tabular-nums;
-    line-height: 1.2;
+    line-height: 1.15;
   }
   .metric-label {
-    font-size: 0.7rem;
+    font-size: 0.6875rem;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: #64748b;
-    font-weight: 500;
-    margin-bottom: 0.25rem;
+    letter-spacing: 0.09em;
+    color: var(--color-muted-foreground);
+    font-weight: 600;
+    margin-bottom: 0.375rem;
   }
   .metric-delta {
     font-size: 0.75rem;
     margin-top: 0.375rem;
   }
 
-  /* Status pills */
+  /* ── Status indicators — blue family + neutral; red only for critical.
+     Always paired with an icon or explicit wording, never color alone. */
   .status-pill {
     display: inline-flex;
     align-items: center;
+    gap: 0.375rem;
     border-radius: 9999px;
-    padding: 0.125rem 0.75rem;
-    font-size: 0.65rem;
+    padding: 0.1875rem 0.625rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .status-pill::before {
+    content: "";
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 9999px;
+    background: currentColor;
+    opacity: 0.9;
   }
 
   /* SPA fallback: full height layout */
@@ -538,31 +531,26 @@ input[type="number"] {
     width: 100%;
   }
 
-  /* App surface — soft ambient colour wash behind every page so the layout
-     has depth without distracting from the content cards on top. */
+  /* App canvas — a calm cool-white surface in light mode, deep navy in dark.
+     No gradients, no glows: the data carries the visual weight. */
   .app-surface {
+    background-color: var(--color-surface-subtle);
+  }
+  .dark .app-surface {
     background-color: var(--color-background);
-    background-image:
-      radial-gradient(
-        900px 420px at 88% -8%,
-        color-mix(in oklab, var(--color-primary) 9%, transparent),
-        transparent 62%
-      ),
-      radial-gradient(
-        760px 420px at -12% 108%,
-        color-mix(in oklab, var(--color-primary) 6%, transparent),
-        transparent 60%
-      );
   }
 
   /* Soft entrance for route changes (applied to the Outlet wrapper). */
   .page-enter {
-    animation: page-enter 280ms cubic-bezier(0.16, 1, 0.3, 1);
+    width: 100%;
+    max-width: 1600px;
+    margin-inline: auto;
+    animation: page-enter 180ms cubic-bezier(0.16, 1, 0.3, 1);
   }
   @keyframes page-enter {
     from {
       opacity: 0;
-      transform: translateY(4px);
+      transform: translateY(3px);
     }
     to {
       opacity: 1;

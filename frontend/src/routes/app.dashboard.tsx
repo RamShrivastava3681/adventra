@@ -4,7 +4,6 @@ import { useState } from "react";
 import api from "@/lib/api-client";
 import {
   PageHeader,
-  Stat,
   Card,
   StatusPill,
   EmptyState,
@@ -12,7 +11,16 @@ import {
   fmtDate,
   daysBetween,
 } from "@/components/ledger-ui";
-import { Activity, Paperclip, X, Link2, FileText, Receipt, LayoutDashboard } from "lucide-react";
+import {
+  Activity,
+  Paperclip,
+  X,
+  Link2,
+  FileText,
+  Receipt,
+  LayoutDashboard,
+  AlertTriangle,
+} from "lucide-react";
 import { DocumentList, type DocMeta } from "@/components/document-uploader";
 import { DashboardSkeleton } from "@/components/skeletons";
 import {
@@ -166,14 +174,11 @@ function Dashboard() {
     <div>
       <PageHeader
         eyebrow="Portfolio"
-        title="Portfolio dashboard"
-        description="Live receivables, advances, and income across every client — the same real numbers for the whole team."
+        title="Portfolio overview"
+        description="Track receivables, advances, settlements and portfolio performance across your clients."
         icon={<LayoutDashboard className="h-5 w-5" />}
         actions={
-          <Link
-            to="/app/queue"
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-          >
+          <Link to="/app/queue" className="btn-primary">
             Open funding queue
           </Link>
         }
@@ -182,133 +187,89 @@ function Dashboard() {
       {isDashboardLoading ? (
         <DashboardSkeleton />
       ) : (
-        <div className="space-y-6 p-6 md:p-10">
-          {/* Income stats */}
-          <div className="grid gap-4 md:grid-cols-4">
-              <Stat
-                label="Sales (gross)"
+        <div className="mx-auto max-w-[1440px] space-y-10 px-6 py-8 md:px-10">
+          {/* ── Primary portfolio metrics ── */}
+          <section>
+            <SectionHeading>Portfolio value</SectionHeading>
+            <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+              <PrimaryMetric
+                label="Gross sales"
                 value={fmtMoney(salesTotal)}
-                delta={`${invoices.length} invoices`}
+                meta={`${invoices.length} invoices`}
               />
-              <Stat
-                label="Cost of goods (purchases)"
-                value={fmtMoney(purchaseTotal)}
-                delta={`${purchases.length} supplier invoices`}
+              <PrimaryMetric
+                label="Outstanding AR"
+                value={fmtMoney(totalOutstanding)}
+                meta={`${invoices.filter((i) => i.status !== "paid" && i.status !== "rejected").length} open invoices`}
               />
-              <Stat
-                label="Gross income"
-                value={fmtMoney(gross)}
-                delta={`${marginPct.toFixed(1)}% margin`}
-                tone={gross >= 0 ? "good" : "bad"}
-              />            <Stat
-              label="Net income"
-              value={fmtMoney(net)}
-              delta={`After ${fmtMoney(expenseTotal)} expenses`}
-              tone={net >= 0 ? "good" : "bad"}
-            />
-          </div>
+              <PrimaryMetric
+                label="Advanced"
+                value={fmtMoney(totalAdvanced)}
+                meta="Across funded invoices"
+                accent
+              />
+              <PrimaryMetric
+                label="Collection rate"
+                value={`${collectionRate}%`}
+                meta="Lifetime, by count"
+                accent={collectionRate >= 90}
+              />
+            </div>
+          </section>
 
-          {/* Operational stats */}
-          <div className="grid gap-4 md:grid-cols-4">
-            <Stat
-              label="Outstanding (AR)"
-              value={fmtMoney(totalOutstanding)}
-              delta={`${invoices.length} invoices`}
-            />
-            <Stat
-              label="Advanced"
-              value={fmtMoney(totalAdvanced)}
-              delta="Across funded invoices"
-              tone="good"
-            />
-            <Stat
-              label="Overdue"
-              value={String(overdueCount)}
-              delta={overdueCount > 0 ? "Action required" : "All clean"}
-              tone={overdueCount ? "bad" : "good"}
-            />
-            <Stat
-              label="Collection rate"
-              value={`${collectionRate}%`}
-              delta="Lifetime"
-              tone={collectionRate >= 90 ? "good" : "warn"}
-            />
-          </div>
-
-          {/* Settlement quality */}
-          <div className="grid gap-4 md:grid-cols-3">
-            <Stat
-              label="Short payments"
-              value={fmtMoney(totalShortPayment)}
-              delta={`${paidInvoices.filter((i: any) => Number(i.short_payment ?? 0) > 0).length} invoices short paid`}
-              tone={totalShortPayment > 0 ? "bad" : "good"}
-            />
-            <Stat
-              label="Avg late days"
-              value={String(avgLateDays)}
-              delta={`${lateInvoices.length} late settlements`}
-              tone={avgLateDays > 0 ? "warn" : "good"}
-            />
-            <Stat
-              label="On-time settlements"
-              value={String(paidInvoices.length - lateInvoices.length)}
-              delta={`of ${paidInvoices.length} closed`}
-              tone="good"
-            />
-          </div>
-
-          {/* Income trend */}
+          {/* ── Portfolio performance chart ── */}
           {incomeTrend.length > 0 && (
             <Card
-              title="Gross vs net income"
-              action={<span className="text-xs text-muted-foreground">Last 8 months</span>}
+              title="Portfolio performance"
+              action={<span className="text-xs text-muted-foreground">Gross vs net · last 8 months</span>}
             >
               <div className="h-64">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={incomeTrend}>
+                  <AreaChart data={incomeTrend} margin={{ top: 8, right: 8, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="ig" x1="0" x2="0" y1="0" y2="1">
-                        <stop offset="0%" stopColor="#00B8FF" stopOpacity={0.15} />
-                        <stop offset="100%" stopColor="#00B8FF" stopOpacity={0} />
+                        <stop offset="0%" style={{ stopColor: "var(--color-chart-1)" }} stopOpacity={0.14} />
+                        <stop offset="100%" style={{ stopColor: "var(--color-chart-1)" }} stopOpacity={0} />
                       </linearGradient>
                       <linearGradient id="ng" x1="0" x2="0" y1="0" y2="1">
-                        <stop offset="0%" stopColor="#0066FF" stopOpacity={0.12} />
-                        <stop offset="100%" stopColor="#0066FF" stopOpacity={0} />
+                        <stop offset="0%" style={{ stopColor: "var(--color-chart-2)" }} stopOpacity={0.1} />
+                        <stop offset="100%" style={{ stopColor: "var(--color-chart-2)" }} stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <CartesianGrid
-                      stroke="var(--color-border)"
-                      strokeDasharray="3 3"
-                      vertical={false}
-                    />
+                    <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" vertical={false} />
                     <XAxis
                       dataKey="month"
                       stroke="var(--color-muted-foreground)"
                       fontSize={11}
                       tickLine={false}
+                      axisLine={false}
+                      tickMargin={8}
                     />
                     <YAxis
                       stroke="var(--color-muted-foreground)"
                       fontSize={11}
                       tickLine={false}
+                      axisLine={false}
+                      width={56}
                       tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
                     />
                     <Tooltip
+                      cursor={{ stroke: "var(--color-border-strong)" }}
                       contentStyle={{
                         background: "var(--color-popover)",
                         border: "1px solid var(--color-border)",
-                        borderRadius: 12,
+                        borderRadius: 10,
                         fontSize: 12,
-                        boxShadow: "0 4px 20px rgba(15,23,42,0.06)",
+                        boxShadow: "0 8px 24px rgba(17,24,39,0.1)",
                       }}
                       formatter={(v: number) => fmtMoney(v)}
                     />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} iconType="circle" />
                     <Area
                       type="monotone"
                       dataKey="gross"
                       name="Gross"
-                      stroke="#00B8FF"
+                      stroke="var(--color-chart-1)"
                       strokeWidth={2}
                       fill="url(#ig)"
                     />
@@ -316,7 +277,7 @@ function Dashboard() {
                       type="monotone"
                       dataKey="net"
                       name="Net"
-                      stroke="#0066FF"
+                      stroke="var(--color-chart-2)"
                       strokeWidth={2}
                       fill="url(#ng)"
                     />
@@ -326,55 +287,104 @@ function Dashboard() {
             </Card>
           )}
 
-          {/* Aging */}
-          <div className="grid gap-4 lg:grid-cols-3">
+          {/* ── Secondary performance band ── */}
+          <section>
+            <SectionHeading>Performance</SectionHeading>
+            <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-border md:grid-cols-3 xl:grid-cols-6">
+              <SecondaryMetric
+                label="Cost of goods"
+                value={fmtMoney(purchaseTotal)}
+                meta={`${purchases.length} supplier invoices`}
+              />
+              <SecondaryMetric
+                label="Gross income"
+                value={fmtMoney(gross)}
+                meta={`${marginPct.toFixed(1)}% margin`}
+                tone={gross >= 0 ? "good" : "bad"}
+              />
+              <SecondaryMetric
+                label="Net income"
+                value={fmtMoney(net)}
+                meta={`After ${fmtMoney(expenseTotal)} expenses`}
+                tone={net >= 0 ? "good" : "bad"}
+              />
+              <SecondaryMetric
+                label="Overdue"
+                value={String(overdueCount)}
+                meta={overdueCount > 0 ? "Action required" : "All clean"}
+                tone={overdueCount > 0 ? "bad" : "good"}
+              />
+              <SecondaryMetric
+                label="Short payments"
+                value={fmtMoney(totalShortPayment)}
+                meta={`${paidInvoices.filter((i: any) => Number(i.short_payment ?? 0) > 0).length} invoices short paid`}
+                tone={totalShortPayment > 0 ? "bad" : "good"}
+              />
+              <SecondaryMetric
+                label="Avg late days"
+                value={String(avgLateDays)}
+                meta={`${lateInvoices.length} late · ${paidInvoices.length - lateInvoices.length} on time`}
+                tone={avgLateDays > 0 ? "warn" : "good"}
+              />
+            </div>
+          </section>
+
+          {/* ── Aging + Alerts ── */}
+          <div className="grid gap-6 lg:grid-cols-3">
             <Card title="Aging waterfall" className="lg:col-span-2">
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {[
-                  { label: "Current", val: aging.current, tone: "bg-success" },
-                  { label: "1–30 days", val: aging.b1, tone: "bg-primary" },
-                  { label: "31–60 days", val: aging.b2, tone: "bg-warning" },
-                  { label: "61–90 days", val: aging.b3, tone: "bg-warning" },
-                  { label: "90+ days", val: aging.b4, tone: "bg-destructive" },
+                  { label: "Current", val: aging.current, bar: "bg-[var(--color-chart-4)]" },
+                  { label: "1–30 days", val: aging.b1, bar: "bg-[var(--color-chart-2)]" },
+                  { label: "31–60 days", val: aging.b2, bar: "bg-[var(--color-chart-1)]" },
+                  { label: "61–90 days", val: aging.b3, bar: "bg-[var(--color-chart-3)]" },
+                  { label: "90+ days", val: aging.b4, bar: "bg-[var(--color-chart-5)]" },
                 ].map((b) => {
                   const total = (Object.values(aging) as number[]).reduce((a, x) => a + x, 0) || 1;
                   const pct = (b.val / total) * 100;
                   return (
                     <div key={b.label}>
-                      <div className="flex justify-between text-xs">
+                      <div className="flex items-center justify-between text-xs">
                         <span className="text-muted-foreground">{b.label}</span>
-                        <span className="num">{fmtMoney(b.val)}</span>
+                        <span className="num font-medium text-foreground">{fmtMoney(b.val)}</span>
                       </div>
-                      <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
-                        <div className={`h-full ${b.tone}`} style={{ width: `${pct}%` }} />
+                      <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                        <div className={`h-full ${b.bar}`} style={{ width: `${pct}%` }} />
                       </div>
                     </div>
                   );
                 })}
+                <div className="flex items-center gap-1.5 pt-1 text-[11px] text-muted-foreground">
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  Buckets beyond 60 days may need follow-up with the debtor.
+                </div>
               </div>
             </Card>
 
             <Card
               title="Alerts"
               action={
-                <Link to="/app/alerts" className="text-xs text-primary">
-                  All →
+                <Link to="/app/alerts" className="text-xs font-medium text-primary hover:underline">
+                  View all
                 </Link>
               }
             >
               {(alertsQ.data ?? []).length === 0 ? (
                 <EmptyState
-                  icon={<Activity className="h-6 w-6" />}
+                  icon={<Activity className="h-5 w-5" />}
                   title="No alerts"
                   description="You're all caught up — new alerts will surface here."
                 />
               ) : (
-                <ul className="space-y-2">
+                <ul className="space-y-1.5">
                   {(alertsQ.data ?? []).map((a) => (
-                    <li key={a.id} className="rounded-md border border-border bg-background/40 p-3">
-                      <div className="flex items-start gap-2">
+                    <li
+                      key={a.id}
+                      className="rounded-lg border border-border bg-background/40 px-3 py-2.5 transition-colors hover:border-border-strong"
+                    >
+                      <div className="flex items-start gap-2.5">
                         <span
-                          className={`mt-1.5 h-2 w-2 rounded-full ${
+                          className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
                             a.severity === "critical"
                               ? "bg-destructive"
                               : a.severity === "warning"
@@ -382,8 +392,8 @@ function Dashboard() {
                                 : "bg-primary"
                           }`}
                         />
-                        <div className="flex-1">
-                          <div className="text-sm">{a.message}</div>
+                        <div className="min-w-0 flex-1">
+                          <div className="text-[13px] leading-snug">{a.message}</div>
                           <div className="mt-0.5 text-[10px] uppercase tracking-widest text-muted-foreground">
                             {fmtDate(a.created_at)} · {a.type}
                           </div>
@@ -396,53 +406,53 @@ function Dashboard() {
             </Card>
           </div>
 
-          {/* Recent invoices */}
+          {/* ── Recent invoices ── */}
           <Card
             title="Recent invoices"
             action={
-              <Link to="/app/invoices" className="text-xs text-primary">
-                View all →
+              <Link to="/app/invoices" className="text-xs font-medium text-primary hover:underline">
+                View all
               </Link>
             }
           >
             {invoices.length === 0 ? (
               <EmptyState
-                icon={<FileText className="h-6 w-6" />}
+                icon={<FileText className="h-5 w-5" />}
                 title="No invoices yet"
                 description="Create your first invoice to start building the portfolio."
               />
             ) : (
               <div className="-mx-5 overflow-x-auto">
-                <table className="table-premium w-full text-sm">
-                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                    <tr className="border-b border-border">
-                      <th className="px-5 py-2 text-left font-normal">Invoice</th>
-                      <th className="px-5 py-2 text-left font-normal">Debtor</th>
-                      <th className="px-5 py-2 text-right font-normal">Amount</th>
-                      <th className="px-5 py-2 text-left font-normal">Due</th>
-                      <th className="px-5 py-2 text-right font-normal">Short pay</th>
-                      <th className="px-5 py-2 text-right font-normal">Late days</th>
-                      <th className="px-5 py-2 text-left font-normal">Status</th>
+                <table className="table-premium w-full">
+                  <thead>
+                    <tr>
+                      <th>Invoice</th>
+                      <th>Debtor</th>
+                      <th className="text-right">Amount</th>
+                      <th>Due</th>
+                      <th className="text-right">Short pay</th>
+                      <th className="text-right">Late days</th>
+                      <th>Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {invoices.slice(0, 6).map((i: any) => (
-                      <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3 font-mono text-xs">{i.invoice_number}</td>
-                        <td className="px-5 py-3">{debtorName(i.debtor_id)}</td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(i.amount)}</td>
-                        <td className="px-5 py-3 text-muted-foreground">{fmtDate(i.due_date)}</td>
+                      <tr key={i.id}>
+                        <td className="font-mono text-xs">{i.invoice_number}</td>
+                        <td className="text-foreground">{debtorName(i.debtor_id)}</td>
+                        <td className="num text-right font-medium">{fmtMoney(i.amount)}</td>
+                        <td className="text-muted-foreground">{fmtDate(i.due_date)}</td>
                         <td
-                          className={`px-5 py-3 text-right num ${Number(i.short_payment) > 0 ? "text-destructive" : "text-muted-foreground"}`}
+                          className={`num text-right ${Number(i.short_payment) > 0 ? "text-destructive" : "text-muted-foreground"}`}
                         >
                           {i.short_payment != null ? fmtMoney(Number(i.short_payment)) : "—"}
                         </td>
                         <td
-                          className={`px-5 py-3 text-right num ${Number(i.late_days) > 0 ? "text-warning" : "text-muted-foreground"}`}
+                          className={`num text-right ${Number(i.late_days) > 0 ? "text-warning" : "text-muted-foreground"}`}
                         >
                           {i.late_days != null ? i.late_days : "—"}
                         </td>
-                        <td className="px-5 py-3">
+                        <td>
                           <StatusPill status={i.status} />
                         </td>
                       </tr>
@@ -453,148 +463,219 @@ function Dashboard() {
             )}
           </Card>
 
-          {/* Recent expenses */}
-          <Card
-            title="Recent expenses"
-            action={
-              <Link to="/app/expenses" className="text-xs text-primary">
-                View all →
-              </Link>
-            }
-          >
-            {expenses.length === 0 ? (
-              <EmptyState
-                icon={<Receipt className="h-6 w-6" />}
-                title="No expenses logged"
-                description="Recorded expenses will appear here."
-              />
-            ) : (
-              <div className="-mx-5 overflow-x-auto">
-                <table className="table-premium w-full text-sm">
-                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                    <tr className="border-b border-border">
-                      <th className="px-5 py-2 text-left font-normal">Date</th>
-                      <th className="px-5 py-2 text-left font-normal">Category</th>
-                      <th className="px-5 py-2 text-left font-normal">Linked transaction</th>
-                      <th className="px-5 py-2 text-left font-normal">Description</th>
-                      <th className="px-5 py-2 text-right font-normal">Docs</th>
-                      <th className="px-5 py-2 text-right font-normal">Amount</th>
-                      <th className="px-5 py-2 text-right font-normal" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {expenses.slice(0, 6).map((e: any) => {
-                      const link = e.invoice?.invoice_number
-                        ? { kind: "Sale", num: e.invoice.invoice_number }
-                        : e.purchase?.invoice_number
-                          ? { kind: "Purchase", num: e.purchase.invoice_number }
-                          : null;
-                      const docCount = Array.isArray(e.documents) ? e.documents.length : 0;
-                      return (
-                        <tr key={e.id} className="border-b border-border/60 hover:bg-muted/30">
-                          <td className="px-5 py-3">{fmtDate(e.expense_date)}</td>
-                          <td className="px-5 py-3 capitalize">{e.category}</td>
-                          <td className="px-5 py-3">
-                            {link ? (
-                              <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background/40 px-2 py-0.5 text-xs">
-                                <Link2 className="h-3 w-3 text-primary" />
-                                <span className="text-muted-foreground">{link.kind}</span>
-                                <span className="font-mono">{link.num}</span>
-                              </span>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">Unlinked</span>
-                            )}
-                          </td>
-                          <td className="px-5 py-3 text-muted-foreground">
-                            {e.description ?? "—"}
-                          </td>
-                          <td className="px-5 py-3 text-right">
-                            {docCount > 0 ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
-                                <Paperclip className="h-3 w-3" />
-                                {docCount}
-                              </span>
-                            ) : (
-                              <span className="text-[10px] text-muted-foreground">—</span>
-                            )}
-                          </td>
-                          <td className="px-5 py-3 text-right num">{fmtMoney(e.amount)}</td>
-                          <td className="px-5 py-3 text-right">
-                            <button
-                              onClick={() => setViewingExpense(e)}
-                              className="rounded-md border border-border px-2 py-1 text-[10px] uppercase tracking-widest text-muted-foreground hover:border-primary hover:text-primary"
-                            >
-                              Details
-                            </button>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-
-          {/* Debtor concentration */}
-          {(debtorsQ.data ?? []).length > 0 && (
+          {/* ── Recent expenses + concentration ── */}
+          <div className="grid gap-6 lg:grid-cols-5">
             <Card
-              title="Debtor concentration"
+              title="Recent expenses"
+              className="lg:col-span-3"
               action={
-                <Link to="/app/debtors" className="text-xs text-primary">
-                  Manage →
+                <Link to="/app/expenses" className="text-xs font-medium text-primary hover:underline">
+                  View all
                 </Link>
               }
             >
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart
-                    data={(debtorsQ.data ?? []).slice(0, 8).map((d) => {
-                      const exposure = invoices
-                        .filter((i) => i.debtor_id === d.id && i.status !== "paid")
-                        .reduce((s, i) => s + Number(i.amount), 0);
-                      return { name: d.name.slice(0, 14), exposure };
-                    })}
-                  >
-                    <CartesianGrid
-                      stroke="var(--color-border)"
-                      strokeDasharray="3 3"
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="name"
-                      stroke="var(--color-muted-foreground)"
-                      fontSize={11}
-                      tickLine={false}
-                    />
-                    <YAxis
-                      stroke="var(--color-muted-foreground)"
-                      fontSize={11}
-                      tickLine={false}
-                      tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
-                    />
-                    <Tooltip
-                      contentStyle={{
-                        background: "var(--color-popover)",
-                        border: "1px solid var(--color-border)",
-                        borderRadius: 12,
-                        fontSize: 12,
-                        boxShadow: "0 4px 20px rgba(15,23,42,0.06)",
-                      }}
-                      formatter={(v: number) => fmtMoney(v)}
-                    />
-                    <Bar dataKey="exposure" fill="#00B8FF" radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
+              {expenses.length === 0 ? (
+                <EmptyState
+                  icon={<Receipt className="h-5 w-5" />}
+                  title="No expenses logged"
+                  description="Recorded expenses will appear here."
+                />
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Category</th>
+                        <th>Linked transaction</th>
+                        <th>Description</th>
+                        <th className="text-right">Docs</th>
+                        <th className="text-right">Amount</th>
+                        <th className="text-right" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {expenses.slice(0, 5).map((e: any) => {
+                        const link = e.invoice?.invoice_number
+                          ? { kind: "Sale", num: e.invoice.invoice_number }
+                          : e.purchase?.invoice_number
+                            ? { kind: "Purchase", num: e.purchase.invoice_number }
+                            : null;
+                        const docCount = Array.isArray(e.documents) ? e.documents.length : 0;
+                        return (
+                          <tr key={e.id}>
+                            <td>{fmtDate(e.expense_date)}</td>
+                            <td className="capitalize">{e.category}</td>
+                            <td>
+                              {link ? (
+                                <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background/40 px-2 py-0.5 text-xs">
+                                  <Link2 className="h-3 w-3 text-primary" />
+                                  <span className="text-muted-foreground">{link.kind}</span>
+                                  <span className="font-mono">{link.num}</span>
+                                </span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">Unlinked</span>
+                              )}
+                            </td>
+                            <td className="text-muted-foreground">{e.description ?? "—"}</td>
+                            <td className="text-right">
+                              {docCount > 0 ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+                                  <Paperclip className="h-3 w-3" />
+                                  {docCount}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground">—</span>
+                              )}
+                            </td>
+                            <td className="num text-right font-medium">{fmtMoney(e.amount)}</td>
+                            <td className="text-right">
+                              <button
+                                onClick={() => setViewingExpense(e)}
+                                className="rounded-md border border-border px-2 py-1 text-[10px] uppercase tracking-widest text-muted-foreground transition-colors hover:border-primary hover:text-primary"
+                              >
+                                Details
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </Card>
-          )}
+
+            {(debtorsQ.data ?? []).length > 0 && (
+              <Card
+                title="Debtor concentration"
+                className="lg:col-span-2"
+                action={
+                  <Link to="/app/debtors" className="text-xs font-medium text-primary hover:underline">
+                    Manage
+                  </Link>
+                }
+              >
+                <div className="h-64">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart
+                      data={(debtorsQ.data ?? []).slice(0, 8).map((d) => {
+                        const exposure = invoices
+                          .filter((i) => i.debtor_id === d.id && i.status !== "paid")
+                          .reduce((s, i) => s + Number(i.amount), 0);
+                        return { name: d.name.slice(0, 14), exposure };
+                      })}
+                      margin={{ top: 8, right: 8, left: 0, bottom: 0 }}
+                    >
+                      <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" vertical={false} />
+                      <XAxis
+                        dataKey="name"
+                        stroke="var(--color-muted-foreground)"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                        tickMargin={8}
+                      />
+                      <YAxis
+                        stroke="var(--color-muted-foreground)"
+                        fontSize={11}
+                        tickLine={false}
+                        axisLine={false}
+                        width={48}
+                        tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                      />
+                      <Tooltip
+                        cursor={{ fill: "var(--color-muted)" }}
+                        contentStyle={{
+                          background: "var(--color-popover)",
+                          border: "1px solid var(--color-border)",
+                          borderRadius: 10,
+                          fontSize: 12,
+                          boxShadow: "0 8px 24px rgba(17,24,39,0.1)",
+                        }}
+                        formatter={(v: number) => fmtMoney(v)}
+                      />
+                      <Bar dataKey="exposure" fill="var(--color-chart-1)" radius={[3, 3, 0, 0]} maxBarSize={32} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              </Card>
+            )}
+          </div>
         </div>
       )}
 
       {viewingExpense && (
         <ExpenseDetailModal expense={viewingExpense} onClose={() => setViewingExpense(null)} />
       )}
+    </div>
+  );
+}
+
+/* ── Dashboard metric building blocks ────────────────────────────── */
+
+function SectionHeading({ children }: { children: string }) {
+  return (
+    <h2 className="mb-3 text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+      {children}
+    </h2>
+  );
+}
+
+function PrimaryMetric({
+  label,
+  value,
+  meta,
+  accent = false,
+}: {
+  label: string;
+  value: string;
+  meta?: string;
+  accent?: boolean;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-5">
+      <div className="text-[11px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
+        {label}
+      </div>
+      <div
+        className={`num mt-2 text-[30px] font-semibold leading-none tracking-tight ${
+          accent ? "text-primary" : "text-foreground"
+        }`}
+      >
+        {value}
+      </div>
+      {meta && <div className="mt-2 text-xs text-muted-foreground">{meta}</div>}
+    </div>
+  );
+}
+
+function SecondaryMetric({
+  label,
+  value,
+  meta,
+  tone = "neutral",
+}: {
+  label: string;
+  value: string;
+  meta?: string;
+  tone?: "neutral" | "good" | "warn" | "bad";
+}) {
+  const toneCls = {
+    neutral: "text-foreground",
+    good: "text-primary",
+    warn: "text-warning",
+    bad: "text-destructive",
+  }[tone];
+  return (
+    <div className="bg-card p-4">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
+        {label}
+      </div>
+      <div className={`num mt-1.5 text-lg font-semibold leading-none tracking-tight ${toneCls}`}>
+        {value}
+      </div>
+      {meta && <div className="mt-1.5 truncate text-[11px] text-muted-foreground">{meta}</div>}
     </div>
   );
 }
@@ -612,16 +693,20 @@ function ExpenseDetailModal({ expense, onClose }: { expense: any; onClose: () =>
   const docs: DocMeta[] = Array.isArray(expense.documents) ? expense.documents : [];
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center bg-black/50 p-4"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-2xl border border-border bg-card shadow-modal"
+        className="w-full max-w-lg rounded-xl border border-border bg-card shadow-modal"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">Expense detail</h3>
-          <button onClick={onClose}>
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3.5">
+          <h3 className="text-base font-semibold tracking-tight">Expense detail</h3>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
             <X className="h-4 w-4" />
           </button>
         </div>

@@ -616,13 +616,13 @@ function SummaryCards({
       />
       <HeaderStat
         icon={<AlertTriangle className="h-4 w-4" />}
-        iconClass="bg-amber-50 text-amber-600"
+        iconClass="bg-warning/10 text-warning"
         value={needReorder}
         label="Need Reorder"
       />
       <HeaderStat
         icon={<Zap className="h-4 w-4" />}
-        iconClass="bg-rose-50 text-rose-600"
+        iconClass="bg-destructive/10 text-destructive"
         value={stockoutRisk}
         label="Stockout Risk"
       />
@@ -801,12 +801,12 @@ function FiltersToolbar({
       {/* Right group */}
       <div className="ml-auto flex flex-wrap items-center gap-2">
         <span
-          className="hidden items-center gap-1.5 text-xs text-emerald-600 md:inline-flex"
+          className="hidden items-center gap-1.5 text-xs text-primary md:inline-flex"
           title="Forecasts refresh automatically every 60 seconds"
         >
           <span className="relative flex h-1.5 w-1.5">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-75" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
           </span>
           Live
         </span>
@@ -1130,8 +1130,8 @@ function TableRow({
               }
               className={`text-sm tabular-nums ${
                 stockoutDays !== null && stockoutDays <= 7
-                  ? "font-medium text-red-600"
-                  : "text-amber-600"
+                  ? "font-medium text-destructive"
+                  : "text-warning"
               }`}
             >
               {fmtShortDate(f.estimatedStockoutDate)}
@@ -1273,8 +1273,8 @@ function MobileRowCard({
             className={`tabular-nums ${
               f.estimatedStockoutDate
                 ? stockoutDays !== null && stockoutDays <= 7
-                  ? "font-medium text-red-600"
-                  : "text-amber-600"
+                  ? "font-medium text-destructive"
+                  : "text-warning"
                 : "text-muted-foreground"
             }`}
           >
@@ -1535,10 +1535,10 @@ function velocityLabel(t: VelocityTag): string {
 }
 
 function velocityColor(t: VelocityTag): string {
-  if (t === "fast_mover") return "text-emerald-600";
+  if (t === "fast_mover") return "text-primary";
   if (t === "medium_mover") return "text-muted-foreground";
-  if (t === "slow_mover") return "text-amber-600";
-  return "text-rose-600";
+  if (t === "slow_mover") return "text-warning";
+  return "text-destructive";
 }
 
 const MOMENTUM_LABEL: Record<MomentumTag, string> = {
@@ -1553,9 +1553,9 @@ function momentumLabel(t: MomentumTag): string {
 }
 
 function momentumColor(t: MomentumTag): string {
-  if (t === "accelerating") return "text-emerald-600";
+  if (t === "accelerating") return "text-primary";
   if (t === "stable") return "text-muted-foreground";
-  if (t === "declining") return "text-amber-600";
+  if (t === "declining") return "text-warning";
   return "text-muted-foreground";
 }
 
@@ -1670,7 +1670,7 @@ function EditPricingForm({
         </button>
       </div>
       {savedFlash && (
-        <div className="mt-2 rounded-lg border border-emerald-500/20 bg-emerald-500/10 px-3 py-1.5 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+        <div className="mt-2 rounded-lg border border-primary/20 bg-primary/10 px-3 py-1.5 text-[10px] font-medium text-primary">
           ✓ Pricing saved — strategy refresh queued.
         </div>
       )}
@@ -1772,14 +1772,14 @@ function TrendAnalysisCard({ f }: { f: ForecastResult }) {
   const tone = up ? "emerald" : down ? "rose" : "neutral";
   const toneClasses = {
     emerald: {
-      icon: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
-      bar: "bg-emerald-500",
-      text: "text-emerald-600 dark:text-emerald-400",
+      icon: "bg-primary/15 text-primary",
+      bar: "bg-primary",
+      text: "text-primary",
     },
     rose: {
-      icon: "bg-rose-500/15 text-rose-600 dark:text-rose-400",
-      bar: "bg-rose-500",
-      text: "text-rose-600 dark:text-rose-400",
+      icon: "bg-destructive/15 text-destructive",
+      bar: "bg-destructive",
+      text: "text-destructive",
     },
     neutral: {
       icon: "bg-muted/40 text-muted-foreground",
@@ -2211,27 +2211,27 @@ function ExpandedForecastDetail({
               const isNeutral = pricingStrategy.strategy === "Hold price";
 
               const borderColor = isDanger
-                ? "border-rose-300/60 dark:border-rose-800/40"
+                ? "border-destructive/40"
                 : isWarning
-                  ? "border-amber-300/60 dark:border-amber-800/40"
+                  ? "border-warning/40"
                   : isPositive
-                    ? "border-emerald-300/60 dark:border-emerald-800/40"
+                    ? "border-primary/40"
                     : "border-border/50";
 
               const badgeBg = isDanger
-                ? "bg-rose-500/15 text-rose-600 dark:text-rose-400 border-rose-400/30"
+                ? "bg-destructive/15 text-destructive border-destructive/40"
                 : isWarning
-                  ? "bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-400/30"
+                  ? "bg-warning/15 text-warning border-warning/40"
                   : isPositive
-                    ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-400/30"
+                    ? "bg-primary/15 text-primary border-primary/40"
                     : "bg-muted/40 text-muted-foreground border-border/40";
 
               const accentBar = isDanger
-                ? "bg-rose-500"
+                ? "bg-destructive"
                 : isWarning
-                  ? "bg-amber-500"
+                  ? "bg-warning"
                   : isPositive
-                    ? "bg-emerald-500"
+                    ? "bg-primary"
                     : "bg-muted-foreground/30";
 
               const StrategyIcon = isDanger
@@ -2340,9 +2340,9 @@ function ExpandedForecastDetail({
                             <span
                               className={`inline-flex items-center rounded-full px-1.5 py-px text-[8px] font-bold ${
                                 pricingStrategy.recommendedPriceChangePct > 0
-                                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
+                                  ? "bg-primary/15 text-primary"
                                   : pricingStrategy.recommendedPriceChangePct < 0
-                                    ? "bg-rose-500/15 text-rose-600 dark:text-rose-400"
+                                    ? "bg-destructive/15 text-destructive"
                                     : "bg-muted/40 text-muted-foreground"
                               }`}
                             >
@@ -2369,7 +2369,7 @@ function ExpandedForecastDetail({
                           const recPos = pos(recP);
                           return (
                             <>
-                              <div className="absolute inset-0 bg-gradient-to-r from-rose-400/30 via-amber-400/30 to-emerald-400/30" />
+                              <div className="absolute inset-0 bg-gradient-to-r from-chart-3/30 via-chart-2/30 to-chart-1/30" />
                               <div
                                 className="absolute top-0 bottom-0 w-0.5 bg-foreground rounded-full transition-all"
                                 style={{ left: `${Math.min(Math.max(curPos, 2), 98)}%` }}
@@ -2480,19 +2480,19 @@ function ConditionChip({
 }) {
   const bg =
     tone === "positive"
-      ? "bg-emerald-500/10 border-emerald-500/20"
+      ? "bg-primary/10 border-primary/20"
       : tone === "warning"
-        ? "bg-amber-500/10 border-amber-500/20"
+        ? "bg-warning/10 border-warning/20"
         : tone === "danger"
-          ? "bg-rose-500/10 border-rose-500/20"
+          ? "bg-destructive/10 border-destructive/20"
           : "bg-muted/30 border-border/30";
   const txt =
     tone === "positive"
-      ? "text-emerald-600 dark:text-emerald-400"
+      ? "text-primary"
       : tone === "warning"
-        ? "text-amber-600 dark:text-amber-400"
+        ? "text-warning"
         : tone === "danger"
-          ? "text-rose-600 dark:text-rose-400"
+          ? "text-destructive"
           : "text-muted-foreground";
   return (
     <div className={`rounded-lg border ${bg} px-2.5 py-1.5`}>

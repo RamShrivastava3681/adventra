@@ -422,7 +422,7 @@ function PurchasesPage() {
                                 <button
                                   onClick={() => sendReminder.mutate(p.id)}
                                   disabled={sendReminder.isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-amber-400/50 px-2 py-1 text-[10px] text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-950/20 disabled:opacity-50"
+                                  className="inline-flex items-center gap-1 rounded-md border border-warning/40 px-2 py-1 text-[10px] text-warning hover:bg-warning/10 disabled:opacity-50"
                                   title="Send reminder email for this purchase invoice"
                                 >
                                   <Mail className="h-3 w-3" /> Remind
