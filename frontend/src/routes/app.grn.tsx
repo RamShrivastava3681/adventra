@@ -23,6 +23,7 @@ import { toast } from "sonner";
 import { DocumentUploader, DocumentList, type DocMeta } from "@/components/document-uploader";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TableSkeleton } from "@/components/skeletons";
+import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/grn")({
   component: GrnPage,
@@ -70,6 +71,7 @@ type GRNLine = {
 type GRN = {
   id: string;
   receipt_number: string;
+  created_at: string;
   goods_purchase_order_id: string;
   po_number: string | null;
   supplier_id: string | null;
@@ -132,7 +134,6 @@ function GrnPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<GRN | null>(null);
   const [viewing, setViewing] = useState<GRN | null>(null);
-  const [filter, setFilter] = useState("all");
   const [pendingCancel, setPendingCancel] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
@@ -201,7 +202,20 @@ function GrnPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const filtered = (grnsQ.data ?? []).filter((g) => filter === "all" || g.status === filter);
+  const grnConfig: TxFiltersConfig<GRN> = {
+    searchPlaceholder: "Search by GRN, supplier, PO, challan…",
+    search: (g) => [g.receipt_number, g.supplier_name, g.po_number, g.challan_number, g.warehouse],
+    statusField: (g) => g.status,
+    statusLabel: GRN_STATUS_LABELS,
+    statusOrder: [...GRN_STATUSES, "received"],
+    dateField: (g) => g.received_date,
+    dateLabel: "Received date",
+    sortFields: [
+      { value: "created", label: "Created date", get: (g) => g.created_at },
+      { value: "received", label: "Received date", get: (g) => g.received_date },
+    ],
+    defaultSort: "received-desc",
+  };
 
   const stats = useMemo(() => {
     const grns = grnsQ.data ?? [];
@@ -259,181 +273,181 @@ function GrnPage() {
           />
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {["all", ...GRN_STATUSES].map((s) => (
-            <button
-              key={s}
-              onClick={() => setFilter(s)}
-              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                filter === s
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {s === "all" ? "All" : GRN_STATUS_LABELS[s]}
-            </button>
-          ))}
-        </div>
-
-        <Card>
-          {grnsQ.isLoading ? (
-            <TableSkeleton rows={6} cols={8} />
-          ) : filtered.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">
-              <PackageCheck className="mx-auto mb-2 h-8 w-8 opacity-40" />
-              No GRNs yet.
-            </div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">GRN</th>
-                    <th className="px-5 py-2 text-left font-normal">Supplier</th>
-                    <th className="px-5 py-2 text-left font-normal">Linked PO</th>
-                    <th className="px-5 py-2 text-left font-normal">Delivery</th>
-                    <th className="px-5 py-2 text-right font-normal">Recv / Acc / Rej</th>
-                    <th className="px-5 py-2 text-right font-normal">Stock value</th>
-                    <th className="px-5 py-2 text-left font-normal">Status</th>
-                    <th className="px-5 py-2 text-right font-normal">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((g) => {
-                    const lines = g.lines ?? [];
-                    const recv = lines.reduce((s, l) => s + (l.received_qty || 0), 0);
-                    const acc = lines.reduce((s, l) => s + (l.accepted_qty || 0), 0);
-                    const rej = lines.reduce((s, l) => s + (l.rejected_qty || 0), 0);
-                    const value = lines.reduce((s, l) => s + (l.line_value || 0), 0);
-                    return (
-                      <tr key={g.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3">
-                          <div className="font-mono text-xs font-medium">{g.receipt_number}</div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {fmtDate(g.received_date)}
-                          </div>
-                          {g.challan_number && (
-                            <div className="text-[10px] text-muted-foreground">
-                              Challan {g.challan_number}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-3">{g.supplier_name ?? "—"}</td>
-                        <td className="px-5 py-3 font-mono text-xs">{g.po_number ?? "—"}</td>
-                        <td className="px-5 py-3 text-xs text-muted-foreground">
-                          {g.warehouse || "—"}
-                        </td>
-                        <td className="px-5 py-3 text-right num">
-                          <div>{recv.toLocaleString()}</div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {acc.toLocaleString()} acc · {rej.toLocaleString()} rej
-                          </div>
-                        </td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(value)}</td>
-                        <td className="px-5 py-3">
-                          <StatusPill
-                            status={g.status}
-                            label={GRN_STATUS_LABELS[g.status] ?? g.status}
-                            tone={GRN_STATUS_TONES[g.status]}
-                          />
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <div className="flex justify-end gap-1">
-                            <button
-                              onClick={() => setViewing(g)}
-                              className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                            >
-                              View
-                            </button>
-                            {canWrite && g.status === "draft" && (
-                              <>
-                                <button
-                                  onClick={() => {
-                                    setEditing(g);
-                                    setOpen(true);
-                                  }}
-                                  className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                                  title="Edit draft"
-                                >
-                                  <Pencil className="h-3 w-3" />
-                                </button>
-                                <button
-                                  onClick={() =>
-                                    confirm.mutate({
-                                      id: g.id,
-                                      allowOverReceipt: isAdmin || isChecker,
-                                    })
-                                  }
-                                  disabled={confirm.isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2 py-1 text-[10px] text-success hover:bg-success/10 disabled:opacity-60"
-                                >
-                                  <CheckCircle2 className="h-3 w-3" /> Confirm
-                                </button>
-                              </>
-                            )}
-                            {canWrite && g.status === "draft" && (
-                              <button
-                                onClick={() =>
-                                  pendingCancel === g.id
-                                    ? cancel.mutate(g.id)
-                                    : setPendingCancel(g.id)
-                                }
-                                disabled={cancel.isPending}
-                                className={`rounded-md border px-2 py-1 text-[10px] ${
-                                  pendingCancel === g.id
-                                    ? "border-destructive/50 text-destructive hover:bg-destructive/10"
-                                    : "border-border text-muted-foreground hover:border-destructive hover:text-destructive"
-                                }`}
-                              >
-                                {pendingCancel === g.id ? "Cancel?" : <Ban className="h-3 w-3" />}
-                              </button>
-                            )}
-                            {canWrite && g.status === "confirmed" && (
-                              <button
-                                onClick={() =>
-                                  pendingCancel === g.id
-                                    ? cancel.mutate(g.id)
-                                    : setPendingCancel(g.id)
-                                }
-                                disabled={cancel.isPending}
-                                className={`rounded-md border px-2 py-1 text-[10px] ${
-                                  pendingCancel === g.id
-                                    ? "border-destructive/50 text-destructive hover:bg-destructive/10"
-                                    : "border-border text-muted-foreground hover:border-destructive hover:text-destructive"
-                                }`}
-                              >
-                                {pendingCancel === g.id ? "Reverse?" : <Ban className="h-3 w-3" />}
-                              </button>
-                            )}
-                            {canWrite && g.status === "draft" && (
-                              <button
-                                onClick={() =>
-                                  pendingDelete === g.id ? del.mutate(g.id) : setPendingDelete(g.id)
-                                }
-                                disabled={del.isPending}
-                                className={`rounded-md border px-2 py-1 text-[10px] ${
-                                  pendingDelete === g.id
-                                    ? "border-destructive/50 text-destructive hover:bg-destructive/10"
-                                    : "border-border text-muted-foreground hover:border-destructive hover:text-destructive"
-                                }`}
-                              >
-                                {pendingDelete === g.id ? (
-                                  "Delete?"
-                                ) : (
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                )}
-                              </button>
-                            )}
-                          </div>
-                        </td>
+        <TransactionFilters data={grnsQ.data ?? []} config={grnConfig}>
+          {(filtered) => (
+            <Card>
+              {grnsQ.isLoading ? (
+                <TableSkeleton rows={6} cols={8} />
+              ) : filtered.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  <PackageCheck className="mx-auto mb-2 h-8 w-8 opacity-40" />
+                  No GRNs yet.
+                </div>
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal">GRN</th>
+                        <th className="px-5 py-2 text-left font-normal">Supplier</th>
+                        <th className="px-5 py-2 text-left font-normal">Linked PO</th>
+                        <th className="px-5 py-2 text-left font-normal">Delivery</th>
+                        <th className="px-5 py-2 text-right font-normal">Recv / Acc / Rej</th>
+                        <th className="px-5 py-2 text-right font-normal">Stock value</th>
+                        <th className="px-5 py-2 text-left font-normal">Status</th>
+                        <th className="px-5 py-2 text-right font-normal">Actions</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {filtered.map((g) => {
+                        const lines = g.lines ?? [];
+                        const recv = lines.reduce((s, l) => s + (l.received_qty || 0), 0);
+                        const acc = lines.reduce((s, l) => s + (l.accepted_qty || 0), 0);
+                        const rej = lines.reduce((s, l) => s + (l.rejected_qty || 0), 0);
+                        const value = lines.reduce((s, l) => s + (l.line_value || 0), 0);
+                        return (
+                          <tr key={g.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3">
+                              <div className="font-mono text-xs font-medium">
+                                {g.receipt_number}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground">
+                                {fmtDate(g.received_date)}
+                              </div>
+                              {g.challan_number && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  Challan {g.challan_number}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-5 py-3">{g.supplier_name ?? "—"}</td>
+                            <td className="px-5 py-3 font-mono text-xs">{g.po_number ?? "—"}</td>
+                            <td className="px-5 py-3 text-xs text-muted-foreground">
+                              {g.warehouse || "—"}
+                            </td>
+                            <td className="px-5 py-3 text-right num">
+                              <div>{recv.toLocaleString()}</div>
+                              <div className="text-[10px] text-muted-foreground">
+                                {acc.toLocaleString()} acc · {rej.toLocaleString()} rej
+                              </div>
+                            </td>
+                            <td className="px-5 py-3 text-right num">{fmtMoney(value)}</td>
+                            <td className="px-5 py-3">
+                              <StatusPill
+                                status={g.status}
+                                label={GRN_STATUS_LABELS[g.status] ?? g.status}
+                                tone={GRN_STATUS_TONES[g.status]}
+                              />
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <div className="flex justify-end gap-1">
+                                <button
+                                  onClick={() => setViewing(g)}
+                                  className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                >
+                                  View
+                                </button>
+                                {canWrite && g.status === "draft" && (
+                                  <>
+                                    <button
+                                      onClick={() => {
+                                        setEditing(g);
+                                        setOpen(true);
+                                      }}
+                                      className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                      title="Edit draft"
+                                    >
+                                      <Pencil className="h-3 w-3" />
+                                    </button>
+                                    <button
+                                      onClick={() =>
+                                        confirm.mutate({
+                                          id: g.id,
+                                          allowOverReceipt: isAdmin || isChecker,
+                                        })
+                                      }
+                                      disabled={confirm.isPending}
+                                      className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2 py-1 text-[10px] text-success hover:bg-success/10 disabled:opacity-60"
+                                    >
+                                      <CheckCircle2 className="h-3 w-3" /> Confirm
+                                    </button>
+                                  </>
+                                )}
+                                {canWrite && g.status === "draft" && (
+                                  <button
+                                    onClick={() =>
+                                      pendingCancel === g.id
+                                        ? cancel.mutate(g.id)
+                                        : setPendingCancel(g.id)
+                                    }
+                                    disabled={cancel.isPending}
+                                    className={`rounded-md border px-2 py-1 text-[10px] ${
+                                      pendingCancel === g.id
+                                        ? "border-destructive/50 text-destructive hover:bg-destructive/10"
+                                        : "border-border text-muted-foreground hover:border-destructive hover:text-destructive"
+                                    }`}
+                                  >
+                                    {pendingCancel === g.id ? (
+                                      "Cancel?"
+                                    ) : (
+                                      <Ban className="h-3 w-3" />
+                                    )}
+                                  </button>
+                                )}
+                                {canWrite && g.status === "confirmed" && (
+                                  <button
+                                    onClick={() =>
+                                      pendingCancel === g.id
+                                        ? cancel.mutate(g.id)
+                                        : setPendingCancel(g.id)
+                                    }
+                                    disabled={cancel.isPending}
+                                    className={`rounded-md border px-2 py-1 text-[10px] ${
+                                      pendingCancel === g.id
+                                        ? "border-destructive/50 text-destructive hover:bg-destructive/10"
+                                        : "border-border text-muted-foreground hover:border-destructive hover:text-destructive"
+                                    }`}
+                                  >
+                                    {pendingCancel === g.id ? (
+                                      "Reverse?"
+                                    ) : (
+                                      <Ban className="h-3 w-3" />
+                                    )}
+                                  </button>
+                                )}
+                                {canWrite && g.status === "draft" && (
+                                  <button
+                                    onClick={() =>
+                                      pendingDelete === g.id
+                                        ? del.mutate(g.id)
+                                        : setPendingDelete(g.id)
+                                    }
+                                    disabled={del.isPending}
+                                    className={`rounded-md border px-2 py-1 text-[10px] ${
+                                      pendingDelete === g.id
+                                        ? "border-destructive/50 text-destructive hover:bg-destructive/10"
+                                        : "border-border text-muted-foreground hover:border-destructive hover:text-destructive"
+                                    }`}
+                                  >
+                                    {pendingDelete === g.id ? (
+                                      "Delete?"
+                                    ) : (
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    )}
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
           )}
-        </Card>
+        </TransactionFilters>
 
         <Card title="How this works">
           <ol className="ml-4 list-decimal space-y-1 text-xs text-muted-foreground">

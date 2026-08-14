@@ -20,6 +20,7 @@ import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/proformas")({
   component: ProformasPage,
@@ -46,6 +47,7 @@ type PF = {
   vendor?: { name?: string } | null;
   po_number: string;
   proforma_number: string | null;
+  created_at: string;
   proforma_date: string | null;
   amount: number;
   po_amount: number | null;
@@ -96,7 +98,8 @@ const PF_DOC_LABELS: Record<string, string> = {
 };
 const PF_DOC_TONES: Record<string, string> = {
   received: "bg-sky-500/10 text-sky-600 border-sky-500/30",
-  reviewed: "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
+  reviewed:
+    "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
   converted_to_po: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   expired: "bg-muted/60 text-muted-foreground border-border",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
@@ -152,9 +155,6 @@ function ProformasPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState<null | "sales" | "purchase">(null);
   const [tab, setTab] = useState<"all" | "sales" | "purchase">("all");
-  const [queue, setQueue] = useState<"all" | "pending_review" | "approved" | "funded" | "rejected">(
-    "all",
-  );
   const [reviewFor, setReviewFor] = useState<PF | null>(null);
   const [fundFor, setFundFor] = useState<PF | null>(null);
   const [convertFor, setConvertFor] = useState<PF | null>(null);
@@ -230,25 +230,33 @@ function ProformasPage() {
     enabled: !!convertFor,
   });
 
-  const rows = ((listQ.data ?? []) as PF[])
-    .filter((p) => tab === "all" || p.side === tab)
-    .filter((p) => {
-      if (queue === "all") return true;
-      // Closed proformas never sit in a workflow stage
-      if (DOC_CLOSED.includes(p.status)) return false;
-      if (queue === "approved") return p.proforma_status === "approved";
-      return p.proforma_status === queue;
-    });
+  const rows = ((listQ.data ?? []) as PF[]).filter((p) => tab === "all" || p.side === tab);
 
-  const counts = useMemo(() => {
-    const arr = ((listQ.data ?? []) as PF[]).filter((p) => !DOC_CLOSED.includes(p.status));
-    return {
-      pending_review: arr.filter((p) => p.proforma_status === "pending_review").length,
-      approved: arr.filter((p) => p.proforma_status === "approved").length,
-      funded: arr.filter((p) => p.proforma_status === "funded").length,
-      rejected: arr.filter((p) => p.proforma_status === "rejected").length,
-    };
-  }, [listQ.data]);
+  const pfConfig: TxFiltersConfig<PF> = {
+    searchPlaceholder: "Search by proforma / PO number, counterparty…",
+    search: (p) => [
+      p.proforma_number,
+      p.po_number,
+      p.side === "sales" ? p.debtor?.name : p.vendor?.name,
+      p.notes,
+    ],
+    statusField: (p) => p.proforma_status,
+    statusLabel: {
+      pending_review: "Pending review",
+      approved: "Funding queue",
+      funded: "Funded",
+      rejected: "Rejected",
+    },
+    statusOrder: ["pending_review", "approved", "funded", "rejected"],
+    dateField: (p) => p.issue_date,
+    dateLabel: "Issue date",
+    sortFields: [
+      { value: "created", label: "Created date", get: (p) => p.created_at },
+      { value: "issue", label: "Issue date", get: (p) => p.issue_date },
+      { value: "valid", label: "Valid until", get: (p) => p.valid_until },
+    ],
+    defaultSort: "created-desc",
+  };
 
   const cancel = useMutation({
     mutationFn: async (id: string) => {
@@ -355,306 +363,289 @@ function ProformasPage() {
           ))}
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {(
-            [
-              ["all", "All stages", null],
-              ["pending_review", "Pending review", counts.pending_review],
-              ["approved", "Funding queue", counts.approved],
-              ["funded", "Funded", counts.funded],
-              ["rejected", "Rejected", counts.rejected],
-            ] as const
-          ).map(([k, label, n]) => (
-            <button
-              key={k}
-              onClick={() => setQueue(k as typeof queue)}
-              className={`inline-flex items-center gap-1.5 rounded-md border px-3 py-1 text-[11px] transition ${
-                queue === k
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {label}
-              {n != null && n > 0 && (
-                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">
-                  {n}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        <Card>
-          {listQ.isLoading ? (
-            <TableSkeleton rows={5} cols={8} />
-          ) : rows.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">No proformas yet.</div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">Proforma</th>
-                    <th className="px-5 py-2 text-left font-normal">PO #</th>
-                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
-                    <th className="px-5 py-2 text-left font-normal">Side</th>
-                    <th className="px-5 py-2 text-right font-normal">Invoice amount</th>
-                    <th className="px-5 py-2 text-right font-normal">Advance</th>
-                    <th className="px-5 py-2 text-left font-normal">Status</th>
-                    <th className="px-5 py-2 text-right font-normal"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((p) => {
-                    const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
-                    // Doc lifecycle: received → reviewed → converted (PO/SO) → expired/cancelled.
-                    // Applies to BOTH sides — sales proformas are customer proformas entered
-                    // into the system, purchase proformas are supplier quotations.
-                    const docStatus = PF_DOC_LABELS[p.status] ? p.status : null;
-                    // Doc lifecycle is over — the funding dimension closes with it.
-                    const docClosed = DOC_CLOSED.includes(p.status);
-                    const poLink = docStatus === "converted_to_po" ? p.linked_goods_po_id : null;
-                    const soLink = docStatus === "converted_to_so" ? p.linked_goods_so_id : null;
-                    const editableDoc =
-                      p.side === "purchase"
-                        ? ["received", "reviewed"].includes(p.status)
-                        : ["received", "reviewed", "proforma"].includes(p.status);
-                    // Once submitted for review (or approved) the maker can no
-                    // longer change the proforma — the checker/treasury own it.
-                    const underReview = ["pending_review", "approved"].includes(p.proforma_status);
-                    // The proforma invoice amount (total) and the advance due on
-                    // it: PO-created purchase proformas carry advance_pct (×
-                    // po_amount); manually entered proformas use `amount` as the
-                    // advance requested.
-                    const pfTotal =
-                      p.grand_total != null && p.grand_total > 0 ? p.grand_total : p.amount;
-                    const pfAdvance = proformaAdvanceForDisplay(p);
-                    return (
-                      <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3">
-                          <div className="font-mono text-xs">{p.proforma_number ?? "—"}</div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {p.proforma_date ? fmtDate(p.proforma_date) : fmtDate(p.issue_date)}
-                          </div>
-                          {p.grand_total != null && p.grand_total > 0 && (
-                            <div className="text-[10px] text-muted-foreground">
-                              Total {fmtMoney(p.grand_total)}
-                            </div>
-                          )}
-                          {p.po_amount != null && p.po_amount > 0 && (
-                            <div className="text-[10px] text-muted-foreground">
-                              PO {fmtMoney(p.po_amount)}
-                            </div>
-                          )}
-                          {p.proforma_review_comments && (
-                            <div
-                              className="text-[10px] text-warning mt-0.5"
-                              title={p.proforma_review_comments}
-                            >
-                              “{p.proforma_review_comments}”
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 font-mono text-xs">{p.po_number}</td>
-                        <td className="px-5 py-3">{cp ?? "—"}</td>
-                        <td className="px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground">
-                          {p.side}
-                        </td>
-                        <td className="px-5 py-3 text-right num">
-                          <div>{fmtMoney(pfTotal)}</div>
-                          {p.advance_pct != null && p.advance_pct > 0 && (
-                            <div className="text-[10px] text-muted-foreground">
-                              {p.advance_pct}% of proforma
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-right num">
-                          <div>{fmtMoney(pfAdvance)}</div>
-                          {p.proforma_funded_amount != null && p.proforma_funded_amount > 0 && (
-                            <div className="text-[10px] text-success">
-                              Paid {fmtMoney(p.proforma_funded_amount)}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-3">
-                          <div className="flex flex-col items-start gap-1">
-                            {docStatus && (
-                              <StatusPill
-                                label={PF_DOC_LABELS[docStatus] ?? docStatus}
-                                tone={PF_DOC_TONES[docStatus]}
-                              />
-                            )}
-                            {p.proforma_status && p.proforma_status !== "none" ? (
-                              <StatusPill
-                                label={p.proforma_status.replace("_", " ")}
-                                tone={FUNDING_TONES[p.proforma_status]}
-                              />
-                            ) : !docStatus ? (
-                              <StatusPill
-                                label={p.status}
-                                tone="border-border text-muted-foreground"
-                              />
-                            ) : null}
-                            {poLink && (
-                              <span className="inline-flex items-center gap-1 text-[9px] text-primary">
-                                <Link2 className="h-2.5 w-2.5" /> Linked PO
-                              </span>
-                            )}
-                            {soLink && (
-                              <span className="inline-flex items-center gap-1 text-[9px] text-primary">
-                                <Link2 className="h-2.5 w-2.5" /> Linked SO
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <div className="inline-flex flex-wrap items-center justify-end gap-1">
-                            <button
-                              onClick={() => setViewingPf(p)}
-                              className="rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary"
-                            >
-                              View
-                            </button>
-                            {canCreate &&
-                              !underReview &&
-                              p.proforma_status !== "funded" &&
-                              p.status !== "invoiced" &&
-                              p.status !== "cancelled" &&
-                              editableDoc && (
+        <TransactionFilters data={rows} config={pfConfig}>
+          {(filtered) => (
+            <Card>
+              {listQ.isLoading ? (
+                <TableSkeleton rows={5} cols={8} />
+              ) : filtered.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  No proformas yet.
+                </div>
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal">Proforma</th>
+                        <th className="px-5 py-2 text-left font-normal">PO #</th>
+                        <th className="px-5 py-2 text-left font-normal">Counterparty</th>
+                        <th className="px-5 py-2 text-left font-normal">Side</th>
+                        <th className="px-5 py-2 text-right font-normal">Invoice amount</th>
+                        <th className="px-5 py-2 text-right font-normal">Advance</th>
+                        <th className="px-5 py-2 text-left font-normal">Status</th>
+                        <th className="px-5 py-2 text-right font-normal"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((p) => {
+                        const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
+                        // Doc lifecycle: received → reviewed → converted (PO/SO) → expired/cancelled.
+                        // Applies to BOTH sides — sales proformas are customer proformas entered
+                        // into the system, purchase proformas are supplier quotations.
+                        const docStatus = PF_DOC_LABELS[p.status] ? p.status : null;
+                        // Doc lifecycle is over — the funding dimension closes with it.
+                        const docClosed = DOC_CLOSED.includes(p.status);
+                        const poLink =
+                          docStatus === "converted_to_po" ? p.linked_goods_po_id : null;
+                        const soLink =
+                          docStatus === "converted_to_so" ? p.linked_goods_so_id : null;
+                        const editableDoc =
+                          p.side === "purchase"
+                            ? ["received", "reviewed"].includes(p.status)
+                            : ["received", "reviewed", "proforma"].includes(p.status);
+                        // Once submitted for review (or approved) the maker can no
+                        // longer change the proforma — the checker/treasury own it.
+                        const underReview = ["pending_review", "approved"].includes(
+                          p.proforma_status,
+                        );
+                        // The proforma invoice amount (total) and the advance due on
+                        // it: PO-created purchase proformas carry advance_pct (×
+                        // po_amount); manually entered proformas use `amount` as the
+                        // advance requested.
+                        const pfTotal =
+                          p.grand_total != null && p.grand_total > 0 ? p.grand_total : p.amount;
+                        const pfAdvance = proformaAdvanceForDisplay(p);
+                        return (
+                          <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3">
+                              <div className="font-mono text-xs">{p.proforma_number ?? "—"}</div>
+                              <div className="text-[10px] text-muted-foreground">
+                                {p.proforma_date ? fmtDate(p.proforma_date) : fmtDate(p.issue_date)}
+                              </div>
+                              {p.grand_total != null && p.grand_total > 0 && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  Total {fmtMoney(p.grand_total)}
+                                </div>
+                              )}
+                              {p.po_amount != null && p.po_amount > 0 && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  PO {fmtMoney(p.po_amount)}
+                                </div>
+                              )}
+                              {p.proforma_review_comments && (
+                                <div
+                                  className="text-[10px] text-warning mt-0.5"
+                                  title={p.proforma_review_comments}
+                                >
+                                  “{p.proforma_review_comments}”
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 font-mono text-xs">{p.po_number}</td>
+                            <td className="px-5 py-3">{cp ?? "—"}</td>
+                            <td className="px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+                              {p.side}
+                            </td>
+                            <td className="px-5 py-3 text-right num">
+                              <div>{fmtMoney(pfTotal)}</div>
+                              {p.advance_pct != null && p.advance_pct > 0 && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  {p.advance_pct}% of proforma
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-right num">
+                              <div>{fmtMoney(pfAdvance)}</div>
+                              {p.proforma_funded_amount != null && p.proforma_funded_amount > 0 && (
+                                <div className="text-[10px] text-success">
+                                  Paid {fmtMoney(p.proforma_funded_amount)}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-5 py-3">
+                              <div className="flex flex-col items-start gap-1">
+                                {docStatus && (
+                                  <StatusPill
+                                    label={PF_DOC_LABELS[docStatus] ?? docStatus}
+                                    tone={PF_DOC_TONES[docStatus]}
+                                  />
+                                )}
+                                {p.proforma_status && p.proforma_status !== "none" ? (
+                                  <StatusPill
+                                    label={p.proforma_status.replace("_", " ")}
+                                    tone={FUNDING_TONES[p.proforma_status]}
+                                  />
+                                ) : !docStatus ? (
+                                  <StatusPill
+                                    label={p.status}
+                                    tone="border-border text-muted-foreground"
+                                  />
+                                ) : null}
+                                {poLink && (
+                                  <span className="inline-flex items-center gap-1 text-[9px] text-primary">
+                                    <Link2 className="h-2.5 w-2.5" /> Linked PO
+                                  </span>
+                                )}
+                                {soLink && (
+                                  <span className="inline-flex items-center gap-1 text-[9px] text-primary">
+                                    <Link2 className="h-2.5 w-2.5" /> Linked SO
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <div className="inline-flex flex-wrap items-center justify-end gap-1">
                                 <button
-                                  onClick={() => setEditingPf(p)}
+                                  onClick={() => setViewingPf(p)}
                                   className="rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary"
                                 >
-                                  Edit
+                                  View
                                 </button>
-                              )}
-                            {/* Conversion to a PO/SO only unlocks after the checker
+                                {canCreate &&
+                                  !underReview &&
+                                  p.proforma_status !== "funded" &&
+                                  p.status !== "invoiced" &&
+                                  p.status !== "cancelled" &&
+                                  editableDoc && (
+                                    <button
+                                      onClick={() => setEditingPf(p)}
+                                      className="rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary"
+                                    >
+                                      Edit
+                                    </button>
+                                  )}
+                                {/* Conversion to a PO/SO only unlocks after the checker
                                 approves the proforma (enforced server-side too). */}
-                            {canCreate &&
-                              p.side === "purchase" &&
-                              ["received", "reviewed"].includes(p.status) &&
-                              p.proforma_status === "approved" && (
-                                <button
-                                  onClick={() => setConvertFor(p)}
-                                  className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10"
-                                >
-                                  <PackageOpen className="h-3 w-3" /> Convert to PO
-                                </button>
-                              )}
-                            {canCreate &&
-                              p.side === "purchase" &&
-                              ["received", "reviewed"].includes(p.status) &&
-                              p.proforma_status === "pending_review" && (
-                                <span
-                                  className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground"
-                                  title="Conversion unlocks after the checker approves this proforma"
-                                >
-                                  Awaiting approval
-                                </span>
-                              )}
-                            {canCreate &&
-                              p.side === "sales" &&
-                              ["received", "reviewed"].includes(p.status) &&
-                              p.proforma_status === "approved" && (
-                                <button
-                                  onClick={() => convertSo.mutate(p.id)}
-                                  disabled={convertSo.isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
-                                >
-                                  <PackageOpen className="h-3 w-3" /> Convert to SO
-                                </button>
-                              )}
-                            {canCreate &&
-                              p.side === "sales" &&
-                              ["received", "reviewed"].includes(p.status) &&
-                              p.proforma_status === "pending_review" && (
-                                <span
-                                  className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground"
-                                  title="Conversion unlocks after the checker approves this proforma"
-                                >
-                                  Awaiting approval
-                                </span>
-                              )}
-                            {canCreate && p.status === "received" && (
-                              <button
-                                onClick={() =>
-                                  setDocStatus.mutate({ id: p.id, status: "reviewed" })
-                                }
-                                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary"
-                              >
-                                <CheckCircle2 className="h-3 w-3" /> Reviewed
-                              </button>
-                            )}
-                            {canCreate && ["received", "reviewed"].includes(p.status) && (
-                              <button
-                                onClick={() => setDocStatus.mutate({ id: p.id, status: "expired" })}
-                                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:border-warning hover:text-warning"
-                              >
-                                <Ban className="h-3 w-3" /> Expire
-                              </button>
-                            )}
-                            {(isChecker || isAdmin) &&
-                              !docClosed &&
-                              p.proforma_status === "pending_review" &&
-                              (isAdmin || p.client_id !== user?.id) && (
-                                <button
-                                  onClick={() => setReviewFor(p)}
-                                  className="rounded-md border border-warning/50 px-2 py-0.5 text-[10px] text-warning hover:bg-warning/10"
-                                >
-                                  Review
-                                </button>
-                              )}
-                            {canCreate && !docClosed && p.proforma_status === "rejected" && (
-                              <button
-                                onClick={() => resubmit.mutate(p.id)}
-                                disabled={resubmit.isPending}
-                                className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
-                              >
-                                <Send className="h-3 w-3" /> Resubmit for approval
-                              </button>
-                            )}
-                            {(isTreasury || isAdmin) &&
-                              !docClosed &&
-                              p.proforma_status === "approved" && (
-                                <button
-                                  onClick={() => setFundFor(p)}
-                                  className="rounded-md border border-success/50 px-2 py-0.5 text-[10px] text-success hover:bg-success/10"
-                                >
-                                  {p.side === "sales" ? "Mark received" : "Mark paid"}
-                                </button>
-                              )}
-                            {canCreate &&
-                              p.status !== "invoiced" &&
-                              p.status !== "cancelled" &&
-                              p.proforma_status !== "funded" && (
-                                <button
-                                  onClick={() => cancel.mutate(p.id)}
-                                  className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted"
-                                >
-                                  Cancel
-                                </button>
-                              )}
-                            {canCreate &&
-                              (p.status === "cancelled" ||
-                                p.status === "expired" ||
-                                p.proforma_status === "rejected") && (
-                                <button
-                                  onClick={() => del.mutate(p.id)}
-                                  className="text-muted-foreground hover:text-destructive"
-                                >
-                                  <Trash2 className="h-3.5 w-3.5" />
-                                </button>
-                              )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                                {canCreate &&
+                                  p.side === "purchase" &&
+                                  ["received", "reviewed"].includes(p.status) &&
+                                  p.proforma_status === "approved" && (
+                                    <button
+                                      onClick={() => setConvertFor(p)}
+                                      className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10"
+                                    >
+                                      <PackageOpen className="h-3 w-3" /> Convert to PO
+                                    </button>
+                                  )}
+                                {canCreate &&
+                                  p.side === "purchase" &&
+                                  ["received", "reviewed"].includes(p.status) &&
+                                  p.proforma_status === "pending_review" && (
+                                    <span
+                                      className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground"
+                                      title="Conversion unlocks after the checker approves this proforma"
+                                    >
+                                      Awaiting approval
+                                    </span>
+                                  )}
+                                {canCreate &&
+                                  p.side === "sales" &&
+                                  ["received", "reviewed"].includes(p.status) &&
+                                  p.proforma_status === "approved" && (
+                                    <button
+                                      onClick={() => convertSo.mutate(p.id)}
+                                      disabled={convertSo.isPending}
+                                      className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
+                                    >
+                                      <PackageOpen className="h-3 w-3" /> Convert to SO
+                                    </button>
+                                  )}
+                                {canCreate &&
+                                  p.side === "sales" &&
+                                  ["received", "reviewed"].includes(p.status) &&
+                                  p.proforma_status === "pending_review" && (
+                                    <span
+                                      className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground"
+                                      title="Conversion unlocks after the checker approves this proforma"
+                                    >
+                                      Awaiting approval
+                                    </span>
+                                  )}
+                                {canCreate && p.status === "received" && (
+                                  <button
+                                    onClick={() =>
+                                      setDocStatus.mutate({ id: p.id, status: "reviewed" })
+                                    }
+                                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary"
+                                  >
+                                    <CheckCircle2 className="h-3 w-3" /> Reviewed
+                                  </button>
+                                )}
+                                {canCreate && ["received", "reviewed"].includes(p.status) && (
+                                  <button
+                                    onClick={() =>
+                                      setDocStatus.mutate({ id: p.id, status: "expired" })
+                                    }
+                                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:border-warning hover:text-warning"
+                                  >
+                                    <Ban className="h-3 w-3" /> Expire
+                                  </button>
+                                )}
+                                {(isChecker || isAdmin) &&
+                                  !docClosed &&
+                                  p.proforma_status === "pending_review" &&
+                                  (isAdmin || p.client_id !== user?.id) && (
+                                    <button
+                                      onClick={() => setReviewFor(p)}
+                                      className="rounded-md border border-warning/50 px-2 py-0.5 text-[10px] text-warning hover:bg-warning/10"
+                                    >
+                                      Review
+                                    </button>
+                                  )}
+                                {canCreate && !docClosed && p.proforma_status === "rejected" && (
+                                  <button
+                                    onClick={() => resubmit.mutate(p.id)}
+                                    disabled={resubmit.isPending}
+                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
+                                  >
+                                    <Send className="h-3 w-3" /> Resubmit for approval
+                                  </button>
+                                )}
+                                {(isTreasury || isAdmin) &&
+                                  !docClosed &&
+                                  p.proforma_status === "approved" && (
+                                    <button
+                                      onClick={() => setFundFor(p)}
+                                      className="rounded-md border border-success/50 px-2 py-0.5 text-[10px] text-success hover:bg-success/10"
+                                    >
+                                      {p.side === "sales" ? "Mark received" : "Mark paid"}
+                                    </button>
+                                  )}
+                                {canCreate &&
+                                  p.status !== "invoiced" &&
+                                  p.status !== "cancelled" &&
+                                  p.proforma_status !== "funded" && (
+                                    <button
+                                      onClick={() => cancel.mutate(p.id)}
+                                      className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted"
+                                    >
+                                      Cancel
+                                    </button>
+                                  )}
+                                {canCreate &&
+                                  (p.status === "cancelled" ||
+                                    p.status === "expired" ||
+                                    p.proforma_status === "rejected") && (
+                                    <button
+                                      onClick={() => del.mutate(p.id)}
+                                      className="text-muted-foreground hover:text-destructive"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </button>
+                                  )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
           )}
-        </Card>
+        </TransactionFilters>
 
         <Card title="How this works">
           <ol className="ml-4 list-decimal space-y-1 text-xs text-muted-foreground">

@@ -9,6 +9,7 @@ import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, DocumentList, type DocMeta } from "@/components/document-uploader";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/expenses")({
   component: ExpensesPage,
@@ -53,6 +54,23 @@ function ExpensesPage() {
   });
 
   const rows = expensesQ.data ?? [];
+  const expenseConfig: TxFiltersConfig<any> = {
+    searchPlaceholder: "Search by description, category, linked invoice…",
+    search: (r) => [
+      catLabel(r.category),
+      r.description,
+      r.invoice?.invoice_number,
+      r.purchase?.invoice_number,
+      r.kind,
+    ],
+    dateField: (r) => r.expense_date,
+    dateLabel: "Expense date",
+    sortFields: [
+      { value: "created", label: "Created date", get: (r) => r.created_at },
+      { value: "expense", label: "Expense date", get: (r) => r.expense_date },
+    ],
+    defaultSort: "created-desc",
+  };
   const byCat = CATS.map((c) => ({
     ...c,
     total: rows
@@ -97,83 +115,89 @@ function ExpensesPage() {
           ))}
         </div>
 
-        <Card>
-          {expensesQ.isLoading ? (
-            <TableSkeleton rows={5} cols={7} />
-          ) : rows.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">
-              No expenses logged yet.
-            </div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">Date</th>
-                    <th className="px-5 py-2 text-left font-normal">Category</th>
-                    <th className="px-5 py-2 text-left font-normal">Linked transaction</th>
-                    <th className="px-5 py-2 text-left font-normal">Description</th>
-                    <th className="px-5 py-2 text-right font-normal">Docs</th>
-                    <th className="px-5 py-2 text-right font-normal">Amount</th>
-                    <th className="px-5 py-2 text-right font-normal" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r: any) => {
-                    const link = r.invoice?.invoice_number
-                      ? { kind: "Sale", num: r.invoice.invoice_number }
-                      : r.purchase?.invoice_number
-                        ? { kind: "Purchase", num: r.purchase.invoice_number }
-                        : null;
-                    const docs: DocMeta[] = Array.isArray(r.documents) ? r.documents : [];
-                    return (
-                      <tr key={r.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3">{fmtDate(r.expense_date)}</td>
-                        <td className="px-5 py-3">{catLabel(r.category)}</td>
-                        <td className="px-5 py-3">
-                          {link ? (
-                            <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background/40 px-2 py-0.5 text-xs">
-                              <Link2 className="h-3 w-3 text-primary" />
-                              <span className="text-muted-foreground">{link.kind}</span>
-                              <span className="font-mono">{link.num}</span>
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Unlinked</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-muted-foreground">{r.description ?? "—"}</td>
-                        <td className="px-5 py-3 text-right">
-                          {docs.length > 0 ? (
-                            <button
-                              onClick={() => setViewing(r)}
-                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary"
-                            >
-                              <Paperclip className="h-3 w-3" />
-                              {docs.length}
-                            </button>
-                          ) : (
-                            <span className="text-[10px] text-muted-foreground">—</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
-                        <td className="px-5 py-3 text-right">
-                          <button
-                            onClick={() => {
-                              if (confirm("Delete this expense?")) remove.mutate(r.id);
-                            }}
-                            className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
-                        </td>
+        <TransactionFilters data={rows} config={expenseConfig}>
+          {(filtered) => (
+            <Card>
+              {expensesQ.isLoading ? (
+                <TableSkeleton rows={5} cols={7} />
+              ) : filtered.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  No expenses logged yet.
+                </div>
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal">Date</th>
+                        <th className="px-5 py-2 text-left font-normal">Category</th>
+                        <th className="px-5 py-2 text-left font-normal">Linked transaction</th>
+                        <th className="px-5 py-2 text-left font-normal">Description</th>
+                        <th className="px-5 py-2 text-right font-normal">Docs</th>
+                        <th className="px-5 py-2 text-right font-normal">Amount</th>
+                        <th className="px-5 py-2 text-right font-normal" />
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {filtered.map((r: any) => {
+                        const link = r.invoice?.invoice_number
+                          ? { kind: "Sale", num: r.invoice.invoice_number }
+                          : r.purchase?.invoice_number
+                            ? { kind: "Purchase", num: r.purchase.invoice_number }
+                            : null;
+                        const docs: DocMeta[] = Array.isArray(r.documents) ? r.documents : [];
+                        return (
+                          <tr key={r.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3">{fmtDate(r.expense_date)}</td>
+                            <td className="px-5 py-3">{catLabel(r.category)}</td>
+                            <td className="px-5 py-3">
+                              {link ? (
+                                <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background/40 px-2 py-0.5 text-xs">
+                                  <Link2 className="h-3 w-3 text-primary" />
+                                  <span className="text-muted-foreground">{link.kind}</span>
+                                  <span className="font-mono">{link.num}</span>
+                                </span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">Unlinked</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-muted-foreground">
+                              {r.description ?? "—"}
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              {docs.length > 0 ? (
+                                <button
+                                  onClick={() => setViewing(r)}
+                                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary"
+                                >
+                                  <Paperclip className="h-3 w-3" />
+                                  {docs.length}
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground">—</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
+                            <td className="px-5 py-3 text-right">
+                              <button
+                                onClick={() => {
+                                  if (confirm("Delete this expense?")) remove.mutate(r.id);
+                                }}
+                                className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
           )}
-        </Card>
+        </TransactionFilters>
       </div>
 
       {open && user && (

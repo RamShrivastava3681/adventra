@@ -11,22 +11,12 @@ import {
   fmtDate,
   daysBetween,
 } from "@/components/ledger-ui";
-import {
-  Plus,
-  X,
-  Loader2,
-  Send,
-  Eye,
-  Mail,
-  FileCheck,
-  FileText,
-  Ban,
-  Trash2,
-} from "lucide-react";
+import { Plus, X, Loader2, Send, Eye, Mail, FileCheck, FileText, Ban, Trash2 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/invoices")({
   component: InvoicesPage,
@@ -58,6 +48,7 @@ type Inv = {
   } | null;
   invoice_number: string;
   amount: number;
+  created_at: string;
   issue_date: string;
   due_date: string;
   status: string;
@@ -116,7 +107,6 @@ function InvoicesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Inv | null>(null);
   const [viewing, setViewing] = useState<Inv | null>(null);
-  const [filter, setFilter] = useState<string>("all");
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", "list"],
@@ -195,17 +185,38 @@ function InvoicesPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const filtered = (invoicesQ.data ?? []).filter((i) => filter === "all" || i.status === filter);
-
-  const counts = useMemo(() => {
-    const arr = invoicesQ.data ?? [];
-    return {
-      draft: arr.filter((i) => i.status === "draft").length,
-      pending: arr.filter((i) => i.status === "pending").length,
-      approved: arr.filter((i) => ["approved", "funded", "advanced"].includes(i.status)).length,
-      paid: arr.filter((i) => i.status === "paid" || i.status === "partially_paid").length,
-    };
-  }, [invoicesQ.data]);
+  const invConfig: TxFiltersConfig<Inv> = {
+    searchPlaceholder: "Search by invoice number, debtor, PO / SO…",
+    search: (i) => [
+      i.invoice_number,
+      i.debtor?.name ?? debtorName(i.debtor_id),
+      i.po_number,
+      i.goods_sales_order_number,
+      i.linked_customer_proforma_number,
+    ],
+    statusField: (i) => i.status,
+    statusLabel: DOC_LABELS,
+    statusOrder: [
+      "draft",
+      "pending",
+      "approved",
+      "funded",
+      "advanced",
+      "paid",
+      "partially_paid",
+      "overdue",
+      "rejected",
+      "cancelled",
+    ],
+    dateField: (i) => i.issue_date,
+    dateLabel: "Issue date",
+    sortFields: [
+      { value: "created", label: "Created date", get: (i) => i.created_at },
+      { value: "issue", label: "Issue date", get: (i) => i.issue_date },
+      { value: "due", label: "Due date", get: (i) => i.due_date },
+    ],
+    defaultSort: "created-desc",
+  };
 
   return (
     <div>
@@ -231,212 +242,186 @@ function InvoicesPage() {
         }
       />
 
-      <div className="p-6 md:p-10 space-y-6">
-        {/* Filters */}
-        <div className="flex flex-wrap gap-2">
-          {(
-            [
-              ["all", "All", null],
-              ["draft", "Drafts", counts.draft],
-              ["pending", "Issued", counts.pending],
-              ["approved", "Funding queue", counts.approved],
-              ["paid", "Paid", counts.paid],
-              ["overdue", "Overdue", null],
-              ["cancelled", "Cancelled", null],
-            ] as const
-          ).map(([k, label, n]) => (
-            <button
-              key={k}
-              onClick={() => setFilter(k)}
-              className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                filter === k
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {label}
-              {n != null && n > 0 && (
-                <span className="rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-medium text-foreground">
-                  {n}
-                </span>
-              )}
-            </button>
-          ))}
-        </div>
-
-        <Card>
-          {invoicesQ.isLoading ? (
-            <TableSkeleton rows={7} cols={9} />
-          ) : filtered.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">No invoices.</div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">Invoice</th>
-                    <th className="px-5 py-2 text-left font-normal">Debtor</th>
-                    <th className="px-5 py-2 text-right font-normal">Grand total</th>
-                    <th className="px-5 py-2 text-right font-normal">Received</th>
-                    <th className="px-5 py-2 text-right font-normal">Balance</th>
-                    <th className="px-5 py-2 text-left font-normal">Due</th>
-                    <th className="px-5 py-2 text-left font-normal">Status</th>
-                    <th className="px-5 py-2 text-left font-normal">NOA</th>
-                    <th className="px-5 py-2 text-right font-normal">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((i: any) => {
-                    const grandTotal = Number(i.grand_total ?? i.amount ?? 0);
-                    const advance = Number(i.advance_deducted ?? 0);
-                    const netAmount = Number(i.amount ?? Math.max(0, grandTotal - advance));
-                    const received = Number(i.amount_received ?? 0);
-                    const balance = Math.max(0, netAmount - received);
-                    const dpd = i.due_date && i.status !== "paid" ? daysBetween(i.due_date) : 0;
-                    const lateDays =
-                      i.status === "paid"
-                        ? i.late_days != null
-                          ? Number(i.late_days)
-                          : 0
-                        : Math.max(0, dpd);
-                    return (
-                      <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3">
-                          <div className="font-mono text-xs">{i.invoice_number}</div>
-                          {i.goods_sales_order_number && (
-                            <div className="text-[10px] text-muted-foreground">
-                              SO {i.goods_sales_order_number}
-                            </div>
-                          )}
-                          {i.linked_customer_proforma_number && (
-                            <div className="text-[10px] text-muted-foreground">
-                              PF {i.linked_customer_proforma_number}
-                            </div>
-                          )}
-                          {advance > 0 && (
-                            <div className="text-[10px] text-muted-foreground">
-                              Less advance {fmtMoney(advance)}
-                            </div>
-                          )}
-                          {i.po_number && (
-                            <div className="text-[10px] text-muted-foreground">
-                              PO {i.po_number}
-                              {i.po_date ? ` · ${fmtDate(i.po_date)}` : ""}
-                              {i.po_amount ? ` · ${fmtMoney(i.po_amount)}` : ""}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-3">{i.debtor?.name ?? debtorName(i.debtor_id) ?? "—"}</td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(grandTotal)}</td>
-                        <td className="px-5 py-3 text-right num text-success">
-                          {received > 0 ? fmtMoney(received) : "—"}
-                        </td>
-                        <td
-                          className={`px-5 py-3 text-right num ${balance > 0 ? "text-warning" : "text-muted-foreground"}`}
-                        >
-                          {fmtMoney(balance)}
-                        </td>
-                        <td className="px-5 py-3 text-sm">{fmtDate(i.due_date)}</td>
-                        <td className="px-5 py-3">
-                          <div className="flex flex-col items-start gap-1">
-                            <StatusPill status={i.status} label={DOC_LABELS[i.status]} />
-                            {i.status === "pending" && i.noa_status === "not_sent" && (
-                              <span className="text-[9px] uppercase tracking-widest text-muted-foreground">
-                                NOA before review
-                              </span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-5 py-3">
-                          <NoaBadge status={i.noa_status} />
-                          {i.noa_comments && (
-                            <div
-                              className="mt-1 max-w-[160px] truncate text-[10px] text-muted-foreground"
-                              title={i.noa_comments}
+      <div className="space-y-6 p-6 md:p-10">
+        <TransactionFilters data={invoicesQ.data ?? []} config={invConfig}>
+          {(filtered) => (
+            <Card>
+              {invoicesQ.isLoading ? (
+                <TableSkeleton rows={7} cols={9} />
+              ) : filtered.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">No invoices.</div>
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal">Invoice</th>
+                        <th className="px-5 py-2 text-left font-normal">Debtor</th>
+                        <th className="px-5 py-2 text-right font-normal">Grand total</th>
+                        <th className="px-5 py-2 text-right font-normal">Received</th>
+                        <th className="px-5 py-2 text-right font-normal">Balance</th>
+                        <th className="px-5 py-2 text-left font-normal">Due</th>
+                        <th className="px-5 py-2 text-left font-normal">Status</th>
+                        <th className="px-5 py-2 text-left font-normal">NOA</th>
+                        <th className="px-5 py-2 text-right font-normal">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((i: any) => {
+                        const grandTotal = Number(i.grand_total ?? i.amount ?? 0);
+                        const advance = Number(i.advance_deducted ?? 0);
+                        const netAmount = Number(i.amount ?? Math.max(0, grandTotal - advance));
+                        const received = Number(i.amount_received ?? 0);
+                        const balance = Math.max(0, netAmount - received);
+                        const dpd = i.due_date && i.status !== "paid" ? daysBetween(i.due_date) : 0;
+                        const lateDays =
+                          i.status === "paid"
+                            ? i.late_days != null
+                              ? Number(i.late_days)
+                              : 0
+                            : Math.max(0, dpd);
+                        return (
+                          <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3">
+                              <div className="font-mono text-xs">{i.invoice_number}</div>
+                              {i.goods_sales_order_number && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  SO {i.goods_sales_order_number}
+                                </div>
+                              )}
+                              {i.linked_customer_proforma_number && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  PF {i.linked_customer_proforma_number}
+                                </div>
+                              )}
+                              {advance > 0 && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  Less advance {fmtMoney(advance)}
+                                </div>
+                              )}
+                              {i.po_number && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  PO {i.po_number}
+                                  {i.po_date ? ` · ${fmtDate(i.po_date)}` : ""}
+                                  {i.po_amount ? ` · ${fmtMoney(i.po_amount)}` : ""}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-5 py-3">
+                              {i.debtor?.name ?? debtorName(i.debtor_id) ?? "—"}
+                            </td>
+                            <td className="px-5 py-3 text-right num">{fmtMoney(grandTotal)}</td>
+                            <td className="px-5 py-3 text-right num text-success">
+                              {received > 0 ? fmtMoney(received) : "—"}
+                            </td>
+                            <td
+                              className={`px-5 py-3 text-right num ${balance > 0 ? "text-warning" : "text-muted-foreground"}`}
                             >
-                              “{i.noa_comments}”
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <div className="inline-flex flex-wrap justify-end gap-1">
-                            <button
-                              onClick={() => setViewing(i)}
-                              className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                            >
-                              View
-                            </button>
-                            {canCreate &&
-                              ["draft", "pending"].includes(i.status) &&
-                              i.status !== "cancelled" && (
+                              {fmtMoney(balance)}
+                            </td>
+                            <td className="px-5 py-3 text-sm">{fmtDate(i.due_date)}</td>
+                            <td className="px-5 py-3">
+                              <div className="flex flex-col items-start gap-1">
+                                <StatusPill status={i.status} label={DOC_LABELS[i.status]} />
+                                {i.status === "pending" && i.noa_status === "not_sent" && (
+                                  <span className="text-[9px] uppercase tracking-widest text-muted-foreground">
+                                    NOA before review
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-5 py-3">
+                              <NoaBadge status={i.noa_status} />
+                              {i.noa_comments && (
+                                <div
+                                  className="mt-1 max-w-[160px] truncate text-[10px] text-muted-foreground"
+                                  title={i.noa_comments}
+                                >
+                                  “{i.noa_comments}”
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <div className="inline-flex flex-wrap justify-end gap-1">
                                 <button
-                                  onClick={() => setEditing(i)}
+                                  onClick={() => setViewing(i)}
                                   className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
                                 >
-                                  Edit
+                                  View
                                 </button>
-                              )}
-                            {canCreate && i.status === "draft" && (
-                              <button
-                                onClick={() => review.mutate(i.id)}
-                                disabled={review.isPending}
-                                className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
-                                title="Review the invoice and send it to the checker"
-                              >
-                                <FileCheck className="h-3 w-3" /> Review
-                              </button>
-                            )}
-                            {isAdmin &&
-                              i.status !== "paid" &&
-                              i.status !== "rejected" &&
-                              i.status !== "cancelled" &&
-                              i.due_date && (
-                                <button
-                                  onClick={() => sendReminder.mutate(i.id)}
-                                  disabled={sendReminder.isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-warning/40 px-2 py-1 text-[10px] text-warning hover:bg-warning/10 disabled:opacity-50"
-                                  title="Send reminder email for this invoice"
-                                >
-                                  <Mail className="h-3 w-3" /> Remind
-                                </button>
-                              )}
-                            {i.noa_status === "not_sent" && (
-                              <button
-                                onClick={() => sendNoa.mutate(i.id)}
-                                className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10"
-                              >
-                                <Send className="h-3 w-3" /> Send NOA
-                              </button>
-                            )}
-                            {canCreate &&
-                              ["draft", "pending"].includes(i.status) &&
-                              i.status !== "cancelled" && (
-                                <button
-                                  onClick={() => cancel.mutate(i.id)}
-                                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
-                                >
-                                  <Ban className="h-3 w-3" /> Cancel
-                                </button>
-                              )}
-                            {canCreate && i.status === "draft" && (
-                              <button
-                                onClick={() => del.mutate(i.id)}
-                                className="text-muted-foreground hover:text-destructive"
-                                title="Delete draft"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                                {canCreate &&
+                                  ["draft", "pending"].includes(i.status) &&
+                                  i.status !== "cancelled" && (
+                                    <button
+                                      onClick={() => setEditing(i)}
+                                      className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                    >
+                                      Edit
+                                    </button>
+                                  )}
+                                {canCreate && i.status === "draft" && (
+                                  <button
+                                    onClick={() => review.mutate(i.id)}
+                                    disabled={review.isPending}
+                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                                    title="Review the invoice and send it to the checker"
+                                  >
+                                    <FileCheck className="h-3 w-3" /> Review
+                                  </button>
+                                )}
+                                {isAdmin &&
+                                  i.status !== "paid" &&
+                                  i.status !== "rejected" &&
+                                  i.status !== "cancelled" &&
+                                  i.due_date && (
+                                    <button
+                                      onClick={() => sendReminder.mutate(i.id)}
+                                      disabled={sendReminder.isPending}
+                                      className="inline-flex items-center gap-1 rounded-md border border-warning/40 px-2 py-1 text-[10px] text-warning hover:bg-warning/10 disabled:opacity-50"
+                                      title="Send reminder email for this invoice"
+                                    >
+                                      <Mail className="h-3 w-3" /> Remind
+                                    </button>
+                                  )}
+                                {i.noa_status === "not_sent" && (
+                                  <button
+                                    onClick={() => sendNoa.mutate(i.id)}
+                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10"
+                                  >
+                                    <Send className="h-3 w-3" /> Send NOA
+                                  </button>
+                                )}
+                                {canCreate &&
+                                  ["draft", "pending"].includes(i.status) &&
+                                  i.status !== "cancelled" && (
+                                    <button
+                                      onClick={() => cancel.mutate(i.id)}
+                                      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
+                                    >
+                                      <Ban className="h-3 w-3" /> Cancel
+                                    </button>
+                                  )}
+                                {canCreate && i.status === "draft" && (
+                                  <button
+                                    onClick={() => del.mutate(i.id)}
+                                    className="text-muted-foreground hover:text-destructive"
+                                    title="Delete draft"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
           )}
-        </Card>
+        </TransactionFilters>
       </div>
 
       {open && (

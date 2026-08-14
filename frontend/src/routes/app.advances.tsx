@@ -8,6 +8,7 @@ import { Plus, X, Loader2, Link2, Trash2, Wallet } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { toast } from "sonner";
+import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/advances")({
   component: AdvancesPage,
@@ -29,6 +30,30 @@ function AdvancesPage() {
   });
 
   const rows = (advancesQ.data ?? []).filter((a: any) => a.side === tab);
+
+  const advanceConfig: TxFiltersConfig<any> = {
+    searchPlaceholder: "Search by counterparty, PO / invoice, reference…",
+    search: (a) => {
+      const inv = a.side === "sales" ? a.invoice : a.purchase;
+      const cp = a.order
+        ? a.side === "sales"
+          ? a.order.debtor?.name
+          : a.order.vendor?.name
+        : a.side === "sales"
+          ? a.invoice?.debtor?.name
+          : a.purchase?.vendor?.name;
+      return [a.order?.po_number, inv?.invoice_number, cp, a.reference];
+    },
+    statusField: (a) => a.status,
+    statusLabel: { open: "Open", applied: "Applied", refunded: "Refunded" },
+    dateField: (a) => a.advance_date,
+    dateLabel: "Advance date",
+    sortFields: [
+      { value: "created", label: "Created date", get: (a) => a.created_at },
+      { value: "advance", label: "Advance date", get: (a) => a.advance_date },
+    ],
+    defaultSort: "created-desc",
+  };
 
   const totals = useMemo(() => {
     const r = { sales: 0, purchase: 0 };
@@ -118,124 +143,132 @@ function AdvancesPage() {
           ))}
         </div>
 
-        <Card>
-          {advancesQ.isLoading ? (
-            <TableSkeleton rows={5} cols={8} />
-          ) : rows.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">
-              No advances on this side yet.
-            </div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">Date</th>
-                    <th className="px-5 py-2 text-left font-normal">Linked to</th>
-                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
-                    <th className="px-5 py-2 text-right font-normal">Advance</th>
-                    <th className="px-5 py-2 text-right font-normal">PO / Inv amt</th>
-                    <th className="px-5 py-2 text-left font-normal">Reference</th>
-                    <th className="px-5 py-2 text-left font-normal">Status</th>
-                    <th className="px-5 py-2 text-right font-normal"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((a: any) => {
-                    const inv = a.side === "sales" ? a.invoice : a.purchase;
-                    const linkedAmount = a.order?.amount ?? inv?.amount ?? null;
-                    const cp = a.order
-                      ? a.side === "sales"
-                        ? a.order.debtor?.name
-                        : a.order.vendor?.name
-                      : a.side === "sales"
-                        ? a.invoice?.debtor?.name
-                        : a.purchase?.vendor?.name;
-                    return (
-                      <tr key={a.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3 text-muted-foreground">
-                          {fmtDate(a.advance_date)}
-                        </td>
-                        <td className="px-5 py-3">
-                          {a.order ? (
-                            <Link
-                              to="/app/proformas"
-                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                            >
-                              <Link2 className="h-3 w-3" />
-                              PO {a.order.po_number}
-                            </Link>
-                          ) : inv ? (
-                            <Link
-                              to={a.side === "sales" ? "/app/invoices" : "/app/purchases"}
-                              className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
-                            >
-                              <Link2 className="h-3 w-3" />
-                              {inv.invoice_number}
-                            </Link>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3">{cp ?? "—"}</td>
-                        <td className="px-5 py-3 text-right num text-primary">
-                          {fmtMoney(a.amount)}
-                        </td>
-                        <td className="px-5 py-3 text-right num text-muted-foreground">
-                          {linkedAmount != null ? fmtMoney(linkedAmount) : "—"}
-                        </td>
-                        <td className="px-5 py-3 text-xs text-muted-foreground">
-                          {a.reference ?? "—"}
-                        </td>
-                        <td className="px-5 py-3">
-                          <span
-                            className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
-                              a.status === "applied"
-                                ? "border-success/50 text-success"
-                                : a.status === "refunded"
-                                  ? "border-muted text-muted-foreground"
-                                  : "border-warning/50 text-warning"
-                            }`}
-                          >
-                            {a.status}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <div className="inline-flex gap-1">
-                            {canWrite && a.status === "open" && (
-                              <button
-                                onClick={() => setStatus.mutate({ id: a.id, status: "applied" })}
-                                className="rounded-md border border-success/50 px-2 py-0.5 text-[10px] text-success hover:bg-success/10"
-                              >
-                                Mark applied
-                              </button>
-                            )}
-                            {canWrite && a.status !== "refunded" && (
-                              <button
-                                onClick={() => setStatus.mutate({ id: a.id, status: "refunded" })}
-                                className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted"
-                              >
-                                Refunded
-                              </button>
-                            )}
-                            {canWrite && (
-                              <button
-                                onClick={() => del.mutate(a.id)}
-                                className="text-muted-foreground hover:text-destructive"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
+        <TransactionFilters data={rows} config={advanceConfig}>
+          {(filtered) => (
+            <Card>
+              {advancesQ.isLoading ? (
+                <TableSkeleton rows={5} cols={8} />
+              ) : filtered.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  No advances on this side yet.
+                </div>
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal">Date</th>
+                        <th className="px-5 py-2 text-left font-normal">Linked to</th>
+                        <th className="px-5 py-2 text-left font-normal">Counterparty</th>
+                        <th className="px-5 py-2 text-right font-normal">Advance</th>
+                        <th className="px-5 py-2 text-right font-normal">PO / Inv amt</th>
+                        <th className="px-5 py-2 text-left font-normal">Reference</th>
+                        <th className="px-5 py-2 text-left font-normal">Status</th>
+                        <th className="px-5 py-2 text-right font-normal"></th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {filtered.map((a: any) => {
+                        const inv = a.side === "sales" ? a.invoice : a.purchase;
+                        const linkedAmount = a.order?.amount ?? inv?.amount ?? null;
+                        const cp = a.order
+                          ? a.side === "sales"
+                            ? a.order.debtor?.name
+                            : a.order.vendor?.name
+                          : a.side === "sales"
+                            ? a.invoice?.debtor?.name
+                            : a.purchase?.vendor?.name;
+                        return (
+                          <tr key={a.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3 text-muted-foreground">
+                              {fmtDate(a.advance_date)}
+                            </td>
+                            <td className="px-5 py-3">
+                              {a.order ? (
+                                <Link
+                                  to="/app/proformas"
+                                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                                >
+                                  <Link2 className="h-3 w-3" />
+                                  PO {a.order.po_number}
+                                </Link>
+                              ) : inv ? (
+                                <Link
+                                  to={a.side === "sales" ? "/app/invoices" : "/app/purchases"}
+                                  className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                                >
+                                  <Link2 className="h-3 w-3" />
+                                  {inv.invoice_number}
+                                </Link>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3">{cp ?? "—"}</td>
+                            <td className="px-5 py-3 text-right num text-primary">
+                              {fmtMoney(a.amount)}
+                            </td>
+                            <td className="px-5 py-3 text-right num text-muted-foreground">
+                              {linkedAmount != null ? fmtMoney(linkedAmount) : "—"}
+                            </td>
+                            <td className="px-5 py-3 text-xs text-muted-foreground">
+                              {a.reference ?? "—"}
+                            </td>
+                            <td className="px-5 py-3">
+                              <span
+                                className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                                  a.status === "applied"
+                                    ? "border-success/50 text-success"
+                                    : a.status === "refunded"
+                                      ? "border-muted text-muted-foreground"
+                                      : "border-warning/50 text-warning"
+                                }`}
+                              >
+                                {a.status}
+                              </span>
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <div className="inline-flex gap-1">
+                                {canWrite && a.status === "open" && (
+                                  <button
+                                    onClick={() =>
+                                      setStatus.mutate({ id: a.id, status: "applied" })
+                                    }
+                                    className="rounded-md border border-success/50 px-2 py-0.5 text-[10px] text-success hover:bg-success/10"
+                                  >
+                                    Mark applied
+                                  </button>
+                                )}
+                                {canWrite && a.status !== "refunded" && (
+                                  <button
+                                    onClick={() =>
+                                      setStatus.mutate({ id: a.id, status: "refunded" })
+                                    }
+                                    className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted"
+                                  >
+                                    Refunded
+                                  </button>
+                                )}
+                                {canWrite && (
+                                  <button
+                                    onClick={() => del.mutate(a.id)}
+                                    className="text-muted-foreground hover:text-destructive"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
           )}
-        </Card>
+        </TransactionFilters>
       </div>
 
       {open && user && (

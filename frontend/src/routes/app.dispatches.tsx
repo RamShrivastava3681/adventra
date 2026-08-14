@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 import { TableSkeleton } from "@/components/skeletons";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/dispatches")({
   component: DispatchesPage,
@@ -51,6 +52,7 @@ type DispatchLine = {
 type Dispatch = {
   id: string;
   dispatch_number: string;
+  created_at: string;
   goods_sales_order_id: string;
   so_number: string | null;
   customer_id: string | null;
@@ -125,7 +127,8 @@ const DISPATCH_STATUS_LABELS: Record<string, string> = {
 
 const DISPATCH_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
-  confirmed: "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
+  confirmed:
+    "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
   partially_delivered: "bg-warning/10 text-warning border-warning/30",
   delivered: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
@@ -138,7 +141,6 @@ function DispatchesPage() {
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { soId, soFilter } = Route.useSearch();
-  const [filter, setFilter] = useState("all");
   const [soFilterSel, setSoFilterSel] = useState<string>(soFilter ?? "");
   const [createOpen, setCreateOpen] = useState(false);
   const [preselectSoId, setPreselectSoId] = useState<string | null>(null);
@@ -208,11 +210,30 @@ function DispatchesPage() {
     return map;
   }, [stockQ.data]);
 
-  const filtered = (dispatchQ.data ?? []).filter(
-    (d) =>
-      (filter === "all" || d.status === filter) &&
-      (!soFilterSel || d.goods_sales_order_id === soFilterSel),
-  );
+  const dispatchConfig: TxFiltersConfig<Dispatch> = {
+    searchPlaceholder: "Search by dispatch no., customer, SO, transporter…",
+    search: (d) => [
+      d.dispatch_number,
+      d.customer_name,
+      d.so_number,
+      d.warehouse,
+      d.transporter_name,
+      d.tracking_number,
+      d.delivery_challan_number,
+      d.linked_sales_invoice_number,
+    ],
+    statusField: (d) => d.status,
+    statusLabel: DISPATCH_STATUS_LABELS,
+    statusOrder: [...DISPATCH_STATUSES],
+    dateField: (d) => d.dispatch_date,
+    dateLabel: "Dispatch date",
+    sortFields: [
+      { value: "created", label: "Created date", get: (d) => d.created_at },
+      { value: "dispatch", label: "Dispatch date", get: (d) => d.dispatch_date },
+      { value: "delivered", label: "Delivered date", get: (d) => d.delivery_date },
+    ],
+    defaultSort: "dispatch-desc",
+  };
 
   const stats = useMemo(() => {
     const ds = dispatchQ.data ?? [];
@@ -272,19 +293,6 @@ function DispatchesPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {["all", ...DISPATCH_STATUSES].map((s) => (
-            <button
-              key={s}
-              onClick={() => setFilter(s)}
-              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                filter === s
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {s === "all" ? "All" : DISPATCH_STATUS_LABELS[s]}
-            </button>
-          ))}
           <div className="ml-auto w-56">
             <SearchableSelect
               value={soFilterSel}
@@ -303,87 +311,97 @@ function DispatchesPage() {
           </div>
         </div>
 
-        <Card>
-          {dispatchQ.isLoading ? (
-            <TableSkeleton rows={6} cols={8} />
-          ) : filtered.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">
-              <Truck className="mx-auto mb-2 h-8 w-8 opacity-40" />
-              No dispatch notes yet.
-            </div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">Dispatch</th>
-                    <th className="px-5 py-2 text-left font-normal">Customer</th>
-                    <th className="px-5 py-2 text-left font-normal">Sales order</th>
-                    <th className="px-5 py-2 text-left font-normal">Warehouse</th>
-                    <th className="px-5 py-2 text-right font-normal">Qty</th>
-                    <th className="px-5 py-2 text-left font-normal">Delivered</th>
-                    <th className="px-5 py-2 text-left font-normal">Status</th>
-                    <th className="px-5 py-2 text-right font-normal">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((d) => {
-                    const qty = (d.lines ?? []).reduce((s, l) => s + l.dispatched_qty, 0);
-                    const delivered = (d.lines ?? []).reduce(
-                      (s, l) => s + (l.delivered_qty ?? 0),
-                      0,
-                    );
-                    const pct = qty > 0 ? Math.min(100, Math.round((delivered / qty) * 100)) : 0;
-                    return (
-                      <tr key={d.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3 font-mono text-xs">
-                          {d.dispatch_number}
-                          <div className="text-[10px] text-muted-foreground">
-                            {fmtDate(d.dispatch_date)}
-                          </div>
-                        </td>
-                        <td className="px-5 py-3">{d.customer_name ?? "—"}</td>
-                        <td className="px-5 py-3 font-mono text-xs">{d.so_number ?? "—"}</td>
-                        <td className="px-5 py-3 text-xs text-muted-foreground">
-                          {d.warehouse || "—"}
-                        </td>
-                        <td className="px-5 py-3 text-right num">{qty.toLocaleString()}</td>
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-                              <div
-                                className={`h-full rounded-full ${pct >= 100 ? "bg-success" : "bg-primary"}`}
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] tabular-nums text-muted-foreground">
-                              {delivered}/{qty}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3">
-                          <StatusPill
-                            status={d.status}
-                            label={DISPATCH_STATUS_LABELS[d.status] ?? d.status}
-                            tone={DISPATCH_STATUS_TONES[d.status]}
-                          />
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <button
-                            onClick={() => setView(d)}
-                            className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                          >
-                            View
-                          </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+        <TransactionFilters
+          data={(dispatchQ.data ?? []).filter(
+            (d) => !soFilterSel || d.goods_sales_order_id === soFilterSel,
           )}
-        </Card>
+          config={dispatchConfig}
+        >
+          {(filtered) => (
+            <Card>
+              {dispatchQ.isLoading ? (
+                <TableSkeleton rows={6} cols={8} />
+              ) : filtered.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  <Truck className="mx-auto mb-2 h-8 w-8 opacity-40" />
+                  No dispatch notes yet.
+                </div>
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal">Dispatch</th>
+                        <th className="px-5 py-2 text-left font-normal">Customer</th>
+                        <th className="px-5 py-2 text-left font-normal">Sales order</th>
+                        <th className="px-5 py-2 text-left font-normal">Warehouse</th>
+                        <th className="px-5 py-2 text-right font-normal">Qty</th>
+                        <th className="px-5 py-2 text-left font-normal">Delivered</th>
+                        <th className="px-5 py-2 text-left font-normal">Status</th>
+                        <th className="px-5 py-2 text-right font-normal">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((d) => {
+                        const qty = (d.lines ?? []).reduce((s, l) => s + l.dispatched_qty, 0);
+                        const delivered = (d.lines ?? []).reduce(
+                          (s, l) => s + (l.delivered_qty ?? 0),
+                          0,
+                        );
+                        const pct =
+                          qty > 0 ? Math.min(100, Math.round((delivered / qty) * 100)) : 0;
+                        return (
+                          <tr key={d.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3 font-mono text-xs">
+                              {d.dispatch_number}
+                              <div className="text-[10px] text-muted-foreground">
+                                {fmtDate(d.dispatch_date)}
+                              </div>
+                            </td>
+                            <td className="px-5 py-3">{d.customer_name ?? "—"}</td>
+                            <td className="px-5 py-3 font-mono text-xs">{d.so_number ?? "—"}</td>
+                            <td className="px-5 py-3 text-xs text-muted-foreground">
+                              {d.warehouse || "—"}
+                            </td>
+                            <td className="px-5 py-3 text-right num">{qty.toLocaleString()}</td>
+                            <td className="px-5 py-3">
+                              <div className="flex items-center gap-2">
+                                <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                                  <div
+                                    className={`h-full rounded-full ${pct >= 100 ? "bg-success" : "bg-primary"}`}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                                <span className="text-[10px] tabular-nums text-muted-foreground">
+                                  {delivered}/{qty}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-3">
+                              <StatusPill
+                                status={d.status}
+                                label={DISPATCH_STATUS_LABELS[d.status] ?? d.status}
+                                tone={DISPATCH_STATUS_TONES[d.status]}
+                              />
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <button
+                                onClick={() => setView(d)}
+                                className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                              >
+                                View
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
+          )}
+        </TransactionFilters>
       </div>
 
       {createOpen && user && (

@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TableSkeleton } from "@/components/skeletons";
+import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/purchase-orders")({
   component: PurchaseOrdersPage,
@@ -47,6 +48,7 @@ type PO = {
   id: string;
   po_number: string;
   po_date: string;
+  created_at: string;
   supplier_id: string | null;
   supplier_name: string | null;
   warehouse: string | null;
@@ -178,7 +180,6 @@ function PurchaseOrdersPage() {
   const [editing, setEditing] = useState<PO | null>(null);
   const [receiving, setReceiving] = useState<PO | null>(null);
   const [grnView, setGrnView] = useState<PO | null>(null);
-  const [filter, setFilter] = useState("all");
 
   const posQ = useQuery({
     queryKey: ["goods-pos"],
@@ -263,7 +264,21 @@ function PurchaseOrdersPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const filtered = (posQ.data ?? []).filter((p) => filter === "all" || p.status === filter);
+  const poConfig: TxFiltersConfig<PO> = {
+    searchPlaceholder: "Search by PO number, supplier, warehouse…",
+    search: (p) => [p.po_number, p.supplier_name ?? supplierName(p.supplier_id), p.warehouse],
+    statusField: (p) => p.status,
+    statusLabel: PO_STATUS_LABELS,
+    statusOrder: [...PO_STATUSES],
+    dateField: (p) => p.po_date,
+    dateLabel: "PO date",
+    sortFields: [
+      { value: "created", label: "Created date", get: (p) => p.created_at },
+      { value: "po", label: "PO date", get: (p) => p.po_date },
+      { value: "delivery", label: "Delivery date", get: (p) => p.expected_delivery_date },
+    ],
+    defaultSort: "po-desc",
+  };
 
   const stats = useMemo(() => {
     const pos = posQ.data ?? [];
@@ -329,181 +344,174 @@ function PurchaseOrdersPage() {
           <StatTile label="Fully received" value={stats.fullyReceived} icon={PackageOpen} />
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {["all", ...PO_STATUSES].map((s) => (
-            <button
-              key={s}
-              onClick={() => setFilter(s)}
-              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                filter === s
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {s === "all" ? "All" : PO_STATUS_LABELS[s]}
-            </button>
-          ))}
-        </div>
-
-        <Card>
-          {posQ.isLoading ? (
-            <TableSkeleton rows={6} cols={8} />
-          ) : filtered.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">
-              <ClipboardList className="mx-auto mb-2 h-8 w-8 opacity-40" />
-              No purchase orders yet.
-            </div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">PO</th>
-                    <th className="px-5 py-2 text-left font-normal">Supplier</th>
-                    <th className="px-5 py-2 text-left font-normal">Delivery</th>
-                    <th className="px-5 py-2 text-right font-normal">Qty</th>
-                    <th className="px-5 py-2 text-right font-normal">Grand total</th>
-                    <th className="px-5 py-2 text-left font-normal">Received</th>
-                    <th className="px-5 py-2 text-left font-normal">Status</th>
-                    <th className="px-5 py-2 text-right font-normal">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((p) => {
-                    const totalQty = (p.lines ?? []).reduce((s, l) => s + l.ordered_qty, 0);
-                    const recQty = (p.lines ?? []).reduce((s, l) => s + (l.received_qty ?? 0), 0);
-                    const pct =
-                      totalQty > 0 ? Math.min(100, Math.round((recQty / totalQty) * 100)) : 0;
-                    return (
-                      <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3 font-mono text-xs">
-                          {p.po_number}
-                          <div className="text-[10px] text-muted-foreground">
-                            {fmtDate(p.po_date)}
-                          </div>
-                        </td>
-                        <td className="px-5 py-3">
-                          {p.supplier_name ?? supplierName(p.supplier_id) ?? "—"}
-                        </td>
-                        <td className="px-5 py-3 text-xs text-muted-foreground">
-                          {p.warehouse || "—"}
-                          {p.expected_delivery_date ? (
-                            <div className="text-[10px]">
-                              by {fmtDate(p.expected_delivery_date)}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="px-5 py-3 text-right num">{totalQty.toLocaleString()}</td>
-                        <td className="px-5 py-3 text-right num font-medium">
-                          {fmtMoney(p.grand_total)}
-                        </td>
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-                              <div
-                                className={`h-full rounded-full ${pct >= 100 ? "bg-success" : "bg-primary"}`}
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] tabular-nums text-muted-foreground">
-                              {recQty}/{totalQty}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3">
-                          <StatusPill
-                            status={p.status}
-                            label={PO_STATUS_LABELS[p.status] ?? p.status}
-                            tone={PO_STATUS_TONES[p.status]}
-                          />
-                          {p.supplier_approval_status && (
-                            <div className="mt-1">
-                              <StatusPill
-                                status={p.supplier_approval_status}
-                                label={
-                                  PO_SUPPLIER_LABELS[p.supplier_approval_status] ??
-                                  p.supplier_approval_status
-                                }
-                                tone={PO_SUPPLIER_TONES[p.supplier_approval_status]}
-                              />
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <div className="flex justify-end gap-1">
-                            <button
-                              onClick={() => {
-                                setEditing(p);
-                                setOpen(true);
-                              }}
-                              className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                            >
-                              View
-                            </button>
-                            {canWrite && ["draft", "approved"].includes(p.status) && (
-                              <button
-                                onClick={() => {
-                                  setEditing(p);
-                                  setOpen(true);
-                                }}
-                                className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                                title="Edit"
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </button>
-                            )}
-                            {canWrite &&
-                              ["approved", "sent", "partially_received"].includes(p.status) && (
-                                <button
-                                  onClick={() => setReceiving(p)}
-                                  className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2 py-1 text-[10px] text-success hover:bg-success/10"
-                                >
-                                  <Truck className="h-3 w-3" /> Receive
-                                </button>
-                              )}
-                            {(p.lines ?? []).some((l) => l.received_qty > 0) && (
-                              <button
-                                onClick={() => setGrnView(p)}
-                                className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                                title="View GRNs"
-                              >
-                                <FileDown className="h-3 w-3" />
-                              </button>
-                            )}
-                            {canWrite && p.status === "draft" && (
-                              <button
-                                onClick={() => del.mutate(p.id)}
-                                className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
-                                title="Delete"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                            {canWrite && p.status === "approved" && (
-                              <button
-                                onClick={() => sendToSupplier.mutate(p.id)}
-                                disabled={sendToSupplier.isPending}
-                                className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
-                                title="Email the purchase order PDF to the supplier for approval"
-                              >
-                                {sendToSupplier.isPending ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Send className="h-3 w-3" />
-                                )}
-                                Send to supplier
-                              </button>
-                            )}
-                          </div>
-                        </td>
+        <TransactionFilters data={posQ.data ?? []} config={poConfig}>
+          {(filtered) => (
+            <Card>
+              {posQ.isLoading ? (
+                <TableSkeleton rows={6} cols={8} />
+              ) : filtered.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  <ClipboardList className="mx-auto mb-2 h-8 w-8 opacity-40" />
+                  No purchase orders yet.
+                </div>
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal">PO</th>
+                        <th className="px-5 py-2 text-left font-normal">Supplier</th>
+                        <th className="px-5 py-2 text-left font-normal">Delivery</th>
+                        <th className="px-5 py-2 text-right font-normal">Qty</th>
+                        <th className="px-5 py-2 text-right font-normal">Grand total</th>
+                        <th className="px-5 py-2 text-left font-normal">Received</th>
+                        <th className="px-5 py-2 text-left font-normal">Status</th>
+                        <th className="px-5 py-2 text-right font-normal">Actions</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {filtered.map((p) => {
+                        const totalQty = (p.lines ?? []).reduce((s, l) => s + l.ordered_qty, 0);
+                        const recQty = (p.lines ?? []).reduce(
+                          (s, l) => s + (l.received_qty ?? 0),
+                          0,
+                        );
+                        const pct =
+                          totalQty > 0 ? Math.min(100, Math.round((recQty / totalQty) * 100)) : 0;
+                        return (
+                          <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3 font-mono text-xs">
+                              {p.po_number}
+                              <div className="text-[10px] text-muted-foreground">
+                                {fmtDate(p.po_date)}
+                              </div>
+                            </td>
+                            <td className="px-5 py-3">
+                              {p.supplier_name ?? supplierName(p.supplier_id) ?? "—"}
+                            </td>
+                            <td className="px-5 py-3 text-xs text-muted-foreground">
+                              {p.warehouse || "—"}
+                              {p.expected_delivery_date ? (
+                                <div className="text-[10px]">
+                                  by {fmtDate(p.expected_delivery_date)}
+                                </div>
+                              ) : null}
+                            </td>
+                            <td className="px-5 py-3 text-right num">
+                              {totalQty.toLocaleString()}
+                            </td>
+                            <td className="px-5 py-3 text-right num font-medium">
+                              {fmtMoney(p.grand_total)}
+                            </td>
+                            <td className="px-5 py-3">
+                              <div className="flex items-center gap-2">
+                                <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                                  <div
+                                    className={`h-full rounded-full ${pct >= 100 ? "bg-success" : "bg-primary"}`}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                                <span className="text-[10px] tabular-nums text-muted-foreground">
+                                  {recQty}/{totalQty}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-3">
+                              <StatusPill
+                                status={p.status}
+                                label={PO_STATUS_LABELS[p.status] ?? p.status}
+                                tone={PO_STATUS_TONES[p.status]}
+                              />
+                              {p.supplier_approval_status && (
+                                <div className="mt-1">
+                                  <StatusPill
+                                    status={p.supplier_approval_status}
+                                    label={
+                                      PO_SUPPLIER_LABELS[p.supplier_approval_status] ??
+                                      p.supplier_approval_status
+                                    }
+                                    tone={PO_SUPPLIER_TONES[p.supplier_approval_status]}
+                                  />
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <div className="flex justify-end gap-1">
+                                <button
+                                  onClick={() => {
+                                    setEditing(p);
+                                    setOpen(true);
+                                  }}
+                                  className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                >
+                                  View
+                                </button>
+                                {canWrite && ["draft", "approved"].includes(p.status) && (
+                                  <button
+                                    onClick={() => {
+                                      setEditing(p);
+                                      setOpen(true);
+                                    }}
+                                    className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                    title="Edit"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </button>
+                                )}
+                                {canWrite &&
+                                  ["approved", "sent", "partially_received"].includes(p.status) && (
+                                    <button
+                                      onClick={() => setReceiving(p)}
+                                      className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2 py-1 text-[10px] text-success hover:bg-success/10"
+                                    >
+                                      <Truck className="h-3 w-3" /> Receive
+                                    </button>
+                                  )}
+                                {(p.lines ?? []).some((l) => l.received_qty > 0) && (
+                                  <button
+                                    onClick={() => setGrnView(p)}
+                                    className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                    title="View GRNs"
+                                  >
+                                    <FileDown className="h-3 w-3" />
+                                  </button>
+                                )}
+                                {canWrite && p.status === "draft" && (
+                                  <button
+                                    onClick={() => del.mutate(p.id)}
+                                    className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                                {canWrite && p.status === "approved" && (
+                                  <button
+                                    onClick={() => sendToSupplier.mutate(p.id)}
+                                    disabled={sendToSupplier.isPending}
+                                    className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                                    title="Email the purchase order PDF to the supplier for approval"
+                                  >
+                                    {sendToSupplier.isPending ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <Send className="h-3 w-3" />
+                                    )}
+                                    Send to supplier
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
           )}
-        </Card>
+        </TransactionFilters>
       </div>
 
       {open && user && (

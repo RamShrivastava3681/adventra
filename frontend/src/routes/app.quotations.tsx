@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TableSkeleton } from "@/components/skeletons";
+import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/quotations")({
   component: QuotationsPage,
@@ -49,6 +50,7 @@ type QLine = {
 type Q = {
   id: string;
   quotation_number: string;
+  created_at: string;
   quotation_date: string;
   valid_until: string | null;
   customer_id: string | null;
@@ -173,7 +175,6 @@ function QuotationsPage() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Q | null>(null);
-  const [filter, setFilter] = useState("all");
 
   const qsQ = useQuery({
     queryKey: ["quotations"],
@@ -231,7 +232,25 @@ function QuotationsPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const filtered = (qsQ.data ?? []).filter((q) => filter === "all" || q.status === filter);
+  const qConfig: TxFiltersConfig<Q> = {
+    searchPlaceholder: "Search by quotation number, customer, contact…",
+    search: (q) => [
+      q.quotation_number,
+      q.customer_name ?? customerName(q.customer_id),
+      q.contact_person,
+    ],
+    statusField: (q) => q.status,
+    statusLabel: Q_STATUS_LABELS,
+    statusOrder: [...Q_STATUSES],
+    dateField: (q) => q.quotation_date,
+    dateLabel: "Quotation date",
+    sortFields: [
+      { value: "created", label: "Created date", get: (q) => q.created_at },
+      { value: "quotation", label: "Quotation date", get: (q) => q.quotation_date },
+      { value: "valid", label: "Valid until", get: (q) => q.valid_until },
+    ],
+    defaultSort: "quotation-desc",
+  };
 
   const stats = useMemo(() => {
     const qs = qsQ.data ?? [];
@@ -286,177 +305,167 @@ function QuotationsPage() {
           <StatTile label="Converted" value={stats.converted} icon={ArrowRight} />
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {["all", ...Q_STATUSES].map((s) => (
-            <button
-              key={s}
-              onClick={() => setFilter(s)}
-              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                filter === s
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {s === "all" ? "All" : Q_STATUS_LABELS[s]}
-            </button>
-          ))}
-        </div>
-
-        <Card>
-          {qsQ.isLoading ? (
-            <TableSkeleton rows={6} cols={7} />
-          ) : filtered.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">
-              <ScrollText className="mx-auto mb-2 h-8 w-8 opacity-40" />
-              No quotations yet.
-            </div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">Quotation</th>
-                    <th className="px-5 py-2 text-left font-normal">Customer / prospect</th>
-                    <th className="px-5 py-2 text-left font-normal">Valid until</th>
-                    <th className="px-5 py-2 text-right font-normal">Grand total</th>
-                    <th className="px-5 py-2 text-left font-normal">Status</th>
-                    <th className="px-5 py-2 text-right font-normal">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((q) => {
-                    const expired =
-                      q.valid_until &&
-                      q.valid_until < todayStr() &&
-                      ["draft", "sent"].includes(q.status);
-                    return (
-                      <tr key={q.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3 font-mono text-xs">
-                          {q.quotation_number}
-                          <div className="text-[10px] text-muted-foreground">
-                            {fmtDate(q.quotation_date)}
-                          </div>
-                        </td>
-                        <td className="px-5 py-3">
-                          {q.customer_name ?? customerName(q.customer_id) ?? "—"}
-                          {q.contact_person ? (
-                            <div className="text-[10px] text-muted-foreground">
-                              {q.contact_person}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="px-5 py-3 text-xs text-muted-foreground">
-                          {q.valid_until ? (
-                            <span className="inline-flex items-center gap-1">
-                              <Clock4 className="h-3 w-3" />
-                              {fmtDate(q.valid_until)}
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                          {expired && (
-                            <span className="ml-2 rounded bg-warning/10 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-warning">
-                              Past validity
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-right num font-medium">
-                          {fmtMoney(q.grand_total)}
-                        </td>
-                        <td className="px-5 py-3">
-                          <StatusPill
-                            status={q.status}
-                            label={Q_STATUS_LABELS[q.status] ?? q.status}
-                            tone={Q_STATUS_TONES[q.status]}
-                          />
-                          {q.approval_status && (
-                            <div className="mt-1">
-                              <StatusPill
-                                status={q.approval_status}
-                                label={Q_APPROVAL_LABELS[q.approval_status] ?? q.approval_status}
-                                tone={Q_APPROVAL_TONES[q.approval_status]}
-                              />
-                            </div>
-                          )}
-                          {q.debtor_approval_status && (
-                            <div className="mt-1">
-                              <StatusPill
-                                status={q.debtor_approval_status}
-                                label={
-                                  Q_DEBTOR_LABELS[q.debtor_approval_status] ??
-                                  q.debtor_approval_status
-                                }
-                                tone={Q_DEBTOR_TONES[q.debtor_approval_status]}
-                              />
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <div className="flex justify-end gap-1">
-                            <button
-                              onClick={() => {
-                                setEditing(q);
-                                setOpen(true);
-                              }}
-                              className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                            >
-                              View
-                            </button>
-                            {canWrite && q.status === "draft" && (
-                              <button
-                                onClick={() => {
-                                  setEditing(q);
-                                  setOpen(true);
-                                }}
-                                className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                                title="Edit"
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </button>
-                            )}
-                            {canWrite && q.status === "draft" && (
-                              <button
-                                onClick={() => del.mutate(q.id)}
-                                className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
-                                title="Delete"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                            {canWrite &&
-                              ["draft", "sent", "accepted", "rejected"].includes(q.status) && (
-                                <button
-                                  onClick={() => sendToDebtor.mutate(q.id)}
-                                  disabled={sendToDebtor.isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
-                                  title="Email the quotation PDF to the debtor for approval"
-                                >
-                                  {sendToDebtor.isPending ? (
-                                    <Loader2 className="h-3 w-3 animate-spin" />
-                                  ) : (
-                                    <Mail className="h-3 w-3" />
-                                  )}
-                                  Send to debtor
-                                </button>
-                              )}
-                            <Link
-                              to="/app/quotation/$quotationId"
-                              params={{ quotationId: q.id }}
-                              className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                              title="Print quotation PDF"
-                            >
-                              <Printer className="h-3 w-3" />
-                            </Link>
-                          </div>
-                        </td>
+        <TransactionFilters data={qsQ.data ?? []} config={qConfig}>
+          {(filtered) => (
+            <Card>
+              {qsQ.isLoading ? (
+                <TableSkeleton rows={6} cols={7} />
+              ) : filtered.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  <ScrollText className="mx-auto mb-2 h-8 w-8 opacity-40" />
+                  No quotations yet.
+                </div>
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal">Quotation</th>
+                        <th className="px-5 py-2 text-left font-normal">Customer / prospect</th>
+                        <th className="px-5 py-2 text-left font-normal">Valid until</th>
+                        <th className="px-5 py-2 text-right font-normal">Grand total</th>
+                        <th className="px-5 py-2 text-left font-normal">Status</th>
+                        <th className="px-5 py-2 text-right font-normal">Actions</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {filtered.map((q) => {
+                        const expired =
+                          q.valid_until &&
+                          q.valid_until < todayStr() &&
+                          ["draft", "sent"].includes(q.status);
+                        return (
+                          <tr key={q.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3 font-mono text-xs">
+                              {q.quotation_number}
+                              <div className="text-[10px] text-muted-foreground">
+                                {fmtDate(q.quotation_date)}
+                              </div>
+                            </td>
+                            <td className="px-5 py-3">
+                              {q.customer_name ?? customerName(q.customer_id) ?? "—"}
+                              {q.contact_person ? (
+                                <div className="text-[10px] text-muted-foreground">
+                                  {q.contact_person}
+                                </div>
+                              ) : null}
+                            </td>
+                            <td className="px-5 py-3 text-xs text-muted-foreground">
+                              {q.valid_until ? (
+                                <span className="inline-flex items-center gap-1">
+                                  <Clock4 className="h-3 w-3" />
+                                  {fmtDate(q.valid_until)}
+                                </span>
+                              ) : (
+                                "—"
+                              )}
+                              {expired && (
+                                <span className="ml-2 rounded bg-warning/10 px-1.5 py-0.5 text-[9px] uppercase tracking-widest text-warning">
+                                  Past validity
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-right num font-medium">
+                              {fmtMoney(q.grand_total)}
+                            </td>
+                            <td className="px-5 py-3">
+                              <StatusPill
+                                status={q.status}
+                                label={Q_STATUS_LABELS[q.status] ?? q.status}
+                                tone={Q_STATUS_TONES[q.status]}
+                              />
+                              {q.approval_status && (
+                                <div className="mt-1">
+                                  <StatusPill
+                                    status={q.approval_status}
+                                    label={
+                                      Q_APPROVAL_LABELS[q.approval_status] ?? q.approval_status
+                                    }
+                                    tone={Q_APPROVAL_TONES[q.approval_status]}
+                                  />
+                                </div>
+                              )}
+                              {q.debtor_approval_status && (
+                                <div className="mt-1">
+                                  <StatusPill
+                                    status={q.debtor_approval_status}
+                                    label={
+                                      Q_DEBTOR_LABELS[q.debtor_approval_status] ??
+                                      q.debtor_approval_status
+                                    }
+                                    tone={Q_DEBTOR_TONES[q.debtor_approval_status]}
+                                  />
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <div className="flex justify-end gap-1">
+                                <button
+                                  onClick={() => {
+                                    setEditing(q);
+                                    setOpen(true);
+                                  }}
+                                  className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                >
+                                  View
+                                </button>
+                                {canWrite && q.status === "draft" && (
+                                  <button
+                                    onClick={() => {
+                                      setEditing(q);
+                                      setOpen(true);
+                                    }}
+                                    className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                    title="Edit"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </button>
+                                )}
+                                {canWrite && q.status === "draft" && (
+                                  <button
+                                    onClick={() => del.mutate(q.id)}
+                                    className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                                {canWrite &&
+                                  ["draft", "sent", "accepted", "rejected"].includes(q.status) && (
+                                    <button
+                                      onClick={() => sendToDebtor.mutate(q.id)}
+                                      disabled={sendToDebtor.isPending}
+                                      className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                                      title="Email the quotation PDF to the debtor for approval"
+                                    >
+                                      {sendToDebtor.isPending ? (
+                                        <Loader2 className="h-3 w-3 animate-spin" />
+                                      ) : (
+                                        <Mail className="h-3 w-3" />
+                                      )}
+                                      Send to debtor
+                                    </button>
+                                  )}
+                                <Link
+                                  to="/app/quotation/$quotationId"
+                                  params={{ quotationId: q.id }}
+                                  className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                  title="Print quotation PDF"
+                                >
+                                  <Printer className="h-3 w-3" />
+                                </Link>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
           )}
-        </Card>
+        </TransactionFilters>
       </div>
 
       {open && user && (

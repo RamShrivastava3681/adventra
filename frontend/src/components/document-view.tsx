@@ -1,12 +1,15 @@
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { fmtMoney, fmtDate } from "@/components/ledger-ui";
+import { DocumentList, type DocMeta } from "@/components/document-uploader";
 
 /**
  * Read-only detail modals used by the checker desk and funding queue so
- * reviewers can inspect the full document (lines, totals, parties) before
- * making a decision. All modals are pure presentational views over data the
- * list endpoints already return (snake_case fields).
+ * reviewers can inspect the full document (lines, totals, parties, addresses,
+ * attachments, references) before making a decision. All modals are pure
+ * presentational views over data the list endpoints already return (snake_case
+ * fields) — every available field is rendered so reviewers never need to look
+ * elsewhere.
  */
 
 function DocModal({
@@ -50,9 +53,9 @@ function D({ label, value }: { label: string; value: ReactNode }) {
 
 function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex items-center justify-between gap-3">
       <span className="text-xs uppercase tracking-widest text-muted-foreground">{label}</span>
-      <span className="num">{value}</span>
+      <span className="num text-right">{value}</span>
     </div>
   );
 }
@@ -115,6 +118,28 @@ function LinesTable({
   );
 }
 
+/** Clickable attachment list — renders only when documents exist. */
+function Docs({ docs }: { docs?: DocMeta[] | null }) {
+  const list = Array.isArray(docs) ? (docs as DocMeta[]) : [];
+  if (list.length === 0) return null;
+  return (
+    <div className="col-span-2">
+      <div className="text-xs uppercase tracking-widest text-muted-foreground">
+        Attachments ({list.length})
+      </div>
+      <div className="mt-1">
+        <DocumentList docs={list} />
+      </div>
+    </div>
+  );
+}
+
+/** Multi-line text (addresses etc.) rendered without wrapping/truncation. */
+function Multiline({ value }: { value?: string | null }) {
+  if (!value) return null;
+  return <span className="whitespace-pre-line">{value}</span>;
+}
+
 const NOA_LABELS: Record<string, string> = {
   not_sent: "Not sent",
   sent: "Awaiting reply",
@@ -171,6 +196,9 @@ export function InvoiceDetailModal({
     po_unit_price: l.po_unit_price != null ? Number(l.po_unit_price) : null,
   }));
 
+  const advanceRate = i.advance_rate != null ? Math.round(Number(i.advance_rate) * 100) : null;
+  const feeRate = i.fee_rate != null ? Math.round(Number(i.fee_rate) * 100) : null;
+
   return (
     <DocModal
       title={`${isSale ? "Sales invoice" : "Purchase invoice"} · ${i.invoice_number ?? ""}`}
@@ -195,9 +223,15 @@ export function InvoiceDetailModal({
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
           <D label={isSale ? "Debtor" : "Supplier"} value={party} />
           {poNumber && <D label="PO #" value={<span className="font-mono">{poNumber}</span>} />}
+          {i.po_date && <D label="PO date" value={fmtDate(i.po_date)} />}
+          {i.po_amount != null && Number(i.po_amount) > 0 && (
+            <D label="PO amount" value={fmtMoney(i.po_amount)} />
+          )}
           <D label="Issued" value={fmtDate(i.issue_date)} />
           <D label="Due" value={fmtDate(i.due_date)} />
           {i.received_date && <D label="Received" value={fmtDate(i.received_date)} />}
+          {i.paid_date && <D label="Paid on" value={fmtDate(i.paid_date)} />}
+          {i.created_at && <D label="Created" value={fmtDate(i.created_at)} />}
           {isSale && i.payment_terms && <D label="Payment terms" value={i.payment_terms} />}
           {isSale && i.goods_sales_order_number && (
             <D label="Sales order" value={i.goods_sales_order_number} />
@@ -210,6 +244,27 @@ export function InvoiceDetailModal({
           )}
           {!isSale && i.linked_supplier_proforma_number && (
             <D label="Proforma" value={i.linked_supplier_proforma_number} />
+          )}
+          {isSale && i.customer_contact && (
+            <div className="col-span-2">
+              <D label="Customer contact" value={i.customer_contact} />
+            </div>
+          )}
+          {i.billing_address && (
+            <div className="col-span-2">
+              <D label="Billing address" value={<Multiline value={i.billing_address} />} />
+            </div>
+          )}
+          {i.delivery_address && (
+            <div className="col-span-2">
+              <D label="Delivery address" value={<Multiline value={i.delivery_address} />} />
+            </div>
+          )}
+          {isSale && (advanceRate != null || feeRate != null) && (
+            <>
+              {advanceRate != null && <D label="Advance rate" value={`${advanceRate}%`} />}
+              {feeRate != null && <D label="Fee rate" value={`${feeRate}%`} />}
+            </>
           )}
           {isSale && i.noa_status && (
             <D
@@ -237,6 +292,7 @@ export function InvoiceDetailModal({
               <D label="Notes" value={i.notes} />
             </div>
           )}
+          <Docs docs={i.documents} />
         </div>
 
         <LinesTable
@@ -350,10 +406,17 @@ export function ProformaDetailModal({ pf, onClose }: { pf: any; onClose: () => v
           <D label="Counterparty" value={cp ?? "—"} />
           <D label="Currency" value={p.currency ?? "—"} />
           <D label="Proforma date" value={p.proforma_date ? fmtDate(p.proforma_date) : "—"} />
+          {p.issue_date && <D label="Issue date" value={fmtDate(p.issue_date)} />}
+          {p.created_at && <D label="Created" value={fmtDate(p.created_at)} />}
           {p.payment_terms && <D label="Payment terms" value={p.payment_terms} />}
           {p.valid_until && <D label="Valid until" value={fmtDate(p.valid_until)} />}
           {p.expected_delivery_date && (
             <D label="Expected delivery" value={fmtDate(p.expected_delivery_date)} />
+          )}
+          {p.side === "purchase" && p.supplier_contact && (
+            <div className="col-span-2">
+              <D label="Supplier contact" value={p.supplier_contact} />
+            </div>
           )}
           {p.side === "purchase" && p.supplier_gstin && (
             <D label="Supplier GSTIN" value={p.supplier_gstin} />
@@ -362,7 +425,9 @@ export function ProformaDetailModal({ pf, onClose }: { pf: any; onClose: () => v
             <D label="Debtor GSTIN" value={p.debtor_gstin} />
           )}
           {p.side === "sales" && p.debtor_contact && (
-            <D label="Debtor contact" value={p.debtor_contact} />
+            <div className="col-span-2">
+              <D label="Debtor contact" value={p.debtor_contact} />
+            </div>
           )}
           {p.proforma_review_comments && (
             <D label="Review comments" value={p.proforma_review_comments} />
@@ -372,6 +437,7 @@ export function ProformaDetailModal({ pf, onClose }: { pf: any; onClose: () => v
               <D label="Notes" value={p.notes} />
             </div>
           )}
+          <Docs docs={p.documents} />
         </div>
 
         <LinesTable
@@ -433,9 +499,16 @@ const SO_STATUS_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
+const APPROVAL_LABELS: Record<string, string> = {
+  pending: "Awaiting response",
+  approved: "Approved",
+  rejected: "Rejected",
+};
+
 /** Full read-only view of a goods purchase order (PO). */
 export function PurchaseOrderDetailModal({ po, onClose }: { po: any; onClose: () => void }) {
   const p = po ?? {};
+  const supplierApproval = p.supplier_approval_status;
   return (
     <DocModal title={`Purchase order · ${p.po_number ?? ""}`} onClose={onClose}>
       <div className="space-y-4 p-5 text-sm">
@@ -445,14 +518,9 @@ export function PurchaseOrderDetailModal({ po, onClose }: { po: any; onClose: ()
             ["Supplier", p.supplier_name ?? "—"],
             ["PO date", p.po_date ? fmtDate(p.po_date) : "—"],
             ["Grand total", fmtMoney(p.grand_total ?? 0)],
-            ...(p.supplier_approval_status
+            ...(supplierApproval
               ? ([
-                  [
-                    "Supplier approval",
-                    `${p.supplier_approval_status}${
-                      p.supplier_approval_comments ? ` · ${p.supplier_approval_comments}` : ""
-                    }`,
-                  ],
+                  ["Supplier approval", `${APPROVAL_LABELS[supplierApproval] ?? supplierApproval}`],
                 ] as Array<[string, ReactNode]>)
               : []),
           ]}
@@ -465,16 +533,29 @@ export function PurchaseOrderDetailModal({ po, onClose }: { po: any; onClose: ()
           )}
           {p.payment_terms && <D label="Payment terms" value={p.payment_terms} />}
           {p.buyer_name && <D label="Buyer / created by" value={p.buyer_name} />}
+          {p.created_at && <D label="Created" value={fmtDate(p.created_at)} />}
+          {supplierApproval && (
+            <>
+              {p.supplier_approval_sent_at && (
+                <D label="Sent to supplier" value={fmtDate(p.supplier_approval_sent_at)} />
+              )}
+              {p.supplier_approval_responded_at && (
+                <D label="Supplier responded" value={fmtDate(p.supplier_approval_responded_at)} />
+              )}
+              {p.supplier_approval_email && (
+                <D label="Supplier email" value={p.supplier_approval_email} />
+              )}
+              {p.supplier_approval_comments && (
+                <D label="Supplier comments" value={p.supplier_approval_comments} />
+              )}
+            </>
+          )}
           {p.notes && (
             <div className="col-span-2">
               <D label="Notes" value={p.notes} />
             </div>
           )}
-          {Array.isArray(p.documents) && p.documents.length > 0 && (
-            <div className="col-span-2">
-              <D label="Attachments" value={`${p.documents.length} file(s)`} />
-            </div>
-          )}
+          <Docs docs={p.documents} />
         </div>
 
         <LinesTable
@@ -525,6 +606,7 @@ export function PurchaseOrderDetailModal({ po, onClose }: { po: any; onClose: ()
 /** Full read-only view of a goods sales order (SO). */
 export function SalesOrderDetailModal({ so, onClose }: { so: any; onClose: () => void }) {
   const s = so ?? {};
+  const debtorApproval = s.debtor_approval_status;
   return (
     <DocModal title={`Sales order · ${s.so_number ?? ""}`} onClose={onClose}>
       <div className="space-y-4 p-5 text-sm">
@@ -534,14 +616,9 @@ export function SalesOrderDetailModal({ so, onClose }: { so: any; onClose: () =>
             ["Customer", s.customer_name ?? "—"],
             ["Order date", s.order_date ? fmtDate(s.order_date) : "—"],
             ["Grand total", fmtMoney(s.grand_total ?? 0)],
-            ...(s.debtor_approval_status
+            ...(debtorApproval
               ? ([
-                  [
-                    "Customer approval",
-                    `${s.debtor_approval_status}${
-                      s.debtor_approval_comments ? ` · ${s.debtor_approval_comments}` : ""
-                    }`,
-                  ],
+                  ["Customer approval", `${APPROVAL_LABELS[debtorApproval] ?? debtorApproval}`],
                 ] as Array<[string, ReactNode]>)
               : []),
           ]}
@@ -551,10 +628,12 @@ export function SalesOrderDetailModal({ so, onClose }: { so: any; onClose: () =>
           {s.contact_person && <D label="Contact" value={s.contact_person} />}
           {s.billing_address && (
             <div className="col-span-2">
-              <D
-                label="Billing address"
-                value={<span className="whitespace-pre-line">{s.billing_address}</span>}
-              />
+              <D label="Billing address" value={<Multiline value={s.billing_address} />} />
+            </div>
+          )}
+          {s.delivery_address && (
+            <div className="col-span-2">
+              <D label="Delivery address" value={<Multiline value={s.delivery_address} />} />
             </div>
           )}
           {s.salesperson_name && <D label="Salesperson" value={s.salesperson_name} />}
@@ -568,16 +647,29 @@ export function SalesOrderDetailModal({ so, onClose }: { so: any; onClose: () =>
           {s.expected_delivery_date && (
             <D label="Expected delivery" value={fmtDate(s.expected_delivery_date)} />
           )}
+          {s.created_at && <D label="Created" value={fmtDate(s.created_at)} />}
+          {debtorApproval && (
+            <>
+              {s.debtor_approval_sent_at && (
+                <D label="Sent to customer" value={fmtDate(s.debtor_approval_sent_at)} />
+              )}
+              {s.debtor_approval_responded_at && (
+                <D label="Customer responded" value={fmtDate(s.debtor_approval_responded_at)} />
+              )}
+              {s.debtor_approval_email && (
+                <D label="Customer email" value={s.debtor_approval_email} />
+              )}
+              {s.debtor_approval_comments && (
+                <D label="Customer comments" value={s.debtor_approval_comments} />
+              )}
+            </>
+          )}
           {s.notes && (
             <div className="col-span-2">
               <D label="Notes" value={s.notes} />
             </div>
           )}
-          {Array.isArray(s.documents) && s.documents.length > 0 && (
-            <div className="col-span-2">
-              <D label="Attachments" value={`${s.documents.length} file(s)`} />
-            </div>
-          )}
+          <Docs docs={s.documents} />
         </div>
 
         <LinesTable
@@ -633,14 +725,6 @@ export function SalesOrderDetailModal({ so, onClose }: { so: any; onClose: () =>
 /** Full read-only view of a quotation (with original vs updated prices). */
 export function QuotationDetailModal({ q, onClose }: { q: any; onClose: () => void }) {
   const d = q ?? {};
-  const gross = (l: any) => (Number(l.quantity) || 0) * (Number(l.unit_price) || 0);
-  const discountAmt = (l: any) =>
-    l.discount_type === "pct"
-      ? (gross(l) * Math.min(100, Number(l.discount_value) || 0)) / 100
-      : l.discount_type === "amount"
-        ? Math.min(Number(l.discount_value) || 0, gross(l))
-        : 0;
-
   return (
     <DocModal title={`Quotation · ${d.quotation_number ?? ""}`} onClose={onClose}>
       <div className="space-y-4 p-5 text-sm">
@@ -655,7 +739,7 @@ export function QuotationDetailModal({ q, onClose }: { q: any; onClose: () => vo
               ? ([
                   [
                     "Customer decision",
-                    `${d.debtor_approval_status}${d.debtor_approval_comments ? ` · ${d.debtor_approval_comments}` : ""}`,
+                    `${APPROVAL_LABELS[d.debtor_approval_status] ?? d.debtor_approval_status}`,
                   ],
                 ] as Array<[string, ReactNode]>)
               : []),
@@ -666,10 +750,12 @@ export function QuotationDetailModal({ q, onClose }: { q: any; onClose: () => vo
           {d.contact_person && <D label="Contact" value={d.contact_person} />}
           {d.billing_address && (
             <div className="col-span-2">
-              <D
-                label="Billing address"
-                value={<span className="whitespace-pre-line">{d.billing_address}</span>}
-              />
+              <D label="Billing address" value={<Multiline value={d.billing_address} />} />
+            </div>
+          )}
+          {d.delivery_address && (
+            <div className="col-span-2">
+              <D label="Delivery address" value={<Multiline value={d.delivery_address} />} />
             </div>
           )}
           {d.payment_terms && <D label="Payment terms" value={d.payment_terms} />}
@@ -678,11 +764,34 @@ export function QuotationDetailModal({ q, onClose }: { q: any; onClose: () => vo
             <D label="Expected delivery" value={fmtDate(d.expected_delivery_date)} />
           )}
           {d.salesperson_name && <D label="Salesperson" value={d.salesperson_name} />}
+          {d.created_at && <D label="Created" value={fmtDate(d.created_at)} />}
+          {d.approval_reviewed_by && <D label="Reviewed by" value={d.approval_reviewed_by} />}
+          {d.approval_reviewed_at && (
+            <D label="Reviewed at" value={fmtDate(d.approval_reviewed_at)} />
+          )}
+          {d.approval_comments && <D label="Approval comments" value={d.approval_comments} />}
+          {d.debtor_approval_status && (
+            <>
+              {d.debtor_approval_sent_at && (
+                <D label="Sent to customer" value={fmtDate(d.debtor_approval_sent_at)} />
+              )}
+              {d.debtor_approval_responded_at && (
+                <D label="Customer responded" value={fmtDate(d.debtor_approval_responded_at)} />
+              )}
+              {d.debtor_approval_email && (
+                <D label="Customer email" value={d.debtor_approval_email} />
+              )}
+              {d.debtor_approval_comments && (
+                <D label="Customer comments" value={d.debtor_approval_comments} />
+              )}
+            </>
+          )}
           {d.notes && (
             <div className="col-span-2">
               <D label="Notes" value={d.notes} />
             </div>
           )}
+          <Docs docs={d.documents} />
         </div>
 
         <LinesTable

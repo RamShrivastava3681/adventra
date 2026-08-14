@@ -9,6 +9,7 @@ import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, DocumentList, type DocMeta } from "@/components/document-uploader";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/notes")({
   component: NotesPage,
@@ -28,7 +29,8 @@ const STATUS_LABEL: Record<Status, string> = {
 
 function statusClass(s: Status) {
   if (s === "applied") return "bg-primary/15 text-primary border-primary/30";
-  if (s === "approved") return "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]";
+  if (s === "approved")
+    return "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]";
   if (s === "rejected") return "bg-destructive/10 text-destructive border-destructive/30";
   if (s === "void") return "bg-muted text-muted-foreground border-border";
   return "bg-warning/10 text-warning border-warning/30";
@@ -40,7 +42,6 @@ function NotesPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [viewing, setViewing] = useState<any | null>(null);
-  const [filter, setFilter] = useState<"all" | Kind>("all");
 
   const notesQ = useQuery({
     queryKey: ["credit-debit-notes"],
@@ -75,7 +76,27 @@ function NotesPage() {
   });
 
   const rows = notesQ.data ?? [];
-  const filtered = filter === "all" ? rows : rows.filter((r: any) => r.kind === filter);
+  const noteConfig: TxFiltersConfig<any> = {
+    searchPlaceholder: "Search by note number, counterparty, invoice…",
+    search: (r) => [
+      r.note_number,
+      r.kind,
+      r.counterparty,
+      r.invoice?.invoice_number,
+      r.purchase?.invoice_number,
+      r.reason,
+    ],
+    statusField: (r) => r.status,
+    statusLabel: STATUS_LABEL,
+    statusOrder: ["pending", "issued", "approved", "rejected", "applied", "void"],
+    dateField: (r) => r.note_date,
+    dateLabel: "Note date",
+    sortFields: [
+      { value: "created", label: "Created date", get: (r) => r.created_at },
+      { value: "note", label: "Note date", get: (r) => r.note_date },
+    ],
+    defaultSort: "note-desc",
+  };
   const creditTotal = rows
     .filter((r: any) => r.kind === "credit")
     .reduce((s: number, r: any) => s + Number(r.amount), 0);
@@ -152,144 +173,138 @@ function NotesPage() {
           </Card>
         </div>
 
-        <div className="flex items-center gap-2">
-          {(["all", "credit", "debit"] as const).map((k) => (
-            <button
-              key={k}
-              onClick={() => setFilter(k)}
-              className={`rounded-md border px-3 py-1.5 text-xs uppercase tracking-widest ${filter === k ? "border-primary text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}
-            >
-              {k === "all" ? "All notes" : k === "credit" ? "Credit" : "Debit"}
-            </button>
-          ))}
-        </div>
-
-        <Card>
-          {notesQ.isLoading ? (
-            <TableSkeleton rows={5} cols={10} />
-          ) : filtered.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">No notes yet.</div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">Date</th>
-                    <th className="px-5 py-2 text-left font-normal">Type</th>
-                    <th className="px-5 py-2 text-left font-normal">Number</th>
-                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
-                    <th className="px-5 py-2 text-left font-normal">Linked invoice</th>
-                    <th className="px-5 py-2 text-left font-normal">Reason</th>
-                    <th className="px-5 py-2 text-right font-normal">Docs</th>
-                    <th className="px-5 py-2 text-right font-normal">Amount</th>
-                    <th className="px-5 py-2 text-left font-normal">Status</th>
-                    <th className="px-5 py-2 text-right font-normal" />
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((r: any) => {
-                    const link = r.invoice?.invoice_number
-                      ? { kind: "Sale", num: r.invoice.invoice_number }
-                      : r.purchase?.invoice_number
-                        ? { kind: "Purchase", num: r.purchase.invoice_number }
-                        : null;
-                    const docs: DocMeta[] = Array.isArray(r.documents) ? r.documents : [];
-                    const Icon = r.kind === "credit" ? FileMinus : FilePlus;
-                    return (
-                      <tr key={r.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3">{fmtDate(r.note_date)}</td>
-                        <td className="px-5 py-3">
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${r.kind === "credit" ? "border-primary/30 text-primary" : "border-border-strong text-muted-foreground"}`}
-                          >
-                            <Icon className="h-3 w-3" />
-                            {r.kind}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3 font-mono text-xs">{r.note_number}</td>
-                        <td className="px-5 py-3 text-muted-foreground">{r.counterparty ?? "—"}</td>
-                        <td className="px-5 py-3">
-                          {link ? (
-                            <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background/40 px-2 py-0.5 text-xs">
-                              <Link2 className="h-3 w-3 text-primary" />
-                              <span className="text-muted-foreground">{link.kind}</span>
-                              <span className="font-mono">{link.num}</span>
-                            </span>
-                          ) : (
-                            <span className="text-xs text-muted-foreground">Unlinked</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-muted-foreground max-w-[220px] truncate">
-                          {r.reason ?? "—"}
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          {docs.length > 0 ? (
-                            <button
-                              onClick={() => setViewing(r)}
-                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary"
-                            >
-                              <Paperclip className="h-3 w-3" />
-                              {docs.length}
-                            </button>
-                          ) : (
-                            <span className="text-[10px] text-muted-foreground">—</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
-                        <td className="px-5 py-3">
-                          <span
-                            className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${statusClass(r.status)}`}
-                          >
-                            {STATUS_LABEL[r.status as Status] ?? r.status}
-                          </span>
-                          {canCreate && (r.status === "pending" || r.status === "issued") && (
-                            <button
-                              onClick={() => {
-                                if (confirm("Void this note?")) voidNote.mutate(r.id);
-                              }}
-                              className="ml-2 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-destructive"
-                            >
-                              Void
-                            </button>
-                          )}
-                        </td>
-
-                        <td className="px-5 py-3 text-right">
-                          <div className="flex justify-end gap-1">
-                            <Link
-                              to="/app/note-preview/$id"
-                              params={{ id: r.id }}
-                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary"
-                              title="Preview & download PDF"
-                            >
-                              <Eye className="h-3.5 w-3.5" />
-                            </Link>
-                            <button
-                              onClick={() => setViewing(r)}
-                              className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary"
-                            >
-                              View
-                            </button>
-                            {canCreate && (r.status === "pending" || r.status === "issued") && (
-                              <button
-                                onClick={() => {
-                                  if (confirm("Delete this note?")) remove.mutate(r.id);
-                                }}
-                                className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                          </div>
-                        </td>
+        <TransactionFilters data={rows} config={noteConfig}>
+          {(filtered) => (
+            <Card>
+              {notesQ.isLoading ? (
+                <TableSkeleton rows={5} cols={10} />
+              ) : filtered.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">No notes yet.</div>
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal">Date</th>
+                        <th className="px-5 py-2 text-left font-normal">Type</th>
+                        <th className="px-5 py-2 text-left font-normal">Number</th>
+                        <th className="px-5 py-2 text-left font-normal">Counterparty</th>
+                        <th className="px-5 py-2 text-left font-normal">Linked invoice</th>
+                        <th className="px-5 py-2 text-left font-normal">Reason</th>
+                        <th className="px-5 py-2 text-right font-normal">Docs</th>
+                        <th className="px-5 py-2 text-right font-normal">Amount</th>
+                        <th className="px-5 py-2 text-left font-normal">Status</th>
+                        <th className="px-5 py-2 text-right font-normal" />
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {filtered.map((r: any) => {
+                        const link = r.invoice?.invoice_number
+                          ? { kind: "Sale", num: r.invoice.invoice_number }
+                          : r.purchase?.invoice_number
+                            ? { kind: "Purchase", num: r.purchase.invoice_number }
+                            : null;
+                        const docs: DocMeta[] = Array.isArray(r.documents) ? r.documents : [];
+                        const Icon = r.kind === "credit" ? FileMinus : FilePlus;
+                        return (
+                          <tr key={r.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3">{fmtDate(r.note_date)}</td>
+                            <td className="px-5 py-3">
+                              <span
+                                className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${r.kind === "credit" ? "border-primary/30 text-primary" : "border-border-strong text-muted-foreground"}`}
+                              >
+                                <Icon className="h-3 w-3" />
+                                {r.kind}
+                              </span>
+                            </td>
+                            <td className="px-5 py-3 font-mono text-xs">{r.note_number}</td>
+                            <td className="px-5 py-3 text-muted-foreground">
+                              {r.counterparty ?? "—"}
+                            </td>
+                            <td className="px-5 py-3">
+                              {link ? (
+                                <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background/40 px-2 py-0.5 text-xs">
+                                  <Link2 className="h-3 w-3 text-primary" />
+                                  <span className="text-muted-foreground">{link.kind}</span>
+                                  <span className="font-mono">{link.num}</span>
+                                </span>
+                              ) : (
+                                <span className="text-xs text-muted-foreground">Unlinked</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-muted-foreground max-w-[220px] truncate">
+                              {r.reason ?? "—"}
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              {docs.length > 0 ? (
+                                <button
+                                  onClick={() => setViewing(r)}
+                                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary"
+                                >
+                                  <Paperclip className="h-3 w-3" />
+                                  {docs.length}
+                                </button>
+                              ) : (
+                                <span className="text-[10px] text-muted-foreground">—</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
+                            <td className="px-5 py-3">
+                              <span
+                                className={`inline-flex rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${statusClass(r.status)}`}
+                              >
+                                {STATUS_LABEL[r.status as Status] ?? r.status}
+                              </span>
+                              {canCreate && (r.status === "pending" || r.status === "issued") && (
+                                <button
+                                  onClick={() => {
+                                    if (confirm("Void this note?")) voidNote.mutate(r.id);
+                                  }}
+                                  className="ml-2 text-[10px] uppercase tracking-widest text-muted-foreground hover:text-destructive"
+                                >
+                                  Void
+                                </button>
+                              )}
+                            </td>
+
+                            <td className="px-5 py-3 text-right">
+                              <div className="flex justify-end gap-1">
+                                <Link
+                                  to="/app/note-preview/$id"
+                                  params={{ id: r.id }}
+                                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+                                  title="Preview & download PDF"
+                                >
+                                  <Eye className="h-3.5 w-3.5" />
+                                </Link>
+                                <button
+                                  onClick={() => setViewing(r)}
+                                  className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+                                >
+                                  View
+                                </button>
+                                {canCreate && (r.status === "pending" || r.status === "issued") && (
+                                  <button
+                                    onClick={() => {
+                                      if (confirm("Delete this note?")) remove.mutate(r.id);
+                                    }}
+                                    className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
           )}
-        </Card>
+        </TransactionFilters>
       </div>
 
       {open && user && (

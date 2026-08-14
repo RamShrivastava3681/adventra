@@ -27,6 +27,7 @@ import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TableSkeleton } from "@/components/skeletons";
+import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/sales-orders")({
   component: SalesOrdersPage,
@@ -51,6 +52,7 @@ type SO = {
   id: string;
   so_number: string;
   order_date: string;
+  created_at: string;
   customer_id: string | null;
   customer_name: string | null;
   contact_person: string | null;
@@ -193,7 +195,6 @@ function SalesOrdersPage() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<SO | null>(null);
-  const [filter, setFilter] = useState("all");
 
   const sosQ = useQuery({
     queryKey: ["goods-sos"],
@@ -260,7 +261,27 @@ function SalesOrdersPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const filtered = (sosQ.data ?? []).filter((s) => filter === "all" || s.status === filter);
+  const soConfig: TxFiltersConfig<SO> = {
+    searchPlaceholder: "Search by SO number, customer, quotation…",
+    search: (s) => [
+      s.so_number,
+      s.customer_name,
+      s.salesperson_name,
+      s.contact_person,
+      s.linked_quotation_number,
+    ],
+    statusField: (s) => s.status,
+    statusLabel: SO_STATUS_LABELS,
+    statusOrder: [...SO_STATUSES],
+    dateField: (s) => s.order_date,
+    dateLabel: "Order date",
+    sortFields: [
+      { value: "created", label: "Created date", get: (s) => s.created_at },
+      { value: "order", label: "Order date", get: (s) => s.order_date },
+      { value: "delivery", label: "Delivery date", get: (s) => s.expected_delivery_date },
+    ],
+    defaultSort: "order-desc",
+  };
 
   const stats = useMemo(() => {
     const sos = sosQ.data ?? [];
@@ -324,201 +345,194 @@ function SalesOrdersPage() {
           <StatTile label="Fully dispatched" value={stats.fullyDispatched} icon={PackageCheck} />
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {["all", ...SO_STATUSES].map((s) => (
-            <button
-              key={s}
-              onClick={() => setFilter(s)}
-              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                filter === s
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {s === "all" ? "All" : SO_STATUS_LABELS[s]}
-            </button>
-          ))}
-        </div>
-
-        <Card>
-          {sosQ.isLoading ? (
-            <TableSkeleton rows={6} cols={8} />
-          ) : filtered.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">
-              <ClipboardList className="mx-auto mb-2 h-8 w-8 opacity-40" />
-              No sales orders yet.
-            </div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">SO</th>
-                    <th className="px-5 py-2 text-left font-normal">Customer</th>
-                    <th className="px-5 py-2 text-left font-normal">Dispatch</th>
-                    <th className="px-5 py-2 text-right font-normal">Qty</th>
-                    <th className="px-5 py-2 text-right font-normal">Grand total</th>
-                    <th className="px-5 py-2 text-left font-normal">Dispatched</th>
-                    <th className="px-5 py-2 text-left font-normal">Status</th>
-                    <th className="px-5 py-2 text-right font-normal">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((s) => {
-                    const totalQty = (s.lines ?? []).reduce((sum, l) => sum + l.ordered_qty, 0);
-                    const dispatchedQty = (s.lines ?? []).reduce(
-                      (sum, l) => sum + (l.dispatched_qty ?? 0),
-                      0,
-                    );
-                    const pct =
-                      totalQty > 0
-                        ? Math.min(100, Math.round((dispatchedQty / totalQty) * 100))
-                        : 0;
-                    return (
-                      <tr key={s.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3 font-mono text-xs">
-                          {s.so_number}
-                          <div className="text-[10px] text-muted-foreground">
-                            {fmtDate(s.order_date)}
-                          </div>
-                        </td>
-                        <td className="px-5 py-3">
-                          {s.customer_name ?? customerName(s.customer_id) ?? "—"}
-                          {s.contact_person ? (
-                            <div className="text-[10px] text-muted-foreground">
-                              {s.contact_person}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="px-5 py-3 text-xs text-muted-foreground">
-                          {s.expected_dispatch_date ? (
-                            <>
-                              from {fmtDate(s.expected_dispatch_date)}
-                              {s.expected_delivery_date ? (
-                                <div className="text-[10px]">
-                                  to {fmtDate(s.expected_delivery_date)}
+        <TransactionFilters data={sosQ.data ?? []} config={soConfig}>
+          {(filtered) => (
+            <Card>
+              {sosQ.isLoading ? (
+                <TableSkeleton rows={6} cols={8} />
+              ) : filtered.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  <ClipboardList className="mx-auto mb-2 h-8 w-8 opacity-40" />
+                  No sales orders yet.
+                </div>
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal">SO</th>
+                        <th className="px-5 py-2 text-left font-normal">Customer</th>
+                        <th className="px-5 py-2 text-left font-normal">Dispatch</th>
+                        <th className="px-5 py-2 text-right font-normal">Qty</th>
+                        <th className="px-5 py-2 text-right font-normal">Grand total</th>
+                        <th className="px-5 py-2 text-left font-normal">Dispatched</th>
+                        <th className="px-5 py-2 text-left font-normal">Status</th>
+                        <th className="px-5 py-2 text-right font-normal">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {filtered.map((s) => {
+                        const totalQty = (s.lines ?? []).reduce((sum, l) => sum + l.ordered_qty, 0);
+                        const dispatchedQty = (s.lines ?? []).reduce(
+                          (sum, l) => sum + (l.dispatched_qty ?? 0),
+                          0,
+                        );
+                        const pct =
+                          totalQty > 0
+                            ? Math.min(100, Math.round((dispatchedQty / totalQty) * 100))
+                            : 0;
+                        return (
+                          <tr key={s.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3 font-mono text-xs">
+                              {s.so_number}
+                              <div className="text-[10px] text-muted-foreground">
+                                {fmtDate(s.order_date)}
+                              </div>
+                            </td>
+                            <td className="px-5 py-3">
+                              {s.customer_name ?? customerName(s.customer_id) ?? "—"}
+                              {s.contact_person ? (
+                                <div className="text-[10px] text-muted-foreground">
+                                  {s.contact_person}
                                 </div>
                               ) : null}
-                            </>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-right num">{totalQty.toLocaleString()}</td>
-                        <td className="px-5 py-3 text-right num font-medium">
-                          {fmtMoney(s.grand_total)}
-                        </td>
-                        <td className="px-5 py-3">
-                          <div className="flex items-center gap-2">
-                            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
-                              <div
-                                className={`h-full rounded-full ${pct >= 100 ? "bg-success" : "bg-primary"}`}
-                                style={{ width: `${pct}%` }}
-                              />
-                            </div>
-                            <span className="text-[10px] tabular-nums text-muted-foreground">
-                              {dispatchedQty}/{totalQty}
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3">
-                          <StatusPill
-                            status={s.status}
-                            label={SO_STATUS_LABELS[s.status] ?? s.status}
-                            tone={SO_STATUS_TONES[s.status]}
-                          />
-                          {s.debtor_approval_status && (
-                            <div className="mt-1">
-                              <StatusPill
-                                status={s.debtor_approval_status}
-                                label={
-                                  SO_DEBTOR_LABELS[s.debtor_approval_status] ??
-                                  s.debtor_approval_status
-                                }
-                                tone={SO_DEBTOR_TONES[s.debtor_approval_status]}
-                              />
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <div className="flex justify-end gap-1">
-                            <button
-                              onClick={() => {
-                                setEditing(s);
-                                setOpen(true);
-                              }}
-                              className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                            >
-                              View
-                            </button>
-                            {canWrite && ["draft", "confirmed"].includes(s.status) && (
-                              <button
-                                onClick={() => {
-                                  setEditing(s);
-                                  setOpen(true);
-                                }}
-                                className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                                title="Edit"
-                              >
-                                <Pencil className="h-3 w-3" />
-                              </button>
-                            )}
-                            {canWrite &&
-                              ["confirmed", "partially_dispatched"].includes(s.status) && (
-                                <button
-                                  onClick={() =>
-                                    navigate({ to: "/app/dispatches", search: { soId: s.id } })
-                                  }
-                                  className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2 py-1 text-[10px] text-success hover:bg-success/10"
-                                >
-                                  <Truck className="h-3 w-3" /> Dispatch
-                                </button>
+                            </td>
+                            <td className="px-5 py-3 text-xs text-muted-foreground">
+                              {s.expected_dispatch_date ? (
+                                <>
+                                  from {fmtDate(s.expected_dispatch_date)}
+                                  {s.expected_delivery_date ? (
+                                    <div className="text-[10px]">
+                                      to {fmtDate(s.expected_delivery_date)}
+                                    </div>
+                                  ) : null}
+                                </>
+                              ) : (
+                                "—"
                               )}
-                            {(s.lines ?? []).some((l) => l.dispatched_qty > 0) && (
-                              <button
-                                onClick={() =>
-                                  navigate({ to: "/app/dispatches", search: { soFilter: s.id } })
-                                }
-                                className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                                title="View dispatches"
-                              >
-                                <FileDown className="h-3 w-3" />
-                              </button>
-                            )}
-                            {canWrite && s.status === "draft" && (
-                              <button
-                                onClick={() => del.mutate(s.id)}
-                                className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
-                                title="Delete"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            )}
-                            {canWrite && s.status === "confirmed" && (
-                              <button
-                                onClick={() => sendToDebtor.mutate(s.id)}
-                                disabled={sendToDebtor.isPending}
-                                className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
-                                title="Email the sales order PDF to the debtor for approval"
-                              >
-                                {sendToDebtor.isPending ? (
-                                  <Loader2 className="h-3 w-3 animate-spin" />
-                                ) : (
-                                  <Mail className="h-3 w-3" />
+                            </td>
+                            <td className="px-5 py-3 text-right num">
+                              {totalQty.toLocaleString()}
+                            </td>
+                            <td className="px-5 py-3 text-right num font-medium">
+                              {fmtMoney(s.grand_total)}
+                            </td>
+                            <td className="px-5 py-3">
+                              <div className="flex items-center gap-2">
+                                <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
+                                  <div
+                                    className={`h-full rounded-full ${pct >= 100 ? "bg-success" : "bg-primary"}`}
+                                    style={{ width: `${pct}%` }}
+                                  />
+                                </div>
+                                <span className="text-[10px] tabular-nums text-muted-foreground">
+                                  {dispatchedQty}/{totalQty}
+                                </span>
+                              </div>
+                            </td>
+                            <td className="px-5 py-3">
+                              <StatusPill
+                                status={s.status}
+                                label={SO_STATUS_LABELS[s.status] ?? s.status}
+                                tone={SO_STATUS_TONES[s.status]}
+                              />
+                              {s.debtor_approval_status && (
+                                <div className="mt-1">
+                                  <StatusPill
+                                    status={s.debtor_approval_status}
+                                    label={
+                                      SO_DEBTOR_LABELS[s.debtor_approval_status] ??
+                                      s.debtor_approval_status
+                                    }
+                                    tone={SO_DEBTOR_TONES[s.debtor_approval_status]}
+                                  />
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <div className="flex justify-end gap-1">
+                                <button
+                                  onClick={() => {
+                                    setEditing(s);
+                                    setOpen(true);
+                                  }}
+                                  className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                >
+                                  View
+                                </button>
+                                {canWrite && ["draft", "confirmed"].includes(s.status) && (
+                                  <button
+                                    onClick={() => {
+                                      setEditing(s);
+                                      setOpen(true);
+                                    }}
+                                    className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                    title="Edit"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </button>
                                 )}
-                                Send to debtor
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                                {canWrite &&
+                                  ["confirmed", "partially_dispatched"].includes(s.status) && (
+                                    <button
+                                      onClick={() =>
+                                        navigate({ to: "/app/dispatches", search: { soId: s.id } })
+                                      }
+                                      className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2 py-1 text-[10px] text-success hover:bg-success/10"
+                                    >
+                                      <Truck className="h-3 w-3" /> Dispatch
+                                    </button>
+                                  )}
+                                {(s.lines ?? []).some((l) => l.dispatched_qty > 0) && (
+                                  <button
+                                    onClick={() =>
+                                      navigate({
+                                        to: "/app/dispatches",
+                                        search: { soFilter: s.id },
+                                      })
+                                    }
+                                    className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                    title="View dispatches"
+                                  >
+                                    <FileDown className="h-3 w-3" />
+                                  </button>
+                                )}
+                                {canWrite && s.status === "draft" && (
+                                  <button
+                                    onClick={() => del.mutate(s.id)}
+                                    className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
+                                    title="Delete"
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
+                                {canWrite && s.status === "confirmed" && (
+                                  <button
+                                    onClick={() => sendToDebtor.mutate(s.id)}
+                                    disabled={sendToDebtor.isPending}
+                                    className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                                    title="Email the sales order PDF to the debtor for approval"
+                                  >
+                                    {sendToDebtor.isPending ? (
+                                      <Loader2 className="h-3 w-3 animate-spin" />
+                                    ) : (
+                                      <Mail className="h-3 w-3" />
+                                    )}
+                                    Send to debtor
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
           )}
-        </Card>
+        </TransactionFilters>
       </div>
 
       {open && user && (

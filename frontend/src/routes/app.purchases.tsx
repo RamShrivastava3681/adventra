@@ -11,11 +11,21 @@ import {
   fmtDate,
   daysBetween,
 } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Link2, Mail, AlertTriangle, CheckCircle2, ShoppingCart } from "lucide-react";
+import {
+  Plus,
+  X,
+  Loader2,
+  Link2,
+  Mail,
+  AlertTriangle,
+  CheckCircle2,
+  ShoppingCart,
+} from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/purchases")({
   component: PurchasesPage,
@@ -100,7 +110,6 @@ function PurchasesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
-  const [filter, setFilter] = useState("all");
 
   const piQ = useQuery({
     queryKey: ["purchase_invoices"],
@@ -185,7 +194,37 @@ function PurchasesPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to send reminder"),
   });
 
-  const filtered = (piQ.data ?? []).filter((p: any) => filter === "all" || p.status === filter);
+  const piConfig: TxFiltersConfig<any> = {
+    searchPlaceholder: "Search by invoice number, supplier, PO / GRN…",
+    search: (p) => [
+      p.invoice_number,
+      p.supplier_name,
+      p.vendor?.name,
+      p.goods_po_number ?? p.po_number,
+      p.linked_goods_receipt_number,
+      ...linkedSales(p.id).map((s: any) => s.invoice_number),
+    ],
+    statusField: (p) => p.status,
+    statusLabel: PI_STATUS_LABELS,
+    statusOrder: [
+      ...PI_STATUSES,
+      "pending",
+      "approved",
+      "overdue",
+      "disputed",
+      "rejected",
+      "advanced",
+      "funded",
+    ],
+    dateField: (p) => p.issue_date,
+    dateLabel: "Issue date",
+    sortFields: [
+      { value: "created", label: "Created date", get: (p) => p.created_at },
+      { value: "issue", label: "Issue date", get: (p) => p.issue_date },
+      { value: "due", label: "Due date", get: (p) => p.due_date },
+    ],
+    defaultSort: "created-desc",
+  };
 
   const totals = (piQ.data ?? []).reduce(
     (a: any, p: any) => {
@@ -242,202 +281,198 @@ function PurchasesPage() {
           </Card>
         </div>
 
-        <div className="flex flex-wrap gap-2">
-          {["all", ...PI_STATUSES].map((s) => (
-            <button
-              key={s}
-              onClick={() => setFilter(s)}
-              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                filter === s
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {s === "all" ? "All" : (PI_STATUS_LABELS[s] ?? s)}
-            </button>
-          ))}
-        </div>
-
-        <Card>
-          {piQ.isLoading ? (
-            <TableSkeleton rows={6} cols={9} />
-          ) : filtered.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">
-              No purchase invoices.
-            </div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">Invoice</th>
-                    <th className="px-5 py-2 text-left font-normal">Supplier</th>
-                    <th className="px-5 py-2 text-left font-normal">PO</th>
-                    <th className="px-5 py-2 text-left font-normal">GRN</th>
-                    <th className="px-5 py-2 text-right font-normal">Grand total</th>
-                    <th className="px-5 py-2 text-left font-normal">Due</th>
-                    <th className="px-5 py-2 text-left font-normal">Status</th>
-                    <th className="px-5 py-2 text-left font-normal">Linked sales</th>
-                    <th className="px-5 py-2 text-right font-normal">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map((p: any) => {
-                    const dpd =
-                      p.due_date && !["paid", "cancelled"].includes(p.status)
-                        ? daysBetween(p.due_date)
-                        : 0;
-                    let lateDays = Math.max(0, dpd);
-                    if (p.status === "paid" && p.due_date && p.paid_date) {
-                      const ms = new Date(p.paid_date).getTime() - new Date(p.due_date).getTime();
-                      lateDays = Math.max(0, Math.round(ms / 86400000));
-                    }
-                    const links = linkedSales(p.id);
-                    const canEdit = canCreate && ["draft", "verified"].includes(p.status);
-                    const grn = grnById.get(p.linked_goods_receipt_id ?? "");
-                    return (
-                      <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3">
-                          <div className="font-mono text-xs">{p.invoice_number}</div>
-                          {Number(p.advance_deducted ?? 0) > 0 && (
-                            <div className="text-[10px] text-muted-foreground">
-                              Less advance {fmtMoney(p.advance_deducted)}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-3">{p.supplier_name ?? p.vendor?.name ?? "—"}</td>
-                        <td className="px-5 py-3">
-                          {(p.goods_po_number ?? p.po_number) ? (
-                            <div>
-                              <div className="font-mono text-xs">
-                                {p.goods_po_number ?? p.po_number}
-                              </div>
-                              {p.po_date ? (
-                                <div className="text-[10px] text-muted-foreground">
-                                  {fmtDate(p.po_date)}
-                                </div>
-                              ) : null}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3">
-                          {p.linked_goods_receipt_number ? (
-                            <div>
-                              <div className="font-mono text-xs">
-                                {p.linked_goods_receipt_number}
-                              </div>
-                              {grn && grn.status === "confirmed" ? (
-                                <div className="text-[10px] text-success">Stock credited</div>
-                              ) : (
-                                <div className="text-[10px] text-muted-foreground">
-                                  {grn?.status ?? ""}
-                                </div>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="text-muted-foreground">—</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-right num">
-                          {fmtMoney(p.grand_total ?? p.amount)}
-                        </td>
-                        <td className="px-5 py-3 text-sm">{fmtDate(p.due_date)}</td>
-                        <td className="px-5 py-3">
-                          <StatusPill
-                            status={p.status}
-                            label={PI_STATUS_LABELS[p.status] ?? p.status}
-                          />
-                        </td>
-                        <td className="px-5 py-3">
-                          {links.length === 0 ? (
-                            <span className="text-muted-foreground">—</span>
-                          ) : (
-                            <div className="space-y-0.5">
-                              {links.map((s: any) => (
-                                <Link
-                                  key={s.id}
-                                  to="/app/invoices"
-                                  className="flex items-center gap-1 text-xs text-primary hover:underline"
-                                >
-                                  <Link2 className="h-3 w-3" />
-                                  {s.invoice_number}
-                                  <span className="text-muted-foreground">
-                                    → {s.debtor?.name ?? "?"}
-                                  </span>
-                                </Link>
-                              ))}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          <div className="inline-flex flex-wrap justify-end gap-1">
-                            <button
-                              onClick={() => setViewing(p)}
-                              className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                            >
-                              View
-                            </button>
-                            {canEdit && (
-                              <button
-                                onClick={() => setEditing(p)}
-                                className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                              >
-                                Edit
-                              </button>
-                            )}
-                            {canCreate && p.status === "draft" && (
-                              <button
-                                onClick={() => setStatus.mutate({ id: p.id, status: "verified" })}
-                                disabled={setStatus.isPending}
-                                className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
-                                title="Review the invoice and send it to the checker"
-                              >
-                                <CheckCircle2 className="h-3 w-3" /> Review
-                              </button>
-                            )}
-                            {canCreate && p.status === "verified" && (
-                              <button
-                                onClick={() => setStatus.mutate({ id: p.id, status: "draft" })}
-                                disabled={setStatus.isPending}
-                                className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                                title="Send back to draft"
-                              >
-                                Reopen
-                              </button>
-                            )}
-                            {(canCreate || isAdmin) && ["draft", "verified"].includes(p.status) && (
-                              <button
-                                onClick={() => setStatus.mutate({ id: p.id, status: "cancelled" })}
-                                disabled={setStatus.isPending}
-                                className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
-                              >
-                                Cancel
-                              </button>
-                            )}
-                            {isAdmin &&
-                              !["paid", "rejected", "cancelled"].includes(p.status) &&
-                              p.due_date && (
-                                <button
-                                  onClick={() => sendReminder.mutate(p.id)}
-                                  disabled={sendReminder.isPending}
-                                  className="inline-flex items-center gap-1 rounded-md border border-warning/40 px-2 py-1 text-[10px] text-warning hover:bg-warning/10 disabled:opacity-50"
-                                  title="Send reminder email for this purchase invoice"
-                                >
-                                  <Mail className="h-3 w-3" /> Remind
-                                </button>
-                              )}
-                          </div>
-                        </td>
+        <TransactionFilters data={piQ.data ?? []} config={piConfig}>
+          {(filtered) => (
+            <Card>
+              {piQ.isLoading ? (
+                <TableSkeleton rows={6} cols={9} />
+              ) : filtered.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  No purchase invoices.
+                </div>
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal">Invoice</th>
+                        <th className="px-5 py-2 text-left font-normal">Supplier</th>
+                        <th className="px-5 py-2 text-left font-normal">PO</th>
+                        <th className="px-5 py-2 text-left font-normal">GRN</th>
+                        <th className="px-5 py-2 text-right font-normal">Grand total</th>
+                        <th className="px-5 py-2 text-left font-normal">Due</th>
+                        <th className="px-5 py-2 text-left font-normal">Status</th>
+                        <th className="px-5 py-2 text-left font-normal">Linked sales</th>
+                        <th className="px-5 py-2 text-right font-normal">Actions</th>
                       </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                    </thead>
+                    <tbody>
+                      {filtered.map((p: any) => {
+                        const dpd =
+                          p.due_date && !["paid", "cancelled"].includes(p.status)
+                            ? daysBetween(p.due_date)
+                            : 0;
+                        let lateDays = Math.max(0, dpd);
+                        if (p.status === "paid" && p.due_date && p.paid_date) {
+                          const ms =
+                            new Date(p.paid_date).getTime() - new Date(p.due_date).getTime();
+                          lateDays = Math.max(0, Math.round(ms / 86400000));
+                        }
+                        const links = linkedSales(p.id);
+                        const canEdit = canCreate && ["draft", "verified"].includes(p.status);
+                        const grn = grnById.get(p.linked_goods_receipt_id ?? "");
+                        return (
+                          <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3">
+                              <div className="font-mono text-xs">{p.invoice_number}</div>
+                              {Number(p.advance_deducted ?? 0) > 0 && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  Less advance {fmtMoney(p.advance_deducted)}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-5 py-3">
+                              {p.supplier_name ?? p.vendor?.name ?? "—"}
+                            </td>
+                            <td className="px-5 py-3">
+                              {(p.goods_po_number ?? p.po_number) ? (
+                                <div>
+                                  <div className="font-mono text-xs">
+                                    {p.goods_po_number ?? p.po_number}
+                                  </div>
+                                  {p.po_date ? (
+                                    <div className="text-[10px] text-muted-foreground">
+                                      {fmtDate(p.po_date)}
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3">
+                              {p.linked_goods_receipt_number ? (
+                                <div>
+                                  <div className="font-mono text-xs">
+                                    {p.linked_goods_receipt_number}
+                                  </div>
+                                  {grn && grn.status === "confirmed" ? (
+                                    <div className="text-[10px] text-success">Stock credited</div>
+                                  ) : (
+                                    <div className="text-[10px] text-muted-foreground">
+                                      {grn?.status ?? ""}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-right num">
+                              {fmtMoney(p.grand_total ?? p.amount)}
+                            </td>
+                            <td className="px-5 py-3 text-sm">{fmtDate(p.due_date)}</td>
+                            <td className="px-5 py-3">
+                              <StatusPill
+                                status={p.status}
+                                label={PI_STATUS_LABELS[p.status] ?? p.status}
+                              />
+                            </td>
+                            <td className="px-5 py-3">
+                              {links.length === 0 ? (
+                                <span className="text-muted-foreground">—</span>
+                              ) : (
+                                <div className="space-y-0.5">
+                                  {links.map((s: any) => (
+                                    <Link
+                                      key={s.id}
+                                      to="/app/invoices"
+                                      className="flex items-center gap-1 text-xs text-primary hover:underline"
+                                    >
+                                      <Link2 className="h-3 w-3" />
+                                      {s.invoice_number}
+                                      <span className="text-muted-foreground">
+                                        → {s.debtor?.name ?? "?"}
+                                      </span>
+                                    </Link>
+                                  ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-5 py-3 text-right">
+                              <div className="inline-flex flex-wrap justify-end gap-1">
+                                <button
+                                  onClick={() => setViewing(p)}
+                                  className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                >
+                                  View
+                                </button>
+                                {canEdit && (
+                                  <button
+                                    onClick={() => setEditing(p)}
+                                    className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                  >
+                                    Edit
+                                  </button>
+                                )}
+                                {canCreate && p.status === "draft" && (
+                                  <button
+                                    onClick={() =>
+                                      setStatus.mutate({ id: p.id, status: "verified" })
+                                    }
+                                    disabled={setStatus.isPending}
+                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
+                                    title="Review the invoice and send it to the checker"
+                                  >
+                                    <CheckCircle2 className="h-3 w-3" /> Review
+                                  </button>
+                                )}
+                                {canCreate && p.status === "verified" && (
+                                  <button
+                                    onClick={() => setStatus.mutate({ id: p.id, status: "draft" })}
+                                    disabled={setStatus.isPending}
+                                    className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                    title="Send back to draft"
+                                  >
+                                    Reopen
+                                  </button>
+                                )}
+                                {(canCreate || isAdmin) &&
+                                  ["draft", "verified"].includes(p.status) && (
+                                    <button
+                                      onClick={() =>
+                                        setStatus.mutate({ id: p.id, status: "cancelled" })
+                                      }
+                                      disabled={setStatus.isPending}
+                                      className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
+                                    >
+                                      Cancel
+                                    </button>
+                                  )}
+                                {isAdmin &&
+                                  !["paid", "rejected", "cancelled"].includes(p.status) &&
+                                  p.due_date && (
+                                    <button
+                                      onClick={() => sendReminder.mutate(p.id)}
+                                      disabled={sendReminder.isPending}
+                                      className="inline-flex items-center gap-1 rounded-md border border-warning/40 px-2 py-1 text-[10px] text-warning hover:bg-warning/10 disabled:opacity-50"
+                                      title="Send reminder email for this purchase invoice"
+                                    >
+                                      <Mail className="h-3 w-3" /> Remind
+                                    </button>
+                                  )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </Card>
           )}
-        </Card>
+        </TransactionFilters>
       </div>
 
       {open && user && (
