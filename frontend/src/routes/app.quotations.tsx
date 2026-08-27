@@ -91,6 +91,11 @@ type CatalogueProduct = {
   unit_of_measure: string;
   gst_rate: number | null;
   unit_price: number | null;
+  mrp: number | null;
+  ecommerce_price: number | null;
+  retailer_price: number | null;
+  distributor_price: number | null;
+  flexible_price: number | null;
   status: string;
 };
 
@@ -162,6 +167,30 @@ const PAYMENT_TERMS = [
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+const PRICE_TIERS = [
+  { value: "", label: "Default" },
+  { value: "mrp", label: "MRP" },
+  { value: "ecommerce", label: "E-commerce" },
+  { value: "retailer", label: "Retailer" },
+  { value: "distributor", label: "Distributor" },
+  { value: "flexible", label: "Flexible" },
+];
+
+function resolveTierPrice(
+  p: CatalogueProduct | undefined | null,
+  tier: string,
+): string | null {
+  if (!p) return null;
+  switch (tier) {
+    case "mrp": return p.mrp != null ? String(p.mrp) : null;
+    case "ecommerce": return p.ecommerce_price != null ? String(p.ecommerce_price) : null;
+    case "retailer": return p.retailer_price != null ? String(p.retailer_price) : null;
+    case "distributor": return p.distributor_price != null ? String(p.distributor_price) : null;
+    case "flexible": return p.flexible_price != null ? String(p.flexible_price) : null;
+    default: return null;
+  }
 }
 
 function todayStr(): string {
@@ -505,6 +534,7 @@ type LineDraft = {
   discount_value: string;
   gst_rate: string;
   notes: string;
+  price_tier: string;
 };
 
 function QModal({
@@ -570,12 +600,23 @@ function QModal({
       discount_value: l.discount_value != null ? String(l.discount_value) : "",
       gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
       notes: l.notes ?? "",
+      price_tier: "",
     })),
   );
   const [docs, setDocs] = useState<DocMeta[]>(q?.documents ?? []);
 
   const setLine = (i: number, patch: Partial<LineDraft>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+
+  const changePriceTier = (i: number, tier: string) => {
+    const line = lines[i];
+    const p = products.find((x) => x.id === line.product_id);
+    const tierPrice = resolveTierPrice(p, tier);
+    setLine(i, {
+      price_tier: tier,
+      unit_price: tierPrice ?? line.unit_price,
+    });
+  };
 
   const customerNameValue =
     f.customer_id !== ""
@@ -597,14 +638,17 @@ function QModal({
     }));
   };
 
-  const pickProduct = (i: number, id: string) => {
+  const pickProduct = (i: number, id: string, priceTier?: string) => {
     const p = products.find((x) => x.id === id);
+    // Resolve price from the selected tier, falling back to unit_price
+    const tierPrice = priceTier ? resolveTierPrice(p, priceTier) : null;
+    const finalPrice = tierPrice ?? (p?.unit_price != null ? String(p.unit_price) : "");
     setLine(i, {
       product_id: id,
       name: p?.name ?? "",
       sku: p?.sku ?? null,
       unit: p?.unit_of_measure ?? "piece",
-      unit_price: p?.unit_price != null ? String(p.unit_price) : "",
+      unit_price: finalPrice,
       updated_unit_price: "",
       gst_rate: p?.gst_rate != null ? String(p.gst_rate) : "",
     });
@@ -625,6 +669,7 @@ function QModal({
         discount_value: "",
         gst_rate: "",
         notes: "",
+        price_tier: "",
       },
     ]);
 
@@ -987,6 +1032,7 @@ function QModal({
                 <div className="hidden grid-cols-12 gap-2 text-[9px] uppercase tracking-widest text-muted-foreground md:grid">
                   <div className="col-span-3">SKU / Product</div>
                   <div className="col-span-1">Qty</div>
+                  <div className="col-span-1">Tier</div>
                   <div className="col-span-2">Unit / updated price</div>
                   <div className="col-span-2">Discount</div>
                   <div className="col-span-1">GST %</div>
@@ -999,7 +1045,7 @@ function QModal({
                   return (
                     <div key={i} className="space-y-2 rounded-md border border-border/50 p-2">
                       <div className="grid grid-cols-2 items-end gap-2 md:grid-cols-12">
-                        <div className="col-span-2 md:col-span-3">
+                        <div className="col-span-2 md:col-span-2">
                           <L label="Product">
                             <SearchableSelect
                               value={l.product_id}
@@ -1029,7 +1075,23 @@ function QModal({
                             />
                           </L>
                         </div>
-                        <div className="md:col-span-2 space-y-1.5">
+                        <div className="md:col-span-1">
+                          {l.product_id ? (
+                            <L label="Price tier">
+                              <select
+                                className="inp"
+                                value={l.price_tier ?? ""}
+                                onChange={(e) => changePriceTier(i, e.target.value)}
+                                disabled={!editable}
+                              >
+                                {PRICE_TIERS.map((t) => (
+                                  <option key={t.value} value={t.value}>
+                                    {t.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </L>
+                          ) : null}
                           <L
                             label={
                               l.updated_unit_price !== "" ? "Unit price (original)" : "Unit price"

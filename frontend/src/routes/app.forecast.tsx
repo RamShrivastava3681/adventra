@@ -1954,21 +1954,6 @@ function ExpandedForecastDetail({
           )}
         </div>
         <div className="ml-auto flex items-center gap-2">
-          <div
-            className="rounded-lg border border-border/40 bg-muted/20 px-3 py-1.5 text-right"
-            title={
-              (product.mrp ?? 0) > 0
-                ? "MRP (max retail price)"
-                : "MRP not set — showing default selling price"
-            }
-          >
-            <div className="text-[8px] uppercase tracking-widest text-muted-foreground">
-              MRP · selling
-            </div>
-            <div className="font-mono text-sm font-semibold tabular-nums">
-              ${sellingPriceOf(product).toFixed(2)}
-            </div>
-          </div>
           <div className="rounded-lg border border-border/40 bg-muted/20 px-3 py-1.5 text-right">
             <div className="text-[8px] uppercase tracking-widest text-muted-foreground">
               Unit cost
@@ -2326,54 +2311,41 @@ function ExpandedForecastDetail({
                       </div>
                       <div className="flex items-center justify-between gap-2 border-t border-border/30 pt-2">
                         <div className="flex-1 min-w-0">
-                          <div className="text-[9px] text-muted-foreground">Current · MRP</div>
-                          <div className="font-mono text-sm tabular-nums">
-                            ${Number(pricingStrategy.conditions.unitPrice).toFixed(2)}
-                          </div>
-                        </div>
-                        <div className="flex items-center justify-center text-muted-foreground/40">
-                          <ArrowRight className="h-3.5 w-3.5" />
-                        </div>
-                        <div className="flex-1 min-w-0 text-right">
-                          <div className="text-[9px] text-muted-foreground flex items-center justify-end gap-1">
-                            Recommended
+                          <div className="text-[9px] text-muted-foreground">Raise / Deduct</div>
+                          <div className="font-mono text-sm font-bold tabular-nums">
                             <span
-                              className={`inline-flex items-center rounded-full px-1.5 py-px text-[8px] font-bold ${
+                              className={`${
                                 pricingStrategy.recommendedPriceChangePct > 0
-                                  ? "bg-primary/15 text-primary"
+                                  ? "text-primary"
                                   : pricingStrategy.recommendedPriceChangePct < 0
-                                    ? "bg-destructive/15 text-destructive"
-                                    : "bg-muted/40 text-muted-foreground"
+                                    ? "text-destructive"
+                                    : "text-muted-foreground"
                               }`}
                             >
                               {pricingStrategy.recommendedPriceChangePct > 0 ? "+" : ""}
                               {pricingStrategy.recommendedPriceChangePct}%
                             </span>
                           </div>
-                          <div className="font-mono text-sm font-bold tabular-nums text-primary">
-                            ${pricingStrategy.recommendedPrice.toFixed(2)}
+                        </div>
+                        <div className="flex-1 min-w-0 text-right">
+                          <div className="text-[9px] text-muted-foreground">Margin floor</div>
+                          <div className="font-mono text-sm font-bold tabular-nums">
+                            ${pricingStrategy.minimumPrice.toFixed(2)}
                           </div>
                         </div>
                       </div>
-                      {/* Price range bar */}
+                      {/* Price change indicator bar */}
                       <div className="h-2 rounded-full bg-muted overflow-hidden relative">
                         {(() => {
                           const minP = pricingStrategy.minimumPrice;
-                          const curP = Number(pricingStrategy.conditions.unitPrice);
-                          const recP = pricingStrategy.recommendedPrice;
-                          const maxP = curP * 1.5;
+                          const maxP = minP * 2;
                           const range = maxP - minP;
                           const pos = (v: number) => (range > 0 ? ((v - minP) / range) * 100 : 50);
                           const minPos = pos(minP);
-                          const curPos = pos(curP);
-                          const recPos = pos(recP);
+                          const recPos = pos(pricingStrategy.recommendedPrice);
                           return (
                             <>
                               <div className="absolute inset-0 bg-gradient-to-r from-chart-3/30 via-chart-2/30 to-chart-1/30" />
-                              <div
-                                className="absolute top-0 bottom-0 w-0.5 bg-foreground rounded-full transition-all"
-                                style={{ left: `${Math.min(Math.max(curPos, 2), 98)}%` }}
-                              />
                               <div
                                 className="absolute top-0 bottom-0 w-0.5 bg-destructive rounded-full transition-all"
                                 style={{ left: `${Math.min(Math.max(minPos, 2), 98)}%` }}
@@ -2387,9 +2359,8 @@ function ExpandedForecastDetail({
                         })()}
                       </div>
                       <div className="flex justify-between text-[8px] text-muted-foreground/50">
-                        <span>Floor</span>
-                        <span>Current</span>
-                        <span>Ceiling</span>
+                        <span>Min floor</span>
+                        <span>Target</span>
                       </div>
                     </div>
 

@@ -109,6 +109,11 @@ type CatalogueProduct = {
   unit_of_measure: string;
   gst_rate: number | null;
   unit_cost: number | null;
+  mrp: number | null;
+  ecommerce_price: number | null;
+  retailer_price: number | null;
+  distributor_price: number | null;
+  flexible_price: number | null;
   status: string;
 };
 
@@ -170,6 +175,30 @@ const PF_CURRENCIES = ["USD", "INR", "EUR", "GBP", "AED"];
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+const PRICE_TIERS = [
+  { value: "", label: "Default" },
+  { value: "mrp", label: "MRP" },
+  { value: "ecommerce", label: "E-commerce" },
+  { value: "retailer", label: "Retailer" },
+  { value: "distributor", label: "Distributor" },
+  { value: "flexible", label: "Flexible" },
+];
+
+function resolveTierPrice(
+  p: CatalogueProduct | undefined | null,
+  tier: string,
+): string | null {
+  if (!p) return null;
+  switch (tier) {
+    case "mrp": return p.mrp != null ? String(p.mrp) : null;
+    case "ecommerce": return p.ecommerce_price != null ? String(p.ecommerce_price) : null;
+    case "retailer": return p.retailer_price != null ? String(p.retailer_price) : null;
+    case "distributor": return p.distributor_price != null ? String(p.distributor_price) : null;
+    case "flexible": return p.flexible_price != null ? String(p.flexible_price) : null;
+    default: return null;
+  }
 }
 
 function PurchaseOrdersPage() {
@@ -573,6 +602,7 @@ type LineDraft = {
   unit_price: string;
   gst_rate: string;
   received_qty: number;
+  price_tier: string;
 };
 
 type PiLineDraft = {
@@ -637,6 +667,7 @@ function POModal({
       unit_price: String(l.unit_price),
       gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
       received_qty: l.received_qty ?? 0,
+      price_tier: "",
     })),
   );
   const [docs, setDocs] = useState<DocMeta[]>(po?.documents ?? []);
@@ -683,6 +714,17 @@ function POModal({
   const setLine = (i: number, patch: Partial<LineDraft>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
 
+  const changePriceTier = (i: number, tier: string) => {
+    const line = lines[i];
+    const p = products.find((x) => x.id === line.product_id);
+    const tierPrice = resolveTierPrice(p, tier);
+    if (tierPrice != null) {
+      setLine(i, { price_tier: tier, unit_price: tierPrice });
+    } else {
+      setLine(i, { price_tier: tier });
+    }
+  };
+
   const pickProduct = (i: number, id: string) => {
     const p = products.find((x) => x.id === id);
     setLine(i, {
@@ -696,6 +738,7 @@ function POModal({
           ? String(p.unit_cost)
           : "",
       gst_rate: p?.gst_rate != null ? String(p.gst_rate) : "",
+      price_tier: "",
     });
   };
 
@@ -711,6 +754,7 @@ function POModal({
         unit_price: "",
         gst_rate: "",
         received_qty: 0,
+        price_tier: "",
       },
     ]);
 
@@ -1130,7 +1174,8 @@ function POModal({
                   <div className="col-span-4">SKU / Product</div>
                   <div className="col-span-1">Unit</div>
                   <div className="col-span-2">Ordered qty</div>
-                  <div className="col-span-2">Unit price</div>
+                  <div className="col-span-1">Tier</div>
+                  <div className="col-span-1">Unit price</div>
                   <div className="col-span-1">GST %</div>
                   <div className="col-span-1 text-right">Line total</div>
                   <div className="col-span-1"></div>
@@ -1191,7 +1236,25 @@ function POModal({
                           </div>
                         )}
                       </div>
-                      <div className="md:col-span-2">
+                      <div className="md:col-span-1">
+                        {l.product_id ? (
+                          <L label="Price tier">
+                            <select
+                              className="inp"
+                              value={l.price_tier ?? ""}
+                              onChange={(e) => changePriceTier(i, e.target.value)}
+                              disabled={!editable}
+                            >
+                              {PRICE_TIERS.map((t) => (
+                                <option key={t.value} value={t.value}>
+                                  {t.label}
+                                </option>
+                              ))}
+                            </select>
+                          </L>
+                        ) : null}
+                      </div>
+                      <div className="md:col-span-1">
                         <L label="Unit price">
                           <input
                             type="number"

@@ -35,6 +35,14 @@ export interface Product {
   unitCost: number;
   /** Max retail price (MRP) — printed list price. */
   mrp: number | null;
+  /** E-commerce / online selling price. */
+  ecommercePrice: number | null;
+  /** Price for retailers. */
+  retailerPrice: number | null;
+  /** Price for distributors. */
+  distributorPrice: number | null;
+  /** Negotiable / flexible price. */
+  flexiblePrice: number | null;
   /** Minimum gross margin (0.01–0.99) used to derive the floor for recommended prices. null = inherit the catalogue default margin. */
   minimumGrossMarginPercentage: number | null;
   reorderLevel: number;
@@ -103,6 +111,10 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
     unitPrice: data.unitPrice || 0,
     unitCost: data.unitCost || 0,
     mrp: data.mrp ?? null,
+    ecommercePrice: data.ecommercePrice ?? null,
+    retailerPrice: data.retailerPrice ?? null,
+    distributorPrice: data.distributorPrice ?? null,
+    flexiblePrice: data.flexiblePrice ?? null,
     minimumGrossMarginPercentage: data.minimumGrossMarginPercentage ?? null,
     reorderLevel: data.reorderLevel || 0,
     maxStock: data.maxStock || 0,
@@ -124,7 +136,7 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
 }
 
 export async function update(id: string, updates: Partial<Product>) {
-  const allowed = ["name","description","category","subcategory","gender","brand","size","color","model","unitOfMeasure","season","barcode","barcodeType","unitsPerCarton","unitPrice","unitCost","mrp","minimumGrossMarginPercentage","reorderLevel","maxStock","leadTimeDays","safetyStockDays","supplierId","supplierProductCode","minimumOrderQuantity","orderMultiple","hsnCode","gstRate","imageUrl","status","sku"];
+  const allowed = ["name","description","category","subcategory","gender","brand","size","color","model","unitOfMeasure","season","barcode","barcodeType","unitsPerCarton","unitPrice","unitCost","mrp","ecommercePrice","retailerPrice","distributorPrice","flexiblePrice","minimumGrossMarginPercentage","reorderLevel","maxStock","leadTimeDays","safetyStockDays","supplierId","supplierProductCode","minimumOrderQuantity","orderMultiple","hsnCode","gstRate","imageUrl","status","sku"];
   const patch: Record<string, any> = {};
   for (const key of allowed) {
     if ((updates as any)[key] !== undefined) patch[key] = (updates as any)[key];

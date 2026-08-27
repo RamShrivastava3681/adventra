@@ -90,6 +90,11 @@ type CatalogueProduct = {
   gst_rate: number | null;
   unit_price: number | null;
   unit_cost: number | null;
+  mrp: number | null;
+  ecommerce_price: number | null;
+  retailer_price: number | null;
+  distributor_price: number | null;
+  flexible_price: number | null;
   status: string;
 };
 
@@ -186,6 +191,30 @@ const PAYMENT_TERMS = [
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+const PRICE_TIERS = [
+  { value: "", label: "Default" },
+  { value: "mrp", label: "MRP" },
+  { value: "ecommerce", label: "E-commerce" },
+  { value: "retailer", label: "Retailer" },
+  { value: "distributor", label: "Distributor" },
+  { value: "flexible", label: "Flexible" },
+];
+
+function resolveTierPrice(
+  p: CatalogueProduct | undefined | null,
+  tier: string,
+): string | null {
+  if (!p) return null;
+  switch (tier) {
+    case "mrp": return p.mrp != null ? String(p.mrp) : null;
+    case "ecommerce": return p.ecommerce_price != null ? String(p.ecommerce_price) : null;
+    case "retailer": return p.retailer_price != null ? String(p.retailer_price) : null;
+    case "distributor": return p.distributor_price != null ? String(p.distributor_price) : null;
+    case "flexible": return p.flexible_price != null ? String(p.flexible_price) : null;
+    default: return null;
+  }
 }
 
 function SalesOrdersPage() {
@@ -566,6 +595,7 @@ type LineDraft = {
   gst_rate: string;
   notes: string;
   dispatched_qty: number;
+  price_tier: string;
 };
 
 function SOModal({
@@ -622,12 +652,23 @@ function SOModal({
       gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
       notes: l.notes ?? "",
       dispatched_qty: l.dispatched_qty ?? 0,
+      price_tier: "",
     })),
   );
   const [docs, setDocs] = useState<DocMeta[]>(so?.documents ?? []);
 
   const setLine = (i: number, patch: Partial<LineDraft>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+
+  const changePriceTier = (i: number, tier: string) => {
+    const line = lines[i];
+    const p = products.find((x) => x.id === line.product_id);
+    const tierPrice = resolveTierPrice(p, tier);
+    setLine(i, {
+      price_tier: tier,
+      unit_price: tierPrice ?? line.unit_price,
+    });
+  };
 
   const pickCustomer = (id: string) => {
     const c = customers.find((x) => x.id === id);
@@ -653,6 +694,7 @@ function SOModal({
       unit: p?.unit_of_measure ?? "piece",
       unit_price: p?.unit_price != null ? String(p.unit_price) : "",
       gst_rate: p?.gst_rate != null ? String(p.gst_rate) : "",
+      price_tier: "",
     });
   };
 
@@ -670,6 +712,7 @@ function SOModal({
         gst_rate: "",
         notes: "",
         dispatched_qty: 0,
+        price_tier: "",
       },
     ]);
 
@@ -961,6 +1004,7 @@ function SOModal({
                           dispatched_qty:
                             existing.find((x) => x.product_id === l.product_id)?.dispatched_qty ??
                             0,
+                          price_tier: "",
                         };
                       }),
                     );
@@ -1053,7 +1097,8 @@ function SOModal({
                   <div className="col-span-4">SKU / Product</div>
                   <div className="col-span-1">Unit</div>
                   <div className="col-span-1">Ordered qty</div>
-                  <div className="col-span-2">Unit price</div>
+                  <div className="col-span-1">Tier</div>
+                  <div className="col-span-1">Unit price</div>
                   <div className="col-span-1">Disc %</div>
                   <div className="col-span-1">GST %</div>
                   <div className="col-span-1 text-right">Line total</div>
@@ -1112,7 +1157,25 @@ function SOModal({
                             </div>
                           )}
                         </div>
-                        <div className="md:col-span-2">
+                        <div className="md:col-span-1">
+                          {l.product_id ? (
+                            <L label="Price tier">
+                              <select
+                                className="inp"
+                                value={l.price_tier ?? ""}
+                                onChange={(e) => changePriceTier(i, e.target.value)}
+                                disabled={!editable}
+                              >
+                                {PRICE_TIERS.map((t) => (
+                                  <option key={t.value} value={t.value}>
+                                    {t.label}
+                                  </option>
+                                ))}
+                              </select>
+                            </L>
+                          ) : null}
+                        </div>
+                        <div className="md:col-span-1">
                           <L label="Unit price">
                             <input
                               type="number"

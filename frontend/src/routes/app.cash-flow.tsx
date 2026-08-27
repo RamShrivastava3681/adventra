@@ -75,14 +75,16 @@ export const Route = createFileRoute("/app/cash-flow")({
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
-function fmt(n: number): string {
+function fmt(n: number | undefined | null): string {
+  if (n == null) n = 0;
   if (Math.abs(n) >= 10000000) return `₹${(n / 10000000).toFixed(2)}Cr`;
   if (Math.abs(n) >= 100000) return `₹${(n / 100000).toFixed(2)}L`;
   if (Math.abs(n) >= 1000) return `₹${(n / 1000).toFixed(1)}K`;
   return `₹${n.toLocaleString("en-IN")}`;
 }
 
-function fmtFull(n: number): string {
+function fmtFull(n: number | undefined | null): string {
+  if (n == null) n = 0;
   return `₹${n.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
 }
 

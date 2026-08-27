@@ -47,6 +47,10 @@ type Product = {
   unit_price: number;
   unit_cost: number;
   mrp: number | null;
+  ecommerce_price: number | null;
+  retailer_price: number | null;
+  distributor_price: number | null;
+  flexible_price: number | null;
   minimum_gross_margin_percentage: number | null;
   reorder_level: number;
   max_stock: number;
@@ -337,7 +341,10 @@ function ProductsPage() {
                     <th className="px-5 py-2 text-left font-normal">Product</th>
                     <th className="px-5 py-2 text-left font-normal">Attrs</th>
                     <th className="px-5 py-2 text-right font-normal">MRP</th>
-                    <th className="px-5 py-2 text-right font-normal">Price</th>
+                    <th className="px-5 py-2 text-right font-normal">E-com</th>
+                    <th className="px-5 py-2 text-right font-normal">Retailer</th>
+                    <th className="px-5 py-2 text-right font-normal">Distributor</th>
+                    <th className="px-5 py-2 text-right font-normal">Flexible</th>
                     <th className="px-5 py-2 text-right font-normal">Cost</th>
                     <th className="px-5 py-2 text-right font-normal">On hand</th>
                     <th className="px-5 py-2 text-right font-normal">Status</th>
@@ -379,7 +386,18 @@ function ProductsPage() {
                         <td className="px-5 py-3 text-right num text-muted-foreground">
                           {p.mrp ? fmtMoney(p.mrp) : "—"}
                         </td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(p.unit_price)}</td>
+                        <td className="px-5 py-3 text-right num">
+                          {p.ecommerce_price ? fmtMoney(p.ecommerce_price) : "—"}
+                        </td>
+                        <td className="px-5 py-3 text-right num">
+                          {p.retailer_price ? fmtMoney(p.retailer_price) : "—"}
+                        </td>
+                        <td className="px-5 py-3 text-right num">
+                          {p.distributor_price ? fmtMoney(p.distributor_price) : "—"}
+                        </td>
+                        <td className="px-5 py-3 text-right num">
+                          {p.flexible_price ? fmtMoney(p.flexible_price) : "—"}
+                        </td>
                         <td className="px-5 py-3 text-right num text-muted-foreground">
                           {fmtMoney(p.unit_cost)}
                         </td>
@@ -563,6 +581,10 @@ function ProductModal({
     unit_price: String(product?.unit_price ?? ""),
     unit_cost: String(product?.unit_cost ?? ""),
     mrp: product?.mrp != null ? String(product.mrp) : "",
+    ecommerce_price: product?.ecommerce_price != null ? String(product.ecommerce_price) : "",
+    retailer_price: product?.retailer_price != null ? String(product.retailer_price) : "",
+    distributor_price: product?.distributor_price != null ? String(product.distributor_price) : "",
+    flexible_price: product?.flexible_price != null ? String(product.flexible_price) : "",
     minimum_gross_margin_percentage: marginStoredToPercent(
       product?.minimum_gross_margin_percentage ?? defaultMargin,
     ),
@@ -602,6 +624,10 @@ function ProductModal({
         unit_price: Number(f.unit_price) || 0,
         unit_cost: Number(f.unit_cost) || 0,
         mrp: numOrNull(f.mrp),
+        ecommerce_price: numOrNull(f.ecommerce_price),
+        retailer_price: numOrNull(f.retailer_price),
+        distributor_price: numOrNull(f.distributor_price),
+        flexible_price: numOrNull(f.flexible_price),
         minimum_gross_margin_percentage: Math.min(
           0.99,
           Math.max(0.01, (Number(f.minimum_gross_margin_percentage) || 40) / 100),
@@ -918,14 +944,48 @@ function ProductModal({
                   placeholder="Max retail price"
                 />
               </L>
-              <L label="Default selling price">
+              <L label="E-commerce selling price">
                 <input
                   type="number"
                   step="0.01"
                   min="0"
                   className="inp"
-                  value={f.unit_price}
-                  onChange={(e) => setF({ ...f, unit_price: e.target.value })}
+                  value={f.ecommerce_price}
+                  onChange={(e) => setF({ ...f, ecommerce_price: e.target.value })}
+                  placeholder="Online / e-commerce price"
+                />
+              </L>
+              <L label="Retailer price">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="inp"
+                  value={f.retailer_price}
+                  onChange={(e) => setF({ ...f, retailer_price: e.target.value })}
+                  placeholder="Price for retailers"
+                />
+              </L>
+              <L label="Distributor price">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="inp"
+                  value={f.distributor_price}
+                  onChange={(e) => setF({ ...f, distributor_price: e.target.value })}
+                  placeholder="Price for distributors"
+                />
+              </L>
+              <L label="Flexible price">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className="inp"
+                  value={f.flexible_price}
+                  onChange={(e) => setF({ ...f, flexible_price: e.target.value })}
+                  placeholder="Negotiable / flexible price"
                 />
               </L>
               <L label="Minimum gross margin (%)">
@@ -1161,12 +1221,19 @@ function PricingPreview({
     unit_cost: string;
     unit_price: string;
     mrp: string;
+    ecommerce_price: string;
+    retailer_price: string;
+    distributor_price: string;
+    flexible_price: string;
     minimum_gross_margin_percentage: string;
   };
 }) {
   const unitCost = Number(f.unit_cost) || 0;
-  const unitPrice = Number(f.unit_price) || 0;
   const mrp = Number(f.mrp) || 0;
+  const ecommercePrice = Number(f.ecommerce_price) || 0;
+  const retailerPrice = Number(f.retailer_price) || 0;
+  const distributorPrice = Number(f.distributor_price) || 0;
+  const flexiblePrice = Number(f.flexible_price) || 0;
   // Margin is entered as a percentage (e.g. 40 = 40%) and stored as a decimal (0.4).
   const margin = Math.min(
     0.99,
@@ -1174,8 +1241,16 @@ function PricingPreview({
   );
   // Cost-based floor — the price that preserves the configured gross margin.
   const minSellingPrice = unitCost > 0 ? unitCost / (1 - margin) : 0;
-  const belowFloor = unitPrice > 0 && minSellingPrice > 0 && unitPrice < minSellingPrice;
-  const aboveMrp = mrp > 0 && unitPrice > mrp;
+
+  const prices = [
+    { label: "E-commerce", value: ecommercePrice },
+    { label: "Retailer", value: retailerPrice },
+    { label: "Distributor", value: distributorPrice },
+    { label: "Flexible", value: flexiblePrice },
+  ];
+  const hasAnyPrice = prices.some((p) => p.value > 0);
+  const belowFloor = hasAnyPrice && minSellingPrice > 0 && prices.some((p) => p.value > 0 && p.value < minSellingPrice);
+  const aboveMrp = mrp > 0 && prices.some((p) => p.value > 0 && p.value > mrp);
   const warn = belowFloor || aboveMrp;
 
   return (
@@ -1198,13 +1273,19 @@ function PricingPreview({
             <span className="text-right font-mono tabular-nums">{fmtMoney(mrp)}</span>
           </>
         )}
-        <span className="text-muted-foreground">Default selling price</span>
-        <span className="text-right font-mono tabular-nums">{fmtMoney(unitPrice)}</span>
+        {prices.map((p) =>
+          p.value > 0 ? (
+            <span key={p.label} className="contents">
+              <span className="text-muted-foreground">{p.label} price</span>
+              <span className="text-right font-mono tabular-nums">{fmtMoney(p.value)}</span>
+            </span>
+          ) : null,
+        )}
         <span className="text-muted-foreground">Status</span>
         <span
           className={`text-right font-medium ${warn ? "text-warning" : "text-primary"}`}
         >
-          {unitPrice <= 0
+          {!hasAnyPrice
             ? "No selling price set"
             : belowFloor
               ? "Below min — margin at risk"
@@ -1215,9 +1296,8 @@ function PricingPreview({
       </div>
       {belowFloor && (
         <div className="mt-1 text-[10px] text-warning">
-          The default selling price is below the minimum selling price of{" "}
-          {fmtMoney(minSellingPrice)} — at {fmtMoney(unitPrice)} the actual gross margin is only{" "}
-          {unitPrice > 0 ? Math.round((1 - unitCost / unitPrice) * 100) : 0}%.
+          One or more selling prices are below the minimum selling price of{" "}
+          {fmtMoney(minSellingPrice)} — margin may be at risk.
         </div>
       )}
     </div>
