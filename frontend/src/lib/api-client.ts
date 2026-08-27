@@ -384,6 +384,99 @@ const api = {
     getReports: (managerId: string) => api.get<any[]>(`/admin/users/${managerId}/reports`),
     getUser: (id: string) => api.get<any>(`/users/${id}`),
   },
+
+  // Cash Flow & Treasury
+  cashFlow: {
+    // Settings
+    settings: {
+      get: () => api.get<any>("/cash-flow/settings"),
+      update: (data: any) => api.put<any>("/cash-flow/settings", data),
+    },
+    // Cash Accounts
+    accounts: {
+      list: () => api.get<any[]>("/cash-accounts"),
+      get: (id: string) => api.get<any>(`/cash-accounts/${id}`),
+      create: (data: any) => api.post<any>("/cash-accounts", data),
+      update: (id: string, data: any) => api.put<any>(`/cash-accounts/${id}`, data),
+      delete: (id: string) => api.delete(`/cash-accounts/${id}`),
+    },
+    // Expected Inflows
+    inflows: {
+      list: () => api.get<any[]>("/cash-flow/inflows"),
+      get: (id: string) => api.get<any>(`/cash-flow/inflows/${id}`),
+      create: (data: any) => api.post<any>("/cash-flow/inflows", data),
+      update: (id: string, data: any) => api.put<any>(`/cash-flow/inflows/${id}`, data),
+      delete: (id: string) => api.delete(`/cash-flow/inflows/${id}`),
+    },
+    // Expected Outflows
+    outflows: {
+      list: () => api.get<any[]>("/cash-flow/outflows"),
+      get: (id: string) => api.get<any>(`/cash-flow/outflows/${id}`),
+      create: (data: any) => api.post<any>("/cash-flow/outflows", data),
+      update: (id: string, data: any) => api.put<any>(`/cash-flow/outflows/${id}`, data),
+      delete: (id: string) => api.delete(`/cash-flow/outflows/${id}`),
+    },
+    // Purchase Commitments
+    commitments: {
+      list: () => api.get<any[]>("/cash-flow/commitments"),
+      create: (data: any) => api.post<any>("/cash-flow/commitments", data),
+      update: (id: string, data: any) => api.put<any>(`/cash-flow/commitments/${id}`, data),
+      delete: (id: string) => api.delete(`/cash-flow/commitments/${id}`),
+    },
+    // Recurring Expenses
+    recurring: {
+      list: () => api.get<any[]>("/cash-flow/recurring"),
+      create: (data: any) => api.post<any>("/cash-flow/recurring", data),
+      update: (id: string, data: any) => api.put<any>(`/cash-flow/recurring/${id}`, data),
+      delete: (id: string) => api.delete(`/cash-flow/recurring/${id}`),
+    },
+    // Marketplace Settlements
+    settlements: {
+      list: () => api.get<any[]>("/cash-flow/settlements"),
+      create: (data: any) => api.post<any>("/cash-flow/settlements", data),
+      update: (id: string, data: any) => api.put<any>(`/cash-flow/settlements/${id}`, data),
+      delete: (id: string) => api.delete(`/cash-flow/settlements/${id}`),
+    },
+    // Forecast
+    forecast: {
+      get: (mode?: string) => api.get<any>(`/cash-flow/forecast${mode ? `?mode=${mode}` : ""}`),
+      daily: () => api.get<any>("/cash-flow/forecast/daily"),
+      weekly: () => api.get<any>("/cash-flow/forecast/weekly"),
+      monthly: () => api.get<any>("/cash-flow/forecast/monthly"),
+    },
+    // Dashboard Summary
+    summary: () => api.get<any>("/cash-flow/summary"),
+  },
+
+  // E-Way Bill
+  ewayBill: {
+    list: (status?: string) => api.get<any[]>(`/eway-bills${status ? `?status=${status}` : ""}`),
+    get: (id: string) => api.get<any>(`/eway-bills/${id}`),
+    getByDispatch: (dispatchId: string) => api.get<any>(`/eway-bills/dispatch/${dispatchId}`),
+    generate: (data: {
+      dispatchId: string;
+      supplierGstin?: string;
+      recipientGstin?: string;
+      distance?: number;
+      transportMode?: string;
+      vehicleNumber?: string;
+      transporterGstin?: string;
+      transporterName?: string;
+    }) => api.post<any>("/eway-bills", data),
+    updateVehicle: (id: string, data: {
+      vehicleNumber: string;
+      fromPlace?: string;
+      fromState?: number;
+      transportMode?: string;
+      reasonCode?: string;
+      reasonRemarks?: string;
+    }) => api.post<any>(`/eway-bills/${id}/vehicle`, data),
+    cancel: (id: string, data: { reason: string; remarks: string }) =>
+      api.post<any>(`/eway-bills/${id}/cancel`, data),
+    extend: (id: string, data?: { remainingDistance?: number; reason?: string; remarks?: string }) =>
+      api.post<any>(`/eway-bills/${id}/extend`, data || {}),
+    sync: (id: string) => api.post<any>(`/eway-bills/${id}/sync`, {}),
+  },
 };
 
 export default api;

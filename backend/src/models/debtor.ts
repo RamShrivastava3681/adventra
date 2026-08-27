@@ -9,6 +9,11 @@ export interface Debtor {
   postalCode: string | null; phone: string | null; website: string | null;
   contactName: string | null; contactEmail: string | null; contactDesignation: string | null; contactPhone: string | null;
   paymentTermsDays: number;
+  // ── GST / E-Way Bill fields ──
+  /** 15-digit GST Identification Number (required for E-Way Bill generation). */
+  gstin: string | null;
+  /** State code (2-digit, derived from GSTIN or manually set). */
+  stateCode: string | null;
   notes: string | null; debtorCode: string;
   createdAt: string; updatedAt: string;
 }
@@ -29,6 +34,8 @@ export async function create(data: Partial<Debtor> & { name: string }) {
     contactName: data.contactName || null, contactEmail: data.contactEmail || null,
     contactDesignation: data.contactDesignation || null, contactPhone: data.contactPhone || null,
     paymentTermsDays: data.paymentTermsDays || 30,
+    gstin: data.gstin || null,
+    stateCode: data.stateCode || (data.gstin ? data.gstin.slice(0, 2) : null),
     notes: data.notes || null, debtorCode: code,
     createdAt: now, updatedAt: now,
   };
@@ -37,7 +44,7 @@ export async function create(data: Partial<Debtor> & { name: string }) {
 }
 
 export async function update(id: string, updates: Partial<Debtor>) {
-  const allowed = ["name","industry","addressLine","city","country","postalCode","phone","website","contactName","contactEmail","contactDesignation","contactPhone","paymentTermsDays","notes"];
+  const allowed = ["name","industry","addressLine","city","country","postalCode","phone","website","contactName","contactEmail","contactDesignation","contactPhone","paymentTermsDays","gstin","stateCode","notes"];
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   return db.updateItem(`DEBTOR#${id}`, `DEBTOR#${id}`, patch);

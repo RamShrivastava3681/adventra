@@ -117,12 +117,13 @@ function buildNavSections(roles: string[]): NavSection[] {
     ];
   }
 
-  // Treasury — operations items + funding queue + Workspace
+  // Treasury — operations items + funding queue + Cash Command Centre + Workspace
   if (isTreasury && !isAdmin && !isChecker) {
     return [
       { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
       { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
       { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
+      { type: "single", label: "Cash Command Centre", icon: Wallet, to: "/app/cash-flow" },
       { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
       {
         type: "group",
@@ -189,6 +190,7 @@ function buildNavSections(roles: string[]): NavSection[] {
       { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
       { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
       { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
+      { type: "single", label: "Cash Command Centre", icon: Wallet, to: "/app/cash-flow" },
       { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
       {
         type: "group",
@@ -326,6 +328,7 @@ function AppLayout() {
       "/app/expenses",
       "/app/notes",
       "/app/reporting",
+      "/app/cash-flow",
     ];
     const salesmanAllowed = [
       "/app/dashboard",

@@ -1181,6 +1181,15 @@ router.post("/invoices", authMiddleware, async (req, res) => {
       status: item.status,
       clientId,
     });
+    // Cash-flow sync: create expected customer collection from invoice
+    (async () => {
+      try {
+        const { syncInvoiceToInflow } = await import("../services/cash-flow-sync.js");
+        await syncInvoiceToInflow(item);
+      } catch (err: any) {
+        console.error("  ⚠ Cash-flow sync after invoice creation failed:", err?.message ?? err);
+      }
+    })();
     // Instant reminder check: if due date is close or past, send reminder immediately
     if (
       item.dueDate &&
@@ -1292,6 +1301,15 @@ router.post("/invoices/:id/payment", authMiddleware, async (req, res) => {
       amountReceived: amt,
       amountPaid: updated?.amountPaid ?? 0,
     });
+    // Cash-flow sync: update expected inflow when payment is recorded
+    (async () => {
+      try {
+        const { syncInvoicePaymentToInflow } = await import("../services/cash-flow-sync.js");
+        await syncInvoicePaymentToInflow(current, amt);
+      } catch (err: any) {
+        console.error("  ⚠ Cash-flow sync after payment failed:", err?.message ?? err);
+      }
+    })();
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1724,6 +1742,15 @@ router.post("/purchase-invoices", authMiddleware, async (req, res) => {
       status: item.status,
       supplier: item.supplierName,
     });
+    // Cash-flow sync: create expected supplier outflow from purchase invoice
+    (async () => {
+      try {
+        const { syncPurchaseInvoiceToOutflow } = await import("../services/cash-flow-sync.js");
+        await syncPurchaseInvoiceToOutflow(item);
+      } catch (err: any) {
+        console.error("  ⚠ Cash-flow sync after purchase invoice creation failed:", err?.message ?? err);
+      }
+    })();
     // Instant reminder check for purchase invoices too
     if (
       item.dueDate &&
@@ -4095,6 +4122,18 @@ router.post(
         lines: dispatch.lines?.length ?? 0,
       });
       recomputeForecast(clientId);
+      // Auto-generate E-Way Bill if taxable value exceeds threshold
+      (async () => {
+        try {
+          const { shouldAutoGenerate, generateEwb } = await import("../services/eway-bill-service.js");
+          if (shouldAutoGenerate(flipped)) {
+            await generateEwb({ dispatchId: flipped.id });
+            console.log(`  ✅ E-Way Bill auto-generated for dispatch ${flipped.dispatchNumber}`);
+          }
+        } catch (err: any) {
+          console.error("  ⚠ E-Way Bill auto-generation failed:", err?.message ?? err);
+        }
+      })();
       res.json({ ...flipped, stockWarnings: warnings });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -5403,5 +5442,13 @@ router.get("/user-progress", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ===================== CASH FLOW & TREASURY =====================
+import cashFlowRoutes from "./cash-flow.js";
+router.use(cashFlowRoutes);
+
+// ===================== E-WAY BILL =====================
+import ewayBillRoutes from "./eway-bill.js";
+router.use(ewayBillRoutes);
 
 export default router;

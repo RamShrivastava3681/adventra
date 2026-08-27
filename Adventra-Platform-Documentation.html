@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Adventra Platform — Complete Page-by-Page Guide</title>
+  <style>
+    @page {
+      size: A4;
+      margin: 18mm 16mm 18mm 16mm;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.6;
+      color: #1a1a2e;
+      background: #fff;
+    }
+
+    .page-break { page-break-before: always; }
+
+    /* ── Cover Page ── */
+    .cover {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      text-align: center;
+      background: linear-gradient(135deg, #0a0e27 0%, #1a1a4e 40%, #0d3b66 100%);
+      color: #fff;
+      padding: 40px;
+    }
+    .cover h1 {
+      font-size: 36pt;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      margin-bottom: 12px;
+      background: linear-gradient(135deg, #00d4ff, #00b4ff, #7dd3fc);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .cover .subtitle {
+      font-size: 16pt;
+      font-weight: 300;
+      color: #94a3b8;
+      margin-bottom: 30px;
+    }
+    .cover .tagline {
+      font-size: 12pt;
+      color: #64748b;
+      max-width: 620px;
+      margin-bottom: 40px;
+      line-height: 1.7;
+    }
+    .cover .meta {
+      font-size: 9pt;
+      color: #475569;
+      margin-top: 60px;
+    }
+    .cover .badge {
+      display: inline-block;
+      background: rgba(0, 180, 255, 0.15);
+      border: 1px solid rgba(0, 180, 255, 0.3);
+      border-radius: 20px;
+      padding: 6px 18px;
+      font-size: 9pt;
+      color: #00d4ff;
+      margin-top: 20px;
+    }
+
+    /* ── Section headers ── */
+    h2 {
+      font-size: 15pt;
+      font-weight: 700;
+      color: #0d3b66;
+      border-bottom: 3px solid #00b4ff;
+      padding-bottom: 6px;
+      margin: 26px 0 12px 0;
+      letter-spacing: -0.3px;
+    }
+    h3 {
+      font-size: 12pt;
+      font-weight: 700;
+      color: #1e3a5f;
+      margin: 16px 0 7px 0;
+    }
+    h4 {
+      font-size: 10.5pt;
+      font-weight: 600;
+      color: #334155;
+      margin: 10px 0 5px 0;
+    }
+
+    p { margin-bottom: 7px; }
+
+    /* ── Value proposition box ── */
+    .value-box {
+      background: linear-gradient(135deg, #eff6ff, #dbeafe);
+      border-left: 4px solid #0066ff;
+      padding: 12px 16px;
+      margin: 14px 0;
+      border-radius: 0 8px 8px 0;
+    }
+    .value-box strong { color: #0d3b66; }
+    .value-box .price { font-size: 14pt; font-weight: 800; color: #0066ff; }
+
+    /* ── Tables ── */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 10px 0 14px 0;
+      font-size: 9.5pt;
+    }
+    thead th {
+      background: #0d3b66;
+      color: #fff;
+      padding: 7px 10px;
+      text-align: left;
+      font-weight: 600;
+    }
+    tbody td {
+      padding: 6px 10px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    tbody tr:nth-child(even) { background: #f8fafc; }
+    tbody tr:hover { background: #eef6ff; }
+
+    /* ── Callout boxes ── */
+    .callout {
+      background: #eff6ff;
+      border-left: 4px solid #00b4ff;
+      padding: 10px 14px;
+      margin: 12px 0;
+      border-radius: 0 6px 6px 0;
+      font-size: 10pt;
+    }
+    .callout.gold {
+      background: #fef9e7;
+      border-left-color: #f59e0b;
+    }
+    .callout.green {
+      background: #ecfdf5;
+      border-left-color: #10b981;
+    }
+    .callout.impact {
+      background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+      border-left-color: #16a34a;
+    }
+    .callout strong { color: #0d3b66; }
+
+    /* ── Benefit highlight ── */
+    .benefit-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin: 12px 0;
+    }
+    .benefit-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .benefit-card .icon { font-size: 18pt; margin-bottom: 4px; }
+    .benefit-card .title { font-weight: 700; color: #0d3b66; font-size: 10pt; }
+    .benefit-card .desc { font-size: 9pt; color: #475569; margin-top: 4px; }
+
+    /* ── Stats strip ── */
+    .stats-strip {
+      display: flex;
+      gap: 14px;
+      margin: 14px 0;
+    }
+    .stat-card {
+      flex: 1;
+      background: linear-gradient(135deg, #0d3b66, #1a3a5c);
+      color: #fff;
+      padding: 14px;
+      border-radius: 8px;
+      text-align: center;
+    }
+    .stat-card .num {
+      font-size: 18pt;
+      font-weight: 800;
+      color: #00d4ff;
+    }
+    .stat-card .label {
+      font-size: 8pt;
+      color: #94a3b8;
+      margin-top: 4px;
+    }
+
+    /* ── Lists ── */
+    ul, ol { margin: 5px 0 8px 20px; }
+    li { margin-bottom: 3px; }
+
+    /* ── Page labels ── */
+    .page-label {
+      display: inline-block;
+      background: #0d3b66;
+      color: #fff;
+      font-size: 8pt;
+      font-weight: 600;
+      padding: 2px 10px;
+      border-radius: 10px;
+      margin-bottom: 4px;
+    }
+
+    /* ── Flow diagrams ── */
+    .flow {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 10px 0;
+      flex-wrap: wrap;
+      font-size: 9pt;
+    }
+    .flow-step {
+      background: #0d3b66;
+      color: #fff;
+      padding: 5px 12px;
+      border-radius: 4px;
+      font-weight: 600;
+    }
+    .flow-arrow {
+      color: #00b4ff;
+      font-size: 14pt;
+      font-weight: 700;
+    }
+
+    /* ── Role badges ── */
+    .role-badge {
+      display: inline-block;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 8pt;
+      font-weight: 600;
+      margin-right: 4px;
+    }
+    .r-admin { background: #dbeafe; color: #1e40af; }
+    .r-checker { background: #fef3c7; color: #92400e; }
+    .r-treasury { background: #d1fae5; color: #065f46; }
+    .r-ops { background: #ede9fe; color: #5b21b6; }
+    .r-sales { background: #fce7f3; color: #9d174d; }
+
+    /* ── Footer ── */
+    .footer {
+      margin-top: 36px;
+      padding-top: 10px;
+      border-top: 1px solid #e2e8f0;
+      font-size: 8pt;
+      color: #94a3b8;
+      text-align: center;
+    }
+
+    @media print {
+      .cover { min-height: auto; height: 100vh; }
+      .page-break { page-break-before: always; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PAGE 1 — COVER                                                 -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<div class="cover">
+  <h1>Adventra</h1>
+  <div class="subtitle">Turn Invoices into Working Capital — Instantly</div>
+  <div class="tagline">
+    Adventra is a complete receivables-factoring and goods-trading platform that lets
+    trading companies unlock cash from outstanding invoices, manage inventory intelligently,
+    and forecast demand — all from one dashboard. Submit, advance, collect.
+  </div>
+  <div class="badge">Same-Day Funding · Real-Time Risk Monitoring · AI-Grade Forecasting</div>
+  <div class="meta">
+    Adventra Platform · Product Guide · August 2026<br>
+    For Sales Teams, Business Development &amp; Client Presentations
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PAGE 2 — THE PROBLEM & THE SOLUTION                            -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<div class="page-break"></div>
+
+<h2>1. The Problem We Solve</h2>
+
+<p>Every trading company lives on its cash flow. You ship goods, raise invoices, and then <strong>wait</strong> — sometimes 30, 60, even 90 days — to get paid. That waiting is money sitting still. Meanwhile, you need to buy more stock, pay suppliers, and keep the operation running.</p>
+
+<div class="callout gold">
+  <strong>The core pain:</strong> Your revenue is locked in unpaid invoices while your expenses keep growing. Traditional banks take weeks to process factoring. Manual inventory tracking leads to stockouts or overstock. You're flying blind on demand.
+</div>
+
+<h3>Adventra does three things about it:</h3>
+
+<div class="benefit-grid">
+  <div class="benefit-card">
+    <div class="icon">📤</div>
+    <div class="title">1. Submit</div>
+    <div class="desc">Your sales invoices enter the platform and are checked by a second pair of eyes — no errors, no fraud.</div>
+  </div>
+  <div class="benefit-card">
+    <div class="icon">💰</div>
+    <div class="title">2. Advance</div>
+    <div class="desc">Once approved, the treasury funds against those invoices — often the same day. Cash in your account in hours, not weeks.</div>
+  </div>
+  <div class="benefit-card">
+    <div class="icon">📊</div>
+    <div class="title">3. Collect</div>
+    <div class="desc">The platform watches every debtor, chases payments automatically, and tracks aging, concentration, and credit risk live.</div>
+  </div>
+  <div class="benefit-card">
+    <div class="icon">📦</div>
+    <div class="title">4. Manage Stock</div>
+    <div class="desc">Full inventory control with AI-grade demand forecasting — know exactly when to reorder and how much to buy.</div>
+  </div>
+</div>
+
+<h3>Key Numbers That Matter</h3>
+
+<div class="stats-strip">
+  <div class="stat-card"><div class="num">11 hrs</div><div class="label">Median Time to Fund</div></div>
+  <div class="stat-card"><div class="num">98.7%</div><div class="label">Collection Rate</div></div>
+  <div class="stat-card"><div class="num">0.42%</div><div class="label">Loss Rate</div></div>
+  <div class="stat-card"><div class="num">34</div><div class="label">Pages in One Platform</div></div>
+</div>
+
+<h2>2. One Platform, Six Consoles</h2>
+
+<p>Adventra is one login with <strong>six job-specific consoles</strong>. Every person sees only the tabs their job needs — no noise, no confusion. The closer you get to money, the fewer tabs you see. That's the design philosophy: <em>the right information, at the right time, for the right person.</em></p>
+
+<table>
+  <thead><tr><th>Who They Are</th><th>Console</th><th>What They Own</th></tr></thead>
+  <tbody>
+    <tr><td><span class="role-badge r-admin">Admin</span></td><td>Factor Console</td><td>Everything — the full portfolio, all tabs, approvals, team roles, configuration</td></tr>
+    <tr><td><span class="role-badge r-checker">Checker</span></td><td>Checker Desk</td><td>The second pair of eyes — approves or rejects every submitted transaction</td></tr>
+    <tr><td><span class="role-badge r-treasury">Treasury</span></td><td>Treasury Desk</td><td>The funding queue — disbursing advances, releasing reserves on collection</td></tr>
+    <tr><td><span class="role-badge r-ops">Operations</span></td><td>Operations Desk</td><td>Day-to-day transactions — buying, receiving, selling, shipping</td></tr>
+    <tr><td><span class="role-badge r-sales">Sales Rep</span></td><td>Sales Workspace</td><td>Leads, quotations, debtors, suppliers — the front of the funnel</td></tr>
+    <tr><td><span class="role-badge r-admin">Reporting Mgr</span></td><td>Reporting Console</td><td>Team output, per-member progress, "view-as" inspection</td></tr>
+  </tbody>
+</table>
+
+<div class="callout green">
+  <strong>Sales pitch:</strong> "You're not buying 34 separate tools. You're buying one platform where your checker, treasury, operations, and sales team each get their own console — built for exactly what they do. No training manuals needed."
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PAGE 3 — DASHBOARD & SALES INVOICING                          -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<div class="page-break"></div>
+
+<h2>3. The Dashboard — Your Command Center</h2>
+<p><span class="page-label">/app/dashboard</span></p>
+
+<p>One screen, every number that matters. The dashboard adapts to the logged-in role — an admin sees the full portfolio, a treasury officer sees funding priorities, and a sales rep sees their pipeline.</p>
+
+<table>
+  <thead><tr><th>Section</th><th>What You See</th><th>Why It Matters</th></tr></thead>
+  <tbody>
+    <tr><td><strong>Income KPIs</strong></td><td>Gross sales, cost of goods, gross income + margin, net income</td><td>Know your profitability at a glance</td></tr>
+    <tr><td><strong>Funding KPIs</strong></td><td>Outstanding receivables, amounts advanced, overdue count, collection rate</td><td>Track cash flow health in real time</td></tr>
+    <tr><td><strong>Settlement Quality</strong></td><td>Short payments, average late days, on-time settlements</td><td>Spot problem debtors before they become losses</td></tr>
+    <tr><td><strong>Aging Waterfall</strong></td><td>Current / 1-30 / 31-60 / 61-90 / 90+ day buckets</td><td>Visualize how old your receivables are getting</td></tr>
+    <tr><td><strong>Live Alerts</strong></td><td>Overdue invoices, credit-limit breaches, severity-tagged</td><td>Never miss a risk signal</td></tr>
+    <tr><td><strong>Charts</strong></td><td>Gross vs. net income trend (8 months)</td><td>See the trajectory of your business</td></tr>
+  </tbody>
+</table>
+
+<h2>4. From Invoice to Funded Asset — The Sales Cycle</h2>
+
+<h3>4.1 Sales Invoices <span class="page-label">/app/invoices</span></h3>
+<p>This is where the money happens. Every invoice you create goes through a <strong>maker-checker pipeline</strong> before reaching the funding queue — ensuring accuracy and preventing fraud.</p>
+
+<div class="flow">
+  <span class="flow-step">Create Invoice</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Checker Reviews</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Approved</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Funded</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Cash in Account</span>
+</div>
+
+<div class="callout impact">
+  <strong>Client benefit:</strong> "You submit an invoice in the morning, a checker reviews it by lunch, and the treasury funds it the same day. What used to take your bank 3 weeks now takes 11 hours."
+</div>
+
+<p><strong>What you can do on this page:</strong></p>
+<ul>
+  <li>Create invoices with full line items — quantity, price, discount %, GST, freight — all calculated automatically</li>
+  <li>Link to the customer's sales order for automatic validation</li>
+  <li>Track payment status in real time: paid, overdue, advanced, partially paid, rejected</li>
+  <li>Send NOA (Notice of Assignment) emails with the invoice PDF attached</li>
+  <li>Record payments (partial or full) with late-day tracking and short-payment detection</li>
+  <li>Branded print preview with your company logo, colors, and bank details</li>
+  <li>Automated payment reminders sent to debtors on schedule (15, 7, 2, 1, 0 days before/after due)</li>
+</ul>
+
+<h3>4.2 Proforma Invoices <span class="page-label">/app/proformas</span></h3>
+<p>Need an advance before the final invoice? Raise a proforma against a customer's PO number. The treasury funds the advance, and it's automatically deducted when the final invoice is created.</p>
+
+<div class="flow">
+  <span class="flow-step">Raise Proforma</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Checker Approves</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Treasury Funds Advance</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Deducted from Final Invoice</span>
+</div>
+
+<ul>
+  <li>Set an advance percentage — the system calculates the exact amount</li>
+  <li>Advance is tracked and deducted server-side when the final invoice is raised</li>
+  <li>Works for both sales (customer advances) and purchase (supplier advances)</li>
+</ul>
+
+<h3>4.3 Credit &amp; Debit Notes <span class="page-label">/app/notes</span></h3>
+<p>Post-invoice adjustments, handled with the same approval rigor:</p>
+<ul>
+  <li><strong>Credit notes:</strong> Refunds, discounts, returns — reduce what the customer owes</li>
+  <li><strong>Debit notes:</strong> Extra charges, claims — increase what the customer owes</li>
+  <li>Every note flows through: maker → checker → applied to the linked invoice</li>
+  <li>Full line items with tax, document attachments, and branded print preview</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PAGE 4 — PROCUREMENT, COUNTERPARTIES, WORKFLOW                -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<div class="page-break"></div>
+
+<h2>5. Procurement — Know Every Dollar In and Out</h2>
+
+<h3>5.1 Purchase Orders <span class="page-label">/app/purchase-orders</span></h3>
+<p>Orders placed with suppliers from your product catalogue. Every PO follows the same maker-checker discipline:</p>
+<ul>
+  <li>Pick products from the catalogue — prices auto-suggest from your most recent order</li>
+  <li>Send the PO to the supplier with a PDF and a secure approval link</li>
+  <li>Track what's been received vs. what's still pending — the system updates automatically when goods arrive</li>
+  <li>Status flows: draft → approved → sent → partially received → fully received</li>
+</ul>
+
+<h3>5.2 Goods Received Note (GRN) <span class="page-label">/app/grn</span></h3>
+<p>When goods actually arrive, you record them against the purchase order. This is the <strong>only document that puts stock on your books</strong> — no order, proforma, or invoice ever changes your inventory count.</p>
+
+<div class="callout green">
+  <strong>Why this matters:</strong> "Your inventory is always accurate because only a physical goods receipt — confirmed by a real person — adds stock. No phantom numbers from pending orders."
+</div>
+
+<ul>
+  <li>Split received goods into accepted (goes to stock) and rejected (damaged/defective)</li>
+  <li>Barcode scan support for fast warehouse entry</li>
+  <li>Over-receipt protection — flagged if you receive more than ordered (admin override available)</li>
+  <li>Automatically updates the purchase order's received quantities</li>
+</ul>
+
+<h3>5.3 Expenses <span class="page-label">/app/expenses</span></h3>
+<p>Track the true cost of every deal — logistics, insurance, interest, admin costs — and link each expense to a specific sales or purchase invoice. Finally know your real per-deal economics.</p>
+
+<h3>5.4 Advances <span class="page-label">/app/advances</span></h3>
+<p>Money received from customers or paid to suppliers ahead of the final invoice. Every advance is tied to a specific invoice and automatically deducted when the final amount is settled.</p>
+
+<h2>6. Counterparties &amp; Credit Risk</h2>
+
+<h3>6.1 Debtors <span class="page-label">/app/debtors</span></h3>
+<p>Your customer master — the foundation of everything on the sales side. Features:</p>
+<ul>
+  <li><strong>Credit limits &amp; risk scores:</strong> set limits per debtor; the platform alerts you the moment exposure crosses the line</li>
+  <li><strong>Live exposure tracking:</strong> see exactly how much each debtor owes across all open invoices</li>
+  <li><strong>Auto-populated fields:</strong> pick a debtor on any invoice/order and contact details, billing address, and payment terms fill in automatically</li>
+</ul>
+
+<h3>6.2 Suppliers <span class="page-label">/app/suppliers</span></h3>
+<p>Onboard the companies whose invoices you finance. Track their status (prospect → active → suspended → offboarded), payment terms, credit lines, and open payables. A single supplier view across all your procurement activity.</p>
+
+<h3>6.3 CRM / Leads <span class="page-label">/app/crm</span></h3>
+<p>Manage your sales pipeline from first contact to closed deal:</p>
+<ul>
+  <li><strong>Leads:</strong> track sources, status (new → contacted → qualified → converted/lost), estimated deal value</li>
+  <li><strong>Opportunities:</strong> stage-based tracking with probability scores and close dates</li>
+  <li><strong>Activities:</strong> log calls, emails, meetings, and tasks — never lose track of a follow-up</li>
+  <li><strong>Pipeline view:</strong> visual funnel showing your deal progression at a glance</li>
+</ul>
+
+<h2>7. Approval, Funding &amp; Team Workflow</h2>
+
+<h3>7.1 Checker Desk <span class="page-label">/app/checker</span></h3>
+<p>The most important control in the system. Every invoice, order, and quotation must pass through the checker before it can be funded. This is what makes Adventra <strong>institutional-grade</strong>:</p>
+<ul>
+  <li>Review submitted invoices, proformas, purchase orders, and quotations</li>
+  <li>Approve or reject with comments — a full audit trail for every decision</li>
+  <li>Server-enforced gates: nothing gets funded without a check</li>
+</ul>
+
+<h3>7.2 Funding Queue <span class="page-label">/app/queue</span></h3>
+<p>Treasury's worklist — approved invoices and advances waiting for disbursement. Fund them with one click, record partial payments, and watch the status flow to "advanced" or "paid."</p>
+
+<h3>7.3 My Workspace <span class="page-label">/app/workspace</span></h3>
+<p>Your team's operational hub — submit and track visits, travel, expenses, and leave requests. Personal stats and per-type tabs keep everyone organized.</p>
+
+<h3>7.4 My Reports <span class="page-label">/app/reports</span></h3>
+<p>Reporting managers see per-team-member progress. The "view-as" feature lets you step into any team member's shoes (read-only) to see exactly what they see — full transparency without compromising security.</p>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PAGE 5 — PRODUCTS, INVENTORY, SALES FLOW                      -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<div class="page-break"></div>
+
+<h2>8. Product Catalogue — Your Single Source of Truth</h2>
+<p><span class="page-label">/app/products</span></p>
+
+<p>Every order, quotation, GRN, dispatch, and forecast in the system references this catalogue. It's the master data that powers everything — and it's designed for trading companies who manage real goods.</p>
+
+<table>
+  <thead><tr><th>What You Track</th><th>Why It Matters</th></tr></thead>
+  <tbody>
+    <tr><td>SKU, name, category, brand, size, color, season</td><td>Find any product instantly — search by any attribute</td></tr>
+    <tr><td>Unit price (selling), unit cost (purchase), MRP</td><td>Margin control — the system never lets you sell below cost</td></tr>
+    <tr><td>Reorder level, max stock, lead time, safety stock</td><td>Powers the demand forecast — know when to buy and how much</td></tr>
+    <tr><td>MOQ (minimum order quantity), order multiples</td><td>Reorder suggestions respect your supplier's rules</td></tr>
+    <tr><td>Live stock badge: <span style="color:#16a34a;font-weight:700">OK</span> / <span style="color:#f59e0b;font-weight:700">Low</span> / <span style="color:#dc2626;font-weight:700">Out</span></td><td>一眼看到哪些产品需要补货</td></tr>
+    <tr><td>GST rate, HSN code, barcode</td><td>Compliance-ready for Indian and international markets</td></tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <strong>Sales pitch:</strong> "Your catalogue isn't just a list — it's the brain behind your forecasting, inventory alerts, and reorder recommendations. Change a reorder level and the entire system adapts."
+</div>
+
+<h2>9. Inventory — A Double-Entry Ledger, Not a Spreadsheet</h2>
+<p><span class="page-label">/app/inventory</span></p>
+
+<p>Every unit that enters or leaves your warehouse is recorded as a <strong>dated, valued journal entry</strong>. No manual counting, no guesswork, no arguments about what's in stock.</p>
+
+<table>
+  <thead><tr><th>Stock-In (Credit)</th><th>Stock-Out (Debit)</th></tr></thead>
+  <tbody>
+    <tr><td>✅ Confirmed GRN (goods received)</td><td>📤 Confirmed Dispatch (goods shipped)</td></tr>
+    <tr><td>↩️ Customer returns</td><td>💔 Damages &amp; samples</td></tr>
+    <tr><td>📦 Opening stock adjustments</td><td>↩️ Supplier returns</td></tr>
+  </tbody>
+</table>
+
+<div class="callout impact">
+  <strong>Key guarantee:</strong> "Your inventory number is <em>always</em> accurate. It's calculated from every confirmed movement — not a single number someone typed in. Cancel a movement and the balance adjusts automatically. No phantom stock, no hidden losses."
+</div>
+
+<ul>
+  <li><strong>Live stock table:</strong> grouped by SKU with quantity, unit, and inventory value at cost — negative balances highlighted in red</li>
+  <li><strong>Full movement journal:</strong> every row with date, direction (Credit green / Debit amber), quantity, unit cost, and the linked document</li>
+  <li><strong>Manual entries:</strong> 6 pre-defined reasons — opening stock, adjustments, damage, samples, returns</li>
+  <li><strong>Barcode scanning:</strong> scan SKU codes for fast warehouse entry</li>
+  <li><strong>System movements are locked:</strong> can't accidentally edit a GRN entry — manage it from the GRN instead</li>
+</ul>
+
+<h2>10. Quotations, Sales Orders &amp; Dispatch</h2>
+
+<h3>10.1 Quotations <span class="page-label">/app/quotations</span></h3>
+<p>Your offer to the customer — professional, trackable, and conversion-ready:</p>
+<ul>
+  <li>Create with full catalogue lines, pricing, discounts, and GST</li>
+  <li>Send to customer as a branded PDF email</li>
+  <li><strong>Maker-checker price approval:</strong> revise prices with a second pair of eyes</li>
+  <li><strong>Debtor approval:</strong> send a secure link — the customer approves or rejects online, no login required</li>
+  <li><strong>Convert to Sales Order:</strong> one click when the quote is accepted — no re-typing</li>
+</ul>
+
+<h3>10.2 Sales Orders <span class="page-label">/app/sales-orders</span></h3>
+<p>The confirmed commitment from the customer. Created from a quotation or proforma, it locks in the deal and tracks dispatch progress:</p>
+<ul>
+  <li>Auto-fills from the linked quotation — customer, addresses, terms, line items</li>
+  <li>Tracks dispatched quantities per line — you always know what's been shipped vs. what's pending</li>
+  <li>Status flows: draft → confirmed → partially dispatched → fully dispatched</li>
+</ul>
+
+<h3>10.3 Dispatch Notes <span class="page-label">/app/dispatches</span></h3>
+<p>The <strong>most important document on the sales side</strong> — this is the only thing that removes stock from your books.</p>
+
+<div class="flow">
+  <span class="flow-step">Pick SO</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Check Stock Availability</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Confirm Dispatch</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Stock Deducted</span>
+  <span class="flow-arrow">→</span>
+  <span class="flow-step">Generate Challan</span>
+</div>
+
+<ul>
+  <li>Live stock check before dispatch — warns if you don't have enough</li>
+  <li>Mark delivered (partial or full) with delivery date tracking</li>
+  <li>Record returns — stock is credited back and the SO reopens for re-dispatch</li>
+  <li>Generate delivery challans (print/PDF) with transporter and tracking details</li>
+</ul>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PAGE 6 — DEMAND FORECASTING (THE STAR)                        -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<div class="page-break"></div>
+
+<h2>11. Demand Forecasting &amp; Reorder Intelligence ★</h2>
+<p><span class="page-label">/app/forecast</span></p>
+
+<p>This is the crown jewel of the platform. For every single product, the engine answers one question:</p>
+
+<div class="callout impact" style="text-align:center; font-size: 12pt;">
+  <strong>"If I do nothing, when do I run out of stock — and how much should I order so I don't?"</strong>
+</div>
+
+<h3>What the Client Sees</h3>
+
+<table>
+  <thead><tr><th>Feature</th><th>What It Tells You</th><th>Business Value</th></tr></thead>
+  <tbody>
+    <tr><td><strong>6-Month Forecast</strong></td><td>Expected demand for each of the next 6 months</td><td>Plan purchases months in advance</td></tr>
+    <tr><td><strong>80% Confidence Range</strong></td><td>The "probably" band — how sure the engine is</td><td>Make decisions with eyes open to uncertainty</td></tr>
+    <tr><td><strong>Days of Cover</strong></td><td>How many days your current stock will last</td><td>Know exactly when you'll run out</td></tr>
+    <tr><td><strong>Reorder Recommendation</strong></td><td>Exact quantity to order (respects MOQ &amp; multiples)</td><td>Stop guessing — the math tells you</td></tr>
+    <tr><td><strong>Stockout Timeline</strong></td><td>Estimated stockout date, last safe reorder-by date</td><td>Never miss a reorder window</td></tr>
+    <tr><td><strong>Urgency Flag</strong></td><td>Critical / Warning / Safe</td><td>Prioritize your procurement attention</td></tr>
+    <tr><td><strong>Momentum</strong></td><td>Accelerating / Stable / Declining</td><td>Demand is picking up or cooling off</td></tr>
+    <tr><td><strong>Velocity</strong></td><td>Fast / Medium / Slow / Dead mover (vs. category)</td><td>Know which products earn their shelf space</td></tr>
+    <tr><td><strong>Pricing Strategy</strong></td><td>Hold / Markdown / Clearance / Protect Margin</td><td>Price optimization recommendations (never auto-applied)</td></tr>
+    <tr><td><strong>Risk Flags</strong></td><td>Stockout risk + Overstock risk</td><td>Avoid both the stockout and the dead inventory</td></tr>
+  </tbody>
+</table>
+
+<h3>How It Works (Plain Language)</h3>
+
+<p>The engine runs a <strong>14-step pipeline</strong> over 12 months of your real sales history:</p>
+
+<ol>
+  <li><strong>Clean the data:</strong> If you were out of stock for part of a month, the engine scales up that month's demand to reflect what you <em>could have</em> sold — so stockout months don't drag your forecast down.</li>
+  <li><strong>Weight recent months more:</strong> The last 3 months count triple, the 3 before that double, the oldest 6 count once. Recent trends matter more than ancient history.</li>
+  <li><strong>Find the trend:</strong> Is demand going up, down, or flat? A statistical line of best fit tells you the direction and strength.</li>
+  <li><strong>Account for seasonality:</strong> September sells 15% more than average. January sells 35% less. The engine learns your product's "month personality."</li>
+  <li><strong>Apply business factors:</strong> Optional levers you control — trekking season, weather, promotions, regional demand, events. These nudge the forecast but can never push it beyond 70%–150% of normal.</li>
+  <li><strong>Build the 6-month forecast:</strong> Baseline × trend × seasonality × factors = your monthly prediction, with an honest 80% confidence band.</li>
+  <li><strong>Calculate reorder math:</strong> How many days of stock do you have? How many should you order? Respects your lead time, safety stock, MOQ, and order multiples.</li>
+  <li><strong>Set the timeline:</strong> When will you run out? When's the last safe day to order? When will the new stock arrive?</li>
+</ol>
+
+<div class="callout gold">
+  <strong>Example:</strong> "Trekking Backpack TB-1001: you have 30 units on hand, selling ~1 unit/day. Lead time is 14 days. The engine says you have 34 days of cover, you should reorder 41 units, and the last safe day to order is August 24th. Urgency: safe."
+</div>
+
+<h3>Dashboard Tiles</h3>
+<div class="benefit-grid">
+  <div class="benefit-card">
+    <div class="title">🔔 To Reorder</div>
+    <div class="desc">Count, total quantity, and cost value of products below their reorder level</div>
+  </div>
+  <div class="benefit-card">
+    <div class="title">⚡ Velocity</div>
+    <div class="desc">Fast / Medium / Slow / Dead movers — ranked within each category</div>
+  </div>
+  <div class="benefit-card">
+    <div class="title">📈 Momentum</div>
+    <div class="desc">Accelerating / Stable / Declining — demand trend per product</div>
+  </div>
+  <div class="benefit-card">
+    <div class="title">🚨 Critical</div>
+    <div class="desc">Products at immediate risk of stockout — act now</div>
+  </div>
+</div>
+
+<ul>
+  <li><strong>Filter by:</strong> reorder, fast, medium, slow, accelerating, declining, out of stock, critical — plus category</li>
+  <li><strong>Expand any product</strong> to see the full calculation breakdown, number by number — no black box</li>
+  <li><strong>Area chart</strong> with the 80% prediction band — visualize the forecast vs. actual history</li>
+  <li><strong>CSV export</strong> for reporting and procurement planning</li>
+  <li><strong>One-click recompute</strong> — refresh the forecast instantly</li>
+</ul>
+
+<div class="callout green">
+  <strong>Sales pitch:</strong> "Every forecast is auditable. Click any product and you'll see exactly how the engine arrived at its recommendation — every formula, every number. No black box. No magic. Just math you can verify."
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════ -->
+<!-- PAGE 7 — ACCOUNTING, MONITORING, SECURITY                     -->
+<!-- ═══════════════════════════════════════════════════════════════ -->
+
+<div class="page-break"></div>
+
+<h2>12. Accounting &amp; Financial Statements</h2>
+
+<h3>12.1 Accounting <span class="page-label">/app/accounting</span></h3>
+<p>Double-entry bookkeeping that every financial movement feeds into automatically:</p>
+<ul>
+  <li><strong>Chart of Accounts:</strong> 8 account types (assets, liabilities, equity, revenue, costs, expenses, etc.) with default seed accounts (Bank, AR, Inventory, AP, Sales, COGS, etc.)</li>
+  <li><strong>Journal Entries:</strong> balanced debit/credit entries with tax and descriptions — every transaction is traceable</li>
+  <li><strong>Account Drill-Down:</strong> click any account to see every journal line that affected it</li>
+</ul>
+
+<h3>12.2 Balance Sheet <span class="page-label">/app/balance-sheet</span></h3>
+<p>An as-of-date financial statement that auto-updates from your invoices, purchases, inventory, advances, journals, and expenses:</p>
+<ul>
+  <li>12 sections: tangible assets, cash/bank, receivables, payables, customer advances, share capital, retained earnings, and more</li>
+  <li>Manual balance entries for opening balances</li>
+  <li>Drill-down into source transactions</li>
+  <li>Print and download for board reporting</li>
+</ul>
+
+<h2>13. Monitoring, Operations &amp; Administration</h2>
+
+<h3>13.1 Alerts <span class="page-label">/app/alerts</span></h3>
+<p><strong>The platform doesn't sleep. Neither does your risk.</strong> Real-time surveillance across your entire portfolio:</p>
+
+<table>
+  <thead><tr><th>Alert Type</th><th>Severity</th><th>What Happens</th></tr></thead>
+  <tbody>
+    <tr><td>Overdue Invoice</td><td>🔴 Critical / 🟡 Warning / 🔵 Info</td><td>Invoice passed due date — escalation begins</td></tr>
+    <tr><td>Credit Limit Breach</td><td>🔴 Critical</td><td>Debtor exposure exceeds their credit limit</td></tr>
+    <tr><td>Risk Grade Migration</td><td>🟡 Warning</td><td>Debtor's risk profile has changed</td></tr>
+  </tbody>
+</table>
+<ul>
+  <li>Unread count badge — never miss an alert</li>
+  <li>Activity feed with the full audit trail of every action taken on the platform</li>
+</ul>
+
+<h3>13.2 Reminders <span class="page-label">/app/reminders</span></h3>
+<p>Automated email nudges that keep your collections on schedule:</p>
+<ul>
+  <li>Hourly scheduler — checks every invoice and sends reminders on the configured day thresholds (15, 7, 2, 1, 0 days before/after due)</li>
+  <li>Instant trigger when an invoice is created or updated with a near-due date</li>
+  <li>Manual send per invoice + admin "run all" trigger for batch processing</li>
+  <li>One-time debtor forwarding tokens — include the debtor in the email chain</li>
+  <li>Full reminder log with timestamps and delivery status</li>
+</ul>
+
+<h3>13.3 Operations / Admin <span class="page-label">/app/admin</span></h3>
+<p>The admin control center:</p>
+<ul>
+  <li><strong>User management:</strong> create users, assign roles, manage reporting lines</li>
+  <li><strong>Alert generation:</strong> manually trigger overdue-invoice computation</li>
+  <li><strong>Role administration:</strong> enforce who can do what across the platform</li>
+</ul>
+
+<h3>13.4 Invoice Template <span class="page-label">/app/template</span></h3>
+<p>Brand every document your platform generates:</p>
+<ul>
+  <li>Company name, logo, primary/accent colors</li>
+  <li>Tax ID, bank details, payment terms</li>
+  <li>Footer text, signature label, currency symbol</li>
+  <li>Used by invoices, notes, quotations, POs, and NOA emails</li>
+</ul>
+
+<h3>13.5 Profile <span class="page-label">/app/profile</span> &amp; Settings <span class="page-label">/app/settings</span></h3>
+<ul>
+  <li><strong>Profile:</strong> personal info, photo, contact details — updated with security event logging</li>
+  <li><strong>Settings:</strong> company profile, admin bootstrap configuration</li>
+</ul>
+
+<h2>14. Security You Can Trust</h2>
+
+<table>
+  <thead><tr><th>What We Protect</th><th>How</th></tr></thead>
+  <tbody>
+    <tr><td>Your session</td><td>JWT in httpOnly cookie — invisible to JavaScript, immune to XSS</td></tr>
+    <tr><td>Against CSRF</td><td>SameSite=Strict cookie + server-side origin check on every request</td></tr>
+    <tr><td>Against brute force</td><td>Rate limiting (30 failed logins/IP/15 min), graduated slowdown</td></tr>
+    <tr><td>File uploads</td><td>Magic-byte validation — blocks HTML, SVG, executables; allows images, PDFs, documents</td></tr>
+    <tr><td>Input safety</td><td>Body-size limits, prototype-pollution sanitizer, field allowlists</td></tr>
+    <tr><td>Audit trail</td><td>Every action logged — who did what, when, from where</td></tr>
+    <tr><td>Concurrency</td><td>Atomic operations — double-clicks can't double-fund or double-ship</td></tr>
+  </tbody>
+</table>
+
+<div class="footer">
+  Adventra Platform · Product Guide · August 2026 · 34 Pages · Built for Trading Companies<br>
+  "Submit. Advance. Collect. While aging, concentration, and credit risk move in real time."
+</div>
+
+</body>
+</html>

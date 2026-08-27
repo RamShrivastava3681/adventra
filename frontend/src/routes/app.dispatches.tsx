@@ -19,6 +19,8 @@ import {
   Undo2,
   AlertTriangle,
   FileText,
+  ShieldCheck,
+  RefreshCw,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -1103,6 +1105,11 @@ function DispatchDetailModal({
               </div>
             )}
 
+            {/* E-Way Bill section */}
+            {d.status !== "draft" && (
+              <EwbSection dispatch={d} canWrite={canWrite} onRefresh={invalidate} />
+            )}
+
             {/* Actions */}
             <div className="flex flex-wrap gap-2 border-t border-border pt-3">
               {canWrite && d.status === "draft" && (
@@ -1499,6 +1506,265 @@ function ReturnModal({
           </div>
         </form>
       </div>
+    </div>
+  );
+}
+
+// ─── E-Way Bill section ────────────────────────────────────────────────
+function EwbSection({
+  dispatch,
+  canWrite,
+  onRefresh,
+}: {
+  dispatch: Dispatch;
+  canWrite: boolean;
+  onRefresh: () => void;
+}) {
+  const [generating, setGenerating] = useState(false);
+  const [updatingVehicle, setUpdatingVehicle] = useState(false);
+  const [vehicleNo, setVehicleNo] = useState("");
+  const [showVehicleForm, setShowVehicleForm] = useState(false);
+
+  const ewbQ = useQuery({
+    queryKey: ["eway-bill", dispatch.id],
+    queryFn: async () => {
+      try {
+        return await api.ewayBill.getByDispatch(dispatch.id);
+      } catch {
+        return null;
+      }
+    },
+  });
+
+  const generateMutation = useMutation({
+    mutationFn: async () => {
+      setGenerating(true);
+      return api.ewayBill.generate({ dispatchId: dispatch.id });
+    },
+    onSuccess: () => {
+      toast.success("E-Way Bill generated successfully!");
+      ewbQ.refetch();
+      onRefresh();
+    },
+    onError: (e: any) => {
+      toast.error(e?.message || "Failed to generate E-Way Bill");
+    },
+    onSettled: () => setGenerating(false),
+  });
+
+  const updateVehicleMutation = useMutation({
+    mutationFn: async () => {
+      if (!ewbQ.data) throw new Error("No E-Way Bill");
+      setUpdatingVehicle(true);
+      return api.ewayBill.updateVehicle(ewbQ.data.id, {
+        vehicleNumber: vehicleNo,
+        reasonCode: "1",
+        reasonRemarks: "Vehicle assigned at dispatch",
+      });
+    },
+    onSuccess: () => {
+      toast.success("Vehicle updated on E-Way Bill!");
+      setShowVehicleForm(false);
+      setVehicleNo("");
+      ewbQ.refetch();
+    },
+    onError: (e: any) => {
+      toast.error(e?.message || "Failed to update vehicle");
+    },
+    onSettled: () => setUpdatingVehicle(false),
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: async () => {
+      if (!ewbQ.data) throw new Error("No E-Way Bill");
+      return api.ewayBill.cancel(ewbQ.data.id, {
+        reason: "1",
+        remarks: "Cancelled by user",
+      });
+    },
+    onSuccess: () => {
+      toast.success("E-Way Bill cancelled");
+      ewbQ.refetch();
+      onRefresh();
+    },
+    onError: (e: any) => {
+      toast.error(e?.message || "Failed to cancel E-Way Bill");
+    },
+  });
+
+  const extendMutation = useMutation({
+    mutationFn: async () => {
+      if (!ewbQ.data) throw new Error("No E-Way Bill");
+      return api.ewayBill.extend(ewbQ.data.id, {
+        remainingDistance: 100,
+        reason: "1",
+        remarks: "Extending validity",
+      });
+    },
+    onSuccess: () => {
+      toast.success("E-Way Bill validity extended!");
+      ewbQ.refetch();
+    },
+    onError: (e: any) => {
+      toast.error(e?.message || "Failed to extend E-Way Bill");
+    },
+  });
+
+  const ewb = ewbQ.data;
+  const taxableValue = (dispatch.lines ?? []).reduce((s, l) => s + (l.line_value ?? 0), 0);
+  const requiresEwb = taxableValue > 50000;
+
+  // Don't show if below threshold and no existing EWB
+  if (!requiresEwb && !ewb) return null;
+
+  const EWB_STATUS_TONES: Record<string, string> = {
+    pending: "bg-yellow-500/10 text-yellow-600 border-yellow-500/30",
+    generated: "bg-green-500/10 text-green-600 border-green-500/30",
+    vehicle_updated: "bg-blue-500/10 text-blue-600 border-blue-500/30",
+    extended: "bg-blue-500/10 text-blue-600 border-blue-500/30",
+    cancelled: "bg-red-500/10 text-red-600 border-red-500/30",
+    expired: "bg-orange-500/10 text-orange-600 border-orange-500/30",
+    failed: "bg-red-500/10 text-red-600 border-red-500/30",
+  };
+
+  return (
+    <div className="rounded-lg border border-border/60 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <ShieldCheck className="h-4 w-4 text-primary" />
+          <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            E-Way Bill
+          </span>
+        </div>
+        {!ewb && canWrite && (
+          <button
+            onClick={() => generateMutation.mutate()}
+            disabled={generating}
+            className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+          >
+            {generating ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ShieldCheck className="h-3.5 w-3.5" />
+            )}
+            Generate EWB
+          </button>
+        )}
+        {ewb && (
+          <button
+            onClick={() => ewbQ.refetch()}
+            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-primary hover:text-primary"
+          >
+            <RefreshCw className="h-3 w-3" /> Refresh
+          </button>
+        )}
+      </div>
+
+      {!ewb && (
+        <div className="rounded-md border border-border/40 p-3 text-xs text-muted-foreground">
+          {requiresEwb ? (
+            <span>
+              Taxable value <strong>{fmtMoney(taxableValue)}</strong> exceeds ₹50,000 threshold — E-Way Bill
+              required.
+            </span>
+          ) : (
+            <span>Taxable value below ₹50,000 — E-Way Bill not required.</span>
+          )}
+        </div>
+      )}
+
+      {ewb && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs md:grid-cols-3">
+            <D label="EWB Number" value={ewb.ewb_number || "Pending…"} />
+            <D label="Status" value={ewb.status} />
+            <D label="Valid Until" value={ewb.valid_until || "—"} />
+            <D label="Vehicle" value={ewb.vehicle_number || "—"} />
+            <D label="Transporter" value={ewb.transporter_name || "—"} />
+            <D label="Taxable Value" value={fmtMoney(ewb.taxable_value)} />
+          </div>
+
+          {/* Action buttons */}
+          {canWrite && [
+            "generated",
+            "vehicle_updated",
+            "extended",
+          ].includes(ewb.status) && (
+            <div className="flex flex-wrap gap-2 border-t border-border pt-3">
+              {!showVehicleForm && (
+                <button
+                  onClick={() => setShowVehicleForm(true)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+                >
+                  <Truck className="h-3.5 w-3.5" /> Update vehicle
+                </button>
+              )}
+              <button
+                onClick={() => extendMutation.mutate()}
+                disabled={extendMutation.isPending}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:border-primary hover:text-primary"
+              >
+                {extendMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5" />
+                )}
+                Extend validity
+              </button>
+              <button
+                onClick={() => {
+                  if (confirm("Cancel this E-Way Bill?")) cancelMutation.mutate();
+                }}
+                disabled={cancelMutation.isPending}
+                className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+              >
+                {cancelMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Ban className="h-3.5 w-3.5" />
+                )}
+                Cancel EWB
+              </button>
+            </div>
+          )}
+
+          {/* Vehicle update form */}
+          {showVehicleForm && (
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                updateVehicleMutation.mutate();
+              }}
+              className="flex items-end gap-2 rounded-md border border-primary/30 bg-primary/5 p-3"
+            >
+              <L label="Vehicle number">
+                <input
+                  className="inp"
+                  value={vehicleNo}
+                  onChange={(e) => setVehicleNo(e.target.value.toUpperCase())}
+                  placeholder="e.g. MH12AB1234"
+                  required
+                />
+              </L>
+              <button
+                type="submit"
+                disabled={updatingVehicle || !vehicleNo}
+                className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground disabled:opacity-50"
+              >
+                {updatingVehicle ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Truck className="h-3.5 w-3.5" />}
+                Update
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowVehicleForm(false); setVehicleNo(""); }}
+                className="rounded-md border border-border px-3 py-2 text-xs"
+              >
+                Cancel
+              </button>
+            </form>
+          )}
+        </div>
+      )}
     </div>
   );
 }

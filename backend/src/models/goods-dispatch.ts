@@ -102,6 +102,13 @@ export interface GoodsDispatch {
   debitedBy: string | null;
   cancelledAt: string | null;
   cancelledBy: string | null;
+  // ── E-Way Bill fields ──
+  /** Linked E-Way Bill record ID (set after EWB generation). */
+  ewayBillId: string | null;
+  /** EWB number assigned by the NIC portal (12-digit). */
+  ewayBillNumber: string | null;
+  /** EWB lifecycle status: pending, generated, vehicle_updated, cancelled, failed. */
+  ewayBillStatus: string | null;
   lines: GoodsDispatchLine[];
   createdAt: string;
   updatedAt: string;
@@ -201,6 +208,9 @@ export async function create(data: Partial<GoodsDispatch> & { clientId: string; 
     debitedBy: data.debitedBy || null,
     cancelledAt: data.cancelledAt || null,
     cancelledBy: data.cancelledBy || null,
+    ewayBillId: data.ewayBillId || null,
+    ewayBillNumber: data.ewayBillNumber || null,
+    ewayBillStatus: data.ewayBillStatus || null,
     lines,
     createdAt: now,
     updatedAt: now,
@@ -219,7 +229,9 @@ export async function update(id: string, updates: Partial<GoodsDispatch>) {
     "linkedSalesInvoiceId", "linkedSalesInvoiceNumber",
     "dispatchedById", "dispatchedBy", "deliveryDate", "deliveredAt", "deliveredBy",
     "returnedAt", "returnedBy", "notes", "documents", "status", "stockDebited",
-    "debitedAt", "debitedBy", "cancelledAt", "cancelledBy", "lines",
+    "debitedAt", "debitedBy", "cancelledAt", "cancelledBy",
+    "ewayBillId", "ewayBillNumber", "ewayBillStatus",
+    "lines",
   ];
   for (const k of allowed) {
     if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k];

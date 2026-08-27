@@ -5,7 +5,9 @@
   "description": "Generates the Adventra platform walkthrough deck (.pptx) with pptxgenjs",
   "main": "generate.cjs",
   "scripts": {
-    "generate": "node generate.cjs"
+    "generate": "node generate.cjs",
+    "generate:diagrams": "node generate-diagrams.cjs",
+    "generate:whizunik": "node generate-whizunik.cjs"
   },
   "dependencies": {
     "pptxgenjs": "^3.12.0"

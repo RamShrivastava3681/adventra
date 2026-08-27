@@ -1,17 +1,31 @@
-# Adventra deck generator
+# Deck generator
 
-Generates `Adventra-Platform-Walkthrough.pptx` (in the project root) — a 12-slide
-walkthrough of the Adventra platform, matching the prompt in `../PPT-PROMPT.md`.
+Generates three decks (in the project root):
+
+- `Adventra-Platform-Walkthrough.pptx` — a 12-slide product walkthrough, matching the
+  prompt in `../PPT-PROMPT.md` (`generate.cjs`).
+- `Adventra-Architecture-Workflows.pptx` — a 20-slide technical deck of **architecture &
+  workflow diagrams**, drawn from `../TECH-STACK-AND-QUESTIONS.md` and
+  `../COMPLETE-WORKFLOW-GUIDE.md` (`generate-diagrams.cjs`).
+- `whizunik-booklet-premium.pptx` — the WhizUnik premium booklet (12 slides),
+  redesigned with a light ivory/gold editorial system across every page: navy ink
+  serif headlines (Georgia) + Segoe UI body on ivory paper, browser-chrome
+  screenshot frames with a gold spine, a light-theme Working Capital mockup, a
+  4-step Connected Activity process slide, and a navy closing band on the
+  Executive-Care page (`generate-whizunik.cjs`).
 
 ## Regenerate
 
 ```bash
 cd ppt-generator
-npm install      # first time only
-npm run generate # or: node generate.cjs
+npm install              # first time only
+npm run generate         # product walkthrough deck
+npm run generate:diagrams # architecture & workflow diagrams deck
+npm run generate:whizunik # WhizUnik premium booklet
 ```
 
-Output: `../Adventra-Platform-Walkthrough.pptx`
+Output: `../Adventra-Platform-Walkthrough.pptx`, `../Adventra-Architecture-Workflows.pptx`,
+`../whizunik-booklet-premium.pptx`
 
 ## Structure
 
@@ -24,6 +38,11 @@ Output: `../Adventra-Platform-Walkthrough.pptx`
   12 Monitoring, ops & administration.
 - Slides 8–10 are the catalog / inventory / forecasting showcase.
 - Every slide carries speaker notes (`addNotes`).
+- `generate-whizunik.cjs` — the WhizUnik booklet. Source screenshots live in
+  `assets/whizunik/` (extracted from the original deck). Product pages are built
+  by the shared `productPage` + `screenCard` helpers; slide 7's light-theme screen
+  is drawn entirely from shapes. Change the palette in the `C` object or swap a
+  screenshot by editing the `screenCard(...)` call on that slide.
 
 ## Editing tips
 

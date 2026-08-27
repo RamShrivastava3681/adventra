@@ -163,6 +163,7 @@ function DebtorModal({
     name: debtor?.name ?? "",
     industry: debtor?.industry ?? "",
     payment_terms_days: String(debtor?.payment_terms_days ?? debtor?.paymentTermsDays ?? "30"),
+    gstin: debtor?.gstin ?? "",
     address_line: debtor?.address_line ?? "",
     city: debtor?.city ?? "",
     country: debtor?.country ?? "",
@@ -186,6 +187,7 @@ function DebtorModal({
         name: form.name.trim(),
         industry: form.industry || null,
         payment_terms_days: Number(form.payment_terms_days),
+        gstin: form.gstin || null,
         address_line: form.address_line || null,
         city: form.city || null,
         country: form.country || null,
@@ -263,6 +265,15 @@ function DebtorModal({
               </L>
               <L label="Phone">
                 <input maxLength={40} className="inp" value={form.phone} onChange={set("phone")} />
+              </L>
+              <L label="GSTIN (for E-Way Bill)">
+                <input
+                  maxLength={15}
+                  className="inp"
+                  placeholder="15-digit GSTIN"
+                  value={form.gstin}
+                  onChange={set("gstin")}
+                />
               </L>
             </div>
           </Section>
@@ -410,6 +421,7 @@ function DebtorDetailModal({
               value={`Net ${debtor.payment_terms_days ?? debtor.paymentTermsDays ?? "—"}`}
             />
             <D label="Open exposure" value={<span className="num">{fmtMoney(exposure)}</span>} />
+            <D label="GSTIN" value={debtor.gstin ?? "—"} />
             <D label="Website" value={debtor.website ?? "—"} />
             <D label="Phone" value={debtor.phone ?? "—"} />
             <div className="col-span-2">
