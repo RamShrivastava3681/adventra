@@ -73,6 +73,10 @@ export interface GoodsReceipt {
   cancelledAt: string | null;
   cancelledBy: string | null;
   lines: GoodsReceiptLine[];
+
+  /** Stock location where goods are received. Defaults to Central Warehouse. */
+  receivingLocationId: string | null;
+
   createdAt: string;
   updatedAt: string;
 }
@@ -141,6 +145,7 @@ export async function create(data: Partial<GoodsReceipt> & { clientId: string; g
     cancelledAt: data.cancelledAt || null,
     cancelledBy: data.cancelledBy || null,
     lines,
+    receivingLocationId: data.receivingLocationId || null,
     createdAt: now,
     updatedAt: now,
   };
@@ -155,6 +160,7 @@ export async function update(id: string, updates: Partial<GoodsReceipt>) {
     "warehouse", "receivedDate", "purchaseInvoiceId", "challanNumber",
     "receivedById", "receivedBy", "notes", "documents", "status", "stockCredited",
     "creditedAt", "creditedBy", "cancelledAt", "cancelledBy", "lines",
+    "receivingLocationId",
   ];
   for (const k of allowed) {
     if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k];

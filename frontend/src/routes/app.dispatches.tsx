@@ -200,6 +200,13 @@ function DispatchesPage() {
       return data.map((i) => ({ id: i.id, number: i.invoice_number ?? i.id }));
     },
   });
+  const stockLocationsQ = useQuery({
+    queryKey: ["stock-locations-for-dispatch"],
+    queryFn: async () => {
+      const data = await api.stockLocations.list();
+      return (data as any[]).filter((l: any) => l.status === "active");
+    },
+  });
 
   // Live stock balance per product (for the dispatch availability check).
   const stockBalance = useMemo(() => {
@@ -417,6 +424,7 @@ function DispatchesPage() {
           stockBalance={stockBalance}
           proformas={proformasQ.data ?? []}
           invoices={invoicesQ.data ?? []}
+          stockLocations={(stockLocationsQ.data ?? []) as any[]}
           onClose={() => setCreateOpen(false)}
           onDone={invalidateAll}
         />
@@ -458,6 +466,7 @@ function DispatchCreateModal({
   stockBalance,
   proformas,
   invoices,
+  stockLocations,
   onClose,
   onDone,
 }: {
@@ -468,6 +477,7 @@ function DispatchCreateModal({
   stockBalance: Map<string, number>;
   proformas: Array<{ id: string; number: string; customer: string | null }>;
   invoices: Array<{ id: string; number: string }>;
+  stockLocations: any[];
   onClose: () => void;
   onDone: () => void;
 }) {
@@ -482,6 +492,10 @@ function DispatchCreateModal({
     linked_customer_proforma_id: "",
     linked_sales_invoice_id: "",
     notes: "",
+    dispatch_type: "customer_sale",
+    source_location_id: "",
+    destination_location_id: "",
+    channel: "",
   });
   const [lines, setLines] = useState<DispatchLineDraft[]>([]);
   const [scan, setScan] = useState("");
@@ -590,6 +604,10 @@ function DispatchCreateModal({
         linked_sales_invoice_id: f.linked_sales_invoice_id || null,
         notes: f.notes.trim() || null,
         lines: payloadLines,
+        dispatch_type: f.dispatch_type || null,
+        source_location_id: f.source_location_id || null,
+        destination_location_id: f.destination_location_id || null,
+        channel: f.channel || null,
       });
     },
     onSuccess: () => {
@@ -662,7 +680,62 @@ function DispatchCreateModal({
                   onChange={(e) => setF({ ...f, dispatch_date: e.target.value })}
                 />
               </L>
-              <L label="Warehouse / store">
+              <L label="Dispatch Type">
+                <select
+                  className="inp"
+                  value={f.dispatch_type}
+                  onChange={(e) => setF({ ...f, dispatch_type: e.target.value })}
+                >
+                  <option value="customer_sale">Customer Sale</option>
+                  <option value="marketplace_sale">Marketplace Sale</option>
+                  <option value="pos_sale">POS Sale</option>
+                  <option value="stock_transfer">Stock Transfer</option>
+                  <option value="customer_return">Customer Return</option>
+                  <option value="return_to_supplier">Return to Supplier</option>
+                  <option value="damage_sample_adjustment">Damage / Sample / Adjustment</option>
+                </select>
+              </L>
+              <L label="Source Location">
+                <select
+                  className="inp"
+                  value={f.source_location_id}
+                  onChange={(e) => setF({ ...f, source_location_id: e.target.value })}
+                >
+                  <option value="">Select source…</option>
+                  {stockLocations.map((loc: any) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.name}{loc.channel ? ` (${loc.channel})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </L>
+              {f.dispatch_type === "stock_transfer" && (
+                <L label="Destination Location">
+                  <select
+                    className="inp"
+                    value={f.destination_location_id}
+                    onChange={(e) => setF({ ...f, destination_location_id: e.target.value })}
+                  >
+                    <option value="">Select destination…</option>
+                    {stockLocations.map((loc: any) => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.name}{loc.channel ? ` (${loc.channel})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </L>
+              )}
+              {f.dispatch_type === "marketplace_sale" && (
+                <L label="Channel">
+                  <input
+                    className="inp"
+                    value={f.channel}
+                    onChange={(e) => setF({ ...f, channel: e.target.value })}
+                    placeholder="e.g. Amazon, Flipkart"
+                  />
+                </L>
+              )}
+              <L label="Warehouse / store (legacy)">
                 <input
                   className="inp"
                   value={f.warehouse}

@@ -30,7 +30,7 @@ export interface StockMovement {
   /** "in" (Credit) or "out" (Debit). */
   direction: "in" | "out"; itemName: string; sku: string | null;
   quantity: number; unit: string; unitCost: number | null;
-  /** Delivery warehouse / store. */
+  /** Delivery warehouse / store (legacy text field). */
   warehouse: string | null;
   /** Movement reason: Goods receipt / Dispatch / Customer return / Supplier return / Damage / Opening stock / Stock adjustment / Samples · internal use. */
   reason: string | null;
@@ -58,6 +58,21 @@ export interface StockMovement {
   goodsDispatchId: string | null;
   /** Goods sales order this movement belongs to (dispatch-created movements). */
   salesOrderId: string | null;
+
+  // ── Location-based inventory fields ──
+  /** Source location ID for stock-out movements (dispatch, transfer out, etc.). */
+  sourceLocationId: string | null;
+  /** Destination location ID for stock-in movements (GRN, transfer in, return, etc.). */
+  destinationLocationId: string | null;
+  /** Dispatch type: customer_sale, marketplace_sale, pos_sale, stock_transfer, customer_return, return_to_supplier, damage_sample_adjustment */
+  dispatchType: string | null;
+  /** For stock transfers: links the source movement to the destination movement. */
+  transferId: string | null;
+  /** Channel: Amazon, Flipkart, etc. For marketplace sales. */
+  channel: string | null;
+  /** For customer returns: customer name or ID. */
+  customerName: string | null;
+
   createdAt: string; updatedAt: string;
 }
 
@@ -89,7 +104,7 @@ export async function create(data: Partial<StockMovement> & { clientId: string; 
   const item: StockMovement = {
     pk: `STOCK_MOVEMENT#${id}`, sk: `STOCK_MOVEMENT#${id}`,
     gsi1pk: `CLIENT#${data.clientId}`, gsi1sk: `StockMovement#${now}`,
-    gsi2pk: "StockMovement", gsi2sk: `StockMovement#${id}`,
+    gsi2pk: "StockMovement", gsi2sk: `STOCK_MOVEMENT#${id}`,
     entityType: "StockMovement", id, clientId: data.clientId,
     movementNumber: data.movementNumber || `MOV-${id.slice(0, 8).toUpperCase()}`,
     productId: data.productId || null, direction: data.direction,
@@ -115,6 +130,13 @@ export async function create(data: Partial<StockMovement> & { clientId: string; 
     purchaseOrderId: data.purchaseOrderId || null,
     goodsDispatchId: data.goodsDispatchId || null,
     salesOrderId: data.salesOrderId || null,
+    // Location-based fields
+    sourceLocationId: data.sourceLocationId || null,
+    destinationLocationId: data.destinationLocationId || null,
+    dispatchType: data.dispatchType || null,
+    transferId: data.transferId || null,
+    channel: data.channel || null,
+    customerName: data.customerName || null,
     createdAt: now, updatedAt: now,
   };
   await db.putItem(item);
@@ -187,6 +209,8 @@ export async function update(id: string, updates: Partial<StockMovement>) {
     "productId", "itemName", "sku", "unit", "direction", "quantity", "unitCost",
     "warehouse", "reason", "linkedDocumentType", "linkedDocumentNumber",
     "notes", "movementDate",
+    // Location fields
+    "sourceLocationId", "destinationLocationId", "dispatchType", "transferId", "channel", "customerName",
   ];
   const patch: Record<string, any> = {};
   for (const key of allowed) {
@@ -220,4 +244,118 @@ export async function getBalance(productId: string, allMovements: StockMovement[
   return allMovements
     .filter((m) => m.productId === productId && m.status === "confirmed")
     .reduce((sum, m) => sum + (m.direction === "in" ? m.quantity : -m.quantity), 0);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// Location-aware stock balance functions
+// ═══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * Get stock balance for a specific product at a specific location.
+ * Stock at location = Σ confirmed IN to location − Σ confirmed OUT from location.
+ */
+export function getBalanceAtLocation(
+  productId: string,
+  locationId: string,
+  movements: StockMovement[]
+): number {
+  return movements
+    .filter(
+      (m) =>
+        m.productId === productId &&
+        m.status === "confirmed" &&
+        ((m.direction === "in" && m.destinationLocationId === locationId) ||
+         (m.direction === "out" && m.sourceLocationId === locationId))
+    )
+    .reduce(
+      (sum, m) => sum + (m.direction === "in" ? m.quantity : -m.quantity),
+      0
+    );
+}
+
+/**
+ * Get stock breakdown by location for a specific product.
+ * Returns Map<locationId, {locationName, quantity}>.
+ */
+export function getStockBreakdownByLocation(
+  productId: string,
+  movements: StockMovement[],
+  locations: Array<{ id: string; name: string }>
+): Map<string, { locationName: string; quantity: number }> {
+  const locMap = new Map(locations.map((l) => [l.id, l.name]));
+  const result = new Map<string, { locationName: string; quantity: number }>();
+
+  for (const loc of locations) {
+    const qty = getBalanceAtLocation(productId, loc.id, movements);
+    result.set(loc.id, { locationName: loc.name, quantity: qty });
+  }
+
+  return result;
+}
+
+/**
+ * Get total company stock for a product across all locations.
+ * Total = Σ confirmed IN − Σ confirmed OUT (ignoring transfers between locations).
+ *
+ * NOTE: For transfers, the OUT from source cancels the IN to destination in total.
+ * But we want Total Company Stock to NOT change on transfers.
+ * The simplest way: just compute confirmed IN − confirmed OUT across ALL locations.
+ * Since a transfer creates both IN (to dest) and OUT (from source), they cancel out.
+ */
+export function getTotalCompanyStock(
+  productId: string,
+  movements: StockMovement[]
+): number {
+  return movements
+    .filter((m) => m.productId === productId && m.status === "confirmed")
+    .reduce(
+      (sum, m) => sum + (m.direction === "in" ? m.quantity : -m.quantity),
+      0
+    );
+}
+
+/**
+ * Validate that a location has sufficient stock before a stock-out transaction.
+ */
+export function validateLocationStock(
+  productId: string,
+  locationId: string,
+  requestedQty: number,
+  movements: StockMovement[]
+): { valid: boolean; available: number; error?: string } {
+  const available = getBalanceAtLocation(productId, locationId, movements);
+  if (available < requestedQty) {
+    return {
+      valid: false,
+      available,
+      error: `Insufficient stock at this location. Available: ${available}, Requested: ${requestedQty}.`,
+    };
+  }
+  return { valid: true, available };
+}
+
+/**
+ * Get all movements for a specific transfer (source + destination pair).
+ */
+export function getTransferMovements(
+  transferId: string,
+  movements: StockMovement[]
+): StockMovement[] {
+  return movements.filter((m) => m.transferId === transferId && m.status === "confirmed");
+}
+
+/**
+ * Compute forecast demand movements only.
+ * Demand = customer_sale + marketplace_sale + pos_sale - accepted_customer_returns.
+ * Explicitly excludes: GRN, transfers, return_to_supplier, damage, sample, adjustment, transit.
+ */
+export function isDemandMovement(m: StockMovement): boolean {
+  if (m.status !== "confirmed") return false;
+  if (m.dispatchType === "customer_sale" || m.dispatchType === "marketplace_sale" || m.dispatchType === "pos_sale") {
+    return m.direction === "out"; // sales are demand
+  }
+  if (m.dispatchType === "customer_return") {
+    return m.direction === "in"; // returns reduce demand (negative)
+  }
+  return false;
 }

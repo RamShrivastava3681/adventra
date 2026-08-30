@@ -21,8 +21,39 @@ export type ForecastSnapshot = {
 };
 
 /**
+ * Determines if a movement should be counted as customer demand.
+ * Demand = customer_sale + marketplace_sale + pos_sale - accepted_customer_returns.
+ * Excludes: GRN, stock transfers, return_to_supplier, damage, sample, adjustment, transit.
+ */
+function isDemandMovement(m: any): boolean {
+  if (m.status !== "confirmed") return false;
+  // New location-aware dispatch types
+  if (m.dispatchType) {
+    if (
+      m.dispatchType === "customer_sale" ||
+      m.dispatchType === "marketplace_sale" ||
+      m.dispatchType === "pos_sale"
+    ) {
+      return m.direction === "out"; // sales are demand
+    }
+    if (m.dispatchType === "customer_return") {
+      return m.direction === "in"; // returns reduce demand (negative)
+    }
+    return false; // transfers, returns to supplier, damage, etc. are NOT demand
+  }
+  // Legacy movements without dispatchType: use the old heuristic
+  // Reason "Dispatch" or direction "out" from non-transfer movements
+  if (m.direction === "out" && m.reason === "Dispatch") return true;
+  if (m.direction === "in" && m.reason === "Customer return") return true;
+  return false;
+}
+
+/**
  * Computes forecasts for all active products of a client and persists them.
  * Runs exactly the same logic as the frontend but on the server.
+ *
+ * IMPORTANT: Forecast demand is based ONLY on actual customer demand movements.
+ * Stock transfers, GRN, and other internal stock movements are excluded.
  */
 export async function recomputeAll(clientId: string): Promise<{
   computedDate: string;
@@ -36,7 +67,7 @@ export async function recomputeAll(clientId: string): Promise<{
 
   // Only CONFIRMED movements reflect live stock (drafts/cancelled don't).
   // list() already normalizes legacy records to "confirmed".
-  const movements = rawMovements.filter((m) => m.status === "confirmed");
+  const movements = rawMovements.filter((m: any) => m.status === "confirmed");
 
   const activeProducts = products.filter(
     (p: any) => p.status === "active"
@@ -57,14 +88,19 @@ export async function recomputeAll(clientId: string): Promise<{
     const productId = p.id;
     const moves = byProduct.get(productId) ?? [];
 
-    // Calculate current stock
+    // Calculate current stock (Total Company Stock) — ALL confirmed movements count
     let stock = 0;
     for (const m of moves) {
       stock += (m.direction === "in" ? 1 : -1) * Number(m.quantity);
     }
 
+    // For forecast DEMAND, only use demand-type movements
+    const demandMoves = moves.filter(isDemandMovement);
+
     // Convert movements to the format bucketMovementsByMonth expects
-    const formattedMoves = moves.map((m: any) => ({
+    // Use ALL movements for the direction check (bucketMovementsByMonth already filters direction="out")
+    // but we need to ensure only demand movements are counted
+    const formattedMoves = demandMoves.map((m: any) => ({
       movement_date: m.movementDate ?? m.movement_date,
       quantity: m.quantity,
       direction: m.direction,

@@ -27,7 +27,7 @@ Bullets:
 • Institutional-grade invoice factoring combined with real-time debtor monitoring
 • Submit, advance, collect — while aging, concentration, and credit risk move live
 • Product version badge: v2.4 · Live receivables monitoring
-Visual: hero stat strip ($2.4B advanced, 11 hrs median time to fund, 0.42% loss rate, 98.7%
+Visual: hero stat strip (₹2.4B advanced, 11 hrs median time to fund, 0.42% loss rate, 98.7%
 collection rate), product logo, invoice + shield motif.
 Pages covered: (overview — landing page / home)
 

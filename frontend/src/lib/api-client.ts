@@ -98,6 +98,28 @@ const api = {
     delete: (id: string) => api.delete(`/stock-movements/${id}`),
   },
 
+  // Stock Locations
+  stockLocations: {
+    list: () => api.get<any[]>("/stock-locations"),
+    get: (id: string) => api.get<any>(`/stock-locations/${id}`),
+    create: (data: any) => api.post<any>("/stock-locations", data),
+    update: (id: string, data: any) => api.put<any>(`/stock-locations/${id}`, data),
+    delete: (id: string) => api.delete(`/stock-locations/${id}`),
+  },
+
+  // Stock Summary (location-wise)
+  stockSummary: {
+    list: (productId?: string) =>
+      api.get<any[]>(`/stock-summary${productId ? `?productId=${productId}` : ""}`),
+  },
+
+  // Stock Transfers
+  stockTransfers: {
+    create: (data: any) => api.post<any>("/stock-transfers", data),
+    receive: (transferId: string, data: any) =>
+      api.post<any>(`/stock-transfers/${transferId}/receive`, data),
+  },
+
   // Debtors
   debtors: {
     list: () => api.get<any[]>("/debtors"),

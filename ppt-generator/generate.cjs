@@ -267,7 +267,7 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
   });
   // Stat strip
   const stats = [
-    { v: "$2.4B", l: "advanced in 2025" },
+    { v: "₹2.4B", l: "advanced in 2025" },
     { v: "11 hrs", l: "median time to fund" },
     { v: "0.42%", l: "loss rate, trailing 12mo" },
     { v: "98.7%", l: "collection rate" },
@@ -286,7 +286,7 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
     });
   });
   s.addNotes(
-    "Title slide. Adventra combines invoice factoring with institutional-grade debtor monitoring. The stat strip is the platform's own landing-page hero: $2.4B advanced in 2025, 11 hours median time to fund, 0.42% trailing loss rate, 98.7% collection rate."
+    "Title slide. Adventra combines invoice factoring with institutional-grade debtor monitoring. The stat strip is the platform's own landing-page hero: ₹2.4B advanced in 2025, 11 hours median time to fund, 0.42% trailing loss rate, 98.7% collection rate."
   );
 }
 
@@ -363,12 +363,12 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
     subtitle: "Dashboard (/app/dashboard) — role-aware KPIs, trends, aging and alerts",
   });
   const tiles = [
-    { l: "Sales (gross)", v: "$1.24M", d: "312 invoices" },
-    { l: "Cost of goods", v: "$892K", d: "246 supplier invoices" },
-    { l: "Gross income", v: "$348K", d: "28.1% margin", tone: "green" },
-    { l: "Net income", v: "$271K", d: "after $77K expenses", tone: "green" },
-    { l: "Outstanding (AR)", v: "$486K", d: "128 open invoices" },
-    { l: "Advanced", v: "$312K", d: "across funded invoices", tone: "cyan" },
+    { l: "Sales (gross)", v: "₹1.24M", d: "312 invoices" },
+    { l: "Cost of goods", v: "₹892K", d: "246 supplier invoices" },
+    { l: "Gross income", v: "₹348K", d: "28.1% margin", tone: "green" },
+    { l: "Net income", v: "₹271K", d: "after ₹77K expenses", tone: "green" },
+    { l: "Outstanding (AR)", v: "₹486K", d: "128 open invoices" },
+    { l: "Advanced", v: "₹312K", d: "across funded invoices", tone: "cyan" },
     { l: "Overdue", v: "14", d: "action required", tone: "red" },
     { l: "Collection rate", v: "96%", d: "lifetime", tone: "green" },
   ];
@@ -387,11 +387,11 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
   });
   tx(s, "Aging waterfall", { x: 10.16, y: y0 + 0.14, w: 2.5, h: 0.3, fontSize: 11.5, color: C.ink, bold: true });
   const aging = [
-    ["Current", 62, "$8.42M", C.green],
-    ["1–30 days", 22, "$2.98M", C.blue],
-    ["31–60 days", 10, "$1.36M", C.amber],
-    ["61–90 days", 4, "$540K", C.amber],
-    ["90+ days", 2, "$272K", C.red],
+    ["Current", 62, "₹8.42M", C.green],
+    ["1–30 days", 22, "₹2.98M", C.blue],
+    ["31–60 days", 10, "₹1.36M", C.amber],
+    ["61–90 days", 4, "₹540K", C.amber],
+    ["90+ days", 2, "₹272K", C.red],
   ];
   aging.forEach((a, i) => {
     hbar(s, { x: 10.16, y: y0 + 0.56 + i * 0.46, w: 1.6, label: a[0], pct: a[1], color: a[3], value: a[2] });
@@ -404,7 +404,7 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
   [
     ["critical", "Apex Holdings — credit limit at 94%"],
     ["warning", "Invoice #INV-30421 overdue 47 days"],
-    ["info", "Vega Logistics payment received — $128K"],
+    ["info", "Vega Logistics payment received — ₹128K"],
   ].forEach((a, i) => {
     ellipse(s, {
       x: 10.16, y: y0 + 3.5 + i * 0.45, w: 0.14, h: 0.14,
@@ -548,7 +548,7 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
   tx(s, "78 / 100", { x: 6.6, y: y0 + 0.72, w: 2.5, h: 0.55, fontSize: 24, color: C.blue, bold: true, align: "center" });
   rect(s, { x: 6.7, y: y0 + 1.42, w: 2.3, h: 0.18, fill: { color: C.line }, line: { type: "none" } });
   rect(s, { x: 6.7, y: y0 + 1.42, w: 2.3 * 0.78, h: 0.18, fill: { color: C.blue }, line: { type: "none" } });
-  pill(s, { x: 6.75, y: y0 + 1.85, w: 2.2, h: 0.34, text: "Risk grade B+ · Limit $250K", fill: C.greenSoft, color: C.green, size: 9 });
+  pill(s, { x: 6.75, y: y0 + 1.85, w: 2.2, h: 0.34, text: "Risk grade B+ · Limit ₹250K", fill: C.greenSoft, color: C.green, size: 9 });
   tx(s, "Trip a credit limit and you'll know before the wire moves — alerts fire immediately.", { x: 6.6, y: y0 + 2.5, w: 2.5, h: 1.2, fontSize: 10, color: C.slate, italic: true });
   // Right: CRM pipeline
   rrect(s, { x: 9.55, y: y0 + 0.05, w: 3.2, h: 4.4, fill: { color: C.card }, line: { color: C.line, width: 1 }, rectRadius: 0.1 });
@@ -645,7 +645,7 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
     { l: "Active", v: "2,106", tone: "green" },
     { l: "Low stock", v: "342", tone: "amber" },
     { l: "Out of stock", v: "32", tone: "red" },
-    { l: "Inventory value", v: "$4.8M", tone: "cyan" },
+    { l: "Inventory value", v: "₹4.8M", tone: "cyan" },
   ];
   const tw = (12.23 - 4 * 0.22) / 5;
   tiles.forEach((t, i) => {
@@ -659,25 +659,25 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
     rows: [
       [
         { t: "TB-1001", b: true, color: C.blue }, { t: "Trekking Backpack", b: true }, { t: "Backpacks · M · navy · all", color: C.muted },
-        { t: "$59.99", align: "right" }, { t: "$25.00", align: "right", color: C.muted },
+        { t: "₹59.99", align: "right" }, { t: "₹25.00", align: "right", color: C.muted },
         { t: "30", align: "right", color: C.amber, b: true }, { t: "40", align: "right", color: C.muted },
         { t: "LOW", align: "center", b: true, color: C.amber, fill: C.amberSoft },
       ],
       [
         { t: "RT-2204", b: true, color: C.blue }, { t: "Running Shoes", b: true }, { t: "Footwear · 42 · black", color: C.muted },
-        { t: "$129.00", align: "right" }, { t: "$61.00", align: "right", color: C.muted },
+        { t: "₹129.00", align: "right" }, { t: "₹61.00", align: "right", color: C.muted },
         { t: "4", align: "right", color: C.red, b: true }, { t: "50", align: "right", color: C.muted },
         { t: "OUT", align: "center", b: true, color: C.red, fill: C.redSoft },
       ],
       [
         { t: "HL-3301", b: true, color: C.blue }, { t: "Hiking Boots", b: true }, { t: "Footwear · 43 · brown", color: C.muted },
-        { t: "$149.00", align: "right" }, { t: "$70.00", align: "right", color: C.muted },
+        { t: "₹149.00", align: "right" }, { t: "₹70.00", align: "right", color: C.muted },
         { t: "86", align: "right", color: C.green, b: true }, { t: "30", align: "right", color: C.muted },
         { t: "OK", align: "center", b: true, color: C.green, fill: C.greenSoft },
       ],
       [
         { t: "NP-4412", b: true, color: C.blue }, { t: "Nutrition Pack", b: true }, { t: "Nutrition · —", color: C.muted },
-        { t: "$24.50", align: "right" }, { t: "$11.00", align: "right", color: C.muted },
+        { t: "₹24.50", align: "right" }, { t: "₹11.00", align: "right", color: C.muted },
         { t: "210", align: "right", color: C.green, b: true }, { t: "60", align: "right", color: C.muted },
         { t: "OK", align: "center", b: true, color: C.green, fill: C.greenSoft },
       ],
@@ -714,10 +714,10 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
     colW: [2.5, 1.0, 0.7, 1.4],
     headers: ["Item", "On hand", "Unit", "Value"],
     rows: [
-      [{ t: "Trekking Backpack", b: true }, { t: "214", align: "right", b: true }, { t: "unit" }, { t: "$5,350", align: "right" }],
-      [{ t: "Running Shoes", b: true }, { t: "104", align: "right", b: true }, { t: "pair" }, { t: "$6,344", align: "right" }],
-      [{ t: "Hiking Boots", b: true }, { t: "86", align: "right", b: true }, { t: "pair" }, { t: "$6,020", align: "right" }],
-      [{ t: "Fuel (ad-hoc)", b: true }, { t: "1,200", align: "right", b: true }, { t: "L" }, { t: "$1,440", align: "right" }],
+      [{ t: "Trekking Backpack", b: true }, { t: "214", align: "right", b: true }, { t: "unit" }, { t: "₹5,350", align: "right" }],
+      [{ t: "Running Shoes", b: true }, { t: "104", align: "right", b: true }, { t: "pair" }, { t: "₹6,344", align: "right" }],
+      [{ t: "Hiking Boots", b: true }, { t: "86", align: "right", b: true }, { t: "pair" }, { t: "₹6,020", align: "right" }],
+      [{ t: "Fuel (ad-hoc)", b: true }, { t: "1,200", align: "right", b: true }, { t: "L" }, { t: "₹1,440", align: "right" }],
     ],
   });
   tx(s, "Smart valuation: stock-in at unit price · stock-out at unit cost. Not every transaction needs inventory — record ad-hoc items too.", {
@@ -729,10 +729,10 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
   rrect(s, { x: 6.8, y: y0 + 0.05, w: 5.98, h: 4.45, fill: { color: C.card }, line: { color: C.line, width: 1 }, rectRadius: 0.1 });
   tx(s, "Movement journal", { x: 7.0, y: y0 + 0.18, w: 5.5, h: 0.3, fontSize: 12, color: C.ink, bold: true });
   const moves = [
-    { d: "03 Aug", dir: "in", item: "Trekking Backpack", qty: "+120", cost: "$25.00", link: "PI-2201", col: C.green, soft: C.greenSoft },
-    { d: "01 Aug", dir: "out", item: "Trekking Backpack", qty: "−90", cost: "$25.00", link: "INV-3041", col: C.amber, soft: C.amberSoft },
+    { d: "03 Aug", dir: "in", item: "Trekking Backpack", qty: "+120", cost: "₹25.00", link: "PI-2201", col: C.green, soft: C.greenSoft },
+    { d: "01 Aug", dir: "out", item: "Trekking Backpack", qty: "−90", cost: "₹25.00", link: "INV-3041", col: C.amber, soft: C.amberSoft },
     { d: "28 Jul", dir: "in", item: "Fuel (ad-hoc)", qty: "+1,200 L", cost: "—", link: "unlinked", col: C.green, soft: C.greenSoft },
-    { d: "25 Jul", dir: "out", item: "Running Shoes", qty: "−12", cost: "$61.00", link: "INV-3022", col: C.amber, soft: C.amberSoft },
+    { d: "25 Jul", dir: "out", item: "Running Shoes", qty: "−12", cost: "₹61.00", link: "INV-3022", col: C.amber, soft: C.amberSoft },
   ];
   moves.forEach((m, i) => {
     const y = y0 + 0.62 + i * 0.78;
@@ -807,8 +807,8 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
     ["Estimated stockout", "12 Aug"],
     ["Reorder by (last safe)", "29 Jul"],
     ["Next refill (order today)", "14 Aug"],
-    ["Recommended reorder", "84 units · $2,100"],
-    ["Pricing strategy", "Protect margin · review +3–5% (min $41.67)"],
+    ["Recommended reorder", "84 units · ₹2,100"],
+    ["Pricing strategy", "Protect margin · review +3–5% (min ₹41.67)"],
   ];
   rows.forEach((r, i) => {
     const y = y0 + 2.18 + i * 0.36;
@@ -840,8 +840,8 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
   tx(s, "Credit", { x: 4.85, y: y0 + 0.62, w: 1.2, h: 0.26, fontSize: 8.5, color: C.muted, bold: true, charSpacing: 1 });
   line(s, { x: 0.75, y: y0 + 0.92, w: 5.3, h: 0, line: { color: C.line, width: 1 } });
   [
-    ["Accounts receivable", "$5,390", "", true],
-    ["Revenue — sales", "", "$5,390", false],
+    ["Accounts receivable", "₹5,390", "", true],
+    ["Revenue — sales", "", "₹5,390", false],
   ].forEach((r, i) => {
     const y = y0 + 1.0 + i * 0.4;
     tx(s, r[0], { x: 0.75, y, w: 2.8, h: 0.3, fontSize: 10, color: C.ink, bold: r[3] });
@@ -859,17 +859,17 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
   tx(s, "Assets", { x: 6.9, y: y0 + 0.6, w: 2.6, h: 0.26, fontSize: 9, color: C.blue, bold: true });
   tx(s, "Liabilities & Equity", { x: 9.9, y: y0 + 0.6, w: 2.6, h: 0.26, fontSize: 9, color: C.blue, bold: true });
   [
-    ["Accounts receivable", "$486K"],
-    ["Inventory", "$340K"],
-    ["Cash & bank", "$594K"],
+    ["Accounts receivable", "₹486K"],
+    ["Inventory", "₹340K"],
+    ["Cash & bank", "₹594K"],
   ].forEach((r, i) => {
     const y = y0 + 0.94 + i * 0.4;
     tx(s, r[0], { x: 6.9, y, w: 2.5, h: 0.3, fontSize: 9.5, color: C.slate });
     tx(s, r[1], { x: 9.3, y, w: 1.3, h: 0.3, fontSize: 9.5, color: C.ink, bold: true, align: "right" });
   });
   [
-    ["Advances received", "$312K"],
-    ["Equity", "$1.11M"],
+    ["Advances received", "₹312K"],
+    ["Equity", "₹1.11M"],
   ].forEach((r, i) => {
     const y = y0 + 0.94 + i * 0.4;
     tx(s, r[0], { x: 9.9, y, w: 2.6, h: 0.3, fontSize: 9.5, color: C.slate });
@@ -877,8 +877,8 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
   });
   line(s, { x: 6.9, y: y0 + 2.25, w: 5.65, h: 0, line: { color: C.line, width: 1 } });
   tx(s, "Total assets", { x: 6.9, y: y0 + 2.32, w: 2.4, h: 0.3, fontSize: 10, color: C.ink, bold: true });
-  tx(s, "$1.42M", { x: 9.3, y: y0 + 2.32, w: 1.3, h: 0.3, fontSize: 10, color: C.blue, bold: true, align: "right" });
-  tx(s, "$1.42M", { x: 11.55, y: y0 + 2.32, w: 1.15, h: 0.3, fontSize: 10, color: C.blue, bold: true, align: "right" });
+  tx(s, "₹1.42M", { x: 9.3, y: y0 + 2.32, w: 1.3, h: 0.3, fontSize: 10, color: C.blue, bold: true, align: "right" });
+  tx(s, "₹1.42M", { x: 11.55, y: y0 + 2.32, w: 1.15, h: 0.3, fontSize: 10, color: C.blue, bold: true, align: "right" });
   tx(s, "Auto-updates from invoices, purchases, inventory, advances, accounts and manual entries. Profile & Settings manage personal info, photo, and company profile.", {
     x: 6.9, y: y0 + 2.85, w: 5.6, h: 1.1, fontSize: 9.5, color: C.muted, lineSpacingMultiple: 1.12,
   });
@@ -904,7 +904,7 @@ function chip(s, { x, y, w, h = 0.36, text, sub, fill = C.card, border = C.line,
     ["critical", C.red, "Invoice #INV-30421 overdue 47 days", "Surveillance · just now"],
     ["warning", C.amber, "Apex Holdings — credit limit at 94%", "Credit limit · 2 min ago"],
     ["warning", C.amber, "Northwind risk grade B → C", "Risk migration · 11 min ago"],
-    ["info", C.blue, "Vega Logistics payment received — $128K", "Collection · 24 min ago"],
+    ["info", C.blue, "Vega Logistics payment received — ₹128K", "Collection · 24 min ago"],
   ];
   alerts.forEach((a, i) => {
     const y = y0 + 0.66 + i * 0.82;

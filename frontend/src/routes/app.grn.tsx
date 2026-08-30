@@ -156,6 +156,13 @@ function GrnPage() {
     queryKey: ["purchase-invoices-for-grn"],
     queryFn: async () => api.purchaseInvoices.list(),
   });
+  const stockLocationsQ = useQuery({
+    queryKey: ["stock-locations-for-grn"],
+    queryFn: async () => {
+      const data = await api.stockLocations.list();
+      return (data as any[]).filter((l: any) => l.status === "active");
+    },
+  });
 
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["grns"] });
@@ -480,6 +487,7 @@ function GrnPage() {
               p.status === "approved" || p.status === "sent" || p.status === "partially_received",
           )}
           products={productsQ.data ?? []}
+          stockLocations={(stockLocationsQ.data ?? []) as any[]}
           purchaseInvoices={purchaseInvoicesQ.data ?? []}
           canApproveOverReceipt={isAdmin || isChecker}
           onClose={() => setOpen(false)}
@@ -512,6 +520,7 @@ function GrnModal({
   pos,
   products,
   purchaseInvoices,
+  stockLocations,
   canApproveOverReceipt,
   onClose,
   onSaved,
@@ -521,6 +530,7 @@ function GrnModal({
   pos: GoodsPO[];
   products: CatalogueProduct[];
   purchaseInvoices: PurchaseInvoice[];
+  stockLocations: any[];
   canApproveOverReceipt: boolean;
   onClose: () => void;
   onSaved: () => void;
@@ -533,6 +543,7 @@ function GrnModal({
     challan_number: grn?.challan_number ?? "",
     purchase_invoice_id: grn?.purchase_invoice_id ?? "",
     notes: grn?.notes ?? "",
+    receiving_location_id: (grn as any)?.receiving_location_id ?? "",
   });
   const [lines, setLines] = useState<LineDraft[]>(
     (grn?.lines ?? []).map((l) => ({
@@ -686,6 +697,7 @@ function GrnModal({
         notes: f.notes.trim() || null,
         documents: docs,
         lines: payloadLines,
+        receiving_location_id: f.receiving_location_id || null,
       };
       let id = grn?.id;
       if (isEdit && grn) {
@@ -782,7 +794,24 @@ function GrnModal({
                   disabled
                 />
               </L>
-              <L label="Delivery warehouse / store">
+              <L label="Receiving Location">
+                <select
+                  className="inp"
+                  value={f.receiving_location_id}
+                  onChange={(e) => setF({ ...f, receiving_location_id: e.target.value })}
+                >
+                  <option value="">Select location…</option>
+                  {stockLocations.map((loc: any) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.name}{loc.channel ? ` (${loc.channel})` : ""}
+                    </option>
+                  ))}
+                </select>
+                <div className="mt-0.5 text-[10px] text-muted-foreground">
+                  Stock will be added to this location. Default: Central Warehouse.
+                </div>
+              </L>
+              <L label="Delivery warehouse / store (legacy)">
                 <input
                   className="inp"
                   value={f.warehouse}
@@ -1122,6 +1151,7 @@ function GrnDetailModal({ grn, onClose }: { grn: GRN; onClose: () => void }) {
             <Info label="Supplier" value={grn.supplier_name ?? "—"} />
             <Info label="Linked PO" value={grn.po_number ?? "—"} />
             <Info label="Warehouse" value={grn.warehouse ?? "—"} />
+            <Info label="Receiving Location" value={(grn as any).receiving_location_id ? `Location ID: ${(grn as any).receiving_location_id}` : "Not set"} />
             <Info label="Challan #" value={grn.challan_number ?? "—"} />
             <Info label="Received by" value={grn.received_by ?? "—"} />
             <Info label="Confirmed by" value={grn.credited_by ?? "—"} />

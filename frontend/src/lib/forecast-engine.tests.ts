@@ -670,9 +670,9 @@ test("recomputeTimeline window = the 3 most recent calendar months in full (live
 });
 
 console.log("\nrecommended price — demo price-change table (configurable, recommendation only)");
-// Helper defaults: unitCost $10, unitPrice $25, 40% margin.
+// Helper defaults: unitCost ₹10, unitPrice ₹25, 40% margin.
 // The recommended price is the MRP (selling price) adjusted by the demo % —
-// the margin floor (unitCost ÷ (1 − 0.4) = $16.67) is informational only and
+// the margin floor (unitCost ÷ (1 − 0.4) = ₹16.67) is informational only and
 // does NOT clamp the recommendation.
 function pricing(over: Record<string, unknown> = {}) {
   return computePricingStrategy({
@@ -694,7 +694,7 @@ test("clearance: dead + high stock → −25%", () => {
   eq(r.recommendedPriceChangePct, -25);
   eq(r.strategy, "Clearance");
   eq(r.priceChangeRule, "clearance-dead");
-  // −25% on MRP $25 → $18.75 (the margin floor is informational, not a clamp).
+  // −25% on MRP ₹25 → ₹18.75 (the margin floor is informational, not a clamp).
   close(r.recommendedPrice, 18.75, 0.01);
 });
 
@@ -709,7 +709,7 @@ test("markdown: slow + declining + high → −15%", () => {
   eq(r.recommendedPriceChangePct, -15);
   eq(r.strategy, "Markdown / Promotion");
   eq(r.priceChangeRule, "markdown");
-  close(r.recommendedPrice, 21.25, 0.01); // $25 × 0.85
+  close(r.recommendedPrice, 21.25, 0.01); // ₹25 × 0.85
 });
 
 test("protect margin: fast + accelerating + low → +5%", () => {
@@ -717,7 +717,7 @@ test("protect margin: fast + accelerating + low → +5%", () => {
   eq(r.recommendedPriceChangePct, 5);
   eq(r.strategy, "Protect margin");
   eq(r.priceChangeRule, "protect-accelerating");
-  close(r.recommendedPrice, 26.25, 0.01); // $25 × 1.05
+  close(r.recommendedPrice, 26.25, 0.01); // ₹25 × 1.05
 });
 
 test("protect margin: fast + stable + low → +3% (new branch)", () => {
@@ -725,14 +725,14 @@ test("protect margin: fast + stable + low → +3% (new branch)", () => {
   eq(r.recommendedPriceChangePct, 3);
   eq(r.strategy, "Protect margin");
   eq(r.priceChangeRule, "protect-stable");
-  close(r.recommendedPrice, 25.75, 0.01); // $25 × 1.03
+  close(r.recommendedPrice, 25.75, 0.01); // ₹25 × 1.03
 });
 
 test("targeted promotion: slow + stable (any stock) → −10%", () => {
   const normal = pricing({ velocity: "slow_mover", momentum: "stable", daysOfCover: 120 });
   eq(normal.recommendedPriceChangePct, -10);
   eq(normal.strategy, "Targeted promotion");
-  close(normal.recommendedPrice, 22.5, 0.01); // $25 × 0.9
+  close(normal.recommendedPrice, 22.5, 0.01); // ₹25 × 0.9
   const high = pricing({ velocity: "slow_mover", momentum: "stable", daysOfCover: 300 });
   eq(high.recommendedPriceChangePct, -10, "applies at high stock too");
 });
@@ -740,12 +740,12 @@ test("targeted promotion: slow + stable (any stock) → −10%", () => {
 test("hold price: medium + stable → 0%", () => {
   const r = pricing({ velocity: "medium_mover", momentum: "stable", daysOfCover: 120 });
   eq(r.recommendedPriceChangePct, 0);
-  eq(r.recommendedPrice, 25); // 0% on MRP $25 → $25
+  eq(r.recommendedPrice, 25); // 0% on MRP ₹25 → ₹25
 });
 
 test("recommended price is based on the selling price (MRP), not unit cost", () => {
-  // With a tiny 1% margin the floor is unitCost ÷ (1 − 0.01) = $10.10 — the
-  // recommendation still follows the $25 MRP, not the cost.
+  // With a tiny 1% margin the floor is unitCost ÷ (1 − 0.01) = ₹10.10 — the
+  // recommendation still follows the ₹25 MRP, not the cost.
   const r = pricing({
     velocity: "fast_mover",
     momentum: "accelerating",
@@ -756,14 +756,14 @@ test("recommended price is based on the selling price (MRP), not unit cost", () 
   });
   eq(r.recommendedPriceChangePct, 5);
   close(r.minimumPrice, 10.1, 0.01); // informational floor stays cost-based
-  close(r.recommendedPrice, 26.25, 0.01); // +5% on MRP $25 → $26.25
+  close(r.recommendedPrice, 26.25, 0.01); // +5% on MRP ₹25 → ₹26.25
 });
 
 test("unit price does not affect the minimum permitted price", () => {
   const a = pricing({ unitPrice: 25 });
   const b = pricing({ unitPrice: 999 });
   eq(a.minimumPrice, b.minimumPrice, "changing unit price must not move the floor");
-  close(a.minimumPrice, 16.67, 0.001); // unit cost ÷ 0.6 = $16.67 (rounded to cents)
+  close(a.minimumPrice, 16.67, 0.001); // unit cost ÷ 0.6 = ₹16.67 (rounded to cents)
 });
 
 test("any other combination → 0% and no rule id", () => {
@@ -773,7 +773,7 @@ test("any other combination → 0% and no rule id", () => {
 });
 
 test("recommended price follows the MRP even below the margin floor", () => {
-  const r = pricing({ unitPrice: 12, unitCost: 10 }); // MRP below the $16.67 cost-based floor
+  const r = pricing({ unitPrice: 12, unitCost: 10 }); // MRP below the ₹16.67 cost-based floor
   eq(r.recommendedPrice, 12); // 0% change keeps the MRP — the floor is not a clamp
   close(r.minimumPrice, 16.67, 0.01);
   truthy(
@@ -829,7 +829,7 @@ test("custom price-change rules override the defaults", () => {
 
 test("per-product min gross margin drives the informational floor, not the recommendation", () => {
   const r = pricing({ unitPrice: 12, unitCost: 10, minimumGrossMarginPercentage: 0.7 });
-  const min = 10 / (1 - 0.7); // 10 ÷ 0.3 = $33.33 with a 70% cost-based margin requirement
+  const min = 10 / (1 - 0.7); // 10 ÷ 0.3 = ₹33.33 with a 70% cost-based margin requirement
   close(r.minimumPrice, min, 0.01);
   eq(r.recommendedPrice, 12); // recommendation stays on the MRP
   close(r.conditions.minGrossMarginPct, 0.7, 0.0001);

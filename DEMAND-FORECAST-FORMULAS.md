@@ -11,8 +11,8 @@ against a fictional but realistic product, so every number you see here is the *
 | SKU | `TB-1001` |
 | Name | Trekking Backpack |
 | Category | Backpacks |
-| Unit cost | $25.00 |
-| Unit price | $59.99 |
+| Unit cost | ₹25.00 |
+| Unit price | ₹59.99 |
 | Supplier lead time | 14 days |
 | Stock on hand today | 30 units |
 | Today's date | 2026-08-04 |
@@ -834,7 +834,7 @@ recommended = max(0, 38.26 − 5) = 33.26  → page rounds up to 34
 ```
 
 The page shows **Reorder now = 50** for that scenario, and the reorder value is
-`50 × unit cost = 50 × $25 = $1,250`.
+`50 × unit cost = 50 × ₹25 = ₹1,250`.
 
 > 🍋 **Lemonade stand:** to reorder lemons you need: enough for the 14 days while the delivery
 > comes plus a spare buffer (26 cups), minus what you have. If you have 30, buy 9. If you have 5,
@@ -1027,7 +1027,7 @@ and your margins.
 The floor is the price that **preserves the configured gross margin** on each sale. Treating the
 current unit price as the base you must recover, the margin is measured against the selling
 price: `m = (floor − unitPrice) ÷ floor`. Solving for the floor gives **minimum price =
-unit price ÷ (1 − margin)**. A 40% margin on a $100 price gives a $166.67 floor — never below
+unit price ÷ (1 − margin)**. A 40% margin on a ₹100 price gives a ₹166.67 floor — never below
 that. The **unit cost does not affect this number**.
 Each product can override this with its own margin; products without their own value inherit the
 catalogue-wide **default minimum margin** set on the Products page (default 40%).
@@ -1039,11 +1039,11 @@ minimumPrice       = unitPrice ÷ (1 − minimumGrossMargin)
 
 **Our actual numbers:**
 ```
-minimumPrice = $59.99 ÷ (1 − 0.40) = $59.99 ÷ 0.60 = $99.98
+minimumPrice = ₹59.99 ÷ (1 − 0.40) = ₹59.99 ÷ 0.60 = ₹99.98
 ```
 
-So you must never price below **$99.98** — the price that keeps the 40% margin intact.
-(Current price is $59.99, which is below that floor, so the page flags it
+So you must never price below **₹99.98** — the price that keeps the 40% margin intact.
+(Current price is ₹59.99, which is below that floor, so the page flags it
 "Below min permitted — margin at risk".)
 
 ### Formula 16b — Inventory position
@@ -1071,15 +1071,15 @@ else                                          →  "normal"
 
 **Our actual result (medium mover + accelerating):** no rule matches exactly → default →
 **"Hold price"**. Reason shown on page: *"Medium-moving, accelerating demand."* Because the
-current price ($59.99) sits below the $99.98 floor, the suggested action becomes *"No % change
-recommended — current price is below the margin floor; raise to at least $99.98 to protect
+current price (₹59.99) sits below the ₹99.98 floor, the suggested action becomes *"No % change
+recommended — current price is below the margin floor; raise to at least ₹99.98 to protect
 margin"*.
 
 **Worked clearance example:** a dead product (velocity `dead`, momentum `inactive`) with 250 days
-of cover, unit price $10:
+of cover, unit price ₹10:
 ```
-minimumPrice = $10 ÷ (1 − 0.40) = $10 ÷ 0.60 = $16.67
-strategy     = Clearance → "Reduce price by 20% to 40% (min $16.67)"
+minimumPrice = ₹10 ÷ (1 − 0.40) = ₹10 ÷ 0.60 = ₹16.67
+strategy     = Clearance → "Reduce price by 20% to 40% (min ₹16.67)"
 ```
 
 > 🍋 **Lemonade stand:** if your lemonade is the fastest seller in town, don't discount it. If

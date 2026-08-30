@@ -122,7 +122,7 @@
 
 > **"Now the star of the show. The Demand Forecast page answers one question for every product: 'If I do nothing, when do I run out of stock — and how much should I order so I don't?'"**
 
-**"The engine is a fourteen-step pipeline over the last twelve months of sales. Let me walk it with a real product — the Trekking Backpack, TB-1001: unit cost $25, unit price $59.99, fourteen-day supplier lead time, thirty units on hand, today is August 4th, 2026. Every number I say is the real output of the code."**
+**"The engine is a fourteen-step pipeline over the last twelve months of sales. Let me walk it with a real product — the Trekking Backpack, TB-1001: unit cost ₹25, unit price ₹59.99, fourteen-day supplier lead time, thirty units on hand, today is August 4th, 2026. Every number I say is the real output of the code."**
 
 ### Step 0 — The 12 months of history
 
@@ -232,7 +232,7 @@ requiredStock = dailyAvg × (leadTime + safetyStockDays) = 0.87 × 44 = 38.26
 recommended   = max(0, requiredStock − inventoryPosition) = 38.26 − 30 = 8.26 → 9
 ```
 
-Then three business rules, in order: **cap by max cover** (180 days) so you never over-buy; **respect the MOQ** (if you order at all, order at least the minimum); **round up to the order multiple** (e.g. boxes of 25). **"Buy 9 today — and the page even values it: 9 × $25 = $225 at cost."**
+Then three business rules, in order: **cap by max cover** (180 days) so you never over-buy; **respect the MOQ** (if you order at all, order at least the minimum); **round up to the order multiple** (e.g. boxes of 25). **"Buy 9 today — and the page even values it: 9 × ₹25 = ₹225 at cost."**
 
 ### Step 10 — Momentum: speeding up or slowing down?
 
@@ -274,7 +274,7 @@ Urgency: **critical** if you've already passed the reorder-by date, **warning** 
 ### Step 14 — Pricing strategy
 
 ```
-minimumPrice = unitPrice ÷ (1 − minMargin) = $59.99 ÷ 0.60 = $99.98   (40% margin floor)
+minimumPrice = unitPrice ÷ (1 − minMargin) = ₹59.99 ÷ 0.60 = ₹99.98   (40% margin floor)
 ```
 
 Then eight decision rules — from **clearance** (dead product, too much stock: cut price 20–40%) to **protect margin** (fast mover, low stock: maybe raise 3–5%). Our backpack is a medium mover, accelerating → **hold price**.

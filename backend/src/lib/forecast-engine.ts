@@ -1415,7 +1415,7 @@ export function computePricingStrategy(params: {
   // 1. Calculate minimum permitted price from the product's UNIT COST.
   //    floor = unitCost ÷ (1 − minGrossMargin) — the price that preserves the
   //    configured gross margin on each sale. The selling price does NOT affect
-  //    this number. e.g. cost $60, 40% margin → floor $100.
+  //    this number. e.g. cost ₹60, 40% margin → floor ₹100.
   const minGrossMargin = Math.max(0.01, Math.min(0.99, grossMarginPct));
   const minimumPrice =
     unitCost > 0 ? unitCost / (1 - minGrossMargin) : 0;

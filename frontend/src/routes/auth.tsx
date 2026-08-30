@@ -27,7 +27,7 @@ const PERKS = [
 ];
 
 const STATS: [string, string][] = [
-  ["$2B+", "Invoices funded"],
+  ["₹2B+", "Invoices funded"],
   ["48h", "Average advance"],
   ["SOC 2", "Certified platform"],
 ];

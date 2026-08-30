@@ -127,7 +127,7 @@ function Landing() {
             </div>
             <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-4 text-sm">
               {[
-                ["$2B+", "Invoices funded"],
+                ["₹2B+", "Invoices funded"],
                 ["48h", "Average advance"],
                 ["SOC 2", "Certified platform"],
               ].map(([v, l]) => (
@@ -156,8 +156,8 @@ function Landing() {
             </div>
             <div className="mt-4 grid grid-cols-3 gap-3">
               {[
-                { label: "Outstanding", value: "$1.24M", tone: "text-foreground" },
-                { label: "Advanced", value: "$612k", tone: "text-primary" },
+                { label: "Outstanding", value: "₹1.24M", tone: "text-foreground" },
+                { label: "Advanced", value: "₹612k", tone: "text-primary" },
                 { label: "Overdue", value: "3", tone: "text-destructive" },
               ].map((s) => (
                 <div key={s.label} className="rounded-lg border border-border bg-background/40 p-3">

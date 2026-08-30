@@ -21,7 +21,7 @@ export interface DocumentPdfLine {
   quantity: number;
   /** Effective unit price — the updated price when set, else the quoted price. */
   unitPrice: number;
-  /** Pre-formatted discount label: "10%", "$50.00" or "—". */
+  /** Pre-formatted discount label: "10%", "₹50.00" or "—". */
   discountLabel: string;
   gstRate: number | null;
   /** Line total after discount, before GST. */
@@ -77,10 +77,10 @@ const INK = {
 
 function money(n: number | null | undefined): string {
   const v = Number(n ?? 0);
-  if (!Number.isFinite(v)) return "$0.00";
+  if (!Number.isFinite(v)) return "₹0.00";
   return v.toLocaleString("en-US", {
     style: "currency",
-    currency: "USD",
+    currency: "INR",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -494,7 +494,7 @@ function effectiveUnitPrice(l: any): number {
   return Number(l.unitPrice ?? l.unit_price) || 0;
 }
 
-/** Pre-formatted discount label for the PDF ("10%", "$50.00", "—"). */
+/** Pre-formatted discount label for the PDF ("10%", "₹50.00", "—"). */
 function discountLabel(l: any): string {
   const type = l.discountType ?? l.discount_type;
   const value = Number(l.discountValue ?? l.discount_value) || 0;

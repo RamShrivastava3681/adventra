@@ -157,6 +157,13 @@ function InventoryPage() {
     return m;
   }, [productsQ.data]);
 
+  // Location-wise stock summary
+  const stockSummaryQ = useQuery({
+    queryKey: ["stock-summary"],
+    queryFn: async () => api.stockSummary.list(),
+  });
+  const [showLocationBreakdown, setShowLocationBreakdown] = useState(false);
+
   const rows = (movementsQ.data ?? []).filter(
     (m: Movement) =>
       (dirFilter === "all" || m.direction === dirFilter) &&
@@ -241,6 +248,58 @@ function InventoryPage() {
       />
 
       <div className="space-y-6 p-6 md:p-10">
+        {/* Location-wise Stock Breakdown */}
+        <Card>
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="font-display text-sm font-medium">Location-wise Stock Breakdown</h3>
+              <p className="text-[10px] text-muted-foreground">
+                Stock by location. Total Company Stock = sum of all locations.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowLocationBreakdown(!showLocationBreakdown)}
+              className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary"
+            >
+              {showLocationBreakdown ? "Hide" : "Show"} breakdown
+            </button>
+          </div>
+          {showLocationBreakdown && (
+            <div className="mt-4">
+              {(stockSummaryQ.data ?? []).length === 0 ? (
+                <div className="py-4 text-center text-xs text-muted-foreground">
+                  No stock data. Create stock locations and record GRNs to see the breakdown.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {(stockSummaryQ.data ?? []).map((summary: any) => (
+                    <div key={summary.product_id} className="rounded-md border border-border/50 p-3">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-xs font-medium">{summary.name}</div>
+                          <div className="text-[10px] text-muted-foreground">{summary.sku ?? "—"}</div>
+                        </div>
+                        <div className="text-right">
+                          <div className="text-sm font-bold num">{(summary.total_company_stock ?? 0).toLocaleString()}</div>
+                          <div className="text-[10px] text-muted-foreground">Total</div>
+                        </div>
+                      </div>
+                      <div className="mt-2 grid grid-cols-2 gap-1 md:grid-cols-3 lg:grid-cols-4">
+                        {(summary.location_breakdown ?? []).map((lb: any) => (
+                          <div key={lb.location_id} className="flex items-center justify-between rounded bg-muted/30 px-2 py-1 text-[10px]">
+                            <span className="text-muted-foreground">{lb.location_name}</span>
+                            <span className={`num ${lb.quantity < 0 ? "text-destructive" : ""}`}>{lb.quantity.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+
         <Card title="Live stock">
           <p className="-mt-2 mb-4 text-xs text-muted-foreground">
             Confirmed credits − confirmed debits per SKU.

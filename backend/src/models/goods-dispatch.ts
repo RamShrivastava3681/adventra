@@ -28,6 +28,36 @@ export type GoodsDispatchStatus =
   | "cancelled"
   | "returned";
 
+/** Dispatch types — determines stock impact behavior. */
+export type DispatchType =
+  | "customer_sale"
+  | "marketplace_sale"
+  | "pos_sale"
+  | "stock_transfer"
+  | "customer_return"
+  | "return_to_supplier"
+  | "damage_sample_adjustment";
+
+export const DISPATCH_TYPES: DispatchType[] = [
+  "customer_sale",
+  "marketplace_sale",
+  "pos_sale",
+  "stock_transfer",
+  "customer_return",
+  "return_to_supplier",
+  "damage_sample_adjustment",
+];
+
+export const DISPATCH_TYPE_LABELS: Record<DispatchType, string> = {
+  customer_sale: "Customer Sale",
+  marketplace_sale: "Marketplace Sale",
+  pos_sale: "POS Sale",
+  stock_transfer: "Stock Transfer",
+  customer_return: "Customer Return",
+  return_to_supplier: "Return to Supplier",
+  damage_sample_adjustment: "Damage / Sample / Adjustment",
+};
+
 export interface GoodsDispatchLine {
   productId: string;
   sku: string | null;
@@ -110,6 +140,17 @@ export interface GoodsDispatch {
   /** EWB lifecycle status: pending, generated, vehicle_updated, cancelled, failed. */
   ewayBillStatus: string | null;
   lines: GoodsDispatchLine[];
+
+  // ── Location-based inventory fields ──
+  /** Dispatch type — determines stock impact behavior. */
+  dispatchType: DispatchType | null;
+  /** Source location for the dispatch. */
+  sourceLocationId: string | null;
+  /** Destination location (for transfers: the receiving location). */
+  destinationLocationId: string | null;
+  /** Channel: Amazon, Flipkart, etc. For marketplace sales. */
+  channel: string | null;
+
   createdAt: string;
   updatedAt: string;
 }
@@ -212,6 +253,11 @@ export async function create(data: Partial<GoodsDispatch> & { clientId: string; 
     ewayBillNumber: data.ewayBillNumber || null,
     ewayBillStatus: data.ewayBillStatus || null,
     lines,
+    // Location-based fields
+    dispatchType: data.dispatchType || null,
+    sourceLocationId: data.sourceLocationId || null,
+    destinationLocationId: data.destinationLocationId || null,
+    channel: data.channel || null,
     createdAt: now,
     updatedAt: now,
   };
@@ -232,6 +278,8 @@ export async function update(id: string, updates: Partial<GoodsDispatch>) {
     "debitedAt", "debitedBy", "cancelledAt", "cancelledBy",
     "ewayBillId", "ewayBillNumber", "ewayBillStatus",
     "lines",
+    // Location fields
+    "dispatchType", "sourceLocationId", "destinationLocationId", "channel",
   ];
   for (const k of allowed) {
     if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k];

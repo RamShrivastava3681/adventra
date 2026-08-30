@@ -901,7 +901,7 @@ minimumPrice = unitCost ÷ (1 − minGrossMarginPercentage)
 
 Where `minGrossMarginPercentage` is clamped to [0.01, 0.99].
 
-**Example:** If unit cost = $60 and min gross margin = 40%, then minimumPrice = $60 ÷ (1 − 0.40) = $100.
+**Example:** If unit cost = ₹60 and min gross margin = 40%, then minimumPrice = ₹60 ÷ (1 − 0.40) = ₹100.
 
 ### 4. Current Implementation Status
 

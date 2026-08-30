@@ -109,6 +109,7 @@ import * as CoA from "../models/chart-of-account.js";
 import * as Journal from "../models/journal.js";
 import * as CDNote from "../models/credit-debit-note.js";
 import * as Combined from "../models/models-combined.js";
+import * as StockLocation from "../models/stock-location.js";
 import * as db from "../dynamodb.js";
 import * as AuditLog from "../models/audit-log.js";
 
@@ -2591,6 +2592,7 @@ async function creditGoodsReceipt(clientId: string, receipt: any, po: any) {
       confirmedById: receipt.creditedBy,
       confirmedByName: receipt.creditedBy,
       confirmedAt: receipt.creditedAt,
+      destinationLocationId: receipt.receivingLocationId || null,
     });
   }
   await GoodsPO.recordReceipt(
@@ -2636,6 +2638,7 @@ async function reverseGoodsReceipt(clientId: string, receipt: any, po: any) {
       confirmedById: receipt.cancelledBy,
       confirmedByName: receipt.cancelledBy,
       confirmedAt: db.nowISO(),
+      sourceLocationId: receipt.receivingLocationId || null,
     });
   }
   await GoodsPO.revokeReceipt(
@@ -2702,6 +2705,7 @@ router.post("/goods-receipts", authMiddleware, async (req, res) => {
       documents: body.documents || [],
       status: "draft",
       lines,
+      receivingLocationId: body.receivingLocationId || null,
     });
     await syncLinkedPurchaseInvoice(receipt);
     res.status(201).json(receipt);
@@ -2836,6 +2840,7 @@ router.put("/goods-receipts/:id", authMiddleware, async (req, res) => {
       notes: body.notes ?? receipt.notes,
       documents: body.documents ?? receipt.documents,
       lines,
+      receivingLocationId: body.receivingLocationId ?? receipt.receivingLocationId,
     });
     await syncLinkedPurchaseInvoice(
       updated,
@@ -3925,6 +3930,10 @@ async function debitSalesOrder(clientId: string, dispatch: any, so: any) {
       confirmedById: dispatch.debitedBy,
       confirmedByName: dispatch.debitedBy,
       confirmedAt: dispatch.debitedAt,
+      sourceLocationId: dispatch.sourceLocationId || null,
+      destinationLocationId: dispatch.destinationLocationId || null,
+      dispatchType: dispatch.dispatchType || null,
+      channel: dispatch.channel || null,
     });
   }
   await GoodsSO.recordDispatch(
@@ -3977,6 +3986,8 @@ async function reverseDispatch(clientId: string, dispatch: any, so: any) {
       confirmedById: dispatch.cancelledBy,
       confirmedByName: dispatch.cancelledBy,
       confirmedAt: db.nowISO(),
+      destinationLocationId: dispatch.sourceLocationId || null,
+      dispatchType: dispatch.dispatchType || null,
     });
   }
   await GoodsSO.revokeDispatch(
@@ -4055,6 +4066,11 @@ router.post("/goods-dispatches", authMiddleware, async (req, res) => {
       documents: body.documents || [],
       status: "draft",
       lines,
+      // Location-based fields
+      dispatchType: body.dispatchType || null,
+      sourceLocationId: body.sourceLocationId || null,
+      destinationLocationId: body.destinationLocationId || null,
+      channel: body.channel || null,
     });
     res.status(201).json(dispatch);
   } catch (err: any) {
@@ -5450,5 +5466,298 @@ router.use(cashFlowRoutes);
 // ===================== E-WAY BILL =====================
 import ewayBillRoutes from "./eway-bill.js";
 router.use(ewayBillRoutes);
+
+// ===================== STOCK LOCATIONS =====================
+router.get("/stock-locations", authMiddleware, async (req, res) => {
+  try {
+    const items = await StockLocation.list(req.user!.userId);
+    res.json(items);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.get("/stock-locations/:id", authMiddleware, async (req, res) => {
+  try {
+    const item = await StockLocation.get(req.params.id);
+    if (!item) return res.status(404).json({ error: "Not found" });
+    res.json(item);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.post("/stock-locations", authMiddleware, async (req, res) => {
+  try {
+    const item = await StockLocation.create({
+      ...req.body,
+      clientId: req.user!.userId,
+    });
+    res.status(201).json(item);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.put("/stock-locations/:id", authMiddleware, async (req, res) => {
+  try {
+    const item = await StockLocation.update(req.params.id, req.body);
+    res.json(item);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.delete("/stock-locations/:id", authMiddleware, async (req, res) => {
+  try {
+    await StockLocation.remove(req.params.id);
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===================== LOCATION STOCK SUMMARY =====================
+/**
+ * GET /stock-summary — returns location-wise stock breakdown and total company
+ * stock for every active product.
+ * Query params: ?productId=xxx (optional, single product)
+ */
+router.get("/stock-summary", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const productId = req.query.productId as string | undefined;
+    const [movements, locations, products] = await Promise.all([
+      StockMovement.list(clientId),
+      StockLocation.list(clientId),
+      Product.list(clientId),
+    ]);
+    const confirmed = movements.filter((m: any) => m.status === "confirmed");
+    const activeProducts = products.filter((p: any) => p.status === "active");
+
+    const result: any[] = [];
+    for (const p of productId ? activeProducts.filter((p: any) => p.id === productId) : activeProducts) {
+      const pMovements = confirmed.filter((m: any) => m.productId === p.id);
+      const locationBreakdown: any[] = [];
+      let totalCompanyStock = 0;
+
+      for (const loc of locations) {
+        let qty = 0;
+        for (const m of pMovements) {
+          if (m.direction === "in" && m.destinationLocationId === loc.id) {
+            qty += Number(m.quantity);
+          } else if (m.direction === "out" && m.sourceLocationId === loc.id) {
+            qty -= Number(m.quantity);
+          }
+        }
+        locationBreakdown.push({ locationId: loc.id, locationName: loc.name, locationType: loc.locationType, quantity: qty });
+        totalCompanyStock += qty;
+      }
+      // Also count movements without a location (legacy)
+      let legacyStock = 0;
+      for (const m of pMovements) {
+        if (!m.sourceLocationId && !m.destinationLocationId) {
+          legacyStock += m.direction === "in" ? Number(m.quantity) : -Number(m.quantity);
+        }
+      }
+      if (legacyStock !== 0) {
+        locationBreakdown.unshift({ locationId: "_legacy", locationName: "Unallocated (Legacy)", locationType: "other_warehouse", quantity: legacyStock });
+        totalCompanyStock += legacyStock;
+      }
+
+      result.push({
+        productId: p.id,
+        sku: p.sku,
+        name: p.name,
+        totalCompanyStock,
+        locationBreakdown,
+      });
+    }
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===================== STOCK TRANSFER =====================
+/**
+ * POST /stock-transfers — create a stock transfer between two locations.
+ * Creates TWO stock movements (source out + destination in) linked by transferId.
+ * This is NOT a sale — Total Company Stock does not change.
+ */
+router.post("/stock-transfers", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const body = req.body || {};
+    const { sourceLocationId, destinationLocationId, productId, quantity, notes, transitMode } = body;
+
+    if (!sourceLocationId) return res.status(400).json({ error: "Source location required" });
+    if (!destinationLocationId) return res.status(400).json({ error: "Destination location required" });
+    if (!productId) return res.status(400).json({ error: "Product required" });
+    if (!(Number(quantity) > 0)) return res.status(400).json({ error: "Quantity must be greater than zero" });
+    if (sourceLocationId === destinationLocationId) return res.status(400).json({ error: "Source and destination must be different" });
+
+    const product = await Product.get(productId);
+    if (!product) return res.status(400).json({ error: "Product not found" });
+
+    // Validate source location has sufficient stock
+    const allMovements = await StockMovement.list(clientId);
+    const confirmed = allMovements.filter((m: any) => m.status === "confirmed" && m.productId === productId);
+    let sourceStock = 0;
+    for (const m of confirmed) {
+      if (m.direction === "in" && m.destinationLocationId === sourceLocationId) sourceStock += Number(m.quantity);
+      else if (m.direction === "out" && m.sourceLocationId === sourceLocationId) sourceStock -= Number(m.quantity);
+    }
+    if (sourceStock < Number(quantity)) {
+      return res.status(400).json({ error: `Insufficient stock at source location. Available: ${sourceStock}, Requested: ${quantity}` });
+    }
+
+    const transferId = uuid();
+    const now = db.nowISO();
+    const transferNumber = `TRF-${transferId.slice(0, 8).toUpperCase()}`;
+    const sourceLoc = await StockLocation.get(sourceLocationId);
+    const destLoc = await StockLocation.get(destinationLocationId);
+
+    // If transit mode, destination is a "Transit" location
+    const effectiveDestId = transitMode ? destinationLocationId : destinationLocationId;
+
+    // Create source movement (stock out)
+    const sourceMovement = await StockMovement.create({
+      clientId,
+      productId,
+      direction: "out",
+      itemName: product.name,
+      sku: product.sku,
+      quantity: Number(quantity),
+      unit: product.unitOfMeasure || "unit",
+      unitCost: product.unitCost || 0,
+      warehouse: sourceLoc?.name || null,
+      reason: "Stock transfer",
+      linkedDocumentType: "Transfer",
+      linkedDocumentNumber: transferNumber,
+      status: "confirmed",
+      notes: `Transfer from ${sourceLoc?.name ?? "source"} to ${destLoc?.name ?? "dest"}`,
+      movementDate: body.movementDate || db.todayDate(),
+      sourceLocationId,
+      destinationLocationId: effectiveDestId,
+      dispatchType: "stock_transfer",
+      transferId,
+      createdById: req.user!.userId,
+      createdByName: req.user!.email,
+      confirmedById: req.user!.userId,
+      confirmedByName: req.user!.email,
+      confirmedAt: now,
+    });
+
+    // Create destination movement (stock in) — unless it's a transit dispatch
+    // (the destination will be created later when transit is received)
+    let destMovement = null;
+    if (!transitMode) {
+      destMovement = await StockMovement.create({
+        clientId,
+        productId,
+        direction: "in",
+        itemName: product.name,
+        sku: product.sku,
+        quantity: Number(quantity),
+        unit: product.unitOfMeasure || "unit",
+        unitCost: product.unitCost || 0,
+        warehouse: destLoc?.name || null,
+        reason: "Stock transfer",
+        linkedDocumentType: "Transfer",
+        linkedDocumentNumber: transferNumber,
+        status: "confirmed",
+        notes: `Transfer from ${sourceLoc?.name ?? "source"} to ${destLoc?.name ?? "dest"}`,
+        movementDate: body.movementDate || db.todayDate(),
+        sourceLocationId: effectiveDestId,
+        destinationLocationId,
+        dispatchType: "stock_transfer",
+        transferId,
+        createdById: req.user!.userId,
+        createdByName: req.user!.email,
+        confirmedById: req.user!.userId,
+        confirmedByName: req.user!.email,
+        confirmedAt: now,
+      });
+    }
+
+    res.status(201).json({
+      transferId,
+      transferNumber,
+      sourceMovement,
+      destinationMovement: destMovement,
+      message: transitMode
+        ? `Transfer dispatched. Stock moved from ${sourceLoc?.name} to Transit.`
+        : `Transfer completed. ${product.name} moved from ${sourceLoc?.name} to ${destLoc?.name}.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /stock-transfers/:transferId/receive — receive a transfer that is currently in transit.
+ * Creates the destination stock-in movement.
+ */
+router.post("/stock-transfers/:transferId/receive", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const { transferId } = req.params;
+    const body = req.body || {};
+    const { destinationLocationId, productId, quantity } = body;
+
+    if (!destinationLocationId) return res.status(400).json({ error: "Destination location required" });
+
+    // Find the source movement for this transfer
+    const allMovements = await StockMovement.list(clientId);
+    const sourceMov = allMovements.find((m) => m.transferId === transferId && m.direction === "out" && m.status === "confirmed");
+    if (!sourceMov) return res.status(404).json({ error: "Transfer not found or not dispatched" });
+
+    // Check if already received
+    const alreadyReceived = allMovements.find((m) => m.transferId === transferId && m.direction === "in" && m.status === "confirmed");
+    if (alreadyReceived) return res.status(400).json({ error: "This transfer has already been received" });
+
+    const recvQty = Number(quantity) || sourceMov.quantity;
+    const recvProductId = productId || sourceMov.productId;
+    const product = await Product.get(recvProductId);
+    if (!product) return res.status(400).json({ error: "Product not found" });
+
+    const destLoc = await StockLocation.get(destinationLocationId);
+    const now = db.nowISO();
+    const transferNumber = sourceMov.linkedDocumentNumber || `TRF-${transferId.slice(0, 8).toUpperCase()}`;
+
+    // Create destination stock-in movement
+    const destMovement = await StockMovement.create({
+      clientId,
+      productId: recvProductId,
+      direction: "in",
+      itemName: product.name,
+      sku: product.sku,
+      quantity: recvQty,
+      unit: product.unitOfMeasure || "unit",
+      unitCost: product.unitCost || 0,
+      warehouse: destLoc?.name || null,
+      reason: "Stock transfer",
+      linkedDocumentType: "Transfer",
+      linkedDocumentNumber: transferNumber,
+      status: "confirmed",
+      notes: `Transfer received at ${destLoc?.name ?? "destination"}`,
+      movementDate: db.todayDate(),
+      sourceLocationId: sourceMov.destinationLocationId,
+      destinationLocationId,
+      dispatchType: "stock_transfer",
+      transferId,
+      createdById: req.user!.userId,
+      createdByName: req.user!.email,
+      confirmedById: req.user!.userId,
+      confirmedByName: req.user!.email,
+      confirmedAt: now,
+    });
+
+    res.status(201).json({
+      transferId,
+      destinationMovement: destMovement,
+      message: `Transfer received. ${product.name} now at ${destLoc?.name ?? "destination"}.`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 export default router;

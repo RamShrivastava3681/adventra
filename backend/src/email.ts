@@ -111,8 +111,8 @@ function renderLineItems(items: Array<{ description?: string; quantity?: number;
     return `<tr>
       <td style="padding:6px 8px;font-size:12px;color:#1e293b;border-bottom:1px solid #f1f5f9;">${desc}</td>
       <td style="padding:6px 8px;font-size:12px;color:#64748b;text-align:center;border-bottom:1px solid #f1f5f9;">${qty}</td>
-      <td style="padding:6px 8px;font-size:12px;color:#64748b;text-align:right;border-bottom:1px solid #f1f5f9;">$${unit.toFixed(2)}</td>
-      <td style="padding:6px 8px;font-size:12px;color:#1e293b;font-weight:600;text-align:right;border-bottom:1px solid #f1f5f9;">$${amt.toFixed(2)}</td>
+      <td style="padding:6px 8px;font-size:12px;color:#64748b;text-align:right;border-bottom:1px solid #f1f5f9;">₹${unit.toFixed(2)}</td>
+      <td style="padding:6px 8px;font-size:12px;color:#1e293b;font-weight:600;text-align:right;border-bottom:1px solid #f1f5f9;">₹${amt.toFixed(2)}</td>
     </tr>`;
   }).join("");
 

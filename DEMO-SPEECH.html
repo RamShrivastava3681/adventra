@@ -138,7 +138,7 @@ footer { margin-top: 70px; padding-top: 18px; border-top: 2px solid var(--line);
 <hr/>
 <h2 id="part-5--the-forecasting-engine-every-formula">Part 5 — The forecasting engine: every formula</h2>
 <blockquote><strong>"Now the star of the show. The Demand Forecast page answers one question for every product: 'If I do nothing, when do I run out of stock — and how much should I order so I don't?'"</strong></blockquote>
-<p><strong>"The engine is a fourteen-step pipeline over the last twelve months of sales. Let me walk it with a real product — the Trekking Backpack, TB-1001: unit cost $25, unit price $59.99, fourteen-day supplier lead time, thirty units on hand, today is August 4th, 2026. Every number I say is the real output of the code."</strong></p>
+<p><strong>"The engine is a fourteen-step pipeline over the last twelve months of sales. Let me walk it with a real product — the Trekking Backpack, TB-1001: unit cost ₹25, unit price ₹59.99, fourteen-day supplier lead time, thirty units on hand, today is August 4th, 2026. Every number I say is the real output of the code."</strong></p>
 <h3 id="step-0--the-12-months-of-history">Step 0 — The 12 months of history</h3>
 <p>The engine reads the last 12 months of <strong>outbound</strong> stock movements (incoming stock is ignored for demand):</p>
 <p><code>24, 20, 14, 10, 12, 8, 9, 12, 16, 22, 28, 30</code> → <strong>205 units total</strong>.</p>
@@ -187,7 +187,7 @@ daysOfCover   = round(inventoryPosition ÷ last3DailyAvg) = round(30 ÷ 0.87) = 
 <h3 id="step-9--the-reorder-recommendation">Step 9 — The reorder recommendation</h3>
 <pre><code>requiredStock = dailyAvg × (leadTime + safetyStockDays) = 0.87 × 44 = 38.26
 recommended   = max(0, requiredStock − inventoryPosition) = 38.26 − 30 = 8.26 → 9</code></pre>
-<p>Then three business rules, in order: <strong>cap by max cover</strong> (180 days) so you never over-buy; <strong>respect the MOQ</strong> (if you order at all, order at least the minimum); <strong>round up to the order multiple</strong> (e.g. boxes of 25). <strong>"Buy 9 today — and the page even values it: 9 × $25 = $225 at cost."</strong></p>
+<p>Then three business rules, in order: <strong>cap by max cover</strong> (180 days) so you never over-buy; <strong>respect the MOQ</strong> (if you order at all, order at least the minimum); <strong>round up to the order multiple</strong> (e.g. boxes of 25). <strong>"Buy 9 today — and the page even values it: 9 × ₹25 = ₹225 at cost."</strong></p>
 <h3 id="step-10--momentum-speeding-up-or-slowing-down">Step 10 — Momentum: speeding up or slowing down?</h3>
 <pre><code>recent = last-3-months avg = (22+28+30) ÷ 3 = 26.67
 ≥ baseline × 120% (= 23.15) → accelerating   ·   ≥ baseline × 60% → stable   ·   else declining</code></pre>
@@ -206,7 +206,7 @@ reorderByDate = stockoutDate − leadTime = Sep 7 − 14 = Aug 24   ← last saf
 refillDate    = today + leadTime = Aug 18</code></pre>
 <p>Urgency: <strong>critical</strong> if you've already passed the reorder-by date, <strong>warning</strong> inside the lead window, otherwise <strong>safe</strong>. Today: <strong>safe</strong>.</p>
 <h3 id="step-14--pricing-strategy">Step 14 — Pricing strategy</h3>
-<pre><code>minimumPrice = unitPrice ÷ (1 − minMargin) = $59.99 ÷ 0.60 = $99.98   (40% margin floor)</code></pre>
+<pre><code>minimumPrice = unitPrice ÷ (1 − minMargin) = ₹59.99 ÷ 0.60 = ₹99.98   (40% margin floor)</code></pre>
 <p>Then eight decision rules — from <strong>clearance</strong> (dead product, too much stock: cut price 20–40%) to <strong>protect margin</strong> (fast mover, low stock: maybe raise 3–5%). Our backpack is a medium mover, accelerating → <strong>hold price</strong>.</p>
 <blockquote><strong>"And every number I just showed you is auditable — click any forecast and it expands to show the complete calculation breakdown, number by number. No black box."</strong></blockquote>
 <hr/>
