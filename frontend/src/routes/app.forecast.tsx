@@ -338,11 +338,13 @@ function ForecastPage() {
       const moves = byProduct.get(p.id) ?? [];
       let stock = 0;
       for (const m of moves) stock += (m.direction === "in" ? 1 : -1) * Number(m.quantity);
-      const history = bucketMovementsByMonth(moves, 12);
-      const currentMonth = currentMonthBucket(moves);
+      const history = bucketMovementsByMonth(moves, 12, undefined, targetMonth);
+      const curMonthKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
+      const currentMonth = targetMonth === curMonthKey ? currentMonthBucket(moves) : undefined;
       const f = forecastSKU(history, stock, p.lead_time_days, 6, {
         config: { safetyStockDays: Number(p.safety_stock_days) || 30 },
         currentMonth,
+        targetMonth,
       });
       return {
         product: p,
@@ -387,7 +389,7 @@ function ForecastPage() {
     }
 
     return rows;
-  }, [productsQ.data, movementsQ.data, forecastVarsQ.data, catalogueSettingsQ.data, clockTick]);
+  }, [productsQ.data, movementsQ.data, forecastVarsQ.data, catalogueSettingsQ.data, clockTick, targetMonth]);
 
   const filtered = useMemo(() => {
     const r = analyses.filter((a) => {
@@ -571,6 +573,8 @@ function ForecastPage() {
           recomputing={recomputeMutation.isPending}
           computedDate={forecastVarsQ.data?.computedDate}
           onExport={exportCSV}
+          targetMonth={targetMonth}
+          onTargetMonthChange={setTargetMonth}
         />
 
         {/* ── Table / empty / loading states ─────────────────────── */}
@@ -692,6 +696,8 @@ function FiltersToolbar({
   recomputing,
   computedDate,
   onExport,
+  targetMonth,
+  onTargetMonthChange,
 }: {
   q: string;
   onQ: (v: string) => void;
@@ -704,10 +710,27 @@ function FiltersToolbar({
   recomputing: boolean;
   computedDate?: string;
   onExport: () => void;
+  targetMonth: string;
+  onTargetMonthChange: (m: string) => void;
 }) {
   const velocityValue: FilterT =
     filter === "fast" || filter === "medium" || filter === "slow" ? filter : "all";
   const activeExtra = EXTRA_FILTERS.some((o) => o.value === filter);
+
+  // Month stepper helpers
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  const [tY, tM] = targetMonth.split("-").map(Number);
+  const targetMonthLabel = `${MONTH_NAMES[tM - 1]} ${tY}`;
+  const isDefaultMonth = targetMonth === todayKey;
+  const prevMonth = () => {
+    const d = new Date(tY, tM - 2, 1);
+    onTargetMonthChange(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  };
+  const nextMonth = () => {
+    const d = new Date(tY, tM, 1);
+    onTargetMonthChange(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  };
 
   return (
     <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-4 shadow-card">
@@ -808,6 +831,35 @@ function FiltersToolbar({
           </div>
         </PopoverContent>
       </Popover>
+
+      {/* Month selector */}
+      <div className="flex items-center gap-1 rounded-[10px] border border-border bg-card px-1 py-1">
+        <button
+          onClick={prevMonth}
+          title="Previous month"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <span className="min-w-[100px] text-center text-sm font-semibold tabular-nums text-foreground">
+          {targetMonthLabel}
+        </span>
+        <button
+          onClick={nextMonth}
+          title="Next month"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
+        {!isDefaultMonth && (
+          <button
+            onClick={() => onTargetMonthChange(todayKey)}
+            className="ml-1 inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary transition-colors hover:bg-primary/20"
+          >
+            Today
+          </button>
+        )}
+      </div>
 
       {/* Right group */}
       <div className="ml-auto flex flex-wrap items-center gap-2">
@@ -938,7 +990,7 @@ function SKUTable({
                 className="hidden md:table-cell"
               />
               <th className="hidden px-4 py-3 text-center text-[11px] font-semibold uppercase tracking-wide text-muted-foreground xl:table-cell">
-                Monthly Forecast
+                {MONTH_NAMES[parseInt(targetMonth.split("-")[1]) - 1]} Forecast
               </th>
               <SortableTh
                 label="Stockout Date"
@@ -1072,7 +1124,9 @@ function TableRow({
   onTargetMonthChange: (m: string) => void;
 }) {
   const imgSrc = useSignedImageUrl(product.image_url);
-  const nextMonthQty = f.forecast[0]?.qty ?? 0;
+  // Find the forecast for the selected target month
+  const targetForecast = f.forecast.find((m) => m.month === targetMonth) ?? f.forecast[0];
+  const nextMonthQty = targetForecast?.qty ?? 0;
   const needsReorder = f.recommendedReorder > 0;
   const stockoutDays = f.estimatedStockoutDate ? daysRemaining(f.estimatedStockoutDate) : null;
   const coverDanger = f.daysOfCover < 7;
@@ -1250,7 +1304,8 @@ function MobileRowCard({
   onTargetMonthChange: (m: string) => void;
 }) {
   const imgSrc = useSignedImageUrl(product.image_url);
-  const nextMonthQty = f.forecast[0]?.qty ?? 0;
+  const targetForecast = f.forecast.find((m) => m.month === targetMonth) ?? f.forecast[0];
+  const nextMonthQty = targetForecast?.qty ?? 0;
   const needsReorder = f.recommendedReorder > 0;
   const stockoutDays = f.estimatedStockoutDate ? daysRemaining(f.estimatedStockoutDate) : null;
 
@@ -2006,23 +2061,6 @@ function ExpandedForecastDetail({
   const imgSrc = useSignedImageUrl(product.image_url);
   const next6Total = f.forecast.reduce((a, b) => a + b.qty, 0);
 
-  const today = new Date();
-  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
-  const isDefaultMonth = targetMonth === initialF.forecast[0]?.month;
-
-  // Month stepper navigation
-  const prevMonth = () => {
-    const [y, m] = targetMonth.split("-").map(Number);
-    const d = new Date(y, m - 2, 1); // month - 2 because JS months are 0-indexed
-    onTargetMonthChange(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-  };
-  const nextMonth = () => {
-    const [y, m] = targetMonth.split("-").map(Number);
-    const d = new Date(y, m, 1); // month (0-indexed) + 1 = next month
-    onTargetMonthChange(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
-  };
-  const goToToday = () => onTargetMonthChange(todayKey);
-
   const [targetY, targetM] = targetMonth.split("-").map(Number);
   const targetMonthLabel = `${MONTH_NAMES[targetM - 1]} ${targetY}`;
 
@@ -2060,37 +2098,6 @@ function ExpandedForecastDetail({
             </div>
           </div>
         </div>
-      </div>
-
-      {/* Month selector stepper */}
-      <div className="mb-5 flex items-center justify-center gap-2">
-        <button
-          onClick={prevMonth}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted hover:text-foreground"
-          title="Previous month"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </button>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold tabular-nums text-foreground">
-            {targetMonthLabel}
-          </span>
-          {!isDefaultMonth && (
-            <button
-              onClick={goToToday}
-              className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary transition-colors hover:bg-primary/20"
-            >
-              Today
-            </button>
-          )}
-        </div>
-        <button
-          onClick={nextMonth}
-          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted hover:text-foreground"
-          title="Next month"
-        >
-          <ChevronRight className="h-4 w-4" />
-        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

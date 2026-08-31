@@ -130,14 +130,16 @@ export function bucketMovementsByMonth(
 ): MonthlyBucket[] {
   // Trailing `months` calendar months of outbound sales. When `targetMonth`
   // ("YYYY-MM") is provided, the history covers the 12 completed months
-  // BEFORE that month — the target month itself is excluded from history
-  // so it can be forecasted without leaking its own data into the model.
+  // ending with the month BEFORE the target — the target month itself is
+  // excluded from history so it can be forecasted without leaking its own
+  // data into the model.
+  //   e.g. targetMonth="2026-04" → history = April 2025 … March 2026
   const ref = targetMonth
     ? new Date(parseInt(targetMonth.slice(0, 4), 10), parseInt(targetMonth.slice(5, 7), 10) - 1, 1)
     : new Date();
   const buckets: MonthlyBucket[] = [];
   for (let i = months - 1; i >= 0; i--) {
-    const d = new Date(ref.getFullYear(), ref.getMonth() - i - 1, 1);
+    const d = new Date(ref.getFullYear(), ref.getMonth() - i, 1);
     buckets.push({
       month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
       qty: 0,
@@ -700,7 +702,7 @@ export type ForecastOptions = {
   /** Target month ("YYYY-MM") for which to generate the forecast.
    *  When provided the 12-month history window and the forecast horizon are
    *  anchored to this month instead of the current calendar month.
-   *  e.g. targetMonth="2026-04" → history covers May 2025 – Apr 2026,
+   *  e.g. targetMonth="2026-04" → history covers Apr 2025 – Mar 2026,
    *  and the forecast starts from April 2026. */
   targetMonth?: string;
 };
@@ -810,7 +812,7 @@ export function forecastSKU(
   // of the current calendar month. The monthOffset tells us how many months
   // ahead (+) or behind (−) the target is relative to today.
   const refDate = options.targetMonth
-    ? new Date(parseInt(options.targetMonth.slice(0, 4), 10), parseInt(options.targetMonth.slice(5, 7), 10) - 1, 1)
+    ? new Date(parseInt(options.targetMonth.slice(0, 4), 10), parseInt(options.targetMonth.slice(5, 7), 10), 1)
     : now;
   const refYear = refDate.getFullYear();
   const refMonth = refDate.getMonth(); // 0-indexed

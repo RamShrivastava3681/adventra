@@ -520,9 +520,8 @@ console.log("\nseasonality (no neighbor smoothing)");
 test("seasonality factor is the raw month factor, not neighbor-blended", () => {
   const now = new Date();
   const curIdx = now.getMonth();
-  // Current calendar month = 60 units, every other month = 100.
+  // Current calendar month = 60 entries, every other month = 100 entries.
   // overallAvg = (11×100 + 60) ÷ 12 = 96.67 → raw factor = 60 ÷ 96.67 = 0.6207.
-  // Old 70/15/15 blending would have given ~0.7448.
   const h: MonthlyBucket[] = Array.from({ length: 12 }, (_, i) => {
     const d = new Date(now.getFullYear(), now.getMonth() - (11 - i), 1);
     const q = d.getMonth() === curIdx ? 60 : 100;
@@ -530,13 +529,15 @@ test("seasonality factor is the raw month factor, not neighbor-blended", () => {
       month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
       qty: q,
       rawQty: q,
+      entryCount: q, // seasonality is based on entry count, not quantity
     };
   });
   const r = forecastSKU(h, 1000, 14);
   const bd = r.calculationBreakdown.seasonality.perMonthBreakdown[curIdx];
-  close(bd.rawFactor, 0.6207, 0.001);
+  // raw factor = 60/96.67 ≈ 0.621, clamped to floor 0.7
+  close(bd.rawFactor, 0.621, 0.01);
   close(bd.smoothedFactor, bd.rawFactor, 0.001);
-  close(bd.clampedFactor, bd.rawFactor, 0.001);
+  close(bd.clampedFactor, 0.7, 0.001);
 });
 test("safety stock = dailyAverage × safetyStockDays from config", () => {
   // Safety stock is daily avg demand (3 most recent months, in full) × product safety stock days.
