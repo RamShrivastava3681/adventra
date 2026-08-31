@@ -129,15 +129,15 @@ export function bucketMovementsByMonth(
   targetMonth?: string
 ): MonthlyBucket[] {
   // Trailing `months` calendar months of outbound sales. When `targetMonth`
-  // ("YYYY-MM") is provided, the newest bucket is that month instead of the
-  // current calendar month — this lets us shift the entire history window
-  // backwards or forwards in time.
+  // ("YYYY-MM") is provided, the history covers the 12 completed months
+  // BEFORE that month — the target month itself is excluded from history
+  // so it can be forecasted without leaking its own data into the model.
   const ref = targetMonth
     ? new Date(parseInt(targetMonth.slice(0, 4), 10), parseInt(targetMonth.slice(5, 7), 10) - 1, 1)
     : new Date();
   const buckets: MonthlyBucket[] = [];
   for (let i = months - 1; i >= 0; i--) {
-    const d = new Date(ref.getFullYear(), ref.getMonth() - i, 1);
+    const d = new Date(ref.getFullYear(), ref.getMonth() - i - 1, 1);
     buckets.push({
       month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
       qty: 0,
