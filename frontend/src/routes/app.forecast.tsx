@@ -127,6 +127,14 @@ function ForecastPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const PAGE_SIZE = 10;
 
+  // Default target month = next month from today (preserves current behavior)
+  const defaultTargetMonth = useMemo(() => {
+    const d = new Date();
+    d.setMonth(d.getMonth() + 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }, []);
+  const [targetMonth, setTargetMonth] = useState<string>(defaultTargetMonth);
+
   // Tick every minute so date-sensitive fields (estimatedStockoutDate,
   // reorderByDate, nextRefillDate, days of cover) are recomputed against the
   // live clock instead of staying frozen at page-load time.
@@ -586,6 +594,9 @@ function ForecastPage() {
             pageCount={pageCount}
             pageSize={PAGE_SIZE}
             onPageChange={setPage}
+            movementsData={movementsQ.data ?? []}
+            targetMonth={targetMonth}
+            onTargetMonthChange={setTargetMonth}
           />
         )}
       </div>
@@ -852,6 +863,9 @@ function SKUTable({
   pageCount,
   pageSize,
   onPageChange,
+  movementsData,
+  targetMonth,
+  onTargetMonthChange,
 }: {
   rows: Analysis[];
   total: number;
@@ -865,6 +879,9 @@ function SKUTable({
   pageCount: number;
   pageSize: number;
   onPageChange: (p: number) => void;
+  movementsData: any[];
+  targetMonth: string;
+  onTargetMonthChange: (m: string) => void;
 }) {
   return (
     <div className="rounded-xl border border-border bg-card shadow-card">
@@ -881,6 +898,9 @@ function SKUTable({
             defaultMargin={defaultMargin}
             expanded={expanded === a.product.id}
             onToggle={() => onToggle(a.product.id)}
+            movementsData={movementsData}
+            targetMonth={targetMonth}
+            onTargetMonthChange={onTargetMonthChange}
           />
         ))}
       </div>
@@ -954,6 +974,9 @@ function SKUTable({
                 defaultMargin={defaultMargin}
                 expanded={expanded === a.product.id}
                 onToggle={() => onToggle(a.product.id)}
+                movementsData={movementsData}
+                targetMonth={targetMonth}
+                onTargetMonthChange={onTargetMonthChange}
               />
             ))}
           </tbody>
@@ -1032,6 +1055,9 @@ function TableRow({
   defaultMargin,
   expanded,
   onToggle,
+  movementsData,
+  targetMonth,
+  onTargetMonthChange,
 }: {
   product: Product;
   stock: number;
@@ -1041,6 +1067,9 @@ function TableRow({
   defaultMargin: number;
   expanded: boolean;
   onToggle: () => void;
+  movementsData: any[];
+  targetMonth: string;
+  onTargetMonthChange: (m: string) => void;
 }) {
   const imgSrc = useSignedImageUrl(product.image_url);
   const nextMonthQty = f.forecast[0]?.qty ?? 0;
@@ -1184,6 +1213,9 @@ function TableRow({
               f={f}
               pricingStrategy={pricingStrategy}
               defaultMargin={defaultMargin}
+              movementsData={movementsData}
+              targetMonth={targetMonth}
+              onTargetMonthChange={onTargetMonthChange}
             />
           </td>
         </tr>
@@ -1201,6 +1233,9 @@ function MobileRowCard({
   defaultMargin,
   expanded,
   onToggle,
+  movementsData,
+  targetMonth,
+  onTargetMonthChange,
 }: {
   product: Product;
   stock: number;
@@ -1210,6 +1245,9 @@ function MobileRowCard({
   defaultMargin: number;
   expanded: boolean;
   onToggle: () => void;
+  movementsData: any[];
+  targetMonth: string;
+  onTargetMonthChange: (m: string) => void;
 }) {
   const imgSrc = useSignedImageUrl(product.image_url);
   const nextMonthQty = f.forecast[0]?.qty ?? 0;
@@ -1302,6 +1340,9 @@ function MobileRowCard({
             f={f}
             pricingStrategy={pricingStrategy}
             defaultMargin={defaultMargin}
+            movementsData={movementsData}
+            targetMonth={targetMonth}
+            onTargetMonthChange={onTargetMonthChange}
           />
         </div>
       )}
@@ -1874,15 +1915,51 @@ function TrendAnalysisCard({ f }: { f: ForecastResult }) {
 
 function ExpandedForecastDetail({
   product,
-  f,
+  f: initialF,
   pricingStrategy,
   defaultMargin,
+  movementsData,
+  targetMonth,
+  onTargetMonthChange,
 }: {
   product: Product;
   f: ForecastResult;
   pricingStrategy: PricingStrategyResult | null;
   defaultMargin: number;
+  movementsData: any[];
+  targetMonth: string;
+  onTargetMonthChange: (m: string) => void;
 }) {
+  // Recompute forecast client-side when targetMonth changes
+  const f = useMemo(() => {
+    const today = new Date();
+    const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+    // Only recompute if targetMonth differs from the default (next month)
+    if (targetMonth === initialF.forecast[0]?.month) return initialF;
+
+    // Get movements for this product
+    const moves = movementsData
+      .filter((m: any) => m.product_id === product.id)
+      .map((m: any) => ({
+        movement_date: m.movement_date,
+        quantity: m.quantity,
+        direction: m.direction,
+      }));
+
+    // Shift history to the target month
+    const history = bucketMovementsByMonth(moves, 12, undefined, targetMonth);
+    // For the current-month bucket, only include if targetMonth is the current month
+    const currentMonth = targetMonth === todayKey
+      ? currentMonthBucket(moves)
+      : undefined;
+
+    return forecastSKU(history, initialF.inventoryPosition, product.lead_time_days, 6, {
+      config: { safetyStockDays: Number(product.safety_stock_days) || 30 },
+      currentMonth,
+      targetMonth,
+    });
+  }, [targetMonth, initialF, movementsData, product]);
+
   // Build chart data: 12 history months + 6 forecast months
   const chartData = useMemo(() => {
     const data: any[] = [];
@@ -1929,6 +2006,26 @@ function ExpandedForecastDetail({
   const imgSrc = useSignedImageUrl(product.image_url);
   const next6Total = f.forecast.reduce((a, b) => a + b.qty, 0);
 
+  const today = new Date();
+  const todayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
+  const isDefaultMonth = targetMonth === initialF.forecast[0]?.month;
+
+  // Month stepper navigation
+  const prevMonth = () => {
+    const [y, m] = targetMonth.split("-").map(Number);
+    const d = new Date(y, m - 2, 1); // month - 2 because JS months are 0-indexed
+    onTargetMonthChange(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  };
+  const nextMonth = () => {
+    const [y, m] = targetMonth.split("-").map(Number);
+    const d = new Date(y, m, 1); // month (0-indexed) + 1 = next month
+    onTargetMonthChange(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+  };
+  const goToToday = () => onTargetMonthChange(todayKey);
+
+  const [targetY, targetM] = targetMonth.split("-").map(Number);
+  const targetMonthLabel = `${MONTH_NAMES[targetM - 1]} ${targetY}`;
+
   return (
     <div className="py-6 animate-in fade-in slide-in-from-top-2 duration-300">
       {/* Item header */}
@@ -1963,6 +2060,37 @@ function ExpandedForecastDetail({
             </div>
           </div>
         </div>
+      </div>
+
+      {/* Month selector stepper */}
+      <div className="mb-5 flex items-center justify-center gap-2">
+        <button
+          onClick={prevMonth}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted hover:text-foreground"
+          title="Previous month"
+        >
+          <ChevronLeft className="h-4 w-4" />
+        </button>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-semibold tabular-nums text-foreground">
+            {targetMonthLabel}
+          </span>
+          {!isDefaultMonth && (
+            <button
+              onClick={goToToday}
+              className="inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary transition-colors hover:bg-primary/20"
+            >
+              Today
+            </button>
+          )}
+        </div>
+        <button
+          onClick={nextMonth}
+          className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border bg-card text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted hover:text-foreground"
+          title="Next month"
+        >
+          <ChevronRight className="h-4 w-4" />
+        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">

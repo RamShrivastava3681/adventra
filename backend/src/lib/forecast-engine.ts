@@ -124,16 +124,19 @@ export function correctForAvailability(
 export function bucketMovementsByMonth(
   movements: MovementInput[],
   months: number = 12,
-  availability?: AvailabilityInput[]
+  availability?: AvailabilityInput[],
+  targetMonth?: string
 ): MonthlyBucket[] {
-  // Trailing `months` calendar months of outbound sales — the current
-  // (partial) month IS included as the newest bucket, so the model reacts to
-  // live demand. The current month's rawQty is the partial-month sales to
-  // date (it is still available separately via currentMonthBucket()).
-  const now = new Date();
+  // Trailing `months` calendar months of outbound sales. When `targetMonth`
+  // ("YYYY-MM") is provided, the newest bucket is that month instead of the
+  // current calendar month — this lets us shift the entire history window
+  // backwards or forwards in time.
+  const ref = targetMonth
+    ? new Date(parseInt(targetMonth.slice(0, 4), 10), parseInt(targetMonth.slice(5, 7), 10) - 1, 1)
+    : new Date();
   const buckets: MonthlyBucket[] = [];
   for (let i = months - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const d = new Date(ref.getFullYear(), ref.getMonth() - i, 1);
     buckets.push({
       month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
       qty: 0,
@@ -683,6 +686,12 @@ export type ForecastOptions = {
   config?: SKUConfig;
   /** Current (partial) month bucket — used for the live pace adjustment. */
   currentMonth?: MonthlyBucket;
+  /** Target month ("YYYY-MM") for which to generate the forecast.
+   *  When provided the 12-month history window and the forecast horizon are
+   *  anchored to this month instead of the current calendar month.
+   *  e.g. targetMonth="2026-04" → history covers May 2025 – Apr 2026,
+   *  and the forecast starts from April 2026. */
+  targetMonth?: string;
 };
 
 // -----------------------------------------------------------------------------
@@ -785,16 +794,27 @@ export function forecastSKU(
 
   const forecast: MonthForecast[] = [];
   const now = new Date();
+  // When a targetMonth is specified, anchor the forecast to that month instead
+  // of the current calendar month. The monthOffset tells us how many months
+  // ahead (+) or behind (−) the target is relative to today.
+  const refDate = options.targetMonth
+    ? new Date(parseInt(options.targetMonth.slice(0, 4), 10), parseInt(options.targetMonth.slice(5, 7), 10) - 1, 1)
+    : now;
+  const refYear = refDate.getFullYear();
+  const refMonth = refDate.getMonth(); // 0-indexed
+  const todayYear = now.getFullYear();
+  const todayMonth = now.getMonth(); // 0-indexed
+  const monthOffset = (refYear - todayYear) * 12 + (refMonth - todayMonth);
   const curMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   const curDaysInMonth = daysInMonthFor(curMonthKey);
   const daysElapsed = now.getDate();
   let runningStock = inventoryPosition;
 
   for (let i = 1; i <= horizonMonths; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+    const d = new Date(refYear, refMonth + i, 1);
     const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
     const seas = rawSeasonalityFactor(history, d.getMonth());
-    const trendContribution = slope * i;
+    const trendContribution = slope * (i + monthOffset);
     const baseline = Math.max(0, avg + trendContribution) * seas;
     const final = applyFactors(baseline, factors);
 
@@ -820,7 +840,7 @@ export function forecastSKU(
     }
 
     // Confidence interval centered on the forecast value
-    const pi = predictionInterval(values, slope, avg, n - 1 + i, final);
+    const pi = predictionInterval(values, slope, avg, n - 1 + i + monthOffset, final);
 
     forecast.push({
       month: monthKey,
@@ -865,25 +885,33 @@ export function forecastSKU(
   // actual current-month sales to date against what the model expected by this
   // point in the month, and nudge NEXT month's forecast by a clamped factor.
   // The adjustment is display-only: it never alters the base forecast months.
+  // When a non-current targetMonth is selected, skip pace adjustment entirely.
   const curSeas = rawSeasonalityFactor(history, now.getMonth());
   const curBaseline = Math.max(0, avg) * curSeas;
   const currentMonthBaseForecast = applyFactors(curBaseline, factors);
   const nextMonthBaseForecast = forecast[0]?.qty ?? 0;
   const actualSalesToDate =
     options.currentMonth?.rawQty ?? options.currentMonth?.qty ?? 0;
-  const pace = options.currentMonth
-    ? computePaceAdjustment({
-        currentMonthBaseForecast,
-        actualSalesToDate,
-        daysElapsed,
-        daysInMonth: curDaysInMonth,
-      })
-    : {
+  const pace = monthOffset !== 0
+    ? {
         salesPaceRatio: null,
         expectedSalesToDate: 0,
         adjustmentFactor: 1,
-        reason: "No current-month sales data — no adjustment",
-      };
+        reason: "Pace adjustment only applies to the current month",
+      }
+    : options.currentMonth
+      ? computePaceAdjustment({
+          currentMonthBaseForecast,
+          actualSalesToDate,
+          daysElapsed,
+          daysInMonth: curDaysInMonth,
+        })
+      : {
+          salesPaceRatio: null,
+          expectedSalesToDate: 0,
+          adjustmentFactor: 1,
+          reason: "No current-month sales data — no adjustment",
+        };
   const adjustedNextForecast = Math.round(
     nextMonthBaseForecast * pace.adjustmentFactor
   );
@@ -1065,7 +1093,7 @@ export function forecastSKU(
       perMonthBreakdown: seasonalityBreakdown.perMonthBreakdown,
     },
     monthlyDetail: forecast.map((mf, i) => {
-      const trendContribution = slope * (i + 1);
+      const trendContribution = slope * (i + 1 + monthOffset);
       // Forecast anchor: the 12-month weighted baseline + the trend contribution
       const avgPlusTrend = avg + trendContribution;
       const baselineBeforeSeas = Math.max(0, avgPlusTrend);

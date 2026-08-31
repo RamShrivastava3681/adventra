@@ -43,6 +43,7 @@ import {
   Check,
   BarChart3,
   MapPin,
+  ArrowRightLeft,
 } from "lucide-react";
 import { useTheme, type Theme } from "@/lib/theme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -207,7 +208,7 @@ function buildNavSections(roles: string[]): NavSection[] {
           { to: "/app/products", label: "Product catalog", icon: Package },
           { to: "/app/forecast", label: "Demand forecasting", icon: TrendingUp },
           { to: "/app/inventory", label: "Inventory", icon: Boxes },
-  { to: "/app/stock-locations", label: "Stock Locations", icon: MapPin },
+  { to: "/app/stock-allocation", label: "Stock Allocation", icon: MapPin },
         ],
       },
       {
