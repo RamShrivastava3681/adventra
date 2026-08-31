@@ -471,6 +471,10 @@ export type MonthForecast = {
   baseline: number; // pre-factor baseline
   seasonalityFactor: number;
   dailyRate: number; // forecast qty / days in month
+  /** Per-month weighted average (sliding window) */
+  monthWeightedAvg: number;
+  /** Per-month trend slope (sliding window) */
+  monthSlope: number;
   /** Stock needed at the start of this month to cover demand without stockout */
   stockRequired: number;
   /** Projected stock remaining at the end of the month after demand is fulfilled */
@@ -588,10 +592,11 @@ export type CalculationBreakdown = {
       smoothedFactor: number;
       clampedFactor: number;
     }>;
-  };
-  monthlyDetail: Array<{
+  };    monthlyDetail: Array<{
     monthName: string;
     monthKey: string;
+    monthWeightedAvg: number;
+    monthSlope: number;
     trendContribution: number;
     avgPlusTrend: number;
     seasonalityFactor: number;
@@ -895,6 +900,8 @@ export function forecastSKU(
       baseline: Math.round(final),
       seasonalityFactor: seas,
       dailyRate: Math.round(dailyRate * 10) / 10,
+      monthWeightedAvg: Math.round(monthAvg * 100) / 100,
+      monthSlope: Math.round(monthSlope * 100) / 100,
       stockRequired: Math.round(stockRequired),
       projectedStockAfter: Math.round(projectedStockAfter),
       suggestedOrder: Math.round(suggestedOrder),
@@ -1125,10 +1132,12 @@ export function forecastSKU(
       perMonthBreakdown: seasonalityBreakdown.perMonthBreakdown,
     },
     monthlyDetail: forecast.map((mf, i) => {
-      // Simple formula: (weightedAvg + slope) × seasonality
-      const trendContribution = slope;
-      const avgPlusTrend = avg + slope;
-      const baseline = (avg + slope) * mf.seasonalityFactor;
+      // Per-month weighted avg and slope (sliding window when movements provided)
+      const mAvg = mf.monthWeightedAvg;
+      const mSlope = mf.monthSlope;
+      const trendContribution = mSlope;
+      const avgPlusTrend = mAvg + mSlope;
+      const baseline = (mAvg + mSlope) * mf.seasonalityFactor;
       const factorsMultiplied =
         factors.trekkingSeasonIndex *
         factors.weatherIndex *
@@ -1143,6 +1152,8 @@ export function forecastSKU(
       return {
         monthName: mf.monthName,
         monthKey: mf.month,
+        monthWeightedAvg: Math.round(mAvg * 100) / 100,
+        monthSlope: Math.round(mSlope * 100) / 100,
         trendContribution: Math.round(trendContribution * 100) / 100,
         avgPlusTrend: Math.round(avgPlusTrend * 100) / 100,
         seasonalityFactor: mf.seasonalityFactor,
