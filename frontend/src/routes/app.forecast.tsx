@@ -219,9 +219,15 @@ function ForecastPage() {
   });
 
   const analyses = useMemo(() => {
-    // Try server-side persisted forecasts first
+    // Try server-side persisted forecasts first, but only when the target month
+    // matches the default (next month). The server computes forecasts without a
+    // targetMonth parameter, so its 6-month window is anchored to today. When
+    // the user picks a different month (past or future), the server's pre-built
+    // forecast array won't contain that month and would fall back to forecast[0],
+    // showing a stale value for every selection.
     const fv = forecastVarsQ.data;
-    if (fv && fv.snapshots && fv.snapshots.length > 0 && fv.products && fv.products.length > 0) {
+    const useServerPath = fv && fv.snapshots && fv.snapshots.length > 0 && fv.products && fv.products.length > 0 && targetMonth === defaultTargetMonth;
+    if (useServerPath) {
       // Build a map of products from the server response
       const productMap = new Map<string, any>();
       for (const p of fv.products) {
