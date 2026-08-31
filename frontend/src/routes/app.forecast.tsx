@@ -351,6 +351,7 @@ function ForecastPage() {
         config: { safetyStockDays: Number(p.safety_stock_days) || 30 },
         currentMonth,
         targetMonth,
+        movements: moves,
       });
       return {
         product: p,
@@ -2018,6 +2019,7 @@ function ExpandedForecastDetail({
       config: { safetyStockDays: Number(product.safety_stock_days) || 30 },
       currentMonth,
       targetMonth,
+      movements: moves,
     });
   }, [targetMonth, initialF, movementsData, product]);
 

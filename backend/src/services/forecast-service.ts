@@ -112,6 +112,7 @@ export async function recomputeAll(clientId: string): Promise<{
     const f = forecastSKU(history, stock, leadTimeDays, 6, {
       config: { safetyStockDays: p.safetyStockDays ?? 30 },
       currentMonth,
+      movements: formattedMoves,
     });
 
     snapshots.push({

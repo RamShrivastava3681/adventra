@@ -698,6 +698,9 @@ export type ForecastOptions = {
    *  e.g. targetMonth="2026-04" → history covers Apr 2025 – Mar 2026,
    *  and the forecast starts from April 2026. */
   targetMonth?: string;
+  /** Raw movements array — when provided, each forecast month computes its
+   *  own 12-month history independently (sliding window). */
+  movements?: MovementInput[];
 };
 
 // -----------------------------------------------------------------------------
@@ -804,7 +807,7 @@ export function forecastSKU(
   // of the current calendar month. The monthOffset tells us how many months
   // ahead (+) or behind (−) the target is relative to today.
   const refDate = options.targetMonth
-    ? new Date(parseInt(options.targetMonth.slice(0, 4), 10), parseInt(options.targetMonth.slice(5, 7), 10), 1)
+    ? new Date(parseInt(options.targetMonth.slice(0, 4), 10), parseInt(options.targetMonth.slice(5, 7), 10) - 1, 1)
     : now;
   const refYear = refDate.getFullYear();
   const refMonth = refDate.getMonth(); // 0-indexed
@@ -816,13 +819,50 @@ export function forecastSKU(
   const daysElapsed = now.getDate();
   let runningStock = inventoryPosition;
 
-  for (let i = 1; i <= horizonMonths; i++) {
+  for (let i = 0; i < horizonMonths; i++) {
     const d = new Date(refYear, refMonth + i, 1);
     const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-    const seas = rawSeasonalityFactor(history, d.getMonth());
-    const trendContribution = slope * (i + monthOffset);
-    const baseline = Math.max(0, avg + trendContribution) * seas;
-    const final = applyFactors(baseline, factors);
+
+    // Per-month computation: each forecast month gets its own 12-month history
+    let monthAvg = avg;
+    let monthSlope = slope;
+    let seas: number;
+    if (options.movements && options.movements.length > 0) {
+      const monthHistory = bucketMovementsByMonth(options.movements, 12, undefined, monthKey);
+      const monthValues = monthHistory.map((h) => h.qty);
+      const monthN = monthValues.length;
+      const monthWeights = Array.from({ length: monthN }, (_, j) => {
+        const age = monthN - 1 - j;
+        return age < 3 ? 3 : age < 6 ? 2 : 1;
+      });
+      monthAvg = weightedAverage(monthValues, monthWeights);
+      monthSlope = enhancedTrendSlope(monthValues).slope;
+      // Seasonality: only count entries from the same calendar month in
+      // PREVIOUS years (exclude the forecast month itself to avoid leakage)
+      const calMonth = d.getMonth(); // 0-indexed calendar month
+      const sameMonthEntries = monthHistory
+        .filter((h) => {
+          const mi = parseInt(h.month.split("-")[1], 10) - 1;
+          return mi === calMonth && h.month !== monthKey;
+        })
+        .reduce((sum, h) => sum + (h.entryCount ?? 0), 0);
+      const sameMonthCount = monthHistory.filter((h) => {
+        const mi = parseInt(h.month.split("-")[1], 10) - 1;
+        return mi === calMonth && h.month !== monthKey;
+      }).length;
+      const overallAvg = monthValues.reduce((a, b) => a + b, 0) / Math.max(monthValues.length, 1);
+      if (sameMonthCount === 0 || sameMonthEntries === 0) {
+        seas = 1; // no historical data for this calendar month → neutral
+      } else {
+        const avgEntries = sameMonthEntries / sameMonthCount;
+        const overallAvgEntries = monthHistory.reduce((a, b) => a + (b.entryCount ?? 0), 0) / Math.max(monthHistory.length, 1);
+        seas = overallAvgEntries > 0 ? Math.max(0.7, Math.min(2.0, avgEntries / overallAvgEntries)) : 1;
+      }
+    } else {
+      seas = rawSeasonalityFactor(history, d.getMonth());
+    }
+    // Simple forecast: (weightedAvg + slope) × seasonality
+    const final = (monthAvg + monthSlope) * seas;
 
     // Per-month daily rate
     const dm = daysInMonthFor(monthKey);
@@ -852,7 +892,7 @@ export function forecastSKU(
       month: monthKey,
       monthName: monthNameFromKey(monthKey),
       qty: Math.round(final),
-      baseline: Math.round(baseline),
+      baseline: Math.round(final),
       seasonalityFactor: seas,
       dailyRate: Math.round(dailyRate * 10) / 10,
       stockRequired: Math.round(stockRequired),
@@ -1085,11 +1125,10 @@ export function forecastSKU(
       perMonthBreakdown: seasonalityBreakdown.perMonthBreakdown,
     },
     monthlyDetail: forecast.map((mf, i) => {
-      const trendContribution = slope * (i + 1 + monthOffset);
-      // Forecast anchor: the 12-month weighted baseline + the trend contribution
-      const avgPlusTrend = avg + trendContribution;
-      const baselineBeforeSeas = Math.max(0, avgPlusTrend);
-      const baseline = baselineBeforeSeas * mf.seasonalityFactor;
+      // Simple formula: (weightedAvg + slope) × seasonality
+      const trendContribution = slope;
+      const avgPlusTrend = avg + slope;
+      const baseline = (avg + slope) * mf.seasonalityFactor;
       const factorsMultiplied =
         factors.trekkingSeasonIndex *
         factors.weatherIndex *
