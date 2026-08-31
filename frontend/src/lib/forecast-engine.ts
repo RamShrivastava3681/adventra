@@ -9,6 +9,7 @@ export type MonthlyBucket = {
   qty: number; // corrected demand (used by the model)
   rawQty?: number; // actual outbound sales
   availabilityRate?: number; // 0..1
+  entryCount?: number; // number of outbound debit entries (for seasonality)
 };
 
 export type MovementInput = {
@@ -141,6 +142,7 @@ export function bucketMovementsByMonth(
       month: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`,
       qty: 0,
       rawQty: 0,
+      entryCount: 0,
     });
   }
   const idx = new Map(buckets.map((b, i) => [b.month, i]));
@@ -150,7 +152,10 @@ export function bucketMovementsByMonth(
     if (m.direction !== "out") continue;
     const k = m.movement_date.slice(0, 7);
     const i = idx.get(k);
-    if (i != null) (buckets[i].rawQty as number) += Number(m.quantity);
+    if (i != null) {
+      (buckets[i].rawQty as number) += Number(m.quantity);
+      (buckets[i].entryCount as number) += 1;
+    }
   }
 
   for (const b of buckets) {
@@ -267,28 +272,35 @@ function enhancedTrendSlope(values: number[]): {
 
 // -----------------------------------------------------------------------------
 // Seasonality — raw per-month seasonal factors
-// Each calendar month's average demand is compared to the overall average.
-// The raw factor is used directly (no neighbor smoothing), then clamped so a
-// single noisy month cannot push seasonality to extremes.
+// Based on outbound entry count (number of debit movements per calendar month).
+// For multi-year data the counts for the same calendar month are averaged.
+// No data for a month yields factor 1.0. Clamped to [0.7, 2.0].
 // -----------------------------------------------------------------------------
 
 function rawSeasonalityFactor(history: MonthlyBucket[], targetMonthIdx: number): number {
+  // Seasonality based on outbound entry count (number of debit movements per
+  // calendar month), not quantity. For 2-year data the counts for the same
+  // calendar month are averaged. No data → factor 1.0 (neutral).
   const grouped: number[][] = Array.from({ length: 12 }, () => []);
   for (const h of history) {
     const mi = parseInt(h.month.split("-")[1], 10) - 1;
-    grouped[mi].push(h.qty);
+    grouped[mi].push(h.entryCount ?? 0);
   }
-  const overallAvg = history.reduce((a, b) => a + b.qty, 0) / Math.max(history.length, 1);
-  if (overallAvg === 0) return 1;
+  const overallAvgEntries =
+    history.reduce((a, b) => a + (b.entryCount ?? 0), 0) / Math.max(history.length, 1);
+  if (overallAvgEntries === 0) return 1;
 
   const getAvg = (idx: number) =>
     grouped[idx].reduce((a, b) => a + b, 0) / Math.max(grouped[idx].length, 1);
 
-  // Raw seasonal factor — used directly, without blending with neighbors
-  const rawFactor = getAvg(targetMonthIdx) / overallAvg;
+  const monthEntries = getAvg(targetMonthIdx);
+  if (monthEntries === 0) return 1; // no data for this month → neutral
 
-  // Clamp to prevent extreme seasonality
-  return Math.max(0.5, Math.min(2.0, rawFactor));
+  // Raw seasonal factor based on entry frequency
+  const rawFactor = monthEntries / overallAvgEntries;
+
+  // Clamp: floor at 0.7, ceiling at 2.0
+  return Math.max(0.7, Math.min(2.0, rawFactor));
 }
 
 // -----------------------------------------------------------------------------
@@ -707,12 +719,14 @@ function computeSeasonalityBreakdown(
     clampedFactor: number;
   }>;
 } {
+  // Seasonality based on outbound entry count, not quantity
   const grouped: number[][] = Array.from({ length: 12 }, () => []);
   for (const h of history) {
     const mi = parseInt(h.month.split("-")[1], 10) - 1;
-    grouped[mi].push(h.qty);
+    grouped[mi].push(h.entryCount ?? 0);
   }
-  const overallAvg = history.reduce((a, b) => a + b.qty, 0) / Math.max(history.length, 1);
+  const overallAvgEntries =
+    history.reduce((a, b) => a + (b.entryCount ?? 0), 0) / Math.max(history.length, 1);
 
   const getAvg = (idx: number) =>
     grouped[idx].reduce((a, b) => a + b, 0) / Math.max(grouped[idx].length, 1);
@@ -721,12 +735,12 @@ function computeSeasonalityBreakdown(
     const prevIdx = (mi + 11) % 12;
     const nextIdx = (mi + 1) % 12;
     const monthAvg = getAvg(mi);
-    const rawTarget = overallAvg > 0 ? monthAvg / overallAvg : 1;
-    const rawPrev = overallAvg > 0 ? getAvg(prevIdx) / overallAvg : 1;
-    const rawNext = overallAvg > 0 ? getAvg(nextIdx) / overallAvg : 1;
+    const rawTarget = overallAvgEntries > 0 ? monthAvg / overallAvgEntries : 1;
+    const rawPrev = overallAvgEntries > 0 ? getAvg(prevIdx) / overallAvgEntries : 1;
+    const rawNext = overallAvgEntries > 0 ? getAvg(nextIdx) / overallAvgEntries : 1;
     // No neighbor smoothing — the raw factor is used as-is
-    const smoothed = rawTarget;
-    const clamped = Math.max(0.5, Math.min(2.0, smoothed));
+    const smoothed = monthAvg === 0 ? 1 : rawTarget;
+    const clamped = monthAvg === 0 ? 1 : Math.max(0.7, Math.min(2.0, smoothed));
     return {
       monthIndex: mi,
       monthName: MONTH_NAMES[mi],
@@ -741,7 +755,7 @@ function computeSeasonalityBreakdown(
   });
 
   return {
-    overallAvg: Math.round(overallAvg * 100) / 100,
+    overallAvg: Math.round(overallAvgEntries * 100) / 100,
     perMonthBreakdown: breakdown,
   };
 }
@@ -1063,8 +1077,8 @@ export function forecastSKU(
     },
     seasonality: {
       description:
-        "For each calendar month, the average historical demand is divided by the overall average to get a seasonal factor. The raw factor is used directly (no neighbor smoothing), then clamped to a safe range.",
-      formula: "factor = clamp(targetAvg / overallAvg, 0.5, 2.0)",
+        "For each calendar month, the average outbound entry count is divided by the overall average to get a seasonal factor. No data for a month yields factor 1.0. The raw factor is used directly (no neighbor smoothing), then clamped to [0.7, 2.0].",
+      formula: "factor = monthEntries > 0 ? clamp(monthAvgEntries / overallAvgEntries, 0.7, 2.0) : 1.0",
       overallAvg: seasonalityBreakdown.overallAvg,
       perMonthBreakdown: seasonalityBreakdown.perMonthBreakdown,
     },
