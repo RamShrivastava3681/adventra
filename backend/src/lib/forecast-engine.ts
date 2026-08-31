@@ -134,8 +134,10 @@ export function bucketMovementsByMonth(
   // excluded from history so it can be forecasted without leaking its own
   // data into the model.
   //   e.g. targetMonth="2026-04" → history = April 2025 … March 2026
+  // ref = month BEFORE the target so the history window excludes the target
+  // month itself (prevents data leakage into the forecast).
   const ref = targetMonth
-    ? new Date(parseInt(targetMonth.slice(0, 4), 10), parseInt(targetMonth.slice(5, 7), 10) - 1, 1)
+    ? new Date(parseInt(targetMonth.slice(0, 4), 10), parseInt(targetMonth.slice(5, 7), 10) - 2, 1)
     : new Date();
   const buckets: MonthlyBucket[] = [];
   for (let i = months - 1; i >= 0; i--) {
