@@ -85,8 +85,19 @@ function normalize(m: any): StockMovement {
 }
 
 export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, { entityType: "StockMovement", limit: 500, reverse: true });
-  return (items as any[]).map(normalize) as StockMovement[];
+  const allItems: any[] = [];
+  let lastKey: Record<string, any> | undefined;
+  do {
+    const { items, lastKey: nextKey } = await db.queryByGSI1(clientId, {
+      entityType: "StockMovement",
+      limit: 1000,
+      reverse: true,
+      exclusiveStartKey: lastKey,
+    });
+    allItems.push(...items);
+    lastKey = nextKey;
+  } while (lastKey);
+  return allItems.map(normalize) as StockMovement[];
 }
 
 export async function listAll() {

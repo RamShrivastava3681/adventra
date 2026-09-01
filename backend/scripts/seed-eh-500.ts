@@ -32,12 +32,26 @@ type ParsedRow = { date: string; stockIn: number; stockOut: number };
 function parseExcel(filePath: string): ParsedRow[] {
   const wb = XLSX.readFile(filePath);
   const ws = wb.Sheets[wb.SheetNames[0]];
-  const rows = XLSX.utils.sheet_to_json<Record<string, any>>(ws);
 
-  // Detect column names (case-insensitive)
-  const headers = Object.keys(rows[0] ?? {}).map((h) => h.toLowerCase().trim());
-  const hasStockIn = headers.some((h) => h.replace(/\s+/g, "").includes("stockin") || h.replace(/\s+/g, "").includes("stock-in"));
-  const hasStockOut = headers.some((h) => h.replace(/\s+/g, "").includes("stockout") || h.replace(/\s+/g, "").includes("stock-out"));
+  // Read as raw arrays so we get ALL columns from the header row, even if
+  // the first data row has nulls in some columns (xlsx drops those columns
+  // when using keyed mode).
+  const rawRows = XLSX.utils.sheet_to_json<Record<string, any>>(ws, { header: 1 });
+  const headerRow = (rawRows[0] ?? []) as string[];
+  const dataRows = rawRows.slice(1);
+
+  // Map column indices by header name (case-insensitive)
+  const colIdx: Record<string, number> = {};
+  headerRow.forEach((h: string, i: number) => {
+    const key = String(h).toLowerCase().trim().replace(/\s+/g, "");
+    if (key.includes("date")) colIdx.date = i;
+    if (key.includes("stockin") || key.includes("stock-in")) colIdx.stockIn = i;
+    if (key.includes("stockout") || key.includes("stock-out")) colIdx.stockOut = i;
+  });
+
+  const hasStockIn = colIdx.stockIn !== undefined;
+  const hasStockOut = colIdx.stockOut !== undefined;
+  const hasDate = colIdx.date !== undefined;
 
   const monthToNum: Record<string, string> = {
     Jan: "01", Feb: "02", Mar: "03", Apr: "04", May: "05", Jun: "06",
@@ -49,11 +63,12 @@ function parseExcel(filePath: string): ParsedRow[] {
   };
 
   let prevMi = -1;
-  let year = 2024;
+  let year = 2025;
   const result: ParsedRow[] = [];
 
-  for (const row of rows) {
-    const rawDate = row["date"];
+  for (const row of dataRows) {
+    if (!hasDate) continue;
+    const rawDate = row[colIdx.date];
     if (!rawDate) continue;
     const parts = String(rawDate).split("-");
     if (parts.length !== 2) continue;
@@ -63,16 +78,16 @@ function parseExcel(filePath: string): ParsedRow[] {
     const mi = monthIdx[monStr];
     if (mi === undefined) continue;
 
-    if (prevMi !== -1 && mi < prevMi && prevMi >= 8) year = 2025;
+    if (prevMi !== -1 && mi < prevMi && prevMi >= 8) year++;
     prevMi = mi;
 
     const dateStr = `${year}-${monthToNum[monStr]}-${day.padStart(2, "0")}`;
-    const stockIn = hasStockIn ? (Number(row["stock in"]) || 0) : 0;
-    const stockOut = hasStockOut ? (Number(row["stock out"]) || 0) : 0;
+    const stockIn = hasStockIn ? (Number(row[colIdx.stockIn]) || 0) : 0;
+    const stockOut = hasStockOut ? (Number(row[colIdx.stockOut]) || 0) : 0;
 
     // Skip rows with no data at all
-    if (!hasStockIn || !row["stock in"]) {
-      if (!hasStockOut || !row["stock out"]) continue;
+    if (!hasStockIn || !row[colIdx.stockIn]) {
+      if (!hasStockOut || !row[colIdx.stockOut]) continue;
     }
 
     result.push({ date: dateStr, stockIn, stockOut });
