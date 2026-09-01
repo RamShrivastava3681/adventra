@@ -35,6 +35,11 @@ export async function get(id: string) {
   return db.getItem(`MARKETPLACE_SETTLEMENT#${id}`) as Promise<MarketplaceSettlement | null>;
 }
 
+export async function findByReference(clientId: string, reference: string): Promise<MarketplaceSettlement | null> {
+  const items = await list(clientId);
+  return items.find((s) => s.settlementReference === reference) || null;
+}
+
 export async function create(
   data: Partial<MarketplaceSettlement> & { clientId: string; marketplaceName: string; grossSales: number; expectedSettlementDate: string }
 ) {

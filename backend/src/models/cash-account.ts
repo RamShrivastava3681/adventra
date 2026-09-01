@@ -36,6 +36,7 @@ export async function create(
 ) {
   const id = uuid();
   const now = db.nowISO();
+  const currentBal = Number(data.currentBalance) || 0;
   const restricted = Number(data.restrictedBalance) || 0;
   const item: CashAccount = {
     pk: `CASH_ACCOUNT#${id}`, sk: `CASH_ACCOUNT#${id}`,
@@ -43,9 +44,9 @@ export async function create(
     entityType: "CashAccount", id, clientId: data.clientId,
     accountName: data.accountName,
     accountType: data.accountType,
-    currentBalance: Number(data.currentBalance) || 0,
+    currentBalance: currentBal,
     restrictedBalance: restricted,
-    availableForOperations: (Number(data.currentBalance) || 0) - restricted,
+    availableForOperations: currentBal - restricted,
     balanceAsOf: now,
     lastUpdatedBy: null,
     updateSource: "manual",
@@ -60,13 +61,19 @@ export async function update(id: string, updates: Partial<CashAccount>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
   const allowed = ["accountName", "accountType", "currentBalance", "restrictedBalance", "status", "updateSource", "lastUpdatedBy"];
   for (const k of allowed) {
-    if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k];
+    if ((updates as any)[k] !== undefined) {
+      if (k === "currentBalance" || k === "restrictedBalance") {
+        patch[k] = Number((updates as any)[k]) || 0;
+      } else {
+        patch[k] = (updates as any)[k];
+      }
+    }
   }
   // Recompute available balance if balance or restricted changed
   if (patch.currentBalance !== undefined || patch.restrictedBalance !== undefined) {
     const current = await get(id);
-    const bal = Number(patch.currentBalance ?? current?.currentBalance) || 0;
-    const restricted = Number(patch.restrictedBalance ?? current?.restrictedBalance) || 0;
+    const bal = patch.currentBalance !== undefined ? Number(patch.currentBalance) : (Number(current?.currentBalance) || 0);
+    const restricted = patch.restrictedBalance !== undefined ? Number(patch.restrictedBalance) : (Number(current?.restrictedBalance) || 0);
     patch.availableForOperations = bal - restricted;
     patch.balanceAsOf = db.nowISO();
   }
@@ -81,6 +88,11 @@ export async function remove(id: string) {
 export async function totalAvailableCash(clientId: string): Promise<number> {
   const accounts = await list(clientId);
   return accounts
-    .filter((a) => a.status === "active")
-    .reduce((sum, a) => sum + (Number(a.availableForOperations) || 0), 0);
+    .filter((a) => !a.status || a.status.toLowerCase() === "active")
+    .reduce((sum, a) => {
+      const avail = a.availableForOperations !== undefined && !isNaN(Number(a.availableForOperations))
+        ? Number(a.availableForOperations)
+        : ((Number(a.currentBalance) || 0) - (Number(a.restrictedBalance) || 0));
+      return sum + avail;
+    }, 0);
 }

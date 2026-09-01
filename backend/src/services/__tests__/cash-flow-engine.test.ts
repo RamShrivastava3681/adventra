@@ -63,7 +63,7 @@ vi.mock("../../models/purchase-invoice.js", () => ({}));
 
 // ── Import AFTER mocks ─────────────────────────────────────────────────────
 
-import { computeForecast } from "../cash-flow-engine.js";
+import { computeForecast, getSummary } from "../cash-flow-engine.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -424,6 +424,88 @@ describe("Cash-Flow Forecast Engine", () => {
       const forecast = await computeForecast(CLIENT, "monthly");
       expect(forecast.periods.length).toBe(6);
       expect(forecast.mode).toBe("monthly");
+    });
+  });
+
+  describe("Summary & Available Cash Robustness", () => {
+    it("Computes available cash correctly with various account status casings and missing availableForOperations", async () => {
+      mockAccounts.push(
+        { id: "acc1", clientId: CLIENT, currentBalance: 500000, restrictedBalance: 50000, status: "ACTIVE", accountType: "BANK" },
+        { id: "acc2", clientId: CLIENT, currentBalance: 300000, restrictedBalance: 0, status: "active", accountType: "MARKETPLACE", availableForOperations: 300000 },
+        { id: "acc3", clientId: CLIENT, currentBalance: 100000, restrictedBalance: 0, status: "closed", accountType: "CASH" },
+      );
+
+      const summary = await getSummary(CLIENT);
+      // acc1: 500k - 50k = 450k, acc2: 300k, acc3: closed (0) => total 750,000
+      expect(summary.currentAvailableCash).toBe(750000);
+      expect(summary.marketplaceValue).toBe(300000);
+    });
+
+    it("Includes both expected inflows and marketplace settlements in 7-day inflows summary", async () => {
+      mockAccounts.push({ id: "acc1", clientId: CLIENT, currentBalance: 1000000, status: "active" });
+
+      mockInflows.push({
+        id: "in1",
+        clientId: CLIENT,
+        type: "CUSTOMER_COLLECTION",
+        amount: 250000,
+        expectedDate: addDays(today(), 2),
+        status: "EXPECTED",
+      });
+
+      mockSettlements.push({
+        id: "set1",
+        clientId: CLIENT,
+        marketplaceName: "Amazon",
+        grossSales: 150000,
+        marketplaceFees: 20000,
+        netSettlementExpected: 130000,
+        expectedSettlementDate: addDays(today(), 4),
+        status: "EXPECTED",
+      });
+
+      const summary = await getSummary(CLIENT);
+      // 250,000 + 130,000 = 380,000
+      expect(summary.expectedInflowsNext7Days).toBe(380000);
+      expect(summary.totalMarketplaceSettlementsPending).toBe(130000);
+    });
+
+    it("Includes direct outflows, PO commitments, and recurring expenses in 7-day outflows summary", async () => {
+      mockAccounts.push({ id: "acc1", clientId: CLIENT, currentBalance: 1000000, status: "active" });
+
+      mockOutflows.push({
+        id: "out1",
+        clientId: CLIENT,
+        type: "SUPPLIER_PAYMENT",
+        amount: 100000,
+        expectedDate: addDays(today(), 2),
+        status: "PLANNED",
+      });
+
+      mockCommitments.push({
+        id: "com1",
+        clientId: CLIENT,
+        expectedPaymentAmount: 50000,
+        expectedPaymentDate: addDays(today(), 3),
+        status: "COMMITTED",
+      });
+
+      // Today's day of month
+      const currentDay = new Date().getUTCDate();
+      mockRecurring.push({
+        id: "rec1",
+        clientId: CLIENT,
+        category: "Rent",
+        amount: 40000,
+        frequency: "MONTHLY",
+        paymentDay: currentDay,
+        startDate: today(),
+        status: "active",
+      });
+
+      const summary = await getSummary(CLIENT);
+      // 100,000 (outflow) + 50,000 (commitment) + 40,000 (recurring) = 190,000
+      expect(summary.expectedOutflowsNext7Days).toBe(190000);
     });
   });
 });

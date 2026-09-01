@@ -132,13 +132,14 @@ function generateOccurrences(
   expense: RecurringExpense.RecurringExpense,
   horizonEnd: string
 ): Array<{ date: string; amount: number }> {
-  if (expense.status !== "active") return [];
+  if (expense.status && expense.status.toLowerCase() !== "active") return [];
   const occurrences: Array<{ date: string; amount: number }> = [];
-  const start = expense.startDate;
+  const start = expense.startDate || "2000-01-01";
   const end = expense.endDate || horizonEnd;
   if (start > end) return [];
 
-  const paymentDay = expense.paymentDay || 1;
+  const paymentDay = Number(expense.paymentDay) || 1;
+  const amount = Number(expense.amount) || 0;
 
   if (expense.frequency === "WEEKLY") {
     // Generate every week from start, on the same weekday
@@ -146,7 +147,7 @@ function generateOccurrences(
     // Align to the correct weekday (paymentDay here acts as offset from Monday)
     if (paymentDay > 1) cur = addDays(cur, paymentDay - 1);
     while (cur <= end) {
-      if (cur >= start) occurrences.push({ date: cur, amount: expense.amount });
+      if (cur >= start) occurrences.push({ date: cur, amount });
       cur = addDays(cur, 7);
     }
   } else if (expense.frequency === "MONTHLY") {
@@ -155,20 +156,17 @@ function generateOccurrences(
       const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
       const day = Math.min(paymentDay, lastDay);
       const date = `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      if (date >= start && date <= end) occurrences.push({ date, amount: expense.amount });
+      if (date >= start && date <= end) occurrences.push({ date, amount });
       m++;
       if (m > 12) { m = 1; y++; }
     }
   } else if (expense.frequency === "QUARTERLY") {
     let [y, m] = start.split("-").map(Number);
-    // Snap to nearest quarter start
-    const qMonths = [1, 4, 7, 10];
     while (`${y}-${String(m).padStart(2, "0")}-01` <= end) {
       const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
       const day = Math.min(paymentDay, lastDay);
       const date = `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      if (date >= start && date <= end) occurrences.push({ date, amount: expense.amount });
-      // Advance by 3 months
+      if (date >= start && date <= end) occurrences.push({ date, amount });
       m += 3;
       if (m > 12) { m -= 12; y++; }
     }
@@ -178,7 +176,7 @@ function generateOccurrences(
       const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
       const day = Math.min(paymentDay, lastDay);
       const date = `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      if (date >= start && date <= end) occurrences.push({ date, amount: expense.amount });
+      if (date >= start && date <= end) occurrences.push({ date, amount });
       y++;
     }
   }
@@ -367,8 +365,13 @@ export async function computeForecast(
   ]);
 
   const currentCash = accounts
-    .filter((a) => a.status === "active")
-    .reduce((sum, a) => sum + (Number(a.availableForOperations) || 0), 0);
+    .filter((a) => !a.status || a.status.toLowerCase() === "active")
+    .reduce((sum, a) => {
+      const avail = a.availableForOperations !== undefined && !isNaN(Number(a.availableForOperations))
+        ? Number(a.availableForOperations)
+        : ((Number(a.currentBalance) || 0) - (Number(a.restrictedBalance) || 0));
+      return sum + avail;
+    }, 0);
 
   const minimumBuffer = Number(settings.minimumCashBuffer) || 0;
   const periods = generatePeriods(mode, today);
@@ -597,13 +600,14 @@ export interface CashCommandCentreSummary {
 }
 
 export async function getSummary(clientId: string): Promise<CashCommandCentreSummary> {
-  const [settings, accounts, inflows, outflows, commitments, settlements] = await Promise.all([
+  const [settings, accounts, inflows, outflows, commitments, settlements, recurring] = await Promise.all([
     CashFlowSettings.get(clientId),
     CashAccount.list(clientId),
     ExpectedInflow.list(clientId),
     ExpectedOutflow.list(clientId),
     PurchaseCommitment.list(clientId),
     MarketplaceSettlement.list(clientId),
+    RecurringExpense.list(clientId),
   ]);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -611,35 +615,60 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
   const in30 = addDays(today, 30);
 
   const currentCash = accounts
-    .filter((a) => a.status === "active")
-    .reduce((sum, a) => sum + (Number(a.availableForOperations) || 0), 0);
+    .filter((a) => !a.status || a.status.toLowerCase() === "active")
+    .reduce((sum, a) => {
+      const avail = a.availableForOperations !== undefined && !isNaN(Number(a.availableForOperations))
+        ? Number(a.availableForOperations)
+        : ((Number(a.currentBalance) || 0) - (Number(a.restrictedBalance) || 0));
+      return sum + avail;
+    }, 0);
 
   // Marketplace value: total balance of MARKETPLACE-type cash accounts
   const marketplaceValue = accounts
-    .filter((a) => a.status === "active" && a.accountType === "MARKETPLACE")
-    .reduce((sum, a) => sum + (Number(a.availableForOperations) || 0), 0);
+    .filter((a) => (!a.status || a.status.toLowerCase() === "active") && a.accountType === "MARKETPLACE")
+    .reduce((sum, a) => {
+      const avail = a.availableForOperations !== undefined && !isNaN(Number(a.availableForOperations))
+        ? Number(a.availableForOperations)
+        : ((Number(a.currentBalance) || 0) - (Number(a.restrictedBalance) || 0));
+      return sum + avail;
+    }, 0);
 
-  // Active inflows
+  // Active inflows in next 7 days (direct expected inflows + marketplace settlements)
   const activeInflows = inflows.filter((i) =>
     ExpectedInflow.ACTIVE_INFLOW_STATUSES.includes(i.status as any)
   );
-  const inflows7d = activeInflows
+  const directInflows7d = activeInflows
     .filter((i) => i.expectedDate >= today && i.expectedDate <= in7)
     .reduce((s, i) => s + (Number(i.amount) || 0), 0);
 
-  // Active outflows
+  const settlements7d = settlements
+    .filter((s) => s.status !== "RECEIVED" && s.status !== "DISPUTED" && s.expectedSettlementDate >= today && s.expectedSettlementDate <= in7)
+    .reduce((s, x) => s + (Number(x.netSettlementExpected) || 0), 0);
+
+  const totalInflows7d = directInflows7d + settlements7d;
+
+  // Active outflows in next 7 days (direct expected outflows + commitments + recurring expenses)
   const activeOutflows = outflows.filter((o) =>
     ExpectedOutflow.ACTIVE_OUTFLOW_STATUSES.includes(o.status as any)
   );
-  const outflows7d = activeOutflows
+  const directOutflows7d = activeOutflows
     .filter((o) => o.expectedDate >= today && o.expectedDate <= in7)
     .reduce((s, o) => s + (Number(o.amount) || 0), 0);
 
-  // Commitments
+  // Commitments in next 7 days
   const activeCommitments = commitments.filter((c) => c.status !== "CANCELLED");
   const commitmentsOut = activeCommitments
     .filter((c) => c.expectedPaymentDate >= today && c.expectedPaymentDate <= in7)
     .reduce((s, c) => s + (Number(c.expectedPaymentAmount) || 0), 0);
+
+  // Recurring expenses in next 7 days
+  const recurring7d = recurring
+    .filter((r) => !r.status || r.status.toLowerCase() === "active")
+    .flatMap((exp) => generateOccurrences(exp, in7))
+    .filter((occ) => occ.date >= today && occ.date <= in7)
+    .reduce((s, occ) => s + (Number(occ.amount) || 0), 0);
+
+  const totalOutflows7d = directOutflows7d + commitmentsOut + recurring7d;
 
   // Overdue collections
   const overdueTotal = activeInflows
@@ -668,8 +697,8 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
   return {
     currentAvailableCash: round2(currentCash),
     marketplaceValue: round2(marketplaceValue),
-    expectedInflowsNext7Days: round2(inflows7d),
-    expectedOutflowsNext7Days: round2(outflows7d + commitmentsOut),
+    expectedInflowsNext7Days: round2(totalInflows7d),
+    expectedOutflowsNext7Days: round2(totalOutflows7d),
     projectedClosingCashNext7Days: round2(p7),
     projectedClosingCashNext30Days: round2(p30),
     lowestProjectedCashDate: weekly.lowestProjectedCashDate,

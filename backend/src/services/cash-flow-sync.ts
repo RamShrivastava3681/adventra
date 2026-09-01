@@ -194,3 +194,74 @@ export async function syncPurchaseInvoiceToOutflow(pi: any): Promise<void> {
     });
   }
 }
+
+// ---------------------------------------------------------------------------
+// Marketplace Dispatch / Sale → Marketplace Settlement sync
+// ---------------------------------------------------------------------------
+
+/**
+ * When a goods dispatch note of type marketplace_sale is confirmed/created,
+ * automatically create or update an expected Marketplace Settlement.
+ */
+export async function syncMarketplaceDispatchToSettlement(dispatch: any): Promise<void> {
+  const clientId = dispatch.clientId;
+  if (!clientId || dispatch.dispatchType !== "marketplace_sale") return;
+
+  const dispatchRef = `DISPATCH-${dispatch.id}`;
+  const marketplaceName =
+    dispatch.channel ||
+    dispatch.customerName ||
+    "Marketplace";
+
+  // Calculate gross value of the dispatch from lines
+  let grossSales = 0;
+  if (Array.isArray(dispatch.lines)) {
+    for (const ln of dispatch.lines) {
+      const qty = Number(ln.dispatchedQty ?? ln.dispatchQty ?? ln.quantity ?? ln.qty) || 0;
+      const rate = Number(ln.unitPrice ?? ln.rate ?? ln.price) || 0;
+      grossSales += qty * rate;
+    }
+  }
+  if (grossSales <= 0 && dispatch.totalValue) {
+    grossSales = Number(dispatch.totalValue) || 0;
+  }
+  if (grossSales <= 0) grossSales = 0;
+
+  // Expected settlement date: 7 days from dispatch date or today
+  const dispatchDate = dispatch.dispatchDate || new Date().toISOString().slice(0, 10);
+  const d = new Date(dispatchDate + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + 7);
+  const expectedSettlementDate = d.toISOString().slice(0, 10);
+
+  // Estimate 15% marketplace fees
+  const estFees = Math.round(grossSales * 0.15 * 100) / 100;
+
+  const { findByReference, create: createSettlement, update: updateSettlement } = await import(
+    "../models/marketplace-settlement.js"
+  );
+
+  const existing = await findByReference(clientId, dispatchRef);
+  if (existing) {
+    await updateSettlement(existing.id, {
+      grossSales,
+      marketplaceFees: estFees,
+      expectedSettlementDate,
+      marketplaceName,
+      status: dispatch.status === "cancelled" ? "DISPUTED" : "EXPECTED",
+    });
+  } else if (grossSales > 0) {
+    await createSettlement({
+      clientId,
+      marketplaceName,
+      grossSales,
+      marketplaceFees: estFees,
+      deductions: 0,
+      refundsReturns: 0,
+      expectedSettlementDate,
+      settlementReference: dispatchRef,
+      settlementPeriod: dispatch.soNumber ? `SO #${dispatch.soNumber}` : undefined,
+      notes: `Auto-generated from dispatch ${dispatch.dispatchNumber || dispatch.id.slice(0, 8)}`,
+      status: "EXPECTED",
+    });
+  }
+}

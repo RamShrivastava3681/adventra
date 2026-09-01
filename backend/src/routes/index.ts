@@ -4150,6 +4150,17 @@ router.post(
           console.error("  ⚠ E-Way Bill auto-generation failed:", err?.message ?? err);
         }
       })();
+      // Cash-flow sync: auto-create/update marketplace settlement for marketplace dispatches
+      (async () => {
+        try {
+          if (flipped.dispatchType === "marketplace_sale") {
+            const { syncMarketplaceDispatchToSettlement } = await import("../services/cash-flow-sync.js");
+            await syncMarketplaceDispatchToSettlement(flipped);
+          }
+        } catch (err: any) {
+          console.error("  ⚠ Cash-flow marketplace sync failed:", err?.message ?? err);
+        }
+      })();
       res.json({ ...flipped, stockWarnings: warnings });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
