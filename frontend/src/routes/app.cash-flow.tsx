@@ -68,6 +68,13 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 export const Route = createFileRoute("/app/cash-flow")({
   component: CashFlowPage,
@@ -212,6 +219,45 @@ function CashFlowPage() {
           <DashboardSkeleton />
         ) : (
           <>
+            {/* ── Quick Add Dropdown ──────────────────────── */}
+            {hasWrite && (
+              <div className="flex justify-start">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30">
+                      <Plus className="h-4 w-4" />
+                      Quick Add
+                      <ChevronDown className="h-3.5 w-3.5 opacity-70" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="start" className="w-56">
+                    <DropdownMenuItem onClick={() => setShowAddInflow(true)}>
+                      <TrendingUp className="h-4 w-4 text-emerald-600" />
+                      Add Expected Inflow
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setShowAddOutflow(true)}>
+                      <TrendingDown className="h-4 w-4 text-red-600" />
+                      Add Expected Outflow
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setShowAddRecurring(true)}>
+                      <RefreshCw className="h-4 w-4 text-blue-600" />
+                      Add Recurring Expense
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => setShowAddCommitment(true)}>
+                      <ShoppingCart className="h-4 w-4 text-amber-600" />
+                      Add Purchase Commitment
+                    </DropdownMenuItem>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem onClick={() => setShowAddSettlement(true)}>
+                      <Landmark className="h-4 w-4 text-violet-600" />
+                      Add Marketplace Settlement
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            )}
+
             {/* ── Status Bar ─────────────────────────────── */}
             {forecast && (
               <div className={`flex items-center gap-3 rounded-xl border px-4 py-3 ${statusColor(forecast.cashStatus)}`}>
@@ -444,46 +490,7 @@ function CashFlowPage() {
               </div>
             )}
 
-            {/* ── Action Buttons ─────────────────────────── */}
-            {hasWrite && (
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => setShowAddInflow(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Expected Inflow
-                </button>
-                <button
-                  onClick={() => setShowAddOutflow(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Expected Outflow
-                </button>
-                <button
-                  onClick={() => setShowAddRecurring(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Recurring Expense
-                </button>
-                <button
-                  onClick={() => setShowAddCommitment(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Purchase Commitment
-                </button>
-                <button
-                  onClick={() => setShowAddSettlement(true)}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
-                >
-                  <Plus className="h-3.5 w-3.5" />
-                  Add Marketplace Settlement
-                </button>
-              </div>
-            )}
+
 
             {/* ── Inflow / Outflow Breakdown ─────────────── */}
             <div className="grid gap-5 md:grid-cols-2">

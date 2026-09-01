@@ -83,6 +83,8 @@ type Product = {
 type Analysis = {
   product: Product;
   stock: number;
+  /** Net stock at the end of the selected target month (from movements). */
+  closingStock: number;
   forecast: ForecastResult;
   velocityTag: VelocityTag;
   pricingStrategy: PricingStrategyResult | null;
@@ -270,6 +272,15 @@ function ForecastPage() {
         let stock = 0;
         for (const m of moves) stock += (m.direction === "in" ? 1 : -1) * Number(m.quantity);
 
+        // Closing balance at end of target month: sum of movements up to that month
+        const [tY, tM] = targetMonth.split("-").map(Number);
+        const endOfTargetMonth = `${targetMonth}-${String(new Date(tY, tM, 0).getDate()).padStart(2, "0")}`;
+        let closingStock = 0;
+        for (const m of moves) {
+          if ((m.movement_date ?? "") <= endOfTargetMonth)
+            closingStock += (m.direction === "in" ? 1 : -1) * Number(m.quantity);
+        }
+
         // Live current-month outbound sales — drives the pace adjustment factor
         const curMonthKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
         let currentMonthOutbound = 0;
@@ -288,6 +299,7 @@ function ForecastPage() {
         rows.push({
           product,
           stock,
+          closingStock,
           forecast: f,
           velocityTag: snapshot.velocityTag ?? f.velocityTag ?? "dead",
           pricingStrategy: null as PricingStrategyResult | null,
@@ -344,6 +356,14 @@ function ForecastPage() {
       const moves = byProduct.get(p.id) ?? [];
       let stock = 0;
       for (const m of moves) stock += (m.direction === "in" ? 1 : -1) * Number(m.quantity);
+      // Closing balance at end of target month
+      const [tY, tM] = targetMonth.split("-").map(Number);
+      const endOfTargetMonth = `${targetMonth}-${String(new Date(tY, tM, 0).getDate()).padStart(2, "0")}`;
+      let closingStock = 0;
+      for (const m of moves) {
+        if ((m.movement_date ?? "") <= endOfTargetMonth)
+          closingStock += (m.direction === "in" ? 1 : -1) * Number(m.quantity);
+      }
       const history = bucketMovementsByMonth(moves, 12, undefined, targetMonth);
       const curMonthKey = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, "0")}`;
       const currentMonth = targetMonth === curMonthKey ? currentMonthBucket(moves) : undefined;
@@ -356,6 +376,7 @@ function ForecastPage() {
       return {
         product: p,
         stock,
+        closingStock,
         forecast: f,
         velocityTag: "dead" as VelocityTag,
         pricingStrategy: null as PricingStrategyResult | null,
@@ -414,7 +435,7 @@ function ForecastPage() {
         return false;
       if (filter === "accelerating" && a.forecast.momentumTag !== "accelerating") return false;
       if (filter === "declining" && a.forecast.momentumTag !== "declining") return false;
-      if (filter === "out" && a.stock > 0) return false;
+      if (filter === "out" && a.closingStock > 0) return false;
       if (filter === "critical" && a.forecast.stockoutUrgency !== "critical") return false;
       return true;
     });
@@ -461,7 +482,7 @@ function ForecastPage() {
       if (a.forecast.momentumTag === "accelerating") accelerating++;
       if (a.forecast.momentumTag === "declining") declining++;
       if (a.forecast.momentumTag === "inactive") inactive++;
-      if (a.stock <= 0) out++;
+      if (a.closingStock <= 0) out++;
       if (a.forecast.stockoutUrgency === "critical") critical++;
     }
     return {
@@ -530,7 +551,7 @@ function ForecastPage() {
       a.product.category ?? "",
       velocityLabel(a.velocityTag),
       momentumLabel(a.forecast.momentumTag),
-      a.stock,
+      a.closingStock,
       a.forecast.daysOfCover === Infinity ? "" : Math.round(a.forecast.daysOfCover),
       a.forecast.forecast[0]?.qty ?? 0,
       a.forecast.estimatedStockoutDate ?? "",
@@ -951,6 +972,7 @@ function SKUTable({
             key={a.product.id}
             product={a.product}
             stock={a.stock}
+            closingStock={a.closingStock}
             f={a.forecast}
             velocityTag={a.velocityTag}
             pricingStrategy={a.pricingStrategy}
@@ -1027,6 +1049,7 @@ function SKUTable({
                 key={a.product.id}
                 product={a.product}
                 stock={a.stock}
+                closingStock={a.closingStock}
                 f={a.forecast}
                 velocityTag={a.velocityTag}
                 pricingStrategy={a.pricingStrategy}
@@ -1108,6 +1131,7 @@ function SortableTh({
 function TableRow({
   product,
   stock,
+  closingStock,
   f,
   velocityTag,
   pricingStrategy,
@@ -1120,6 +1144,7 @@ function TableRow({
 }: {
   product: Product;
   stock: number;
+  closingStock: number;
   f: ForecastResult;
   velocityTag: VelocityTag;
   pricingStrategy: PricingStrategyResult | null;
@@ -1184,13 +1209,13 @@ function TableRow({
           </span>
         </td>
 
-        {/* In stock */}
+        {/* In stock (closing balance at end of target month) */}
         <td
           className={`px-4 py-4 text-right text-sm font-medium tabular-nums ${
-            stock <= 0 ? "text-red-600" : "text-foreground"
+            closingStock <= 0 ? "text-red-600" : "text-foreground"
           }`}
         >
-          {stock.toLocaleString()}
+          {closingStock.toLocaleString()}
         </td>
 
         {/* Days cover */}
@@ -1288,6 +1313,7 @@ function TableRow({
 function MobileRowCard({
   product,
   stock,
+  closingStock,
   f,
   velocityTag,
   pricingStrategy,
@@ -1300,6 +1326,7 @@ function MobileRowCard({
 }: {
   product: Product;
   stock: number;
+  closingStock: number;
   f: ForecastResult;
   velocityTag: VelocityTag;
   pricingStrategy: PricingStrategyResult | null;
@@ -1358,7 +1385,7 @@ function MobileRowCard({
       </button>
 
       <div className="mt-3 grid grid-cols-3 gap-2 text-center">
-        <MiniStat label="In stock" value={stock.toLocaleString()} danger={stock <= 0} />
+        <MiniStat label="In stock" value={closingStock.toLocaleString()} danger={closingStock <= 0} />
         <MiniStat
           label="Days cover"
           value={f.daysOfCover === Infinity ? "∞" : `${Math.round(f.daysOfCover)}d`}
