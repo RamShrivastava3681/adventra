@@ -582,6 +582,7 @@ async function generateAlerts(
 
 export interface CashCommandCentreSummary {
   currentAvailableCash: number;
+  marketplaceValue: number;
   expectedInflowsNext7Days: number;
   expectedOutflowsNext7Days: number;
   projectedClosingCashNext7Days: number;
@@ -611,6 +612,11 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
 
   const currentCash = accounts
     .filter((a) => a.status === "active")
+    .reduce((sum, a) => sum + (Number(a.availableForOperations) || 0), 0);
+
+  // Marketplace value: total balance of MARKETPLACE-type cash accounts
+  const marketplaceValue = accounts
+    .filter((a) => a.status === "active" && a.accountType === "MARKETPLACE")
     .reduce((sum, a) => sum + (Number(a.availableForOperations) || 0), 0);
 
   // Active inflows
@@ -645,7 +651,7 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
     .filter((o) => o.type === "SUPPLIER_PAYMENT" && o.expectedDate >= today && o.expectedDate <= in7)
     .reduce((s, o) => s + (Number(o.amount) || 0), 0);
 
-  // Marketplace pending
+  // Marketplace pending (settlements)
   const pendingSettlements = settlements.filter((s) => s.status === "EXPECTED" || s.status === "DELAYED");
   const pendingTotal = pendingSettlements.reduce((s, x) => s + (Number(x.netSettlementExpected) || 0), 0);
 
@@ -661,7 +667,8 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
 
   return {
     currentAvailableCash: round2(currentCash),
-    expectedInflowsNext7Days: round2(inflows7d + commitmentsOut > 0 ? inflows7d : inflows7d),
+    marketplaceValue: round2(marketplaceValue),
+    expectedInflowsNext7Days: round2(inflows7d),
     expectedOutflowsNext7Days: round2(outflows7d + commitmentsOut),
     projectedClosingCashNext7Days: round2(p7),
     projectedClosingCashNext30Days: round2(p30),

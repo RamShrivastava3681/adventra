@@ -317,7 +317,7 @@ function CashFlowPage() {
 
             {/* ── Quick Stats Row ────────────────────────── */}
             {summary && (
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                 <QuickStat
                   label="Overdue Collections"
                   value={fmt(summary.totalOverdueCollections)}
@@ -331,9 +331,15 @@ function CashFlowPage() {
                   icon={<CreditCard className="h-3.5 w-3.5" />}
                 />
                 <QuickStat
+                  label="Marketplace Value"
+                  value={fmt(summary.marketplaceValue)}
+                  color="text-blue-600"
+                  icon={<Landmark className="h-3.5 w-3.5" />}
+                />
+                <QuickStat
                   label="Marketplace Pending"
                   value={fmt(summary.totalMarketplaceSettlementsPending)}
-                  color="text-blue-600"
+                  color="text-violet-600"
                   icon={<ShoppingCart className="h-3.5 w-3.5" />}
                 />
               </div>
@@ -562,6 +568,7 @@ function CashFlowPage() {
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ["cash-flow-recurring"] });
             queryClient.invalidateQueries({ queryKey: ["cash-flow-forecast"] });
+            queryClient.invalidateQueries({ queryKey: ["cash-flow-summary"] });
             setShowAddRecurring(false);
           }}
         />
@@ -571,6 +578,7 @@ function CashFlowPage() {
           onClose={() => setShowAddCommitment(false)}
           onSuccess={() => {
             queryClient.invalidateQueries({ queryKey: ["cash-flow-forecast"] });
+            queryClient.invalidateQueries({ queryKey: ["cash-flow-summary"] });
             setShowAddCommitment(false);
           }}
         />
