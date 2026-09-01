@@ -445,6 +445,10 @@ const api = {
       update: (id: string, data: any) => api.put<any>(`/cash-flow/commitments/${id}`, data),
       delete: (id: string) => api.delete(`/cash-flow/commitments/${id}`),
     },
+    // Uninvoiced Purchase Orders (POs without a linked Purchase Invoice)
+    uninvoicedPos: {
+      list: () => api.get<any[]>("/cash-flow/uninvoiced-pos"),
+    },
     // Recurring Expenses
     recurring: {
       list: () => api.get<any[]>("/cash-flow/recurring"),

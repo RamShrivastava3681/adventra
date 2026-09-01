@@ -590,6 +590,7 @@ export interface CashCommandCentreSummary {
   marketplaceValue: number;
   expectedInflowsNext7Days: number;
   expectedOutflowsNext7Days: number;
+  totalRecurringExpensesNext7Days: number;
   projectedClosingCashNext7Days: number;
   projectedClosingCashNext30Days: number;
   lowestProjectedCashDate: string;
@@ -705,6 +706,7 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
     marketplaceValue: round2(marketplaceValue),
     expectedInflowsNext7Days: round2(totalInflows7d),
     expectedOutflowsNext7Days: round2(totalOutflows7d),
+    totalRecurringExpensesNext7Days: round2(recurring7d),
     projectedClosingCashNext7Days: round2(p7),
     projectedClosingCashNext30Days: round2(p30),
     lowestProjectedCashDate: weekly.lowestProjectedCashDate,

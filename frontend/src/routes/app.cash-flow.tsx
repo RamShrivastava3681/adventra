@@ -99,6 +99,137 @@ function statusDot(status: string): string {
   return "bg-red-500";
 }
 
+/** Compute the next occurrence date for a recurring expense from today. */
+function nextOccurrenceDate(r: any): string | null {
+  if (r.status && r.status.toLowerCase() !== "active") return null;
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const paymentDay = Number(r.paymentDay) || 1;
+  const freq = (r.frequency || "MONTHLY").toUpperCase();
+
+  if (freq === "WEEKLY") {
+    // next occurrence: next weekday matching paymentDay offset from Monday
+    const dayOfWeek = today.getDay(); // 0=Sun
+    const daysUntilMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1; // days since Monday
+    const nextDate = new Date(today);
+    nextDate.setDate(nextDate.getDate() + ((paymentDay - 1 - daysUntilMon + 7) % 7));
+    if (nextDate.toISOString().slice(0, 10) < todayStr) nextDate.setDate(nextDate.getDate() + 7);
+    return nextDate.toISOString().slice(0, 10);
+  }
+
+  if (freq === "MONTHLY") {
+    let y = today.getFullYear();
+    let m = today.getMonth() + 1;
+    const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const day = Math.min(paymentDay, lastDay);
+    let candidate = `${y}-${String(m).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    if (candidate < todayStr) {
+      m++;
+      if (m > 12) { m = 1; y++; }
+      const ld2 = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const d2 = Math.min(paymentDay, ld2);
+      candidate = `${y}-${String(m).padStart(2, "0")}-${String(d2).padStart(2, "0")}`;
+    }
+    return candidate;
+  }
+
+  if (freq === "QUARTERLY") {
+    let y = today.getFullYear();
+    let m = today.getMonth() + 1;
+    // Find next quarter start
+    const qMonth = Math.ceil(m / 3) * 3;
+    m = qMonth + 1;
+    if (m > 12) { m = 1; y++; }
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const ld = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const d = Math.min(paymentDay, ld);
+      const candidate = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      if (candidate >= todayStr) return candidate;
+      m += 3;
+      if (m > 12) { m -= 12; y++; }
+    }
+  }
+
+  if (freq === "ANNUAL") {
+    let y = today.getFullYear();
+    let m = today.getMonth() + 1;
+    const ld = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const d = Math.min(paymentDay, ld);
+    let candidate = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    if (candidate < todayStr) {
+      y++;
+      const ld2 = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const d2 = Math.min(paymentDay, ld2);
+      candidate = `${y}-${String(m).padStart(2, "0")}-${String(d2).padStart(2, "0")}`;
+    }
+    return candidate;
+  }
+
+  return null;
+}
+
+/** Count occurrences within the next 7 days for a recurring expense. */
+function occurrencesInNext7Days(r: any): number {
+  if (r.status && r.status.toLowerCase() !== "active") return 0;
+  const today = new Date();
+  const todayStr = today.toISOString().slice(0, 10);
+  const end = new Date(today);
+  end.setDate(end.getDate() + 7);
+  const endStr = end.toISOString().slice(0, 10);
+  const freq = (r.frequency || "MONTHLY").toUpperCase();
+  const paymentDay = Number(r.paymentDay) || 1;
+  let count = 0;
+
+  if (freq === "WEEKLY") {
+    // Count how many weekly occurrences fall in the window
+    const dayOfWeek = today.getDay();
+    const daysUntilMon = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+    let d = new Date(today);
+    d.setDate(d.getDate() - daysUntilMon + (paymentDay - 1));
+    // Scan from 4 weeks before today to cover all cases
+    d.setDate(d.getDate() - 28);
+    while (d <= end) {
+      const ds = d.toISOString().slice(0, 10);
+      if (ds >= todayStr && ds <= endStr) count++;
+      d.setDate(d.getDate() + 7);
+    }
+  } else if (freq === "MONTHLY") {
+    let y = today.getFullYear();
+    let m = today.getMonth() + 1;
+    for (let i = 0; i < 3; i++) {
+      const ld = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const d = Math.min(paymentDay, ld);
+      const candidate = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      if (candidate >= todayStr && candidate <= endStr) count++;
+      m++;
+      if (m > 12) { m = 1; y++; }
+    }
+  } else if (freq === "QUARTERLY") {
+    let y = today.getFullYear();
+    let m = today.getMonth() + 1;
+    const qMonth = Math.ceil(m / 3) * 3 + 1;
+    m = qMonth > 12 ? 1 : qMonth;
+    if (qMonth > 12) y++;
+    for (let i = 0; i < 2; i++) {
+      const ld = new Date(Date.UTC(y, m, 0)).getUTCDate();
+      const d = Math.min(paymentDay, ld);
+      const candidate = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+      if (candidate >= todayStr && candidate <= endStr) count++;
+      m += 3;
+      if (m > 12) { m -= 12; y++; }
+    }
+  } else if (freq === "ANNUAL") {
+    const y = today.getFullYear();
+    const m = today.getMonth() + 1;
+    const ld = new Date(Date.UTC(y, m, 0)).getUTCDate();
+    const d = Math.min(paymentDay, ld);
+    const candidate = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    if (candidate >= todayStr && candidate <= endStr) count++;
+  }
+
+  return count;
+}
+
 // ── Page Component ─────────────────────────────────────────────────────────
 
 function CashFlowPage() {
@@ -179,6 +310,11 @@ function CashFlowPage() {
     queryFn: () => api.cashFlow.commitments.list(),
   });
 
+  const uninvoicedPosQ = useQuery({
+    queryKey: ["cash-flow-uninvoiced-pos"],
+    queryFn: () => api.cashFlow.uninvoicedPos.list(),
+  });
+
   const settlementsQ = useQuery({
     queryKey: ["cash-flow-settlements"],
     queryFn: () => api.cashFlow.settlements.list(),
@@ -192,6 +328,7 @@ function CashFlowPage() {
     queryClient.invalidateQueries({ queryKey: ["cash-flow-outflows"] });
     queryClient.invalidateQueries({ queryKey: ["cash-flow-recurring"] });
     queryClient.invalidateQueries({ queryKey: ["cash-flow-commitments"] });
+    queryClient.invalidateQueries({ queryKey: ["cash-flow-uninvoiced-pos"] });
     queryClient.invalidateQueries({ queryKey: ["cash-flow-settlements"] });
     queryClient.invalidateQueries({ queryKey: ["cash-flow-settings"] });
   };
@@ -438,7 +575,7 @@ function CashFlowPage() {
             </div>
 
             {/* ── Summary Cards ──────────────────────────── */}
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-7">
               <SummaryCard
                 icon={<Landmark className="h-4 w-4" />}
                 iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400"
@@ -459,6 +596,13 @@ function CashFlowPage() {
                 value={fmt(summary?.expectedOutflowsNext7Days ?? 0)}
                 label="Outflows (7d)"
                 sublabel="Bills + POs + Recurring"
+              />
+              <SummaryCard
+                icon={<RefreshCw className="h-4 w-4" />}
+                iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                value={fmt(summary?.totalRecurringExpensesNext7Days ?? 0)}
+                label="Recurring (7d)"
+                sublabel="Fixed overheads"
               />
               <SummaryCard
                 icon={<Calendar className="h-4 w-4" />}
@@ -540,7 +684,7 @@ function CashFlowPage() {
                 </TabsTrigger>
                 <TabsTrigger value="inflows" className="text-xs font-medium gap-1.5 px-3">
                   <TrendingUp className="h-3.5 w-3.5" />
-                  All Inflows ({inflowsQ.data?.length || 0})
+                  All Inflows ({combinedInflows.length || 0})
                 </TabsTrigger>
                 <TabsTrigger value="outflows" className="text-xs font-medium gap-1.5 px-3">
                   <TrendingDown className="h-3.5 w-3.5" />
@@ -1004,7 +1148,9 @@ function CashFlowPage() {
                           <th className="px-5 py-3.5">Description</th>
                           <th className="px-5 py-3.5">Frequency</th>
                           <th className="px-5 py-3.5">Payment Day</th>
+                          <th className="px-5 py-3.5">Next Occurrence</th>
                           <th className="px-5 py-3.5 text-right">Amount</th>
+                          <th className="px-5 py-3.5 text-right">7d Projected</th>
                           <th className="px-5 py-3.5 text-center">Status</th>
                           {hasWrite && <th className="px-5 py-3.5 text-right">Actions</th>}
                         </tr>
@@ -1012,7 +1158,7 @@ function CashFlowPage() {
                       <tbody className="divide-y border-border/60">
                         {recurringQ.data?.length === 0 ? (
                           <tr>
-                            <td colSpan={7} className="text-center py-8 text-sm text-muted-foreground">
+                            <td colSpan={9} className="text-center py-8 text-sm text-muted-foreground">
                               No recurring expenses configured. Add rent, payroll, subscriptions, or debt payments.
                             </td>
                           </tr>
@@ -1036,8 +1182,29 @@ function CashFlowPage() {
                               <td className="px-5 py-3.5 text-xs font-mono text-muted-foreground">
                                 Day {r.paymentDay || 1}
                               </td>
+                              <td className="px-5 py-3.5 text-xs font-mono text-muted-foreground">
+                                {(() => {
+                                  const next = nextOccurrenceDate(r);
+                                  return next ? (
+                                    <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium">{next}</span>
+                                  ) : (
+                                    <span className="text-muted-foreground italic">—</span>
+                                  );
+                                })()}
+                              </td>
                               <td className="px-5 py-3.5 text-right font-mono font-bold text-red-600">
                                 −{fmtFull(r.amount)}
+                              </td>
+                              <td className="px-5 py-3.5 text-right font-mono text-xs">
+                                {(() => {
+                                  const occCount = occurrencesInNext7Days(r);
+                                  const projected = occCount * (Number(r.amount) || 0);
+                                  return occCount > 0 ? (
+                                    <span className="text-amber-600 dark:text-amber-400 font-medium">−{fmtFull(projected)} <span className="text-muted-foreground font-normal">({occCount}×)</span></span>
+                                  ) : (
+                                    <span className="text-muted-foreground">—</span>
+                                  );
+                                })()}
                               </td>
                               <td className="px-5 py-3.5 text-center">
                                 <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
@@ -1197,6 +1364,90 @@ function CashFlowPage() {
                     </table>
                   </div>
                 </div>
+
+                {/* ── Uninvoiced Purchase Orders Section ── */}
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border bg-card p-5 shadow-xs">
+                  <div>
+                    <h3 className="text-base font-semibold text-foreground">Purchase Orders Awaiting Supplier Invoice</h3>
+                    <p className="text-xs text-muted-foreground">
+                      Approved / sent POs that have not yet been converted into a purchase invoice — these represent committed outflows pending invoicing.
+                    </p>
+                  </div>
+                  {uninvoicedPosQ.data && uninvoicedPosQ.data.length > 0 && (
+                    <span className="rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 px-3 py-1 text-xs font-bold">
+                      {uninvoicedPosQ.data.length} pending
+                    </span>
+                  )}
+                </div>
+
+                <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          <th className="px-5 py-3.5">PO Number</th>
+                          <th className="px-5 py-3.5">Supplier</th>
+                          <th className="px-5 py-3.5">PO Date</th>
+                          <th className="px-5 py-3.5">Expected Delivery</th>
+                          <th className="px-5 py-3.5 text-right">PO Total</th>
+                          <th className="px-5 py-3.5 text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {uninvoicedPosQ.isLoading ? (
+                          <tr>
+                            <td colSpan={6} className="text-center py-8 text-sm text-muted-foreground">
+                              <Loader2 className="h-4 w-4 animate-spin inline-block mr-2" />
+                              Loading purchase orders...
+                            </td>
+                          </tr>
+                        ) : uninvoicedPosQ.data?.length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="text-center py-8 text-sm text-muted-foreground">
+                              All purchase orders have been invoiced. No pending POs awaiting supplier invoice.
+                            </td>
+                          </tr>
+                        ) : (
+                          uninvoicedPosQ.data?.map((po: any) => (
+                            <tr key={po.id} className="hover:bg-muted/20 transition-colors">
+                              <td className="px-5 py-3.5 font-medium text-foreground">
+                                <div className="flex items-center gap-2">
+                                  <CreditCard className="h-4 w-4 text-amber-600" />
+                                  {po.poNumber || "—"}
+                                </div>
+                              </td>
+                              <td className="px-5 py-3.5 text-xs text-muted-foreground">
+                                {po.supplierName || "—"}
+                              </td>
+                              <td className="px-5 py-3.5 text-xs font-mono text-muted-foreground">
+                                {po.poDate || "—"}
+                              </td>
+                              <td className="px-5 py-3.5 text-xs font-mono text-muted-foreground">
+                                {po.expectedDeliveryDate || "—"}
+                              </td>
+                              <td className="px-5 py-3.5 text-right font-mono font-bold text-red-600">
+                                −{fmtFull(po.grandTotal)}
+                              </td>
+                              <td className="px-5 py-3.5 text-center">
+                                <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                  po.status === "approved"
+                                    ? "bg-emerald-500/10 text-emerald-600"
+                                    : po.status === "sent"
+                                      ? "bg-blue-500/10 text-blue-600"
+                                      : po.status === "partially_received"
+                                        ? "bg-amber-500/10 text-amber-600"
+                                        : "bg-muted text-muted-foreground"
+                                }`}>
+                                  {po.status?.replace(/_/g, " ") || "—"}
+                                </span>
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </TabsContent>
 
               {/* ── Tab 6: All Inflows ─────────────────────── */}
@@ -1205,7 +1456,7 @@ function CashFlowPage() {
                   <div>
                     <h3 className="text-base font-semibold text-foreground">Expected Cash Inflows</h3>
                     <p className="text-xs text-muted-foreground">
-                      Customer collections, advance receipts, loan disbursements, promoter capital and tax refunds.
+                      Customer collections, advance receipts, loan disbursements, promoter capital, tax refunds, and marketplace settlements.
                     </p>
                   </div>
                   {hasWrite && (
@@ -1231,18 +1482,20 @@ function CashFlowPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/60">
-                        {inflowsQ.data?.length === 0 ? (
+                        {combinedInflows.length === 0 ? (
                           <tr>
                             <td colSpan={7} className="text-center py-8 text-sm text-muted-foreground">
                               No expected inflows recorded.
                             </td>
                           </tr>
                         ) : (
-                          inflowsQ.data?.map((i: any) => (
+                          combinedInflows.map((i: any) => {
+                            const isSettlement = i.type === "MARKETPLACE_SETTLEMENT";
+                            return (
                             <tr key={i.id} className="hover:bg-muted/20 transition-colors">
                               <td className="px-5 py-3.5 font-medium text-foreground">
                                 <span className="rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 text-xs font-medium">
-                                  {i.type.replace(/_/g, " ")}
+                                  {(i.displayCategory || i.type).replace(/_/g, " ")}
                                 </span>
                               </td>
                               <td className="px-5 py-3.5 text-xs font-medium text-foreground">
@@ -1252,7 +1505,7 @@ function CashFlowPage() {
                                 {i.expectedDate}
                               </td>
                               <td className="px-5 py-3.5 text-center text-xs font-mono">
-                                {i.confidence || 80}%
+                                {isSettlement ? "100%" : `${i.confidence || 80}%`}
                               </td>
                               <td className="px-5 py-3.5 text-right font-mono font-bold text-emerald-600">
                                 +{fmtFull(i.amount)}
@@ -1278,9 +1531,11 @@ function CashFlowPage() {
                                         className="h-7 text-xs text-emerald-600 border-emerald-300 hover:bg-emerald-50"
                                         onClick={async () => {
                                           try {
-                                            await api.cashFlow.inflows.update(i.id, {
-                                              status: "RECEIVED",
-                                            });
+                                            if (isSettlement) {
+                                              await api.cashFlow.settlements.update(i.id, { status: "RECEIVED" });
+                                            } else {
+                                              await api.cashFlow.inflows.update(i.id, { status: "RECEIVED" });
+                                            }
                                             toast.success("Inflow marked as RECEIVED");
                                             invalidateAll();
                                           } catch (err: any) {
@@ -1292,27 +1547,32 @@ function CashFlowPage() {
                                         Received
                                       </Button>
                                     )}
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                                      onClick={() => setEditingInflow(i)}
-                                    >
-                                      <Edit2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
-                                      onClick={() => setDeletingInflow(i)}
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
+                                    {!isSettlement && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                                        onClick={() => setEditingInflow(i)}
+                                      >
+                                        <Edit2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
+                                    {!isSettlement && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                                        onClick={() => setDeletingInflow(i)}
+                                      >
+                                        <Trash2 className="h-3.5 w-3.5" />
+                                      </Button>
+                                    )}
                                   </div>
                                 </td>
                               )}
                             </tr>
-                          ))
+                            );
+                          })
                         )}
                       </tbody>
                     </table>
@@ -2123,6 +2383,10 @@ function InflowFormDialog({
                 <SelectItem value="INSURANCE_CLAIM">Insurance Claim</SelectItem>
                 <SelectItem value="DEPOSIT_REFUND">Deposit Refund</SelectItem>
                 <SelectItem value="INTEREST_RECEIPT">Interest Receipt</SelectItem>
+                <SelectItem value="WEBSITE_SALES">Website Sales</SelectItem>
+                <SelectItem value="SALES_RETURN_RECOVERY">Sales Return Recovery</SelectItem>
+                <SelectItem value="SUPPLIER_REFUND">Supplier Refund</SelectItem>
+                <SelectItem value="BANK_REFUND">Bank Refund</SelectItem>
                 <SelectItem value="OTHER">Other</SelectItem>
               </SelectContent>
             </Select>

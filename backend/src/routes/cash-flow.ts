@@ -11,6 +11,8 @@ import * as PurchaseCommitment from "../models/purchase-commitment.js";
 import * as RecurringExpense from "../models/recurring-expense.js";
 import * as MarketplaceSettlement from "../models/marketplace-settlement.js";
 import * as CashFlowEngine from "../services/cash-flow-engine.js";
+import * as GoodsPO from "../models/goods-purchase-order.js";
+import * as PurchaseInvoice from "../models/purchase-invoice.js";
 
 const router = Router();
 
@@ -189,7 +191,8 @@ router.post("/cash-flow/inflows", requireCashFlowWrite, async (req: Request, res
     const validTypes = [
       "CUSTOMER_COLLECTION", "MARKETPLACE_SETTLEMENT", "LOAN_DISBURSEMENT",
       "PROMOTER_CAPITAL", "TAX_REFUND", "INSURANCE_CLAIM", "ADVANCE_RECEIPT",
-      "DEPOSIT_REFUND", "INTEREST_RECEIPT", "OTHER",
+      "DEPOSIT_REFUND", "INTEREST_RECEIPT", "WEBSITE_SALES", "SALES_RETURN_RECOVERY",
+      "SUPPLIER_REFUND", "BANK_REFUND", "OTHER",
     ];
     if (!validTypes.includes(type)) {
       return res.status(400).json({ error: `Invalid type. Must be one of: ${validTypes.join(", ")}` });
@@ -580,6 +583,37 @@ router.get("/cash-flow/forecast/monthly", async (req: Request, res: Response) =>
     const clientId = (req as any).user.userId;
     const forecast = await CashFlowEngine.computeForecast(clientId, "monthly");
     res.json(forecast);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===================== UNINVOICED PURCHASE ORDERS =====================
+
+router.get("/cash-flow/uninvoiced-pos", async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    const [allPOs, allInvoices] = await Promise.all([
+      GoodsPO.list(clientId),
+      PurchaseInvoice.list(clientId),
+    ]);
+
+    // Build a set of goodsPurchaseOrderId values from all purchase invoices
+    const invoicedPOIds = new Set<string>();
+    for (const pi of allInvoices) {
+      if (pi.goodsPurchaseOrderId) {
+        invoicedPOIds.add(pi.goodsPurchaseOrderId);
+      }
+    }
+
+    // Filter: POs that are not cancelled/draft/pending_review AND have no linked invoice
+    const uninvoiced = allPOs.filter((po) => {
+      if (po.status === "cancelled") return false;
+      if (po.status === "draft" || po.status === "pending_review") return false;
+      return !invoicedPOIds.has(po.id);
+    });
+
+    res.json(uninvoiced);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
