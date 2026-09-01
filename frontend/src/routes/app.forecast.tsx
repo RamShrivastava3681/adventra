@@ -193,6 +193,7 @@ function ForecastPage() {
           direction: m.direction,
           quantity: m.quantity,
           movement_date: m.movementDate ?? m.movement_date,
+          dispatchType: m.dispatchType ?? m.dispatch_type ?? null,
         }));
     },
     refetchInterval: 60_000, // live stock levels — sales/stock-ins flow in every minute
@@ -2146,6 +2147,7 @@ function ExpandedForecastDetail({
         movement_date: m.movement_date,
         quantity: m.quantity,
         direction: m.direction,
+        dispatchType: m.dispatchType ?? null,
       }));
 
     // Shift history to the target month

@@ -16,7 +16,34 @@ export type MovementInput = {
   movement_date: string;
   quantity: number;
   direction: string;
+  dispatchType?: string | null;
+  status?: string | null;
 };
+
+/**
+ * Determines if a movement represents actual customer demand.
+ * Demand = customer_sale + marketplace_sale + pos_sale − customer_return.
+ * Explicitly excludes: GRN, stock transfers, return_to_supplier, damage,
+ * sample, adjustment, transit, and any draft/cancelled movements.
+ */
+export function isDemandMovement(m: MovementInput): boolean {
+  if (m.status && m.status !== "confirmed") return false;
+  if (m.dispatchType) {
+    if (
+      m.dispatchType === "customer_sale" ||
+      m.dispatchType === "marketplace_sale" ||
+      m.dispatchType === "pos_sale"
+    ) {
+      return m.direction === "out";
+    }
+    if (m.dispatchType === "customer_return") {
+      return m.direction === "in";
+    }
+    return false;
+  }
+  // Legacy movements without dispatchType: only count outbound as demand
+  return m.direction === "out";
+}
 
 // Per-month availability signal for a SKU. Provide as many months as known.
 export type AvailabilityInput = {
@@ -153,6 +180,7 @@ export function bucketMovementsByMonth(
   const availByMonth = new Map((availability ?? []).map((a) => [a.month, a]));
 
   for (const m of movements) {
+    if (!isDemandMovement(m)) continue;
     if (m.direction !== "out") continue;
     const k = m.movement_date.slice(0, 7);
     const i = idx.get(k);
@@ -187,6 +215,7 @@ export function currentMonthBucket(
   const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   let rawQty = 0;
   for (const m of movements) {
+    if (!isDemandMovement(m)) continue;
     if (m.direction !== "out") continue;
     if (m.movement_date.slice(0, 7) === month) rawQty += Number(m.quantity);
   }
