@@ -25,22 +25,33 @@ export async function syncInvoiceToInflow(invoice: any): Promise<void> {
 
   if (outstanding <= 0) return; // Fully paid or zero-value invoice
 
-  // Determine expected date: use promisedPaymentDate if set, else dueDate
-  const expectedDate =
-    invoice.promisedPaymentDate || invoice.dueDate || invoice.issueDate;
-
-  if (!expectedDate) return; // No date → can't forecast
-
-  // Resolve customer name from debtor
+  // Resolve customer details from debtor (for name + credit period)
   let customerName: string | null = null;
+  let creditPeriodDays = 30; // default
   if (invoice.debtorId) {
     try {
       const debtor = await Debtor.get(invoice.debtorId);
       customerName = debtor?.name || null;
+      if (debtor?.paymentTermsDays && debtor.paymentTermsDays > 0) {
+        creditPeriodDays = debtor.paymentTermsDays;
+      }
     } catch {
       // Swallow — don't block invoice creation
     }
   }
+
+  // Determine expected date per priority chain:
+  // 1. Customer-promised payment date (if entered)
+  // 2. Invoice due date
+  // 3. Invoice date + customer credit period
+  let expectedDate = invoice.promisedPaymentDate || invoice.dueDate || null;
+  if (!expectedDate && invoice.issueDate) {
+    const d = new Date(invoice.issueDate + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + creditPeriodDays);
+    expectedDate = d.toISOString().slice(0, 10);
+  }
+
+  if (!expectedDate) return; // No date → can't forecast
 
   // Upsert: find existing inflow for this invoice, or create new
   const existing = await ExpectedInflow.findBySource(clientId, "invoice", invoiceId);
@@ -142,19 +153,32 @@ export async function syncPurchaseInvoiceToOutflow(pi: any): Promise<void> {
 
   if (outstanding <= 0) return; // Fully paid
 
-  const expectedDate = pi.dueDate || pi.issueDate;
-  if (!expectedDate) return;
-
-  // Resolve supplier name
+  // Resolve supplier details (for name + credit period)
   let supplierName: string | null = pi.supplierName || null;
-  if (!supplierName && pi.vendorId) {
+  let creditPeriodDays = 30; // default
+  if (pi.vendorId) {
     try {
       const vendor = await Vendor.get(pi.vendorId);
-      supplierName = vendor?.name || null;
+      if (!supplierName) supplierName = vendor?.name || null;
+      if (vendor?.paymentTermsDays && vendor.paymentTermsDays > 0) {
+        creditPeriodDays = vendor.paymentTermsDays;
+      }
     } catch {
       // Swallow
     }
   }
+
+  // Determine expected date per priority chain:
+  // 1. Agreed payment date (if entered)
+  // 2. Supplier invoice due date
+  // 3. Purchase invoice date + supplier credit period
+  let expectedDate = pi.agreedPaymentDate || pi.dueDate || null;
+  if (!expectedDate && pi.issueDate) {
+    const d = new Date(pi.issueDate + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() + creditPeriodDays);
+    expectedDate = d.toISOString().slice(0, 10);
+  }
+  if (!expectedDate) return;
 
   const existing = await ExpectedOutflow.findBySource(clientId, "purchase_invoice", piId);
 

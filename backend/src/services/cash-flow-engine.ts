@@ -40,10 +40,12 @@ export interface PeriodForecast {
 }
 
 export type ForecastMode = "daily" | "weekly" | "monthly";
+export type ForecastViewMode = "base" | "with_commitments";
 
 export interface CashFlowForecast {
   clientId: string;
   mode: ForecastMode;
+  viewMode: ForecastViewMode;
   currentAvailableCash: number;
   minimumCashBuffer: number;
   periods: PeriodForecast[];
@@ -347,7 +349,8 @@ function generatePeriods(
 
 export async function computeForecast(
   clientId: string,
-  mode: ForecastMode = "weekly"
+  mode: ForecastMode = "weekly",
+  viewMode: ForecastViewMode = "with_commitments"
 ): Promise<CashFlowForecast> {
   const today = new Date().toISOString().slice(0, 10);
 
@@ -378,9 +381,16 @@ export async function computeForecast(
   const minimumBuffer = Number(settings.minimumCashBuffer) || 0;
   const periods = generatePeriods(mode, today);
 
+  // Filter events based on view mode:
+  // "base" = confirmed inflows/outflows only (exclude purchase commitments)
+  // "with_commitments" = base + planned PO commitments
+  const filteredEvents = viewMode === "base"
+    ? events.filter((e) => e.source !== "commitment")
+    : events;
+
   // Build a date→events index for fast lookup
   const eventsByDate = new Map<string, CashEvent[]>();
-  for (const e of events) {
+  for (const e of filteredEvents) {
     const arr = eventsByDate.get(e.date) || [];
     arr.push(e);
     eventsByDate.set(e.date, arr);
@@ -461,6 +471,7 @@ export async function computeForecast(
   return {
     clientId,
     mode,
+    viewMode,
     currentAvailableCash: round2(currentCash),
     minimumCashBuffer: minimumBuffer,
     periods: periodForecasts,
@@ -597,6 +608,8 @@ export interface CashCommandCentreSummary {
   lowestProjectedCash: number;
   totalOverdueCollections: number;
   totalSupplierPaymentsDue: number;
+  totalPlannedPurchaseCommitments: number;
+  confirmedSupplierPayables: number;
   totalMarketplaceSettlementsPending: number;
   cashStatus: "GREEN" | "AMBER" | "RED";
   alerts: CashFlowAlert[];
@@ -691,6 +704,15 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
   const pendingSettlements = settlements.filter((s) => s.status === "EXPECTED" || s.status === "DELAYED");
   const pendingTotal = pendingSettlements.reduce((s, x) => s + (Number(x.netSettlementExpected) || 0), 0);
 
+  // Total planned purchase commitments (all non-cancelled POs without invoices)
+  const plannedCommitmentsTotal = activeCommitments
+    .reduce((s, c) => s + (Number(c.expectedPaymentAmount) || 0), 0);
+
+  // Confirmed supplier payables (all active supplier payment outflows)
+  const confirmedSupplierPayables = activeOutflows
+    .filter((o) => o.type === "SUPPLIER_PAYMENT")
+    .reduce((s, o) => s + (Number(o.amount) || 0), 0);
+
   // Run forecast for projected values
   const weekly = await computeForecast(clientId, "weekly");
   const daily = await computeForecast(clientId, "daily");
@@ -713,6 +735,8 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
     lowestProjectedCash: weekly.lowestProjectedCash,
     totalOverdueCollections: round2(overdueTotal),
     totalSupplierPaymentsDue: round2(supplierDue),
+    totalPlannedPurchaseCommitments: round2(plannedCommitmentsTotal),
+    confirmedSupplierPayables: round2(confirmedSupplierPayables),
     totalMarketplaceSettlementsPending: round2(pendingTotal),
     cashStatus: weekly.cashStatus,
     alerts: weekly.alerts,

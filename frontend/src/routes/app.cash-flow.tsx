@@ -239,6 +239,7 @@ function CashFlowPage() {
 
   const [activeTab, setActiveTab] = useState<string>("overview");
   const [mode, setMode] = useState<"daily" | "weekly" | "monthly">("weekly");
+  const [viewMode, setViewMode] = useState<"base" | "with_commitments">("with_commitments");
   const [expandedPeriod, setExpandedPeriod] = useState<number | null>(null);
 
   // Dialog States
@@ -266,11 +267,13 @@ function CashFlowPage() {
   const [showAddSettlement, setShowAddSettlement] = useState(false);
   const [editingSettlement, setEditingSettlement] = useState<any | null>(null);
   const [deletingSettlement, setDeletingSettlement] = useState<any | null>(null);
+  const [reconcilingAccount, setReconcilingAccount] = useState<any | null>(null);
+  const [tracingEvent, setTracingEvent] = useState<{ sourceType: string; sourceId: string } | null>(null);
 
   // Queries
   const forecastQ = useQuery({
-    queryKey: ["cash-flow-forecast", mode],
-    queryFn: () => api.cashFlow.forecast.get(mode),
+    queryKey: ["cash-flow-forecast", mode, viewMode],
+    queryFn: () => api.cashFlow.forecast.get(mode, viewMode),
     refetchInterval: 30_000,
   });
 
@@ -706,13 +709,21 @@ function CashFlowPage() {
                           Dynamic trajectory comparing projected closing balance against minimum buffer.
                         </p>
                       </div>
-                      <Tabs value={mode} onValueChange={(v) => setMode(v as any)}>
-                        <TabsList className="h-8">
-                          <TabsTrigger value="daily" className="text-xs px-2.5">Daily (30d)</TabsTrigger>
-                          <TabsTrigger value="weekly" className="text-xs px-2.5">Weekly (13w)</TabsTrigger>
-                          <TabsTrigger value="monthly" className="text-xs px-2.5">Monthly (6m)</TabsTrigger>
-                        </TabsList>
-                      </Tabs>
+                      <div className="flex items-center gap-2">
+                        <Tabs value={mode} onValueChange={(v) => setMode(v as any)}>
+                          <TabsList className="h-8">
+                            <TabsTrigger value="daily" className="text-xs px-2.5">Daily (30d)</TabsTrigger>
+                            <TabsTrigger value="weekly" className="text-xs px-2.5">Weekly (13w)</TabsTrigger>
+                            <TabsTrigger value="monthly" className="text-xs px-2.5">Monthly (6m)</TabsTrigger>
+                          </TabsList>
+                        </Tabs>
+                        <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)}>
+                          <TabsList className="h-8">
+                            <TabsTrigger value="base" className="text-xs px-2.5">Base Forecast</TabsTrigger>
+                            <TabsTrigger value="with_commitments" className="text-xs px-2.5">With PO Commitments</TabsTrigger>
+                          </TabsList>
+                        </Tabs>
+                      </div>
                     </div>
                     <div className="h-[320px] w-full">
                       <ResponsiveContainer width="100%" height="100%">
@@ -790,6 +801,11 @@ function CashFlowPage() {
                       <div>
                         <h3 className="text-sm font-semibold text-foreground">
                           {mode === "weekly" ? "13-Week Cash Forecast" : mode === "monthly" ? "6-Month Cash Plan" : "30-Day Daily Cash Forecast"}
+                          {viewMode === "base" && (
+                            <span className="ml-2 rounded-full bg-blue-500/10 text-blue-600 px-2 py-0.5 text-[10px] font-bold">
+                              BASE (no PO commitments)
+                            </span>
+                          )}
                         </h3>
                         <p className="text-xs text-muted-foreground">Click any row to drill down into period event details.</p>
                       </div>
@@ -822,6 +838,7 @@ function CashFlowPage() {
                                 isExpanded={isExpanded}
                                 closingStatus={closingStatus}
                                 onToggle={() => setExpandedPeriod(isExpanded ? null : i)}
+                                onTrace={(sourceType, sourceId) => setTracingEvent({ sourceType, sourceId })}
                               />
                             );
                           })}
@@ -962,6 +979,15 @@ function CashFlowPage() {
                                   <td className="px-5 py-3.5 text-right">
                                     <div className="flex items-center justify-end gap-1.5">
                                       <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="h-7 text-xs text-blue-600 border-blue-300 hover:bg-blue-50"
+                                        onClick={() => setReconcilingAccount(acc)}
+                                      >
+                                        <RefreshCw className="h-3 w-3 mr-1" />
+                                        Reconcile
+                                      </Button>
+                                      <Button
                                         variant="ghost"
                                         size="icon"
                                         className="h-7 w-7 text-muted-foreground hover:text-foreground"
@@ -1074,7 +1100,7 @@ function CashFlowPage() {
                                       {s.status !== "RECEIVED" && (
                                         <Button
                                           variant="outline"
-                                          size="xs"
+                                          size="sm"
                                           className="h-7 text-xs text-emerald-600 border-emerald-300 hover:bg-emerald-50"
                                           onClick={async () => {
                                             try {
@@ -1209,7 +1235,13 @@ function CashFlowPage() {
                               <td className="px-5 py-3.5 text-center">
                                 <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                                   r.status === "active"
-                                    ? "bg-emerald-500/10 text-emerald-600"
+                                    ? (() => {
+                                        const next = nextOccurrenceDate(r);
+                                        const todayStr = new Date().toISOString().slice(0, 10);
+                                        return next && next <= todayStr
+                                          ? "bg-red-500/10 text-red-600 ring-1 ring-red-300"
+                                          : "bg-emerald-500/10 text-emerald-600";
+                                      })()
                                     : "bg-muted text-muted-foreground"
                                 }`}>
                                   {r.status || "active"}
@@ -1515,10 +1547,10 @@ function CashFlowPage() {
                                   i.status === "RECEIVED"
                                     ? "bg-emerald-500/10 text-emerald-600"
                                     : i.status === "OVERDUE"
-                                      ? "bg-red-500/10 text-red-600"
+                                      ? "bg-red-500/10 text-red-600 ring-1 ring-red-300"
                                       : "bg-blue-500/10 text-blue-600"
                                 }`}>
-                                  {i.status || "EXPECTED"}
+                                  {i.status === "OVERDUE" ? "⚠ OVERDUE" : i.status || "EXPECTED"}
                                 </span>
                               </td>
                               {hasWrite && (
@@ -1527,7 +1559,7 @@ function CashFlowPage() {
                                     {i.status !== "RECEIVED" && (
                                       <Button
                                         variant="outline"
-                                        size="xs"
+                                        size="sm"
                                         className="h-7 text-xs text-emerald-600 border-emerald-300 hover:bg-emerald-50"
                                         onClick={async () => {
                                           try {
@@ -1650,9 +1682,13 @@ function CashFlowPage() {
                                 <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                                   o.status === "PAID"
                                     ? "bg-emerald-500/10 text-emerald-600"
-                                    : "bg-muted text-muted-foreground"
+                                    : (o.expectedDate && o.expectedDate < new Date().toISOString().slice(0, 10) && o.status !== "PAID" && o.status !== "CANCELLED")
+                                      ? "bg-red-500/10 text-red-600 ring-1 ring-red-300"
+                                      : "bg-muted text-muted-foreground"
                                 }`}>
-                                  {o.status || "PLANNED"}
+                                  {(o.expectedDate && o.expectedDate < new Date().toISOString().slice(0, 10) && o.status !== "PAID" && o.status !== "CANCELLED")
+                                    ? `⚠ ${o.status || "OVERDUE"}`
+                                    : o.status || "PLANNED"}
                                 </span>
                               </td>
                               {hasWrite && (
@@ -1661,7 +1697,7 @@ function CashFlowPage() {
                                     {o.status !== "PAID" && (
                                       <Button
                                         variant="outline"
-                                        size="xs"
+                                        size="sm"
                                         className="h-7 text-xs text-emerald-600 border-emerald-300 hover:bg-emerald-50"
                                         onClick={async () => {
                                           try {
@@ -1956,6 +1992,25 @@ function CashFlowPage() {
           }}
         />
       )}
+
+      {reconcilingAccount && (
+        <ReconcileAccountDialog
+          account={reconcilingAccount}
+          onClose={() => setReconcilingAccount(null)}
+          onSuccess={() => {
+            invalidateAll();
+            setReconcilingAccount(null);
+          }}
+        />
+      )}
+
+      {tracingEvent && (
+        <TraceDetailDialog
+          sourceType={tracingEvent.sourceType}
+          sourceId={tracingEvent.sourceId}
+          onClose={() => setTracingEvent(null)}
+        />
+      )}
     </div>
   );
 }
@@ -2023,11 +2078,13 @@ function PeriodRow({
   isExpanded,
   closingStatus,
   onToggle,
+  onTrace,
 }: {
   period: any;
   isExpanded: boolean;
   closingStatus: string;
   onToggle: () => void;
+  onTrace?: (sourceType: string, sourceId: string) => void;
 }) {
   return (
     <>
@@ -2079,7 +2136,11 @@ function PeriodRow({
                 ) : (
                   <div className="space-y-1.5 max-h-48 overflow-y-auto pr-2">
                     {period.inflowEvents.map((e: any, i: number) => (
-                      <div key={i} className="flex items-center justify-between rounded-lg bg-card p-2 text-xs border border-border/60">
+                      <div
+                        key={i}
+                        className={`flex items-center justify-between rounded-lg bg-card p-2 text-xs border border-border/60 ${onTrace ? "cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors" : ""}`}
+                        onClick={() => onTrace?.(e.source, e.sourceId)}
+                      >
                         <div className="min-w-0 pr-2">
                           <span className="font-medium text-foreground block truncate">{e.description || e.type}</span>
                           <span className="text-[10px] text-muted-foreground">{e.date} · {e.category || e.source}</span>
@@ -2100,9 +2161,20 @@ function PeriodRow({
                 ) : (
                   <div className="space-y-1.5 max-h-48 overflow-y-auto pr-2">
                     {period.outflowEvents.map((e: any, i: number) => (
-                      <div key={i} className="flex items-center justify-between rounded-lg bg-card p-2 text-xs border border-border/60">
+                      <div
+                        key={i}
+                        className={`flex items-center justify-between rounded-lg p-2 text-xs border transition-colors ${
+                          e.priority === "CRITICAL"
+                            ? "bg-red-50/80 dark:bg-red-950/20 border-red-200 dark:border-red-800"
+                            : "bg-card border-border/60"
+                        } ${onTrace ? "cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/30" : ""}`}
+                        onClick={() => onTrace?.(e.source, e.sourceId)}
+                      >
                         <div className="min-w-0 pr-2">
-                          <span className="font-medium text-foreground block truncate">{e.description || e.type}</span>
+                          <span className="font-medium text-foreground block truncate">
+                            {e.priority === "CRITICAL" && <span className="text-red-500 mr-1">●</span>}
+                            {e.description || e.type}
+                          </span>
                           <span className="text-[10px] text-muted-foreground">{e.date} · {e.category || e.source}</span>
                         </div>
                         <span className="font-mono font-bold text-red-600 shrink-0">−{fmtFull(e.amount)}</span>
@@ -2988,6 +3060,179 @@ function DeleteConfirmDialog({
             {isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
             Delete
           </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function ReconcileAccountDialog({
+  account,
+  onClose,
+  onSuccess,
+}: {
+  account: any;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const accName = account.accountName || account.name || account.account_name || "Cash Account";
+  const currentBal = Number(account.currentBalance ?? account.balance ?? account.current_balance ?? account.amount ?? 0) || 0;
+  const [actualBalance, setActualBalance] = useState(String(currentBal));
+  const [notes, setNotes] = useState("");
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      api.cashFlow.accounts.reconcile(account.id, {
+        actualBalance: Number(actualBalance),
+        notes: notes || undefined,
+      }),
+    onSuccess: () => {
+      toast.success(`Reconciled "${accName}" — balance updated to ${fmtFull(Number(actualBalance))}`);
+      onSuccess();
+    },
+    onError: (err: any) => toast.error(err.message),
+  });
+
+  const diff = Number(actualBalance) - currentBal;
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Reconcile Account</DialogTitle>
+          <DialogDescription>
+            Record the actual bank balance as the new opening balance for "{accName}".
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-4 py-2">
+          <div className="rounded-xl bg-muted/60 p-3 flex justify-between items-center text-xs">
+            <span className="text-muted-foreground font-medium">Current Balance:</span>
+            <span className="font-mono font-bold text-sm text-foreground">{fmtFull(currentBal)}</span>
+          </div>
+          <div>
+            <Label>Actual Bank Balance</Label>
+            <Input
+              type="number"
+              value={actualBalance}
+              onChange={(e) => setActualBalance(e.target.value)}
+              className="mt-1 font-mono"
+            />
+            <p className="mt-1 text-xs text-muted-foreground">
+              Enter the current balance as shown in your bank statement.
+            </p>
+          </div>
+          {Number(actualBalance) !== currentBal && (
+            <div className={`rounded-xl p-3 flex justify-between items-center text-xs ${
+              diff > 0 ? "bg-emerald-50 dark:bg-emerald-950/30" : "bg-red-50 dark:bg-red-950/30"
+            }`}>
+              <span className="text-muted-foreground font-medium">Adjustment:</span>
+              <span className={`font-mono font-bold text-sm ${diff > 0 ? "text-emerald-600" : "text-red-600"}`}>
+                {diff > 0 ? "+" : ""}{fmtFull(diff)}
+              </span>
+            </div>
+          )}
+          <div>
+            <Label>Notes (optional)</Label>
+            <Input
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="mt-1"
+              placeholder="e.g. Bank statement as of Sep 1"
+            />
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => mutation.mutate()} disabled={!actualBalance || mutation.isPending}>
+            {mutation.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
+            Reconcile
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function TraceDetailDialog({
+  sourceType,
+  sourceId,
+  onClose,
+}: {
+  sourceType: string;
+  sourceId: string;
+  onClose: () => void;
+}) {
+  const traceQ = useQuery({
+    queryKey: ["cash-flow-trace", sourceType, sourceId],
+    queryFn: () => api.cashFlow.trace(sourceType, sourceId),
+  });
+
+  const trace = traceQ.data;
+
+  return (
+    <Dialog open onOpenChange={onClose}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Source Document Details</DialogTitle>
+          <DialogDescription>Full traceability for this cash flow event.</DialogDescription>
+        </DialogHeader>
+        {traceQ.isLoading ? (
+          <div className="py-6 text-center">
+            <Loader2 className="h-5 w-5 animate-spin inline-block text-muted-foreground" />
+            <p className="mt-2 text-xs text-muted-foreground">Loading details...</p>
+          </div>
+        ) : traceQ.isError ? (
+          <div className="py-6 text-center">
+            <p className="text-sm text-red-500">Could not load source details.</p>
+          </div>
+        ) : trace ? (
+          <div className="space-y-3 py-2">
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground font-medium">Source Type</span>
+              <span className="font-medium text-foreground">{trace.sourceDocumentType}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground font-medium">Document Number</span>
+              <span className="font-mono font-medium text-foreground">{trace.sourceDocumentNumber}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground font-medium">Counterparty</span>
+              <span className="font-medium text-foreground">{trace.counterparty}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground font-medium">Expected Date</span>
+              <span className="font-mono font-medium text-foreground">{trace.expectedDate}</span>
+            </div>
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground font-medium">Outstanding Amount</span>
+              <span className="font-mono font-bold text-foreground">{fmtFull(trace.amount)}</span>
+            </div>
+            {trace.totalAmount != null && (
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground font-medium">Total Amount</span>
+                <span className="font-mono text-foreground">{fmtFull(trace.totalAmount)}</span>
+              </div>
+            )}
+            <div className="flex justify-between text-xs">
+              <span className="text-muted-foreground font-medium">Status</span>
+              <span className="font-medium text-foreground">{trace.status}</span>
+            </div>
+            {trace.lastUpdatedAt && (
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground font-medium">Last Updated</span>
+                <span className="font-mono text-xs text-muted-foreground">{trace.lastUpdatedAt}</span>
+              </div>
+            )}
+            {trace.notes && (
+              <div className="mt-2 rounded-xl bg-muted/60 p-3">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Notes</span>
+                <p className="mt-1 text-xs text-foreground">{trace.notes}</p>
+              </div>
+            )}
+          </div>
+        ) : null}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Close</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

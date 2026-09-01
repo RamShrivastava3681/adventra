@@ -181,12 +181,16 @@ export function bucketMovementsByMonth(
 
   for (const m of movements) {
     if (!isDemandMovement(m)) continue;
-    if (m.direction !== "out") continue;
     const k = m.movement_date.slice(0, 7);
     const i = idx.get(k);
     if (i != null) {
-      (buckets[i].rawQty as number) += Number(m.quantity);
-      (buckets[i].entryCount as number) += 1;
+      if (m.direction === "out") {
+        (buckets[i].rawQty as number) += Number(m.quantity);
+        (buckets[i].entryCount as number) += 1;
+      } else {
+        // Customer returns (direction "in") reduce demand
+        (buckets[i].rawQty as number) -= Number(m.quantity);
+      }
     }
   }
 
@@ -216,8 +220,14 @@ export function currentMonthBucket(
   let rawQty = 0;
   for (const m of movements) {
     if (!isDemandMovement(m)) continue;
-    if (m.direction !== "out") continue;
-    if (m.movement_date.slice(0, 7) === month) rawQty += Number(m.quantity);
+    if (m.movement_date.slice(0, 7) === month) {
+      if (m.direction === "out") {
+        rawQty += Number(m.quantity);
+      } else {
+        // Customer returns (direction "in") reduce demand
+        rawQty -= Number(m.quantity);
+      }
+    }
   }
   const avail = (availability ?? []).find((a) => a.month === month);
   const { correctedDemand, availabilityRate } = correctForAvailability(rawQty, month, avail);

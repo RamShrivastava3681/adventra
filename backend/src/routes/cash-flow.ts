@@ -13,6 +13,9 @@ import * as MarketplaceSettlement from "../models/marketplace-settlement.js";
 import * as CashFlowEngine from "../services/cash-flow-engine.js";
 import * as GoodsPO from "../models/goods-purchase-order.js";
 import * as PurchaseInvoice from "../models/purchase-invoice.js";
+import * as Invoice from "../models/invoice.js";
+import * as Debtor from "../models/debtor.js";
+import * as Vendor from "../models/vendor.js";
 
 const router = Router();
 
@@ -157,6 +160,57 @@ router.delete("/cash-accounts/:id", requireCashFlowWrite, async (req: Request, r
   }
 });
 
+/**
+ * POST /cash-accounts/:id/reconcile
+ * Reconcile bank balance: records actual bank balance as new opening balance.
+ * Per the PDF spec: "At the beginning of each month, or during a regular reconciliation:
+ * Actual Bank Balance = Opening Cash Balance for the new forecast period."
+ */
+router.post("/cash-accounts/:id/reconcile", requireCashFlowWrite, async (req: Request, res: Response) => {
+  try {
+    const current = await CashAccount.get(req.params.id);
+    if (!current) return res.status(404).json({ error: "Not found" });
+
+    const clientId = (req as any).user.userId;
+    if (current.clientId !== clientId) return res.status(403).json({ error: "Forbidden" });
+
+    const { actualBalance, notes } = req.body || {};
+    if (actualBalance === undefined || actualBalance === null) {
+      return res.status(400).json({ error: "actualBalance is required" });
+    }
+    if (Number(actualBalance) < 0 || !Number.isFinite(Number(actualBalance))) {
+      return res.status(400).json({ error: "actualBalance must be a non-negative number" });
+    }
+
+    const previousBalance = current.currentBalance;
+    const newBalance = Number(actualBalance);
+
+    const updated = await CashAccount.update(req.params.id, {
+      currentBalance: newBalance,
+      updateSource: "reconciliation",
+      lastUpdatedBy: (req as any).user.userId,
+    });
+
+    trackCashFlowAction(req, "cashaccount.reconciled", req.params.id, {
+      accountName: current.accountName,
+      previousBalance,
+      newBalance,
+      notes: notes || null,
+      reconciledBy: (req as any).user.email,
+    });
+
+    res.json({
+      success: true,
+      account: updated,
+      previousBalance,
+      newBalance,
+      reconciledAt: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===================== EXPECTED INFLOWS =====================
 
 router.get("/cash-flow/inflows", async (req: Request, res: Response) => {
@@ -189,10 +243,11 @@ router.post("/cash-flow/inflows", requireCashFlowWrite, async (req: Request, res
 
     // Validate type
     const validTypes = [
-      "CUSTOMER_COLLECTION", "MARKETPLACE_SETTLEMENT", "LOAN_DISBURSEMENT",
-      "PROMOTER_CAPITAL", "TAX_REFUND", "INSURANCE_CLAIM", "ADVANCE_RECEIPT",
-      "DEPOSIT_REFUND", "INTEREST_RECEIPT", "WEBSITE_SALES", "SALES_RETURN_RECOVERY",
-      "SUPPLIER_REFUND", "BANK_REFUND", "OTHER",
+      "CUSTOMER_COLLECTION", "CUSTOMER_ADVANCE_RECEIVED", "MARKETPLACE_SETTLEMENT",
+      "CASH_SALE_POS", "WEBSITE_PAYMENT_GATEWAY", "SALES_RETURN_RECOVERY",
+      "SUPPLIER_REFUND", "BANK_INTEREST_RECEIVED", "LOAN_DISBURSEMENT",
+      "CAPITAL_INTRODUCED", "TAX_REFUND", "INSURANCE_CLAIM", "ADVANCE_RECEIPT",
+      "DEPOSIT_REFUND", "INTEREST_RECEIPT", "LOAN_WORKING_CAPITAL", "OTHER",
     ];
     if (!validTypes.includes(type)) {
       return res.status(400).json({ error: `Invalid type. Must be one of: ${validTypes.join(", ")}` });
@@ -287,9 +342,12 @@ router.post("/cash-flow/outflows", requireCashFlowWrite, async (req: Request, re
     if (!expectedDate) return res.status(400).json({ error: "expectedDate is required" });
 
     const validTypes = [
-      "SUPPLIER_PAYMENT", "PURCHASE_COMMITMENT", "SALARY", "TAX", "EMI",
-      "RENT", "UTILITY", "SOFTWARE", "WAREHOUSE", "TRANSPORT", "MARKETING",
-      "INSURANCE", "PROFESSIONAL_FEE", "CAPEX", "OTHER",
+      "SUPPLIER_PAYMENT", "PLANNED_PURCHASE_COMMITMENT", "SUPPLIER_ADVANCE_PAID",
+      "FREIGHT_LOGISTICS", "MARKETPLACE_FEES", "MARKETPLACE_ADVERTISING",
+      "SALARY", "RENT", "UTILITY", "MARKETING", "TRAVEL_REIMBURSEMENT",
+      "TAX", "EMI", "INSURANCE", "CUSTOMER_REFUND", "SUPPLIER_RETURN_COST",
+      "CAPITAL_WITHDRAWAL", "CAPEX", "BANK_CHARGES", "SOFTWARE", "WAREHOUSE",
+      "PROFESSIONAL_FEE", "OTHER",
     ];
     if (!validTypes.includes(type)) {
       return res.status(400).json({ error: `Invalid type. Must be one of: ${validTypes.join(", ")}` });
@@ -548,10 +606,14 @@ router.get("/cash-flow/forecast", async (req: Request, res: Response) => {
   try {
     const clientId = (req as any).user.userId;
     const mode = (req.query.mode as string) || "weekly";
+    const viewMode = (req.query.view as string) || "with_commitments";
     if (!["daily", "weekly", "monthly"].includes(mode)) {
       return res.status(400).json({ error: "mode must be daily, weekly, or monthly" });
     }
-    const forecast = await CashFlowEngine.computeForecast(clientId, mode as any);
+    if (!["base", "with_commitments"].includes(viewMode)) {
+      return res.status(400).json({ error: "view must be base or with_commitments" });
+    }
+    const forecast = await CashFlowEngine.computeForecast(clientId, mode as any, viewMode as any);
     res.json(forecast);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -561,7 +623,8 @@ router.get("/cash-flow/forecast", async (req: Request, res: Response) => {
 router.get("/cash-flow/forecast/daily", async (req: Request, res: Response) => {
   try {
     const clientId = (req as any).user.userId;
-    const forecast = await CashFlowEngine.computeForecast(clientId, "daily");
+    const viewMode = (req.query.view as string) || "with_commitments";
+    const forecast = await CashFlowEngine.computeForecast(clientId, "daily", viewMode as any);
     res.json(forecast);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -571,7 +634,8 @@ router.get("/cash-flow/forecast/daily", async (req: Request, res: Response) => {
 router.get("/cash-flow/forecast/weekly", async (req: Request, res: Response) => {
   try {
     const clientId = (req as any).user.userId;
-    const forecast = await CashFlowEngine.computeForecast(clientId, "weekly");
+    const viewMode = (req.query.view as string) || "with_commitments";
+    const forecast = await CashFlowEngine.computeForecast(clientId, "weekly", viewMode as any);
     res.json(forecast);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -581,7 +645,8 @@ router.get("/cash-flow/forecast/weekly", async (req: Request, res: Response) => 
 router.get("/cash-flow/forecast/monthly", async (req: Request, res: Response) => {
   try {
     const clientId = (req as any).user.userId;
-    const forecast = await CashFlowEngine.computeForecast(clientId, "monthly");
+    const viewMode = (req.query.view as string) || "with_commitments";
+    const forecast = await CashFlowEngine.computeForecast(clientId, "monthly", viewMode as any);
     res.json(forecast);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -614,6 +679,167 @@ router.get("/cash-flow/uninvoiced-pos", async (req: Request, res: Response) => {
     });
 
     res.json(uninvoiced);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ===================== TRACEABILITY =====================
+
+/**
+ * GET /cash-flow/trace/:sourceType/:sourceId
+ * Resolve full traceability details for a forecast line item.
+ * Returns: source doc type, doc number, counterparty, expected date, amount, status, last updated info.
+ */
+router.get("/cash-flow/trace/:sourceType/:sourceId", async (req: Request, res: Response) => {
+  try {
+    const { sourceType, sourceId } = req.params;
+    let trace: any = null;
+
+    switch (sourceType) {
+      case "invoice": {
+        const invoice = await Invoice.get(sourceId);
+        if (!invoice) return res.status(404).json({ error: "Invoice not found" });
+        let customerName: string | null = null;
+        if (invoice.debtorId) {
+          const debtor = await Debtor.get(invoice.debtorId);
+          customerName = debtor?.name || null;
+        }
+        const grandTotal = Number(invoice.grandTotal) || Number(invoice.amount) || 0;
+        const advanceDeducted = Number(invoice.advanceDeducted) || 0;
+        const amountReceived = Number(invoice.amountReceived) || 0;
+        const outstanding = Math.max(0, grandTotal - advanceDeducted - amountReceived);
+        trace = {
+          sourceDocumentType: "Sales Invoice",
+          sourceDocumentNumber: invoice.invoiceNumber || invoice.id,
+          counterparty: customerName || "Customer",
+          counterpartyType: "customer",
+          expectedDate: invoice.dueDate || invoice.issueDate,
+          amount: outstanding,
+          totalAmount: grandTotal,
+          amountReceived,
+          status: invoice.status,
+          lastUpdatedAt: invoice.updatedAt,
+          notes: invoice.notes || null,
+        };
+        break;
+      }
+      case "purchase_invoice": {
+        const pi = await PurchaseInvoice.get(sourceId);
+        if (!pi) return res.status(404).json({ error: "Purchase invoice not found" });
+        let supplierName: string | null = pi.supplierName || null;
+        if (!supplierName && pi.vendorId) {
+          const vendor = await Vendor.get(pi.vendorId);
+          supplierName = vendor?.name || null;
+        }
+        const grandTotal = Number(pi.grandTotal) || Number(pi.amount) || 0;
+        const advanceDeducted = Number(pi.advanceDeducted) || 0;
+        const amountPaid = Number(pi.amountPaid) || 0;
+        const outstanding = Math.max(0, grandTotal - advanceDeducted - amountPaid);
+        trace = {
+          sourceDocumentType: "Purchase Invoice",
+          sourceDocumentNumber: pi.invoiceNumber || pi.id,
+          counterparty: supplierName || "Supplier",
+          counterpartyType: "supplier",
+          expectedDate: pi.dueDate || pi.issueDate,
+          amount: outstanding,
+          totalAmount: grandTotal,
+          amountPaid,
+          status: pi.status,
+          lastUpdatedAt: pi.updatedAt,
+          notes: null,
+        };
+        break;
+      }
+      case "inflow": {
+        const inflow = await ExpectedInflow.get(sourceId);
+        if (!inflow) return res.status(404).json({ error: "Inflow not found" });
+        trace = {
+          sourceDocumentType: "Expected Inflow",
+          sourceDocumentNumber: inflow.id,
+          counterparty: inflow.customerName || inflow.marketplaceName || inflow.type,
+          counterpartyType: inflow.customerId ? "customer" : "other",
+          expectedDate: inflow.expectedDate,
+          amount: inflow.amount,
+          status: inflow.status,
+          lastUpdatedAt: inflow.updatedAt,
+          notes: inflow.notes,
+        };
+        break;
+      }
+      case "outflow": {
+        const outflow = await ExpectedOutflow.get(sourceId);
+        if (!outflow) return res.status(404).json({ error: "Outflow not found" });
+        trace = {
+          sourceDocumentType: "Expected Outflow",
+          sourceDocumentNumber: outflow.id,
+          counterparty: outflow.supplierName || outflow.type,
+          counterpartyType: "supplier",
+          expectedDate: outflow.expectedDate,
+          amount: outflow.amount,
+          status: outflow.status,
+          lastUpdatedAt: outflow.updatedAt,
+          notes: outflow.notes,
+        };
+        break;
+      }
+      case "commitment": {
+        const commitment = await PurchaseCommitment.get(sourceId);
+        if (!commitment) return res.status(404).json({ error: "Commitment not found" });
+        trace = {
+          sourceDocumentType: "Purchase Commitment",
+          sourceDocumentNumber: commitment.linkedPO || commitment.id,
+          counterparty: commitment.supplierName || "Supplier",
+          counterpartyType: "supplier",
+          expectedDate: commitment.expectedPaymentDate,
+          amount: commitment.expectedPaymentAmount,
+          status: commitment.status,
+          lastUpdatedAt: commitment.updatedAt,
+          notes: commitment.notes,
+        };
+        break;
+      }
+      case "marketplace": {
+        const settlement = await MarketplaceSettlement.get(sourceId);
+        if (!settlement) return res.status(404).json({ error: "Settlement not found" });
+        trace = {
+          sourceDocumentType: "Marketplace Settlement",
+          sourceDocumentNumber: settlement.settlementReference || settlement.id,
+          counterparty: settlement.marketplaceName,
+          counterpartyType: "marketplace",
+          expectedDate: settlement.expectedSettlementDate,
+          amount: settlement.netSettlementExpected,
+          grossSales: settlement.grossSales,
+          fees: settlement.marketplaceFees,
+          status: settlement.status,
+          lastUpdatedAt: settlement.updatedAt,
+          notes: settlement.notes,
+        };
+        break;
+      }
+      case "recurring": {
+        const recurring = await RecurringExpense.get(sourceId);
+        if (!recurring) return res.status(404).json({ error: "Recurring expense not found" });
+        trace = {
+          sourceDocumentType: "Recurring Expense",
+          sourceDocumentNumber: recurring.id,
+          counterparty: recurring.category,
+          counterpartyType: "expense",
+          expectedDate: recurring.startDate,
+          amount: recurring.amount,
+          frequency: recurring.frequency,
+          status: recurring.status,
+          lastUpdatedAt: recurring.updatedAt,
+          notes: recurring.description,
+        };
+        break;
+      }
+      default:
+        return res.status(400).json({ error: `Unknown source type: ${sourceType}` });
+    }
+
+    trackCashFlowAction(req, "cashflow.trace_resolved", sourceId, { sourceType });
+    res.json(trace);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

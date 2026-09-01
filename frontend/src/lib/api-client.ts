@@ -421,6 +421,8 @@ const api = {
       create: (data: any) => api.post<any>("/cash-accounts", data),
       update: (id: string, data: any) => api.put<any>(`/cash-accounts/${id}`, data),
       delete: (id: string) => api.delete(`/cash-accounts/${id}`),
+      reconcile: (id: string, data: { actualBalance: number; notes?: string }) =>
+        api.post<any>(`/cash-accounts/${id}/reconcile`, data),
     },
     // Expected Inflows
     inflows: {
@@ -465,11 +467,20 @@ const api = {
     },
     // Forecast
     forecast: {
-      get: (mode?: string) => api.get<any>(`/cash-flow/forecast${mode ? `?mode=${mode}` : ""}`),
-      daily: () => api.get<any>("/cash-flow/forecast/daily"),
-      weekly: () => api.get<any>("/cash-flow/forecast/weekly"),
-      monthly: () => api.get<any>("/cash-flow/forecast/monthly"),
+      get: (mode?: string, view?: string) => {
+        const params = new URLSearchParams();
+        if (mode) params.set("mode", mode);
+        if (view) params.set("view", view);
+        const qs = params.toString();
+        return api.get<any>(`/cash-flow/forecast${qs ? `?${qs}` : ""}`);
+      },
+      daily: (view?: string) => api.get<any>(`/cash-flow/forecast/daily${view ? `?view=${view}` : ""}`),
+      weekly: (view?: string) => api.get<any>(`/cash-flow/forecast/weekly${view ? `?view=${view}` : ""}`),
+      monthly: (view?: string) => api.get<any>(`/cash-flow/forecast/monthly${view ? `?view=${view}` : ""}`),
     },
+    // Traceability
+    trace: (sourceType: string, sourceId: string) =>
+      api.get<any>(`/cash-flow/trace/${sourceType}/${sourceId}`),
     // Dashboard Summary
     summary: () => api.get<any>("/cash-flow/summary"),
   },

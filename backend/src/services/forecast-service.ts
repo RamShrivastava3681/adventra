@@ -97,13 +97,15 @@ export async function recomputeAll(clientId: string): Promise<{
     // For forecast DEMAND, only use demand-type movements
     const demandMoves = moves.filter(isDemandMovement);
 
-    // Convert movements to the format bucketMovementsByMonth expects
-    // Use ALL movements for the direction check (bucketMovementsByMonth already filters direction="out")
-    // but we need to ensure only demand movements are counted
+    // Convert movements to the format bucketMovementsByMonth expects.
+    // Include dispatchType and status so the engine's isDemandMovement can
+    // properly classify sales vs returns vs other movement types.
     const formattedMoves = demandMoves.map((m: any) => ({
       movement_date: m.movementDate ?? m.movement_date,
       quantity: m.quantity,
       direction: m.direction,
+      dispatchType: m.dispatchType ?? null,
+      status: m.status,
     }));
 
     const history = bucketMovementsByMonth(formattedMoves, 12);
