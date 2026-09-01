@@ -365,11 +365,13 @@ export async function computeForecast(
   ]);
 
   const currentCash = accounts
-    .filter((a) => !a.status || a.status.toLowerCase() === "active")
-    .reduce((sum, a) => {
+    .filter((a: any) => !a.status || a.status.toLowerCase() === "active")
+    .reduce((sum, a: any) => {
+      const currentBal = Number(a.currentBalance ?? a.balance ?? a.current_balance ?? a.amount ?? 0) || 0;
+      const restricted = Number(a.restrictedBalance ?? a.restricted ?? a.restricted_balance ?? 0) || 0;
       const avail = a.availableForOperations !== undefined && !isNaN(Number(a.availableForOperations))
         ? Number(a.availableForOperations)
-        : ((Number(a.currentBalance) || 0) - (Number(a.restrictedBalance) || 0));
+        : (currentBal - restricted);
       return sum + avail;
     }, 0);
 
@@ -615,21 +617,25 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
   const in30 = addDays(today, 30);
 
   const currentCash = accounts
-    .filter((a) => !a.status || a.status.toLowerCase() === "active")
-    .reduce((sum, a) => {
+    .filter((a: any) => !a.status || a.status.toLowerCase() === "active")
+    .reduce((sum, a: any) => {
+      const currentBal = Number(a.currentBalance ?? a.balance ?? a.current_balance ?? a.amount ?? 0) || 0;
+      const restricted = Number(a.restrictedBalance ?? a.restricted ?? a.restricted_balance ?? 0) || 0;
       const avail = a.availableForOperations !== undefined && !isNaN(Number(a.availableForOperations))
         ? Number(a.availableForOperations)
-        : ((Number(a.currentBalance) || 0) - (Number(a.restrictedBalance) || 0));
+        : (currentBal - restricted);
       return sum + avail;
     }, 0);
 
   // Marketplace value: total balance of MARKETPLACE-type cash accounts
   const marketplaceValue = accounts
-    .filter((a) => (!a.status || a.status.toLowerCase() === "active") && a.accountType === "MARKETPLACE")
-    .reduce((sum, a) => {
+    .filter((a: any) => (!a.status || a.status.toLowerCase() === "active") && (a.accountType === "MARKETPLACE" || a.type === "MARKETPLACE"))
+    .reduce((sum, a: any) => {
+      const currentBal = Number(a.currentBalance ?? a.balance ?? a.current_balance ?? a.amount ?? 0) || 0;
+      const restricted = Number(a.restrictedBalance ?? a.restricted ?? a.restricted_balance ?? 0) || 0;
       const avail = a.availableForOperations !== undefined && !isNaN(Number(a.availableForOperations))
         ? Number(a.availableForOperations)
-        : ((Number(a.currentBalance) || 0) - (Number(a.restrictedBalance) || 0));
+        : (currentBal - restricted);
       return sum + avail;
     }, 0);
 

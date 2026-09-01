@@ -198,7 +198,67 @@ function CashFlowPage() {
 
   const forecast = forecastQ.data;
   const summary = summaryQ.data;
-  const loading = forecastQ.isLoading || summaryQ.isLoading;
+  const loading = forecastQ.isLoading && summaryQ.isLoading && accountsQ.isLoading;
+
+  // Real-time computed Available Cash directly from live accounts
+  const totalAvailableCash = useMemo(() => {
+    if (accountsQ.data && accountsQ.data.length > 0) {
+      return accountsQ.data
+        .filter((a: any) => {
+          if (a.status && a.status.toLowerCase() !== "active") return false;
+          const t = (a.accountType ?? a.account_type ?? a.type ?? "BANK").toUpperCase();
+          return t === "BANK" || t === "CASH";
+        })
+        .reduce((sum: number, a: any) => {
+          const currentBal = Number(a.currentBalance ?? a.balance ?? a.current_balance ?? a.amount ?? 0) || 0;
+          const restricted = Number(a.restrictedBalance ?? a.restricted ?? a.restricted_balance ?? 0) || 0;
+          const availRaw = a.availableForOperations ?? a.available_for_operations;
+          const avail = availRaw !== undefined && !isNaN(Number(availRaw))
+            ? Number(availRaw)
+            : (currentBal - restricted);
+          return sum + avail;
+        }, 0);
+    }
+    return summary?.currentAvailableCash ?? 0;
+  }, [accountsQ.data, summary?.currentAvailableCash]);
+
+  const activeAccountsCount = useMemo(() => {
+    if (!accountsQ.data) return 0;
+    return accountsQ.data.filter((a: any) => !a.status || a.status.toLowerCase() === "active").length;
+  }, [accountsQ.data]);
+
+  const totalMarketplaceBalance = useMemo(() => {
+    if (accountsQ.data && accountsQ.data.length > 0) {
+      return accountsQ.data
+        .filter((a: any) =>          (!a.status || a.status.toLowerCase() === "active") && (a.accountType === "MARKETPLACE" || a.account_type === "MARKETPLACE" || a.type === "MARKETPLACE"))
+        .reduce((sum: number, a: any) => {
+          const currentBal = Number(a.currentBalance ?? a.balance ?? a.current_balance ?? a.amount ?? 0) || 0;
+          const restricted = Number(a.restrictedBalance ?? a.restricted ?? a.restricted_balance ?? 0) || 0;
+          const availRaw = a.availableForOperations ?? a.available_for_operations;
+          const avail = availRaw !== undefined && !isNaN(Number(availRaw))
+            ? Number(availRaw)
+            : (currentBal - restricted);
+          return sum + avail;
+        }, 0);
+    }
+    return summary?.marketplace_value ?? summary?.marketplaceValue ?? 0;
+  }, [accountsQ.data, summary?.marketplaceValue, summary?.marketplace_value]);
+
+  const projected7d = useMemo(() => {
+    if (summary?.projectedClosingCashNext7Days != null && summary.projectedClosingCashNext7Days !== 0) {
+      return summary.projectedClosingCashNext7Days;
+    }
+    const in7 = summary?.expectedInflowsNext7Days ?? 0;
+    const out7 = summary?.expectedOutflowsNext7Days ?? 0;
+    return totalAvailableCash + in7 - out7;
+  }, [summary?.projectedClosingCashNext7Days, summary?.expectedInflowsNext7Days, summary?.expectedOutflowsNext7Days, totalAvailableCash]);
+
+  const projected30d = useMemo(() => {
+    if (summary?.projectedClosingCashNext30Days != null && summary.projectedClosingCashNext30Days !== 0) {
+      return summary.projectedClosingCashNext30Days;
+    }
+    return totalAvailableCash;
+  }, [summary?.projectedClosingCashNext30Days, totalAvailableCash]);
 
   const chartData = useMemo(() => {
     if (!forecast?.periods) return [];
@@ -226,10 +286,10 @@ function CashFlowPage() {
           list.push({
             id: s.id,
             type: "MARKETPLACE_SETTLEMENT",
-            amount: s.netSettlementExpected,
+            amount: s.net_settlement_expected ?? s.netSettlementExpected,
             status: s.status,
-            expectedDate: s.expectedSettlementDate,
-            customerName: s.marketplaceName,
+            expectedDate: s.expected_settlement_date ?? s.expectedSettlementDate,
+            customerName: s.marketplace_name ?? s.marketplaceName,
             displayCategory: "Marketplace Settlement",
           });
         }
@@ -378,86 +438,82 @@ function CashFlowPage() {
             </div>
 
             {/* ── Summary Cards ──────────────────────────── */}
-            {summary && (
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
-                <SummaryCard
-                  icon={<Landmark className="h-4 w-4" />}
-                  iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400"
-                  value={fmt(summary.currentAvailableCash)}
-                  label="Available Cash"
-                  sublabel={`${accountsQ.data?.filter((a: any) => !a.status || a.status.toLowerCase() === "active").length || 0} active accounts`}
-                />
-                <SummaryCard
-                  icon={<TrendingUp className="h-4 w-4" />}
-                  iconClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
-                  value={fmt(summary.expectedInflowsNext7Days)}
-                  label="Inflows (7d)"
-                  sublabel="Direct + Marketplace"
-                />
-                <SummaryCard
-                  icon={<TrendingDown className="h-4 w-4" />}
-                  iconClass="bg-red-500/10 text-red-600 dark:text-red-400"
-                  value={fmt(summary.expectedOutflowsNext7Days)}
-                  label="Outflows (7d)"
-                  sublabel="Bills + POs + Recurring"
-                />
-                <SummaryCard
-                  icon={<Calendar className="h-4 w-4" />}
-                  iconClass="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
-                  value={fmt(summary.projectedClosingCashNext7Days)}
-                  label="Projected (7d)"
-                  sublabel="Net closing next week"
-                />
-                <SummaryCard
-                  icon={<Clock className="h-4 w-4" />}
-                  iconClass="bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                  value={fmt(summary.projectedClosingCashNext30Days)}
-                  label="Projected (30d)"
-                  sublabel="Monthly closing runway"
-                />
-                <SummaryCard
-                  icon={<AlertTriangle className="h-4 w-4" />}
-                  iconClass={summary.lowestProjectedCash < (settingsQ.data?.minimumCashBuffer ?? 0) ? "bg-red-500/10 text-red-600" : "bg-emerald-500/10 text-emerald-600"}
-                  value={fmt(summary.lowestProjectedCash)}
-                  label={`Lowest (${summary.lowestProjectedCashDate || "Horizon"})`}
-                  sublabel={`Min buffer: ${fmt(settingsQ.data?.minimumCashBuffer ?? 0)}`}
-                />
-              </div>
-            )}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-6">
+              <SummaryCard
+                icon={<Landmark className="h-4 w-4" />}
+                iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                value={fmt(totalAvailableCash)}
+                label="Available Cash"
+                sublabel={`${activeAccountsCount} active accounts`}
+              />
+              <SummaryCard
+                icon={<TrendingUp className="h-4 w-4" />}
+                iconClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                value={fmt(summary?.expectedInflowsNext7Days ?? 0)}
+                label="Inflows (7d)"
+                sublabel="Direct + Marketplace"
+              />
+              <SummaryCard
+                icon={<TrendingDown className="h-4 w-4" />}
+                iconClass="bg-red-500/10 text-red-600 dark:text-red-400"
+                value={fmt(summary?.expectedOutflowsNext7Days ?? 0)}
+                label="Outflows (7d)"
+                sublabel="Bills + POs + Recurring"
+              />
+              <SummaryCard
+                icon={<Calendar className="h-4 w-4" />}
+                iconClass="bg-indigo-500/10 text-indigo-600 dark:text-indigo-400"
+                value={fmt(projected7d)}
+                label="Projected (7d)"
+                sublabel="Net closing next week"
+              />
+              <SummaryCard
+                icon={<Clock className="h-4 w-4" />}
+                iconClass="bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                value={fmt(projected30d)}
+                label="Projected (30d)"
+                sublabel="Monthly closing runway"
+              />
+              <SummaryCard
+                icon={<AlertTriangle className="h-4 w-4" />}
+                iconClass={(summary?.lowestProjectedCash ?? totalAvailableCash) < (settingsQ.data?.minimumCashBuffer ?? 0) ? "bg-red-500/10 text-red-600" : "bg-emerald-500/10 text-emerald-600"}
+                value={fmt(summary?.lowestProjectedCash ?? totalAvailableCash)}
+                label={`Lowest (${summary?.lowestProjectedCashDate || "Horizon"})`}
+                sublabel={`Min buffer: ${fmt(settingsQ.data?.minimumCashBuffer ?? 0)}`}
+              />
+            </div>
 
             {/* ── Quick Stats Row ────────────────────────── */}
-            {summary && (
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-                <QuickStat
-                  label="Overdue Collections"
-                  value={fmt(summary.totalOverdueCollections)}
-                  color={summary.totalOverdueCollections > 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600"}
-                  icon={<AlertTriangle className="h-4 w-4" />}
-                  description="Receivables requiring follow-up"
-                />
-                <QuickStat
-                  label="Supplier Payments (7d)"
-                  value={fmt(summary.totalSupplierPaymentsDue)}
-                  color={summary.totalSupplierPaymentsDue > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600"}
-                  icon={<CreditCard className="h-4 w-4" />}
-                  description="Immediate vendor liabilities"
-                />
-                <QuickStat
-                  label="Marketplace Balances"
-                  value={fmt(summary.marketplaceValue)}
-                  color="text-blue-600 dark:text-blue-400"
-                  icon={<Landmark className="h-4 w-4" />}
-                  description="In Amazon / Flipkart wallets"
-                />
-                <QuickStat
-                  label="Marketplace Pending"
-                  value={fmt(summary.totalMarketplaceSettlementsPending)}
-                  color="text-violet-600 dark:text-violet-400"
-                  icon={<ShoppingCart className="h-4 w-4" />}
-                  description="Expected payout disbursements"
-                />
-              </div>
-            )}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <QuickStat
+                label="Overdue Collections"
+                value={fmt(summary?.totalOverdueCollections ?? 0)}
+                color={(summary?.totalOverdueCollections ?? 0) > 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600"}
+                icon={<AlertTriangle className="h-4 w-4" />}
+                description="Receivables requiring follow-up"
+              />
+              <QuickStat
+                label="Supplier Payments (7d)"
+                value={fmt(summary?.totalSupplierPaymentsDue ?? 0)}
+                color={(summary?.totalSupplierPaymentsDue ?? 0) > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600"}
+                icon={<CreditCard className="h-4 w-4" />}
+                description="Immediate vendor liabilities"
+              />
+              <QuickStat
+                label="Marketplace Balances"
+                value={fmt(totalMarketplaceBalance)}
+                color="text-blue-600 dark:text-blue-400"
+                icon={<Landmark className="h-4 w-4" />}
+                description="In Amazon / Flipkart wallets"
+              />
+              <QuickStat
+                label="Marketplace Pending"
+                value={fmt(summary?.total_marketplace_settlements_pending ?? summary?.totalMarketplaceSettlementsPending ?? 0)}
+                color="text-violet-600 dark:text-violet-400"
+                icon={<ShoppingCart className="h-4 w-4" />}
+                description="Expected payout disbursements"
+              />
+            </div>
 
             {/* ── Main Navigation Tabs ───────────────────── */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
@@ -831,29 +887,29 @@ function CashFlowPage() {
                           </tr>
                         ) : (
                           settlementsQ.data?.map((s: any) => {
-                            const totalFees = (Number(s.marketplaceFees) || 0) + (Number(s.deductions) || 0) + (Number(s.refundsReturns) || 0);
+                            const totalFees = (Number(s.marketplace_fees ?? s.marketplaceFees) || 0) + (Number(s.deductions) || 0) + (Number(s.refunds_returns ?? s.refundsReturns) || 0);
                             return (
                               <tr key={s.id} className="hover:bg-muted/20 transition-colors">
                                 <td className="px-5 py-3.5 font-medium text-foreground">
                                   <div className="flex items-center gap-2">
                                     <ShoppingCart className="h-4 w-4 text-violet-600" />
-                                    {s.marketplaceName}
+                                    {s.marketplace_name ?? s.marketplaceName}
                                   </div>
                                 </td>
                                 <td className="px-5 py-3.5 text-xs text-muted-foreground">
-                                  {s.settlementPeriod || s.settlementReference || "—"}
+                                  {s.settlement_period ?? s.settlementPeriod || s.settlement_reference ?? s.settlementReference || "—"}
                                 </td>
                                 <td className="px-5 py-3.5 text-right font-mono font-medium text-foreground">
-                                  {fmtFull(s.grossSales)}
+                                  {fmtFull(s.gross_sales ?? s.grossSales)}
                                 </td>
                                 <td className="px-5 py-3.5 text-right font-mono text-red-500">
                                   −{fmtFull(totalFees)}
                                 </td>
                                 <td className="px-5 py-3.5 text-right font-mono font-bold text-emerald-600">
-                                  +{fmtFull(s.netSettlementExpected)}
+                                  +{fmtFull(s.net_settlement_expected ?? s.netSettlementExpected)}
                                 </td>
                                 <td className="px-5 py-3.5 text-xs font-mono text-muted-foreground">
-                                  {s.expectedSettlementDate}
+                                  {s.expected_settlement_date ?? s.expectedSettlementDate}
                                 </td>
                                 <td className="px-5 py-3.5 text-center">
                                   <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
@@ -953,7 +1009,7 @@ function CashFlowPage() {
                           {hasWrite && <th className="px-5 py-3.5 text-right">Actions</th>}
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-border/60">
+                      <tbody className="divide-y border-border/60">
                         {recurringQ.data?.length === 0 ? (
                           <tr>
                             <td colSpan={7} className="text-center py-8 text-sm text-muted-foreground">
@@ -2460,13 +2516,13 @@ function SettlementFormDialog({
   onSuccess: () => void;
 }) {
   const isEdit = !!settlement;
-  const [marketplace, setMarketplace] = useState(settlement?.marketplaceName || "");
-  const [gross, setGross] = useState(String(settlement?.grossSales ?? ""));
-  const [fees, setFees] = useState(String(settlement?.marketplaceFees ?? "0"));
+  const [marketplace, setMarketplace] = useState(settlement?.marketplace_name ?? settlement?.marketplaceName || "");
+  const [gross, setGross] = useState(String(settlement?.gross_sales ?? settlement?.grossSales ?? ""));
+  const [fees, setFees] = useState(String(settlement?.marketplace_fees ?? settlement?.marketplaceFees ?? "0"));
   const [deductions, setDeductions] = useState(String(settlement?.deductions ?? "0"));
-  const [refunds, setRefunds] = useState(String(settlement?.refundsReturns ?? "0"));
-  const [date, setDate] = useState(settlement?.expectedSettlementDate || "");
-  const [period, setPeriod] = useState(settlement?.settlementPeriod || "");
+  const [refunds, setRefunds] = useState(String(settlement?.refunds_returns ?? settlement?.refundsReturns ?? "0"));
+  const [date, setDate] = useState(settlement?.expected_settlement_date ?? settlement?.expectedSettlementDate || "");
+  const [period, setPeriod] = useState(settlement?.settlement_period ?? settlement?.settlementPeriod || "");
   const [status, setStatus] = useState(settlement?.status || "EXPECTED");
 
   const mutation = useMutation({
