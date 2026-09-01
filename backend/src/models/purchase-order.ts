@@ -104,7 +104,7 @@ export async function create(data: Partial<PurchaseOrder> & { clientId: string; 
     entityType: "PurchaseOrder", id, clientId: data.clientId,
     poNumber: data.poNumber || `PF-${id.slice(0, 8).toUpperCase()}`,
     amount: data.amount || 0, poAmount: data.poAmount ?? null,
-    side: data.side, status: data.status || "draft", currency: data.currency || "USD",
+    side: data.side, status: data.status || "draft", currency: data.currency || "INR",
     debtorId: data.debtorId || null, vendorId: data.vendorId || null,
     debtorContact: data.debtorContact || null, debtorGstin: data.debtorGstin || null,
     issueDate: data.issueDate || db.todayDate(), expectedDate: data.expectedDate || null,

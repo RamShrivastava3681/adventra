@@ -1703,8 +1703,8 @@ function getMomentumLabel(m: MomentumTag): string {
 }
 
 function formatMoney(n: number): string {
-  if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
-  return `$${n.toFixed(2)}`;
+  if (n >= 1000) return `₹${(n / 1000).toFixed(1)}k`;
+  return `₹${n.toFixed(2)}`;
 }
 
 // =============================================================================

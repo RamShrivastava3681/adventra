@@ -124,7 +124,7 @@ function ChartOfAccounts({ userId, isAdmin }: { userId?: string; isAdmin: boolea
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <div className="text-sm text-muted-foreground">{rows.length} accounts · currency USD</div>
+        <div className="text-sm text-muted-foreground">{rows.length} accounts · currency INR</div>
         <button
           onClick={() => {
             setEditing(null);
@@ -248,7 +248,7 @@ function AccountForm({
         tax_rate: Number(taxRate) || 0,
         description: description || null,
         status,
-        currency: "USD",
+        currency: "INR",
       };
       if (initial?.id) {
         await api.chartOfAccounts.update(initial.id, payload);

@@ -115,7 +115,7 @@ const FUNDING_TONES: Record<string, string> = {
 // stage and their funding dimension is closed.
 const DOC_CLOSED = ["cancelled", "expired", "converted_to_po", "converted_to_so"];
 
-const CURRENCIES = ["USD", "INR", "EUR", "GBP", "AED"];
+const CURRENCIES = ["INR", "USD", "EUR", "GBP", "AED"];
 const PAYMENT_TERMS = [
   "",
   "Net 15",
@@ -767,7 +767,7 @@ function SalesProformaModal({
     debtor_contact: pf?.debtor_contact ?? "",
     debtor_gstin: pf?.debtor_gstin ?? "",
     valid_until: (pf?.valid_until ?? "")?.slice(0, 10) ?? "",
-    currency: pf?.currency ?? "USD",
+    currency: pf?.currency ?? "INR",
     payment_terms: pf?.payment_terms ?? "",
     expected_delivery_date: (pf?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
     notes: pf?.notes ?? "",
@@ -1299,7 +1299,7 @@ function PurchaseProformaModal({
     supplier_contact: pf?.supplier_contact ?? "",
     supplier_gstin: pf?.supplier_gstin ?? "",
     valid_until: (pf?.valid_until ?? "")?.slice(0, 10) ?? "",
-    currency: pf?.currency ?? "USD",
+    currency: pf?.currency ?? "INR",
     payment_terms: pf?.payment_terms ?? "",
     expected_delivery_date: (pf?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
     notes: pf?.notes ?? "",

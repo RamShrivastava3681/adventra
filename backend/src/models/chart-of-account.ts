@@ -36,7 +36,7 @@ export async function create(data: Partial<ChartOfAccount> & { clientId: string;
     entityType: "ChartOfAccount", id, clientId: data.clientId,
     code: data.code, name: data.name, type: data.type,
     subtype: data.subtype || null, description: data.description || null,
-    taxRate: data.taxRate || 0, currency: data.currency || "USD",
+    taxRate: data.taxRate || 0, currency: data.currency || "INR",
     status: data.status || "active", isSystem: data.isSystem || false,
     systemKey: data.systemKey || null, createdAt: now, updatedAt: now,
   };

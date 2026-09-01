@@ -171,7 +171,7 @@ const PAYMENT_TERMS = [
   "Letter of credit",
 ];
 
-const PF_CURRENCIES = ["USD", "INR", "EUR", "GBP", "AED"];
+const PF_CURRENCIES = ["INR", "USD", "EUR", "GBP", "AED"];
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -685,7 +685,7 @@ function POModal({
     supplier_contact: "",
     supplier_gstin: "",
     valid_until: "",
-    currency: "USD",
+    currency: "INR",
     payment_terms: po?.payment_terms ?? "",
     expected_delivery_date: po?.expected_delivery_date ?? "",
     advance_pct: "",

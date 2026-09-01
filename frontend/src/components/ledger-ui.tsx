@@ -232,7 +232,7 @@ export function fmtMoney(n: number | string | null | undefined) {
   const v = Number(n ?? 0);
   return new Intl.NumberFormat("en-US", {
     style: "currency",
-    currency: "USD",
+    currency: "INR",
     maximumFractionDigits: 0,
   }).format(v);
 }

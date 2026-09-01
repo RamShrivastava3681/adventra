@@ -385,7 +385,7 @@ function NewExpenseModal({
             </select>
           </L>
           <div className="grid grid-cols-2 gap-3">
-            <L label="Amount (USD) *">
+            <L label="Amount (INR) *">
               <input
                 required
                 type="number"

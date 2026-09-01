@@ -80,7 +80,7 @@ export async function upsertTemplate(data: Partial<InvoiceTemplate> & { clientId
     companyEmail: data.companyEmail || null, companyPhone: data.companyPhone || null,
     taxId: data.taxId || null, logoUrl: data.logoUrl || null,
     primaryColor: data.primaryColor || "#0EA5E9", accentColor: data.accentColor || "#0F172A",
-    currency: data.currency || "USD", currencySymbol: data.currencySymbol || "$",
+    currency: data.currency || "INR", currencySymbol: data.currencySymbol || "₹",
     defaultTaxRate: data.defaultTaxRate || 0,
     bankDetails: data.bankDetails || null, terms: data.terms || null,
     footerText: data.footerText || null, signatureLabel: data.signatureLabel || null,

@@ -413,7 +413,7 @@ function NewNoteModal({
       return data;
     },
   });
-  const currencySym = (tplQ.data?.currency_symbol as string) || "$";
+  const currencySym = (tplQ.data?.currency_symbol as string) || "₹";
   useEffect(() => {
     if (tplQ.data && form.tax_rate === "0") {
       setForm((f) => ({ ...f, tax_rate: String(tplQ.data!.default_tax_rate ?? 0) }));
