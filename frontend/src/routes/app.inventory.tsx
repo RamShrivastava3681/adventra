@@ -1249,6 +1249,18 @@ function BulkImportModal({
           const stockIn = inCol >= 1 ? Number(row[inCol]) || 0 : 0;
           const stockOut = outCol >= 1 ? Number(row[outCol]) || 0 : 0;
 
+          // Negative stock_out is treated as a customer return (stock_in)
+          // Negative stock_in is treated as a dispatch (stock_out)
+          let effectiveIn = stockIn;
+          let effectiveOut = stockOut;
+          if (stockOut < 0) {
+            effectiveIn = 0;
+            effectiveOut = Math.abs(stockOut);
+          } else if (stockIn < 0) {
+            effectiveIn = Math.abs(stockIn);
+            effectiveOut = 0;
+          }
+
           // Normalize date
           let dateStr = rawDate;
           // Handle Excel serial dates (numbers)
@@ -1268,23 +1280,23 @@ function BulkImportModal({
 
           let direction: "in" | "out" | null = null;
           let quantity = 0;
-          if (stockIn > 0 && stockOut > 0) {
+          if (effectiveIn > 0 && effectiveOut > 0) {
             direction = null;
             quantity = 0;
-          } else if (stockIn > 0) {
+          } else if (effectiveIn > 0) {
             direction = "in";
-            quantity = stockIn;
-          } else if (stockOut > 0) {
+            quantity = effectiveIn;
+          } else if (effectiveOut > 0) {
             direction = "out";
-            quantity = stockOut;
+            quantity = effectiveOut;
           }
 
           let error: string | undefined;
           if (!dateStr || !/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
             error = `Invalid date: "${rawDate}"`;
-          } else if (stockIn > 0 && stockOut > 0) {
+          } else if (effectiveIn > 0 && effectiveOut > 0) {
             error = "Both stock_in and stock_out are set — only one allowed per row";
-          } else if (stockIn === 0 && stockOut === 0) {
+          } else if (effectiveIn === 0 && effectiveOut === 0) {
             error = "Both stock_in and stock_out are zero — skipping empty row";
           }
 
@@ -1402,6 +1414,7 @@ function BulkImportModal({
               <code className="rounded bg-muted/50 px-1 py-0.5"> stock_in</code>,
               <code className="rounded bg-muted/50 px-1 py-0.5"> stock_out</code>.
               Only one of stock_in or stock_out should be set per row.
+              Negative values are treated as returns (e.g. negative stock_out → stock_in).
             </p>
 
             <div
