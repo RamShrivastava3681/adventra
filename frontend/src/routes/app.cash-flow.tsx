@@ -897,7 +897,7 @@ function CashFlowPage() {
                                   </div>
                                 </td>
                                 <td className="px-5 py-3.5 text-xs text-muted-foreground">
-                                  {s.settlement_period ?? s.settlementPeriod || s.settlement_reference ?? s.settlementReference || "—"}
+                                  {(s.settlement_period ?? s.settlementPeriod) || (s.settlement_reference ?? s.settlementReference) || "—"}
                                 </td>
                                 <td className="px-5 py-3.5 text-right font-mono font-medium text-foreground">
                                   {fmtFull(s.gross_sales ?? s.grossSales)}
@@ -2516,13 +2516,13 @@ function SettlementFormDialog({
   onSuccess: () => void;
 }) {
   const isEdit = !!settlement;
-  const [marketplace, setMarketplace] = useState(settlement?.marketplace_name ?? settlement?.marketplaceName || "");
+  const [marketplace, setMarketplace] = useState((settlement?.marketplace_name ?? settlement?.marketplaceName) || "");
   const [gross, setGross] = useState(String(settlement?.gross_sales ?? settlement?.grossSales ?? ""));
   const [fees, setFees] = useState(String(settlement?.marketplace_fees ?? settlement?.marketplaceFees ?? "0"));
   const [deductions, setDeductions] = useState(String(settlement?.deductions ?? "0"));
   const [refunds, setRefunds] = useState(String(settlement?.refunds_returns ?? settlement?.refundsReturns ?? "0"));
-  const [date, setDate] = useState(settlement?.expected_settlement_date ?? settlement?.expectedSettlementDate || "");
-  const [period, setPeriod] = useState(settlement?.settlement_period ?? settlement?.settlementPeriod || "");
+  const [date, setDate] = useState((settlement?.expected_settlement_date ?? settlement?.expectedSettlementDate) || "");
+  const [period, setPeriod] = useState((settlement?.settlement_period ?? settlement?.settlementPeriod) || "");
   const [status, setStatus] = useState(settlement?.status || "EXPECTED");
 
   const mutation = useMutation({
