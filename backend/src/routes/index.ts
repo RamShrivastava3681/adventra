@@ -481,6 +481,128 @@ router.post("/stock-movements", authMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * POST /stock-movements/bulk — bulk-create movements for a single product.
+ * Accepts { productId, reason, warehouse, notes, status, movements: [{ date, direction, quantity }] }.
+ * All rows are validated, then inserted. Returns { created: number, movements: [...] }.
+ */
+router.post(
+  "/stock-movements/bulk",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const clientId = req.user!.userId;
+      const body = req.body || {};
+
+      if (!body.productId) {
+        return res
+          .status(400)
+          .json({ error: "productId is required" });
+      }
+      const product = await Product.get(body.productId);
+      if (!product)
+        return res
+          .status(400)
+          .json({ error: "The selected catalogue product no longer exists" });
+
+      const reason = body.reason || "Stock adjustment";
+      const notes = body.notes || "Bulk import";
+      const status = body.status ?? "confirmed";
+      if (!["draft", "confirmed"].includes(status)) {
+        return res.status(400).json({ error: "Status must be draft or confirmed" });
+      }
+
+      const rows = body.movements;
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return res
+          .status(400)
+          .json({ error: "movements must be a non-empty array" });
+      }
+      if (rows.length > 500) {
+        return res
+          .status(400)
+          .json({ error: "Maximum 500 movements per import" });
+      }
+
+      // Validate all rows first
+      const validated: Array<{
+        direction: "in" | "out";
+        quantity: number;
+        movementDate: string;
+      }> = [];
+      for (let i = 0; i < rows.length; i++) {
+        const row = rows[i];
+        const dir = String(row.direction ?? "").trim().toLowerCase();
+        if (dir !== "in" && dir !== "out") {
+          return res
+            .status(400)
+            .json({ error: `Row ${i + 1}: direction must be "in" or "out"` });
+        }
+        const qty = Number(row.quantity);
+        if (!(qty > 0)) {
+          return res
+            .status(400)
+            .json({ error: `Row ${i + 1}: quantity must be greater than zero` });
+        }
+        const date = String(row.date ?? "").trim();
+        if (!date || !/^\d{4}-\d{2}-\d{2}/.test(date)) {
+          return res
+            .status(400)
+            .json({ error: `Row ${i + 1}: date must be YYYY-MM-DD` });
+        }
+        validated.push({ direction: dir as "in" | "out", quantity: qty, movementDate: date });
+      }
+
+      // Create all movements
+      const created: any[] = [];
+      for (const v of validated) {
+        const item = await StockMovement.create({
+          clientId,
+          productId: product.id,
+          itemName: product.name,
+          sku: product.sku,
+          unit: product.unitOfMeasure || "unit",
+          direction: v.direction,
+          quantity: v.quantity,
+          unitCost: product.unitCost || 0,
+          reason,
+          notes,
+          movementDate: v.movementDate,
+          warehouse: body.warehouse || null,
+          status: status as "draft" | "confirmed",
+          createdById: req.user!.userId,
+          createdByName: req.user!.email,
+          ...(status === "confirmed"
+            ? {
+                confirmedById: req.user!.userId,
+                confirmedByName: req.user!.email,
+                confirmedAt: db.nowISO(),
+              }
+            : {}),
+        } as any);
+        created.push(item);
+      }
+
+      trackAction(req, "stock.bulk_created", product.id, {
+        entityType: "stock",
+        entityRef: product.sku ?? product.name,
+        count: created.length,
+        status,
+      });
+
+      // Trigger forecast recompute asynchronously
+      const { recomputeAll } = await import("../services/forecast-service.js");
+      recomputeAll(clientId).catch((err: any) =>
+        console.error("  ⚠ Forecast recompute after bulk stock import failed:", err),
+      );
+
+      res.status(201).json({ created: created.length, movements: created });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
 /** POST /stock-movements/:id/confirm — flip a draft into the live stock (atomic). */
 router.post(
   "/stock-movements/:id/confirm",

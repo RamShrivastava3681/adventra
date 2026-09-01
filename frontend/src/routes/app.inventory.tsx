@@ -19,9 +19,13 @@ import {
   Package,
   Pencil,
   Boxes,
+  Upload,
+  FileSpreadsheet,
+  AlertTriangle,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
+import * as XLSX from "xlsx";
 
 export const Route = createFileRoute("/app/inventory")({
   component: InventoryPage,
@@ -117,6 +121,7 @@ function InventoryPage() {
   const canWrite = isAdmin || (isClient && !isChecker && !isTreasury);
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [dirFilter, setDirFilter] = useState<"all" | "in" | "out">("all");
   const [statusFilter, setStatusFilter] = useState<"all" | "draft" | "confirmed" | "cancelled">(
     "all",
@@ -233,12 +238,20 @@ function InventoryPage() {
         icon={<Boxes className="h-5 w-5" />}
         actions={
           canWrite ? (
-            <button
-              onClick={() => setOpen(true)}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
-            >
-              <Plus className="h-4 w-4" /> New movement
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setBulkOpen(true)}
+                className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm font-medium transition hover:bg-muted/40"
+              >
+                <FileSpreadsheet className="h-4 w-4" /> Bulk import
+              </button>
+              <button
+                onClick={() => setOpen(true)}
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
+              >
+                <Plus className="h-4 w-4" /> New movement
+              </button>
+            </div>
           ) : (
             <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
               Read-only
@@ -546,6 +559,7 @@ function InventoryPage() {
       </div>
 
       {open && user && <MovementModal userId={user.id} onClose={() => setOpen(false)} />}
+      {bulkOpen && user && <BulkImportModal userId={user.id} onClose={() => setBulkOpen(false)} />}
       {editing && user && (
         <MovementModal userId={user.id} movement={editing} onClose={() => setEditing(null)} />
       )}
@@ -1142,6 +1156,406 @@ function MovementModal({
             )}
           </div>
         </form>
+        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+      </div>
+    </div>
+  );
+}
+
+type ParsedRow = {
+  row: number;
+  date: string;
+  stockIn: number;
+  stockOut: number;
+  direction: "in" | "out" | null;
+  quantity: number;
+  error?: string;
+};
+
+function BulkImportModal({
+  userId,
+  onClose,
+}: {
+  userId: string;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [productId, setProductId] = useState("");
+  const [reason, setReason] = useState("Stock adjustment");
+  const [warehouse, setWarehouse] = useState("");
+  const [notes, setNotes] = useState("Bulk import from Excel");
+  const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [parseError, setParseError] = useState("");
+
+  const productsQ = useQuery({
+    queryKey: ["products-mini"],
+    queryFn: async () => {
+      const data = await api.products.list();
+      return data
+        .map((p: any) => ({
+          id: p.id,
+          sku: p.sku,
+          name: p.name,
+        }))
+        .sort((a: any, b: any) => (a.sku ?? "").localeCompare(b.sku ?? ""));
+    },
+  });
+
+  const selectedProduct = (productsQ.data ?? []).find((p: any) => p.id === productId);
+
+  const validRows = parsedRows.filter((r) => !r.error);
+  const errorRows = parsedRows.filter((r) => r.error);
+
+  const handleFile = (file: File) => {
+    setFileName(file.name);
+    setParseError("");
+    setParsedRows([]);
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target?.result as ArrayBuffer);
+        const wb = XLSX.read(data, { type: "array" });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        const rows: any[][] = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "" });
+
+        if (rows.length < 2) {
+          setParseError("Excel file is empty or has no data rows.");
+          return;
+        }
+
+        // Find header row — look for columns named date, stock_in/stock_out/in/out/quantity
+        const headerRow = rows[0].map((h: any) => String(h).trim().toLowerCase());
+        const dateCol = headerRow.findIndex((h: string) => h === "date" || h === "movement_date" || h === "mov_date");
+        const inCol = headerRow.findIndex((h: string) => h === "stock_in" || h === "in" || h === "credit" || h === "stock_in_qty");
+        const outCol = headerRow.findIndex((h: string) => h === "stock_out" || h === "out" || h === "debit" || h === "stock_out_qty");
+
+        if (dateCol === -1) {
+          setParseError('Could not find a "date" column. Headers found: ' + headerRow.join(", "));
+          return;
+        }
+        if (inCol === -1 && outCol === -1) {
+          setParseError('Could not find "stock_in" or "stock_out" columns. Headers found: ' + headerRow.join(", "));
+          return;
+        }
+
+        const parsed: ParsedRow[] = [];
+        for (let i = 1; i < rows.length; i++) {
+          const row = rows[i];
+          if (!row || row.every((c: any) => c === "" || c === null || c === undefined)) continue;
+
+          const rawDate = String(row[dateCol] ?? "").trim();
+          const stockIn = inCol >= 1 ? Number(row[inCol]) || 0 : 0;
+          const stockOut = outCol >= 1 ? Number(row[outCol]) || 0 : 0;
+
+          // Normalize date
+          let dateStr = rawDate;
+          // Handle Excel serial dates (numbers)
+          if (typeof row[dateCol] === "number" && row[dateCol] > 30000) {
+            const excelDate = XLSX.SSF.parse_date_code(row[dateCol]);
+            if (excelDate) {
+              dateStr = `${excelDate.y}-${String(excelDate.m).padStart(2, "0")}-${String(excelDate.d).padStart(2, "0")}`;
+            }
+          }
+          // Try to parse date strings
+          if (dateStr && !/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+            const d = new Date(dateStr);
+            if (!isNaN(d.getTime())) {
+              dateStr = d.toISOString().slice(0, 10);
+            }
+          }
+
+          let direction: "in" | "out" | null = null;
+          let quantity = 0;
+          if (stockIn > 0 && stockOut > 0) {
+            direction = null;
+            quantity = 0;
+          } else if (stockIn > 0) {
+            direction = "in";
+            quantity = stockIn;
+          } else if (stockOut > 0) {
+            direction = "out";
+            quantity = stockOut;
+          }
+
+          let error: string | undefined;
+          if (!dateStr || !/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
+            error = `Invalid date: "${rawDate}"`;
+          } else if (stockIn > 0 && stockOut > 0) {
+            error = "Both stock_in and stock_out are set — only one allowed per row";
+          } else if (stockIn === 0 && stockOut === 0) {
+            error = "Both stock_in and stock_out are zero — skipping empty row";
+          }
+
+          parsed.push({
+            row: i + 1,
+            date: dateStr,
+            stockIn,
+            stockOut,
+            direction,
+            quantity,
+            error,
+          });
+        }
+
+        if (parsed.length === 0) {
+          setParseError("No data rows found in the Excel file.");
+          return;
+        }
+
+        setParsedRows(parsed);
+      } catch (err: any) {
+        setParseError("Failed to parse Excel file: " + (err?.message ?? err));
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
+  const importMut = useMutation({
+    mutationFn: async () => {
+      if (!productId) throw new Error("Please select a product (SKU)");
+      if (validRows.length === 0) throw new Error("No valid rows to import");
+
+      return api.stockMovements.bulkCreate({
+        productId,
+        reason,
+        warehouse: warehouse.trim() || undefined,
+        notes: notes.trim() || undefined,
+        status: "confirmed",
+        movements: validRows.map((r) => ({
+          date: r.date,
+          direction: r.direction!,
+          quantity: r.quantity,
+        })),
+      });
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["stock_movements"] });
+      qc.invalidateQueries({ queryKey: ["stock_movements_all"] });
+      qc.invalidateQueries({ queryKey: ["movements-forecast"] });
+      toast.success(`Imported ${data.created} movement(s) successfully`);
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Import failed"),
+  });
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files[0];
+    if (file) handleFile(file);
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <h3 className="font-display text-lg">Bulk Import Movements</h3>
+          <button
+            onClick={onClose}
+            className="text-muted-foreground transition hover:text-foreground"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-5 p-5">
+          {/* Step 1: Select product */}
+          <section className="space-y-3 rounded-lg border border-border/70 p-4">
+            <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              1. Select product
+            </h4>
+            <L label="Product (SKU)">
+              <SearchableSelect
+                value={productId}
+                onChange={setProductId}
+                placeholder="— Select product —"
+                options={(productsQ.data ?? []).map((p: any) => ({
+                  value: p.id,
+                  label: p.sku ? `${p.sku} · ${p.name}` : p.name,
+                }))}
+              />
+            </L>
+            {selectedProduct && (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Package className="h-3.5 w-3.5" />
+                <span>
+                  <span className="font-mono">{selectedProduct.sku}</span> — {selectedProduct.name}
+                </span>
+              </div>
+            )}
+          </section>
+
+          {/* Step 2: Upload Excel */}
+          <section className="space-y-3 rounded-lg border border-border/70 p-4">
+            <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+              2. Upload Excel file
+            </h4>
+            <p className="text-xs text-muted-foreground">
+              Expected columns: <code className="rounded bg-muted/50 px-1 py-0.5">date</code> (YYYY-MM-DD),
+              <code className="rounded bg-muted/50 px-1 py-0.5"> stock_in</code>,
+              <code className="rounded bg-muted/50 px-1 py-0.5"> stock_out</code>.
+              Only one of stock_in or stock_out should be set per row.
+            </p>
+
+            <div
+              onDrop={handleDrop}
+              onDragOver={(e) => e.preventDefault()}
+              className="flex flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed border-border/70 bg-muted/10 px-6 py-8 transition hover:border-primary/40 hover:bg-primary/5"
+            >
+              <FileSpreadsheet className="h-8 w-8 text-muted-foreground/50" />
+              <p className="text-sm text-muted-foreground">
+                Drag & drop an Excel file here, or
+              </p>
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium transition hover:bg-muted/40">
+                <Upload className="h-4 w-4" /> Browse files
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleFile(file);
+                  }}
+                />
+              </label>
+              {fileName && (
+                <p className="text-xs text-muted-foreground">
+                  Selected: <span className="font-medium text-foreground">{fileName}</span>
+                </p>
+              )}
+            </div>
+
+            {parseError && (
+              <div className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive">
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+                <span>{parseError}</span>
+              </div>
+            )}
+          </section>
+
+          {/* Step 3: Preview */}
+          {parsedRows.length > 0 && (
+            <section className="space-y-3 rounded-lg border border-border/70 p-4">
+              <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                3. Preview ({validRows.length} valid, {errorRows.length} errors)
+              </h4>
+
+              {/* Movement settings */}
+              <div className="grid grid-cols-3 gap-3">
+                <L label="Reason">
+                  <select
+                    className="inp"
+                    value={reason}
+                    onChange={(e) => setReason(e.target.value)}
+                  >
+                    {MANUAL_REASONS.map((r) => (
+                      <option key={r.label} value={r.label}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+                </L>
+                <L label="Warehouse">
+                  <input
+                    className="inp"
+                    value={warehouse}
+                    onChange={(e) => setWarehouse(e.target.value)}
+                    placeholder="Optional"
+                  />
+                </L>
+                <L label="Notes">
+                  <input
+                    className="inp"
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                    placeholder="Notes for all rows"
+                  />
+                </L>
+              </div>
+
+              <div className="-mx-2 max-h-64 overflow-y-auto">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-card">
+                    <tr className="border-b border-border text-left uppercase tracking-widest text-muted-foreground">
+                      <th className="px-2 py-1.5 font-normal">Row</th>
+                      <th className="px-2 py-1.5 font-normal">Date</th>
+                      <th className="px-2 py-1.5 font-normal">Direction</th>
+                      <th className="px-2 py-1.5 text-right font-normal">Quantity</th>
+                      <th className="px-2 py-1.5 font-normal">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {parsedRows.map((r, i) => (
+                      <tr
+                        key={i}
+                        className={`border-b border-border/40 ${
+                          r.error
+                            ? "bg-destructive/5"
+                            : ""
+                        }`}
+                      >
+                        <td className="px-2 py-1.5 font-mono text-muted-foreground">{r.row}</td>
+                        <td className="px-2 py-1.5">{r.date}</td>
+                        <td className="px-2 py-1.5">
+                          {r.direction === "in" ? (
+                            <span className="text-success">Credit (In)</span>
+                          ) : r.direction === "out" ? (
+                            <span className="text-warning">Debit (Out)</span>
+                          ) : (
+                            <span className="text-destructive">—</span>
+                          )}
+                        </td>
+                        <td className="px-2 py-1.5 text-right num">
+                          {r.quantity > 0 ? r.quantity.toLocaleString() : "—"}
+                        </td>
+                        <td className="px-2 py-1.5">
+                          {r.error ? (
+                            <span className="text-destructive">{r.error}</span>
+                          ) : (
+                            <span className="text-success flex items-center gap-1">
+                              <Check className="h-3 w-3" /> OK
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {/* Actions */}
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm transition hover:bg-muted/40"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={
+                !productId ||
+                validRows.length === 0 ||
+                importMut.isPending
+              }
+              onClick={() => importMut.mutate()}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+            >
+              {importMut.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              <Upload className="h-4 w-4" /> Import {validRows.length} movement(s)
+            </button>
+          </div>
+        </div>
+
         <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
       </div>
     </div>

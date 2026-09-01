@@ -92,6 +92,14 @@ const api = {
     list: (productId?: string) =>
       api.get<any[]>(`/stock-movements${productId ? `?productId=${productId}` : ""}`),
     create: (data: any) => api.post<any>("/stock-movements", data),
+    bulkCreate: (data: {
+      productId: string;
+      reason?: string;
+      warehouse?: string;
+      notes?: string;
+      status?: string;
+      movements: Array<{ date: string; direction: "in" | "out"; quantity: number }>;
+    }) => api.post<any>("/stock-movements/bulk", data),
     update: (id: string, data: any) => api.put<any>(`/stock-movements/${id}`, data),
     confirm: (id: string) => api.post<any>(`/stock-movements/${id}/confirm`, {}),
     cancel: (id: string) => api.post<any>(`/stock-movements/${id}/cancel`, {}),
