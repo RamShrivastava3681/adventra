@@ -93,18 +93,22 @@ router.get("/cash-accounts/:id", async (req: Request, res: Response) => {
 router.post("/cash-accounts", requireCashFlowWrite, async (req: Request, res: Response) => {
   try {
     const clientId = (req as any).user.userId;
-    const { accountName, accountType, currentBalance, restrictedBalance, status } = req.body || {};
+    const body = req.body || {};
+    const accountName = body.accountName || body.name || body.account_name;
+    const accountType = body.accountType || body.type || body.account_type || "BANK";
+    const currentBalance = body.currentBalance ?? body.balance ?? body.current_balance ?? body.amount ?? 0;
+    const restrictedBalance = body.restrictedBalance ?? body.restricted ?? body.restricted_balance ?? 0;
+    const status = body.status || "active";
+
     if (!accountName) return res.status(400).json({ error: "accountName is required" });
-    if (!accountType) return res.status(400).json({ error: "accountType is required" });
-    if (currentBalance === undefined) return res.status(400).json({ error: "currentBalance is required" });
 
     const item = await CashAccount.create({
       clientId,
-      accountName,
+      accountName: String(accountName).trim(),
       accountType,
-      currentBalance: Number(currentBalance),
-      restrictedBalance: restrictedBalance ? Number(restrictedBalance) : 0,
-      status: status || "active",
+      currentBalance: Number(currentBalance) || 0,
+      restrictedBalance: Number(restrictedBalance) || 0,
+      status,
     });
     trackCashFlowAction(req, "cashaccount.created", item.id, { accountName, accountType });
     res.status(201).json(item);
@@ -125,10 +129,10 @@ router.put("/cash-accounts/:id", requireCashFlowWrite, async (req: Request, res:
     const item = await CashAccount.update(req.params.id, updates);
 
     // Audit balance changes
-    if (req.body.currentBalance !== undefined) {
+    if (req.body.currentBalance !== undefined || req.body.balance !== undefined) {
       trackCashFlowAction(req, "cashaccount.balance_updated", req.params.id, {
         previousBalance: current.currentBalance,
-        newBalance: req.body.currentBalance,
+        newBalance: req.body.currentBalance ?? req.body.balance,
         accountName: current.accountName,
       });
     }

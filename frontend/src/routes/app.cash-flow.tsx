@@ -6,7 +6,6 @@ import { useAuth } from "@/lib/auth-context";
 import { PageHeader } from "@/components/ledger-ui";
 import {
   AlertTriangle,
-  Banknote,
   Building2,
   Calendar,
   CheckCircle2,
@@ -14,30 +13,20 @@ import {
   ChevronRight,
   Clock,
   CreditCard,
-  DollarSign,
   Edit2,
-  Eye,
-  Filter,
   Landmark,
   LayoutDashboard,
-  Layers,
-  Link2,
   Loader2,
-  Minus,
-  Package,
   Pause,
   Play,
   Plus,
   RefreshCw,
-  Search,
   Settings,
   ShoppingCart,
   Trash2,
   TrendingDown,
   TrendingUp,
   Wallet,
-  X,
-  Zap,
 } from "lucide-react";
 import {
   AreaChart,
@@ -110,7 +99,7 @@ function statusDot(status: string): string {
   return "bg-red-500";
 }
 
-// ── Page ───────────────────────────────────────────────────────────────────
+// ── Page Component ─────────────────────────────────────────────────────────
 
 function CashFlowPage() {
   const { isAdmin, isTreasury } = useAuth();
@@ -147,57 +136,49 @@ function CashFlowPage() {
   const [editingSettlement, setEditingSettlement] = useState<any | null>(null);
   const [deletingSettlement, setDeletingSettlement] = useState<any | null>(null);
 
-  // Fetch forecast
+  // Queries
   const forecastQ = useQuery({
     queryKey: ["cash-flow-forecast", mode],
     queryFn: () => api.cashFlow.forecast.get(mode),
     refetchInterval: 30_000,
   });
 
-  // Fetch summary
   const summaryQ = useQuery({
     queryKey: ["cash-flow-summary"],
     queryFn: () => api.cashFlow.summary(),
     refetchInterval: 30_000,
   });
 
-  // Fetch cash accounts
   const accountsQ = useQuery({
     queryKey: ["cash-accounts"],
     queryFn: () => api.cashFlow.accounts.list(),
   });
 
-  // Fetch settings
   const settingsQ = useQuery({
     queryKey: ["cash-flow-settings"],
     queryFn: () => api.cashFlow.settings.get(),
   });
 
-  // Fetch inflows
   const inflowsQ = useQuery({
     queryKey: ["cash-flow-inflows"],
     queryFn: () => api.cashFlow.inflows.list(),
   });
 
-  // Fetch outflows
   const outflowsQ = useQuery({
     queryKey: ["cash-flow-outflows"],
     queryFn: () => api.cashFlow.outflows.list(),
   });
 
-  // Fetch recurring expenses
   const recurringQ = useQuery({
     queryKey: ["cash-flow-recurring"],
     queryFn: () => api.cashFlow.recurring.list(),
   });
 
-  // Fetch purchase commitments
   const commitmentsQ = useQuery({
     queryKey: ["cash-flow-commitments"],
     queryFn: () => api.cashFlow.commitments.list(),
   });
 
-  // Fetch marketplace settlements
   const settlementsQ = useQuery({
     queryKey: ["cash-flow-settlements"],
     queryFn: () => api.cashFlow.settlements.list(),
@@ -738,27 +719,32 @@ function CashFlowPage() {
                           </tr>
                         ) : (
                           accountsQ.data?.map((acc: any) => {
-                            const avail = acc.availableForOperations !== undefined
-                              ? acc.availableForOperations
-                              : ((Number(acc.currentBalance) || 0) - (Number(acc.restrictedBalance) || 0));
+                            const accName = acc.accountName || acc.name || acc.account_name || "Cash Account";
+                            const accType = acc.accountType || acc.type || acc.account_type || "BANK";
+                            const currentBal = Number(acc.currentBalance ?? acc.balance ?? acc.current_balance ?? acc.amount ?? 0) || 0;
+                            const restricted = Number(acc.restrictedBalance ?? acc.restricted ?? acc.restricted_balance ?? 0) || 0;
+                            const avail = acc.availableForOperations !== undefined && !isNaN(Number(acc.availableForOperations))
+                              ? Number(acc.availableForOperations)
+                              : (currentBal - restricted);
+
                             return (
                               <tr key={acc.id} className="hover:bg-muted/20 transition-colors">
                                 <td className="px-5 py-3.5 font-medium text-foreground">
                                   <div className="flex items-center gap-2">
                                     <Landmark className="h-4 w-4 text-primary" />
-                                    {acc.accountName}
+                                    <span>{accName}</span>
                                   </div>
                                 </td>
                                 <td className="px-5 py-3.5">
                                   <span className="rounded-md bg-muted px-2 py-0.5 text-xs font-medium">
-                                    {acc.accountType}
+                                    {accType}
                                   </span>
                                 </td>
                                 <td className="px-5 py-3.5 text-right font-mono text-foreground font-medium">
-                                  {fmtFull(acc.currentBalance)}
+                                  {fmtFull(currentBal)}
                                 </td>
                                 <td className="px-5 py-3.5 text-right font-mono text-muted-foreground">
-                                  {fmtFull(acc.restrictedBalance)}
+                                  {fmtFull(restricted)}
                                 </td>
                                 <td className="px-5 py-3.5 text-right font-mono text-emerald-600 font-bold">
                                   {fmtFull(avail)}
@@ -1445,7 +1431,7 @@ function CashFlowPage() {
       {deletingAccount && (
         <DeleteConfirmDialog
           title="Delete Cash Account"
-          description={`Are you sure you want to delete account "${deletingAccount.accountName}"? This will remove its balance from total Available Cash.`}
+          description={`Are you sure you want to delete account "${deletingAccount.accountName || deletingAccount.name || 'this account'}"? This will remove its balance from total Available Cash.`}
           onClose={() => setDeletingAccount(null)}
           onConfirm={async () => {
             try {
@@ -1836,7 +1822,6 @@ function BreakdownCard({
   );
   const total = active.reduce((s, i) => s + (Number(i.amount) || 0), 0);
 
-  // Group by displayCategory or type
   const grouped = new Map<string, number>();
   for (const item of active) {
     const key = item.displayCategory || item.type || item.category || "Other";
@@ -1895,21 +1880,32 @@ function AccountFormDialog({
   onClose: () => void;
   onSuccess: () => void;
 }) {
-  const [name, setName] = useState(account?.accountName || "");
-  const [type, setType] = useState(account?.accountType || "BANK");
-  const [balance, setBalance] = useState(String(account?.currentBalance ?? ""));
-  const [restricted, setRestricted] = useState(String(account?.restrictedBalance ?? "0"));
+  const [name, setName] = useState(account?.accountName || account?.name || account?.account_name || "");
+  const [type, setType] = useState(account?.accountType || account?.type || account?.account_type || "BANK");
+  const [balance, setBalance] = useState(
+    account != null ? String(account.currentBalance ?? account.balance ?? account.current_balance ?? account.amount ?? "0") : ""
+  );
+  const [restricted, setRestricted] = useState(
+    account != null ? String(account.restrictedBalance ?? account.restricted ?? account.restricted_balance ?? "0") : "0"
+  );
   const [status, setStatus] = useState(account?.status || "active");
 
   const isEdit = !!account;
 
   const mutation = useMutation({
     mutationFn: () => {
+      const numBal = Number(balance) || 0;
+      const numRest = Number(restricted) || 0;
       const payload = {
-        accountName: name,
+        accountName: name.trim(),
+        name: name.trim(),
         accountType: type,
-        currentBalance: Number(balance),
-        restrictedBalance: Number(restricted),
+        type: type,
+        currentBalance: numBal,
+        balance: numBal,
+        restrictedBalance: numRest,
+        restricted: numRest,
+        availableForOperations: numBal - numRest,
         status,
       };
       return isEdit
@@ -1923,7 +1919,9 @@ function AccountFormDialog({
     onError: (err: any) => toast.error(err.message),
   });
 
-  const avail = (Number(balance) || 0) - (Number(restricted) || 0);
+  const numBal = Number(balance) || 0;
+  const numRest = Number(restricted) || 0;
+  const avail = numBal - numRest;
 
   return (
     <Dialog open onOpenChange={onClose}>
@@ -1964,7 +1962,7 @@ function AccountFormDialog({
                 type="number"
                 value={balance}
                 onChange={(e) => setBalance(e.target.value)}
-                className="mt-1"
+                className="mt-1 font-mono"
                 placeholder="0.00"
               />
             </div>
@@ -1974,7 +1972,7 @@ function AccountFormDialog({
                 type="number"
                 value={restricted}
                 onChange={(e) => setRestricted(e.target.value)}
-                className="mt-1"
+                className="mt-1 font-mono"
                 placeholder="0.00"
               />
             </div>
@@ -1998,7 +1996,7 @@ function AccountFormDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Cancel</Button>
-          <Button onClick={() => mutation.mutate()} disabled={!name || balance === "" || mutation.isPending}>
+          <Button onClick={() => mutation.mutate()} disabled={!name.trim() || balance === "" || mutation.isPending}>
             {mutation.isPending && <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" />}
             {isEdit ? "Update Account" : "Create Account"}
           </Button>
@@ -2076,11 +2074,11 @@ function InflowFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Amount</Label>
-              <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1" />
+              <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1 font-mono" />
             </div>
             <div>
               <Label>Expected Date</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1" />
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 font-mono" />
             </div>
           </div>
           <div>
@@ -2090,7 +2088,7 @@ function InflowFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Confidence (%)</Label>
-              <Input type="number" value={confidence} onChange={(e) => setConfidence(e.target.value)} className="mt-1" min="0" max="100" />
+              <Input type="number" value={confidence} onChange={(e) => setConfidence(e.target.value)} className="mt-1 font-mono" min="0" max="100" />
             </div>
             <div>
               <Label>Status</Label>
@@ -2196,11 +2194,11 @@ function OutflowFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Amount</Label>
-              <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1" />
+              <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1 font-mono" />
             </div>
             <div>
               <Label>Expected Date</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1" />
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 font-mono" />
             </div>
           </div>
           <div>
@@ -2308,7 +2306,7 @@ function RecurringFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Amount</Label>
-              <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1" />
+              <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1 font-mono" />
             </div>
             <div>
               <Label>Frequency</Label>
@@ -2326,11 +2324,11 @@ function RecurringFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Payment Day (1-31)</Label>
-              <Input type="number" value={paymentDay} onChange={(e) => setPaymentDay(e.target.value)} className="mt-1" min="1" max="31" />
+              <Input type="number" value={paymentDay} onChange={(e) => setPaymentDay(e.target.value)} className="mt-1 font-mono" min="1" max="31" />
             </div>
             <div>
               <Label>Start Date</Label>
-              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="mt-1" />
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="mt-1 font-mono" />
             </div>
           </div>
           <div>
@@ -2410,11 +2408,11 @@ function CommitmentFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Amount</Label>
-              <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1" />
+              <Input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} className="mt-1 font-mono" />
             </div>
             <div>
               <Label>Expected Date</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1" />
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 font-mono" />
             </div>
           </div>
           <div>
@@ -2510,21 +2508,21 @@ function SettlementFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Gross Sales</Label>
-              <Input type="number" value={gross} onChange={(e) => setGross(e.target.value)} className="mt-1" />
+              <Input type="number" value={gross} onChange={(e) => setGross(e.target.value)} className="mt-1 font-mono" />
             </div>
             <div>
               <Label>Marketplace Fees</Label>
-              <Input type="number" value={fees} onChange={(e) => setFees(e.target.value)} className="mt-1" />
+              <Input type="number" value={fees} onChange={(e) => setFees(e.target.value)} className="mt-1 font-mono" />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Deductions & Penalties</Label>
-              <Input type="number" value={deductions} onChange={(e) => setDeductions(e.target.value)} className="mt-1" />
+              <Input type="number" value={deductions} onChange={(e) => setDeductions(e.target.value)} className="mt-1 font-mono" />
             </div>
             <div>
               <Label>Refunds / Returns</Label>
-              <Input type="number" value={refunds} onChange={(e) => setRefunds(e.target.value)} className="mt-1" />
+              <Input type="number" value={refunds} onChange={(e) => setRefunds(e.target.value)} className="mt-1 font-mono" />
             </div>
           </div>
           <div className="rounded-xl bg-muted/60 p-3 flex justify-between items-center text-xs">
@@ -2534,7 +2532,7 @@ function SettlementFormDialog({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label>Expected Settlement Date</Label>
-              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1" />
+              <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="mt-1 font-mono" />
             </div>
             <div>
               <Label>Settlement Period</Label>
