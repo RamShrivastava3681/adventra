@@ -1999,6 +1999,119 @@ function TrendAnalysisCard({ f }: { f: ForecastResult }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════
+   Seasonality Card (shown when a row is expanded)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function SeasonalityCard({ f }: { f: ForecastResult }) {
+  const seasonality = f.calculationBreakdown?.seasonality;
+  if (!seasonality) return null;
+
+  const factor = f.seasonalityFactor;
+  const overallAvg = seasonality.overallAvg;
+
+  const getFactorTone = (val: number) => {
+    if (val > 1.1) return "text-primary";
+    if (val < 0.9) return "text-warning";
+    return "text-muted-foreground";
+  };
+
+  const getFactorBg = (val: number) => {
+    if (val > 1.1) return "bg-primary/10";
+    if (val < 0.9) return "bg-warning/10";
+    return "bg-muted/30";
+  };
+
+  return (
+    <div className="rounded-xl border border-border/50 bg-card p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="text-xs uppercase tracking-widest text-muted-foreground">
+          Seasonality
+        </h4>
+        <span className="text-[10px] text-muted-foreground/60">
+          Overall avg: {overallAvg.toFixed(1)} entries/mo
+        </span>
+      </div>
+
+      <div className="grid grid-cols-4 gap-1.5">
+        {seasonality.perMonthBreakdown.map((m) => (
+          <div
+            key={m.monthIndex}
+            className={`rounded-lg border border-border/30 px-2 py-1.5 text-center ${getFactorBg(m.clampedFactor)}`}
+          >
+            <div className="text-[7px] uppercase tracking-widest text-muted-foreground/60">
+              {m.monthName.slice(0, 3)}
+            </div>
+            <div
+              className={`font-mono text-[11px] font-semibold tabular-nums ${getFactorTone(m.clampedFactor)}`}
+            >
+              {m.clampedFactor.toFixed(2)}×
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-2 flex items-center justify-between rounded-lg border border-border/30 bg-muted/20 px-3 py-2 text-[10px]">
+        <span className="text-muted-foreground">Next month factor</span>
+        <span className="font-mono font-semibold tabular-nums text-foreground/80">
+          {factor.toFixed(2)}×
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   Weighted Average Card (shown when a row is expanded)
+   ═══════════════════════════════════════════════════════════════════════ */
+
+function WeightedAverageCard({ f }: { f: ForecastResult }) {
+  const wa = f.calculationBreakdown?.weightedAverage;
+  if (!wa) return null;
+
+  return (
+    <div className="rounded-xl border border-border/50 bg-card p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="text-xs uppercase tracking-widest text-muted-foreground">
+          Weighted average
+        </h4>
+        <span className="text-[10px] text-muted-foreground/60">
+          {wa.description}
+        </span>
+      </div>
+
+      <div className="grid grid-cols-4 gap-1.5">
+        {wa.values.map((v, i) => (
+          <div
+            key={i}
+            className={`rounded-lg border border-border/30 px-2 py-1.5 text-center ${
+              wa.weights[i] >= 3
+                ? "bg-primary/10"
+                : wa.weights[i] >= 2
+                  ? "bg-muted/40"
+                  : "bg-muted/20"
+            }`}
+          >
+            <div className="text-[7px] uppercase tracking-widest text-muted-foreground/60">
+              {wa.weights[i]}×
+            </div>
+            <div className="font-mono text-[11px] font-semibold tabular-nums text-foreground/80">
+              {Math.round(v)}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-2 flex items-center justify-between rounded-lg border border-border/30 bg-muted/20 px-3 py-2 text-[10px]">
+        <span className="text-muted-foreground">Weighted average</span>
+        <span className="font-mono font-semibold tabular-nums text-primary">
+          {wa.result.toFixed(1)} units/mo
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
    Expanded Detail (the star of the show)
    ═══════════════════════════════════════════════════════════════════════ */
 
@@ -2140,6 +2253,12 @@ function ExpandedForecastDetail({
         <div className="lg:col-span-3 space-y-4">
           {/* Trend analysis summary */}
           <TrendAnalysisCard f={f} />
+
+          {/* Seasonality */}
+          <SeasonalityCard f={f} />
+
+          {/* Weighted average */}
+          <WeightedAverageCard f={f} />
 
           {/* Demand trend chart */}
           <div className="rounded-xl border border-border/50 bg-card p-4">
