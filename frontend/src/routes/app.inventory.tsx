@@ -172,7 +172,8 @@ function InventoryPage() {
   const rows = (movementsQ.data ?? []).filter(
     (m: Movement) =>
       (dirFilter === "all" || m.direction === dirFilter) &&
-      (statusFilter === "all" || m.status === statusFilter),
+      (statusFilter === "all" || m.status === statusFilter) &&
+      m.sku !== "EH-500",
   );
 
   // Live balances — confirmed credits − confirmed debits ONLY (drafts never move stock)
@@ -190,6 +191,7 @@ function InventoryPage() {
     >();
     for (const r of (movementsQ.data ?? []) as Movement[]) {
       if (r.status !== "confirmed") continue;
+      if (r.sku === "EH-500") continue;
       const key = r.sku ?? r.product_id ?? `${r.item_name}|${r.unit}`;
       const sign = r.direction === "in" ? 1 : -1;
       const cur = m.get(key) ?? {
@@ -1280,35 +1282,52 @@ function BulkImportModal({
 
           let direction: "in" | "out" | null = null;
           let quantity = 0;
-          if (effectiveIn > 0 && effectiveOut > 0) {
-            direction = null;
-            quantity = 0;
-          } else if (effectiveIn > 0) {
-            direction = "in";
-            quantity = effectiveIn;
-          } else if (effectiveOut > 0) {
-            direction = "out";
-            quantity = effectiveOut;
-          }
-
           let error: string | undefined;
           if (!dateStr || !/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
             error = `Invalid date: "${rawDate}"`;
-          } else if (effectiveIn > 0 && effectiveOut > 0) {
-            error = "Both stock_in and stock_out are set — only one allowed per row";
           } else if (effectiveIn === 0 && effectiveOut === 0) {
             error = "Both stock_in and stock_out are zero — skipping empty row";
           }
 
-          parsed.push({
-            row: i + 1,
-            date: dateStr,
-            stockIn,
-            stockOut,
-            direction,
-            quantity,
-            error,
-          });
+          // When both stock_in and stock_out are set in the same row,
+          // create two separate movements (one credit, one debit).
+          if (effectiveIn > 0 && effectiveOut > 0 && !error) {
+            parsed.push({
+              row: i + 1,
+              date: dateStr,
+              stockIn,
+              stockOut,
+              direction: "in",
+              quantity: effectiveIn,
+            });
+            parsed.push({
+              row: i + 1,
+              date: dateStr,
+              stockIn,
+              stockOut,
+              direction: "out",
+              quantity: effectiveOut,
+            });
+          } else {
+            let direction: "in" | "out" | null = null;
+            let quantity = 0;
+            if (effectiveIn > 0) {
+              direction = "in";
+              quantity = effectiveIn;
+            } else if (effectiveOut > 0) {
+              direction = "out";
+              quantity = effectiveOut;
+            }
+            parsed.push({
+              row: i + 1,
+              date: dateStr,
+              stockIn,
+              stockOut,
+              direction,
+              quantity,
+              error,
+            });
+          }
         }
 
         if (parsed.length === 0) {
@@ -1413,7 +1432,7 @@ function BulkImportModal({
               Expected columns: <code className="rounded bg-muted/50 px-1 py-0.5">date</code> (YYYY-MM-DD),
               <code className="rounded bg-muted/50 px-1 py-0.5"> stock_in</code>,
               <code className="rounded bg-muted/50 px-1 py-0.5"> stock_out</code>.
-              Only one of stock_in or stock_out should be set per row.
+              If both stock_in and stock_out are set in the same row, two movements are created (one credit, one debit).
               Negative values are treated as returns (e.g. negative stock_out → stock_in).
             </p>
 
