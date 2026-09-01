@@ -359,14 +359,21 @@ export function getTransferMovements(
  * Compute forecast demand movements only.
  * Demand = customer_sale + marketplace_sale + pos_sale - accepted_customer_returns.
  * Explicitly excludes: GRN, transfers, return_to_supplier, damage, sample, adjustment, transit.
+ *
+ * Legacy movements without dispatchType: only count outbound as demand
+ * (matches the engine's isDemandMovement in forecast-engine.ts).
  */
 export function isDemandMovement(m: StockMovement): boolean {
   if (m.status !== "confirmed") return false;
-  if (m.dispatchType === "customer_sale" || m.dispatchType === "marketplace_sale" || m.dispatchType === "pos_sale") {
-    return m.direction === "out"; // sales are demand
+  if (m.dispatchType) {
+    if (m.dispatchType === "customer_sale" || m.dispatchType === "marketplace_sale" || m.dispatchType === "pos_sale") {
+      return m.direction === "out"; // sales are demand
+    }
+    if (m.dispatchType === "customer_return") {
+      return m.direction === "in"; // returns reduce demand (negative)
+    }
+    return false; // transfers, returns to supplier, damage, etc. are NOT demand
   }
-  if (m.dispatchType === "customer_return") {
-    return m.direction === "in"; // returns reduce demand (negative)
-  }
-  return false;
+  // Legacy movements without dispatchType: only count outbound as demand
+  return m.direction === "out";
 }

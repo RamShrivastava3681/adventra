@@ -194,6 +194,8 @@ function ForecastPage() {
           quantity: m.quantity,
           movement_date: m.movementDate ?? m.movement_date,
           dispatchType: m.dispatchType ?? m.dispatch_type ?? null,
+          status: m.status ?? "confirmed",
+          reason: m.reason ?? null,
         }));
     },
     refetchInterval: 60_000, // live stock levels — sales/stock-ins flow in every minute

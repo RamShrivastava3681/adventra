@@ -6,6 +6,7 @@ import {
   currentMonthBucket,
   forecastSKU,
   computeVelocityByCategory,
+  isDemandMovement,
   type CategoryVelocityInput,
   type ForecastResult,
   type VelocityTag,
@@ -20,33 +21,6 @@ export type ForecastSnapshot = {
   velocityTag: VelocityTag;
 };
 
-/**
- * Determines if a movement should be counted as customer demand.
- * Demand = customer_sale + marketplace_sale + pos_sale - accepted_customer_returns.
- * Excludes: GRN, stock transfers, return_to_supplier, damage, sample, adjustment, transit.
- */
-function isDemandMovement(m: any): boolean {
-  if (m.status !== "confirmed") return false;
-  // New location-aware dispatch types
-  if (m.dispatchType) {
-    if (
-      m.dispatchType === "customer_sale" ||
-      m.dispatchType === "marketplace_sale" ||
-      m.dispatchType === "pos_sale"
-    ) {
-      return m.direction === "out"; // sales are demand
-    }
-    if (m.dispatchType === "customer_return") {
-      return m.direction === "in"; // returns reduce demand (negative)
-    }
-    return false; // transfers, returns to supplier, damage, etc. are NOT demand
-  }
-  // Legacy movements without dispatchType: use the old heuristic
-  // Reason "Dispatch" or direction "out" from non-transfer movements
-  if (m.direction === "out" && m.reason === "Dispatch") return true;
-  if (m.direction === "in" && m.reason === "Customer return") return true;
-  return false;
-}
 
 /**
  * Computes forecasts for all active products of a client and persists them.
@@ -108,7 +82,13 @@ export async function recomputeAll(clientId: string): Promise<{
       status: m.status,
     }));
 
-    const history = bucketMovementsByMonth(formattedMoves, 12);
+    // Anchor the 12-month history to NEXT month so the current (partial)
+    // month is excluded from the baseline — matches the frontend default.
+    const now = new Date();
+    const nextMonth = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+    const targetMonth = `${nextMonth.getFullYear()}-${String(nextMonth.getMonth() + 1).padStart(2, "0")}`;
+
+    const history = bucketMovementsByMonth(formattedMoves, 12, undefined, targetMonth);
     const currentMonth = currentMonthBucket(formattedMoves);
     const leadTimeDays = p.leadTimeDays ?? 14;
     const f = forecastSKU(history, stock, leadTimeDays, 6, {
