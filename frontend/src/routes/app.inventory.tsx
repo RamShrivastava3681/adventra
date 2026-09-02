@@ -1311,14 +1311,31 @@ function BulkImportModal({
   const errorRows = parsedRows.filter((r) => r.error);
 
   const monthlySummary = useMemo(() => {
-    const buckets = new Map<string, { month: string; stockIn: number; stockOut: number }>();
+    const buckets = new Map<
+      string,
+      { month: string; stockIn: number; stockOut: number; returns: number; sales: number }
+    >();
 
     for (const row of validRows) {
       if (!row.date) continue;
       const month = row.date.slice(0, 7);
-      const bucket = buckets.get(month) ?? { month, stockIn: 0, stockOut: 0 };
-      if (row.direction === "in") bucket.stockIn += row.quantity;
-      if (row.direction === "out") bucket.stockOut += row.quantity;
+      const bucket = buckets.get(month) ?? {
+        month,
+        stockIn: 0,
+        stockOut: 0,
+        returns: 0,
+        sales: 0,
+      };
+
+      if (row.direction === "in") {
+        bucket.stockIn += row.quantity;
+        if (row.stockOut < 0) bucket.returns += Math.abs(row.stockOut);
+      }
+      if (row.direction === "out") {
+        bucket.stockOut += row.quantity;
+      }
+
+      bucket.sales = bucket.stockOut - bucket.returns;
       buckets.set(month, bucket);
     }
 
@@ -1630,7 +1647,9 @@ function BulkImportModal({
                         <td className="px-2 py-1.5 font-mono text-muted-foreground">{r.row}</td>
                         <td className="px-2 py-1.5">{r.date}</td>
                         <td className="px-2 py-1.5">
-                          {r.direction === "in" ? (
+                          {r.direction === "in" && r.stockOut < 0 ? (
+                            <span className="text-success">Return (Credit)</span>
+                          ) : r.direction === "in" ? (
                             <span className="text-success">Credit (In)</span>
                           ) : r.direction === "out" ? (
                             <span className="text-warning">Debit (Out)</span>
@@ -1665,6 +1684,8 @@ function BulkImportModal({
                     <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
                       <span>Total stock in: <span className="font-medium text-success">{monthlySummary.reduce((sum, row) => sum + row.stockIn, 0).toLocaleString()}</span></span>
                       <span>Total stock out: <span className="font-medium text-warning">{monthlySummary.reduce((sum, row) => sum + row.stockOut, 0).toLocaleString()}</span></span>
+                      <span>Returns: <span className="font-medium text-success">{monthlySummary.reduce((sum, row) => sum + row.returns, 0).toLocaleString()}</span></span>
+                      <span>Sales: <span className="font-medium text-foreground">{monthlySummary.reduce((sum, row) => sum + row.sales, 0).toLocaleString()}</span></span>
                     </div>
                   </div>
 
@@ -1675,7 +1696,8 @@ function BulkImportModal({
                           <th className="px-2 py-1.5 font-normal">Month</th>
                           <th className="px-2 py-1.5 text-right font-normal">Stock in</th>
                           <th className="px-2 py-1.5 text-right font-normal">Stock out</th>
-                          <th className="px-2 py-1.5 text-right font-normal">Net</th>
+                          <th className="px-2 py-1.5 text-right font-normal">Returns</th>
+                          <th className="px-2 py-1.5 text-right font-normal">Sales</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -1684,8 +1706,9 @@ function BulkImportModal({
                             <td className="px-2 py-1.5 font-medium">{new Date(`${row.month}-01T00:00:00`).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</td>
                             <td className="px-2 py-1.5 text-right num text-success">{row.stockIn.toLocaleString()}</td>
                             <td className="px-2 py-1.5 text-right num text-warning">{row.stockOut.toLocaleString()}</td>
-                            <td className={`px-2 py-1.5 text-right num ${row.stockIn - row.stockOut >= 0 ? "text-success" : "text-warning"}`}>
-                              {(row.stockIn - row.stockOut).toLocaleString()}
+                            <td className="px-2 py-1.5 text-right num text-success">{row.returns.toLocaleString()}</td>
+                            <td className={`px-2 py-1.5 text-right num ${row.sales >= 0 ? "text-foreground" : "text-warning"}`}>
+                              {row.sales.toLocaleString()}
                             </td>
                           </tr>
                         ))}
