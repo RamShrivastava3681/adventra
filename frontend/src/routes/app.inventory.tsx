@@ -86,6 +86,8 @@ function invalidateStock(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ["stock_movements"] });
   qc.invalidateQueries({ queryKey: ["stock_movements_all"] });
   qc.invalidateQueries({ queryKey: ["movements-forecast"] });
+  qc.invalidateQueries({ queryKey: ["forecast-variables"] });
+  qc.invalidateQueries({ queryKey: ["products-forecast"] });
 }
 
 function StatusBadge({ status }: { status: string }) {
@@ -209,6 +211,50 @@ function InventoryPage() {
     return [...m.values()].sort((a, b) => a.item.localeCompare(b.item));
   }, [movementsQ.data]);
 
+  const monthlySalesBreakdown = useMemo(() => {
+    const monthKeys: string[] = [];
+    const d = new Date();
+    for (let i = 11; i >= 0; i--) {
+      const month = new Date(d.getFullYear(), d.getMonth() - i, 1);
+      monthKeys.push(`${month.getFullYear()}-${String(month.getMonth() + 1).padStart(2, "0")}`);
+    }
+
+    const bySku = new Map<
+      string,
+      {
+        item: string;
+        sku: string | null;
+        productId: string | null;
+        totalStock: number;
+        monthly: Record<string, number>;
+      }
+    >();
+
+    for (const r of (movementsQ.data ?? []) as Movement[]) {
+      if (r.status !== "confirmed") continue;
+      const key = r.product_id ?? r.sku ?? `${r.item_name}|${r.unit}`;
+      const row = bySku.get(key) ?? {
+        item: r.item_name,
+        sku: r.sku,
+        productId: r.product_id,
+        totalStock: 0,
+        monthly: {},
+      };
+      const sign = r.direction === "in" ? 1 : -1;
+      row.totalStock += sign * Number(r.quantity);
+      const monthKey = (r.movement_date ?? "").slice(0, 7);
+      if (monthKey && monthKeys.includes(monthKey)) {
+        row.monthly[monthKey] = (row.monthly[monthKey] ?? 0) + (r.direction === "out" ? Number(r.quantity) : 0);
+      }
+      bySku.set(key, row);
+    }
+
+    return {
+      monthKeys,
+      rows: [...bySku.values()].sort((a, b) => (a.item || "").localeCompare(b.item || "")),
+    };
+  }, [movementsQ.data]);
+
   const confirmMut = useMutation({
     mutationFn: async (id: string) => api.stockMovements.confirm(id),
     onSuccess: () => {
@@ -311,6 +357,61 @@ function InventoryPage() {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+        </Card>
+
+        <Card title="Stock Breakdown">
+          <p className="-mt-2 mb-4 text-xs text-muted-foreground">
+            Monthly sales per SKU over the last 12 months.
+          </p>
+          {monthlySalesBreakdown.rows.length === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              No SKU sales yet — confirm debits to see the monthly sales breakdown.
+            </div>
+          ) : (
+            <div className="-mx-5 overflow-x-auto">
+              <table className="table-premium w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">Item</th>
+                    <th className="px-5 py-2 text-left font-normal">SKU</th>
+                    <th className="px-5 py-2 text-right font-normal">Stock</th>
+                    {monthlySalesBreakdown.monthKeys.map((monthKey) => (
+                      <th key={monthKey} className="px-2 py-2 text-right font-normal">
+                        {new Date(`${monthKey}-01T00:00:00`).toLocaleDateString("en-US", {
+                          month: "short",
+                          year: "2-digit",
+                        })}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {monthlySalesBreakdown.rows.map((row) => (
+                    <tr key={`${row.productId ?? row.sku ?? row.item}`} className="border-b border-border/60">
+                      <td className="px-5 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <ProductThumb
+                            imageUrl={row.productId ? productImages.get(row.productId) : null}
+                            name={row.item}
+                            size="sm"
+                            rounded="md"
+                          />
+                          <span>{row.item}</span>
+                        </div>
+                      </td>
+                      <td className="px-5 py-2.5 text-muted-foreground">{row.sku ?? "—"}</td>
+                      <td className="px-5 py-2.5 text-right num">{row.totalStock.toLocaleString()}</td>
+                      {monthlySalesBreakdown.monthKeys.map((monthKey) => (
+                        <td key={`${row.productId ?? row.sku ?? row.item}-${monthKey}`} className="px-2 py-2 text-right num">
+                          {Number(row.monthly[monthKey] ?? 0).toLocaleString()}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </Card>

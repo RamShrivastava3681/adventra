@@ -262,6 +262,67 @@ describe("Cash-Flow Forecast Engine", () => {
     });
   });
 
+  describe("Manual and recurring entries", () => {
+    it("includes manual expected entries and recurring expenses in period rows", async () => {
+      mockAccounts.push({
+        id: "acc1",
+        clientId: CLIENT,
+        availableForOperations: 2500000,
+        status: "active",
+      });
+
+      const manualInflowDate = addDays(today(), 2);
+      const manualOutflowDate = addDays(today(), 6);
+      const recurringDate = addDays(today(), 8);
+
+      mockInflows.push({
+        id: "manual-in",
+        clientId: CLIENT,
+        type: "CUSTOMER_COLLECTION",
+        source: "manual",
+        sourceId: "manual-in",
+        amount: 400000,
+        expectedDate: manualInflowDate,
+        status: "EXPECTED",
+      });
+
+      mockOutflows.push({
+        id: "manual-out",
+        clientId: CLIENT,
+        type: "SALARY",
+        source: "manual",
+        sourceId: "manual-out",
+        amount: 180000,
+        expectedDate: manualOutflowDate,
+        status: "PLANNED",
+        priority: "NORMAL",
+      });
+
+      mockRecurring.push({
+        id: "rec-1",
+        clientId: CLIENT,
+        category: "Rent",
+        description: "Office rent",
+        amount: 50000,
+        frequency: "MONTHLY",
+        paymentDay: Number(recurringDate.slice(-2)),
+        status: "active",
+        startDate: today(),
+        endDate: null,
+      });
+
+      const forecast = await computeForecast(CLIENT, "weekly");
+      const allPeriods = forecast.periods.flatMap((p) => [
+        ...p.inflowEvents.map((e: any) => ({ period: p.label, direction: e.direction, amount: e.amount, date: e.date, source: e.source })),
+        ...p.outflowEvents.map((e: any) => ({ period: p.label, direction: e.direction, amount: e.amount, date: e.date, source: e.source })),
+      ]);
+
+      expect(allPeriods.some((e) => e.direction === "INFLOW" && e.amount === 400000 && e.date === manualInflowDate && e.source === "inflow")).toBe(true);
+      expect(allPeriods.some((e) => e.direction === "OUTFLOW" && e.amount === 180000 && e.date === manualOutflowDate && e.source === "outflow")).toBe(true);
+      expect(allPeriods.some((e) => e.direction === "OUTFLOW" && e.amount === 50000 && e.date === recurringDate)).toBe(true);
+    });
+  });
+
   describe("Cancelled items", () => {
     it("Cancelled inflows must not affect forecast", async () => {
       mockAccounts.push({
