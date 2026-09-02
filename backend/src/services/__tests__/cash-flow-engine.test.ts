@@ -21,6 +21,7 @@ const mockSettlements: any[] = [];
 const mockRecurring: any[] = [];
 const mockSalesInvoices: any[] = [];
 const mockPurchaseInvoices: any[] = [];
+const mockGoodsPurchaseOrders: any[] = [];
 
 vi.mock("../../models/cash-account.js", () => ({
   list: vi.fn(() => Promise.resolve(mockAccounts)),
@@ -66,6 +67,9 @@ vi.mock("../../models/invoice.js", () => ({
 vi.mock("../../models/purchase-invoice.js", () => ({
   list: vi.fn(() => Promise.resolve(mockPurchaseInvoices)),
 }));
+vi.mock("../../models/goods-purchase-order.js", () => ({
+  list: vi.fn(() => Promise.resolve(mockGoodsPurchaseOrders)),
+}));
 
 // ── Import AFTER mocks ─────────────────────────────────────────────────────
 
@@ -93,6 +97,7 @@ beforeEach(() => {
   mockRecurring.length = 0;
   mockSalesInvoices.length = 0;
   mockPurchaseInvoices.length = 0;
+  mockGoodsPurchaseOrders.length = 0;
   mockSettings.minimumCashBuffer = 1000000;
 });
 
@@ -542,6 +547,34 @@ describe("Cash-Flow Forecast Engine", () => {
   });
 
   describe("Recurring expenses", () => {
+    it("deducts a recurring expense only on its scheduled date", async () => {
+      const scheduledDate = addDays(today(), 2);
+      mockAccounts.push({
+        id: "acc-recurring-date",
+        clientId: CLIENT,
+        availableForOperations: 5000000,
+        status: "active",
+      });
+      mockRecurring.push({
+        id: "recurring-date",
+        clientId: CLIENT,
+        category: "Rent",
+        amount: 500000,
+        frequency: "monthly",
+        paymentDay: Number(scheduledDate.slice(-2)),
+        status: "active",
+        startDate: scheduledDate,
+        endDate: null,
+      });
+
+      const forecast = await computeForecast(CLIENT, "daily");
+      const before = forecast.periods.find((period) => period.startDate === addDays(scheduledDate, -1));
+      const scheduled = forecast.periods.find((period) => period.startDate === scheduledDate);
+
+      expect(before?.expectedOutflows).toBe(0);
+      expect(scheduled?.expectedOutflows).toBe(500000);
+    });
+
     it("Monthly expense appears on future scheduled dates", async () => {
       mockAccounts.push({
         id: "acc1",
@@ -658,6 +691,8 @@ describe("Cash-Flow Forecast Engine", () => {
       const forecast = await computeForecast(CLIENT, "monthly");
       expect(forecast.periods.length).toBe(6);
       expect(forecast.mode).toBe("monthly");
+      expect(forecast.periods[0].startDate).toBe(`${today().slice(0, 7)}-01`);
+      expect(forecast.periods[0].label).toBe(forecast.periods[0].startDate);
     });
   });
 

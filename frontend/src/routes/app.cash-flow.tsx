@@ -476,13 +476,30 @@ function CashFlowPage() {
             type: "RECURRING_EXPENSE",
             amount: r.amount,
             status: "PLANNED",
+            expectedDate: nextOccurrenceDate(r),
+            priority: "NORMAL",
             displayCategory: `Recurring: ${r.category}`,
           });
         }
       }
     }
+    if (uninvoicedPosQ.data) {
+      for (const po of uninvoicedPosQ.data) {
+        list.push({
+          id: po.id,
+          type: "PURCHASE_COMMITMENT",
+          amount: po.grandTotal,
+          status: po.status,
+          expectedDate: po.expectedDeliveryDate || po.poDate,
+          priority: "NORMAL",
+          supplierName: po.supplierName,
+          linkedPO: po.poNumber,
+          displayCategory: "Approved PO",
+        });
+      }
+    }
     return list;
-  }, [outflowsQ.data, commitmentsQ.data, recurringQ.data]);
+  }, [outflowsQ.data, commitmentsQ.data, recurringQ.data, uninvoicedPosQ.data]);
 
   const hasWrite = canWrite;
 
@@ -1661,14 +1678,14 @@ function CashFlowPage() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-border/60">
-                        {outflowsQ.data?.length === 0 ? (
+                        {combinedOutflows.length === 0 ? (
                           <tr>
                             <td colSpan={7} className="text-center py-8 text-sm text-muted-foreground">
                               No expected outflows recorded.
                             </td>
                           </tr>
                         ) : (
-                          outflowsQ.data?.map((o: any) => (
+                          combinedOutflows.map((o: any) => (
                             <tr key={o.id} className="hover:bg-muted/20 transition-colors">
                               <td className="px-5 py-3.5 font-medium text-foreground">
                                 <span className="rounded-md bg-red-500/10 text-red-700 dark:text-red-300 px-2 py-0.5 text-xs font-medium">
@@ -1711,7 +1728,7 @@ function CashFlowPage() {
                               {hasWrite && (
                                 <td className="px-5 py-3.5 text-right">
                                   <div className="flex items-center justify-end gap-1.5">
-                                    {o.status !== "PAID" && (
+                                    {o.status !== "PAID" && o.type !== "PURCHASE_COMMITMENT" && o.type !== "RECURRING_EXPENSE" && (
                                       <Button
                                         variant="outline"
                                         size="sm"
@@ -1732,22 +1749,22 @@ function CashFlowPage() {
                                         Paid
                                       </Button>
                                     )}
-                                    <Button
+                                    {o.type !== "PURCHASE_COMMITMENT" && o.type !== "RECURRING_EXPENSE" && <Button
                                       variant="ghost"
                                       size="icon"
                                       className="h-7 w-7 text-muted-foreground hover:text-foreground"
                                       onClick={() => setEditingOutflow(o)}
                                     >
                                       <Edit2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                    <Button
+                                    </Button>}
+                                    {o.type !== "PURCHASE_COMMITMENT" && o.type !== "RECURRING_EXPENSE" && <Button
                                       variant="ghost"
                                       size="icon"
                                       className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
                                       onClick={() => setDeletingOutflow(o)}
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
+                                    </Button>}
                                   </div>
                                 </td>
                               )}

@@ -7,6 +7,7 @@ import * as RecurringExpense from "../models/recurring-expense.js";
 import * as MarketplaceSettlement from "../models/marketplace-settlement.js";
 import * as Invoice from "../models/invoice.js";
 import * as PurchaseInvoice from "../models/purchase-invoice.js";
+import * as GoodsPO from "../models/goods-purchase-order.js";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -142,8 +143,9 @@ function generateOccurrences(
 
   const paymentDay = Number(expense.paymentDay) || 1;
   const amount = Number(expense.amount) || 0;
+  const frequency = String(expense.frequency || "").toUpperCase();
 
-  if (expense.frequency === "WEEKLY") {
+  if (frequency === "WEEKLY") {
     // Generate every week from start, on the same weekday
     let cur = startOfWeek(start);
     // Align to the correct weekday (paymentDay here acts as offset from Monday)
@@ -152,7 +154,7 @@ function generateOccurrences(
       if (cur >= start) occurrences.push({ date: cur, amount });
       cur = addDays(cur, 7);
     }
-  } else if (expense.frequency === "MONTHLY") {
+  } else if (frequency === "MONTHLY") {
     let [y, m] = start.split("-").map(Number);
     while (`${y}-${String(m).padStart(2, "0")}-01` <= end) {
       const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
@@ -162,7 +164,7 @@ function generateOccurrences(
       m++;
       if (m > 12) { m = 1; y++; }
     }
-  } else if (expense.frequency === "QUARTERLY") {
+  } else if (frequency === "QUARTERLY") {
     let [y, m] = start.split("-").map(Number);
     while (`${y}-${String(m).padStart(2, "0")}-01` <= end) {
       const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
@@ -172,7 +174,7 @@ function generateOccurrences(
       m += 3;
       if (m > 12) { m -= 12; y++; }
     }
-  } else if (expense.frequency === "ANNUAL") {
+  } else if (frequency === "ANNUAL") {
     let [y, m] = start.split("-").map(Number);
     while (`${y}-${String(m).padStart(2, "0")}-01` <= end) {
       const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
@@ -212,6 +214,26 @@ async function buildCashEvents(
   const liveSalesInvoiceIds = new Set(salesInvoices.map((invoice) => invoice?.id).filter(Boolean));
   const purchaseInvoices = await PurchaseInvoice.list(clientId);
   const livePurchaseInvoiceIds = new Set(purchaseInvoices.map((invoice) => invoice?.id).filter(Boolean));
+  const goodsPurchaseOrders = await GoodsPO.list(clientId);
+  const invoicedPOIds = new Set(purchaseInvoices.map((invoice: any) => invoice?.goodsPurchaseOrderId).filter(Boolean));
+  for (const po of goodsPurchaseOrders) {
+    if (!["approved", "sent", "partially_received"].includes(String(po.status || "").toLowerCase())) continue;
+    if (invoicedPOIds.has(po.id)) continue;
+    const date = po.expectedDeliveryDate || po.poDate;
+    if (!date || date > horizonEnd) continue;
+    pushEvent({
+      date,
+      type: "PURCHASE_COMMITMENT",
+      direction: "OUTFLOW",
+      amount: round2(Number(po.grandTotal) || 0),
+      source: "purchase_order",
+      sourceId: po.id,
+      status: String(po.status || "APPROVED").toUpperCase(),
+      priority: "NORMAL",
+      category: "PURCHASE_COMMITMENT",
+      description: `${po.supplierName || "Supplier"} - PO ${po.poNumber || po.id}`,
+    });
+  }
   for (const invoice of salesInvoices) {
     if (!invoice?.id) continue;
     const status = String(invoice.status || "").toLowerCase();
@@ -437,7 +459,7 @@ function generatePeriods(
     for (let i = 0; i < 6; i++) {
       const me = endOfMonth(monthStart);
       periods.push({
-        label: monthStart.slice(0, 7),
+        label: monthStart,
         startDate: monthStart,
         endDate: me,
       });
@@ -728,7 +750,7 @@ export interface CashCommandCentreSummary {
 }
 
 export async function getSummary(clientId: string): Promise<CashCommandCentreSummary> {
-  const [settings, accounts, inflows, outflows, commitments, settlements, recurring, salesInvoices, purchaseInvoices] = await Promise.all([
+  const [settings, accounts, inflows, outflows, commitments, settlements, recurring, salesInvoices, purchaseInvoices, goodsPurchaseOrders] = await Promise.all([
     CashFlowSettings.get(clientId),
     CashAccount.list(clientId),
     ExpectedInflow.list(clientId),
@@ -738,6 +760,7 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
     RecurringExpense.list(clientId),
     Invoice.list(clientId),
     PurchaseInvoice.list(clientId),
+    GoodsPO.list(clientId),
   ]);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -769,6 +792,10 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
 
   const liveSalesInvoiceIds = new Set(salesInvoices.map((invoice: any) => invoice?.id).filter(Boolean));
   const livePurchaseInvoiceIds = new Set(purchaseInvoices.map((invoice: any) => invoice?.id).filter(Boolean));
+  const invoicedPOIds = new Set(purchaseInvoices.map((invoice: any) => invoice?.goodsPurchaseOrderId).filter(Boolean));
+  const approvedPOs = goodsPurchaseOrders.filter((po: any) =>
+    ["approved", "sent", "partially_received"].includes(String(po.status || "").toLowerCase()) && !invoicedPOIds.has(po.id),
+  );
 
   // Active inflows in next 7 days (direct expected inflows + marketplace settlements)
   const activeInflows = inflows.filter((i) =>
@@ -837,7 +864,13 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
       return s + (paymentInWindow ? paidAmount : 0) + (unpaidInWindow ? outstanding : 0);
     }, 0);
 
-  const totalOutflows7d = directOutflows7d + commitmentsOut + recurring7d + invoiceOutflows7d;
+  const poOutflows7d = approvedPOs
+    .filter((po: any) => {
+      const date = po.expectedDeliveryDate || po.poDate;
+      return date >= today && date <= in7;
+    })
+    .reduce((s: number, po: any) => s + (Number(po.grandTotal) || 0), 0);
+  const totalOutflows7d = directOutflows7d + commitmentsOut + poOutflows7d + recurring7d + invoiceOutflows7d;
 
   // Overdue collections
   const overdueTotal = activeInflows
@@ -855,7 +888,8 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
 
   // Total planned purchase commitments (all non-cancelled POs without invoices)
   const plannedCommitmentsTotal = activeCommitments
-    .reduce((s, c) => s + (Number(c.expectedPaymentAmount) || 0), 0);
+    .reduce((s, c) => s + (Number(c.expectedPaymentAmount) || 0), 0) +
+    approvedPOs.reduce((s: number, po: any) => s + (Number(po.grandTotal) || 0), 0);
 
   // Confirmed supplier payables (all active supplier payment outflows)
   const confirmedSupplierPayables = activeOutflows
