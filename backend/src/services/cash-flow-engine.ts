@@ -199,7 +199,9 @@ async function buildCashEvents(
   const today = new Date().toISOString().slice(0, 10);
 
   const pushEvent = (event: CashEvent) => {
-    const dedupeKey = event.sourceId ? `${event.source}:${event.sourceId}` : `${event.source}:${event.date}:${event.type}:${event.amount}`;
+    const dedupeKey = event.sourceId
+      ? `${event.source}:${event.sourceId}:${event.date}:${event.type}:${event.amount}`
+      : `${event.source}:${event.date}:${event.type}:${event.amount}`;
     if (seen.has(dedupeKey)) return;
     seen.add(dedupeKey);
     events.push(event);

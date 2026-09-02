@@ -402,14 +402,21 @@ function CashFlowPage() {
 
   const chartData = useMemo(() => {
     if (!forecast?.periods) return [];
-    return forecast.periods.map((p: any) => ({
-      name: mode === "daily" ? format(parseISO(p.startDate), "MMM d") : p.label.split(" (")[0],
-      opening: p.openingCash,
-      inflows: p.expectedInflows,
-      outflows: p.expectedOutflows,
-      closing: p.closingCash,
-      buffer: forecast.minimumCashBuffer,
-    }));
+    return forecast.periods.map((p: any) => {
+      const label = p?.label ?? p?.startDate ?? p?.endDate ?? "Period";
+      const safeName = mode === "daily"
+        ? (p?.startDate ? format(parseISO(p.startDate), "MMM d") : label)
+        : label.split(" (")[0];
+
+      return {
+        name: safeName,
+        opening: p.openingCash,
+        inflows: p.expectedInflows,
+        outflows: p.expectedOutflows,
+        closing: p.closingCash,
+        buffer: forecast.minimumCashBuffer,
+      };
+    });
   }, [forecast, mode]);
 
   // Combined Inflow items for breakdown
