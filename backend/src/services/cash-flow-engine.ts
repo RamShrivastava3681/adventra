@@ -436,9 +436,10 @@ function generatePeriods(
   const periods: Array<{ label: string; startDate: string; endDate: string }> = [];
 
   if (mode === "daily") {
-    // Next 30 days
+    // First 30 calendar days beginning with the current month.
+    const monthStart = startOfMonth(today);
     for (let i = 0; i < 30; i++) {
-      const d = addDays(today, i);
+      const d = addDays(monthStart, i);
       periods.push({ label: d, startDate: d, endDate: d });
     }
   } else if (mode === "weekly") {
