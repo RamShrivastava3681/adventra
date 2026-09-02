@@ -529,6 +529,7 @@ router.post(
         direction: "in" | "out";
         quantity: number;
         movementDate: string;
+        reason: string;
       }> = [];
       for (let i = 0; i < rows.length; i++) {
         const row = rows[i];
@@ -550,7 +551,13 @@ router.post(
             .status(400)
             .json({ error: `Row ${i + 1}: date must be YYYY-MM-DD` });
         }
-        validated.push({ direction: dir as "in" | "out", quantity: qty, movementDate: date });
+        const rowReason = String(row.reason ?? reason).trim() || reason;
+        validated.push({
+          direction: dir as "in" | "out",
+          quantity: qty,
+          movementDate: date,
+          reason: rowReason,
+        });
       }
 
       // Create all movements
@@ -565,7 +572,7 @@ router.post(
           direction: v.direction,
           quantity: v.quantity,
           unitCost: product.unitCost || 0,
-          reason,
+          reason: v.reason,
           notes,
           movementDate: v.movementDate,
           warehouse: body.warehouse || null,

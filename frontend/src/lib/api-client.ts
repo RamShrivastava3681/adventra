@@ -117,7 +117,12 @@ const api = {
       warehouse?: string;
       notes?: string;
       status?: string;
-      movements: Array<{ date: string; direction: "in" | "out"; quantity: number }>;
+      movements: Array<{
+        date: string;
+        direction: "in" | "out";
+        quantity: number;
+        reason?: string;
+      }>;
     }) => api.post<any>("/stock-movements/bulk", data),
     update: (id: string, data: any) => api.put<any>(`/stock-movements/${id}`, data),
     confirm: (id: string) => api.post<any>(`/stock-movements/${id}/confirm`, {}),

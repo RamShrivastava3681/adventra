@@ -244,7 +244,10 @@ function InventoryPage() {
       row.totalStock += sign * Number(r.quantity);
       const monthKey = (r.movement_date ?? "").slice(0, 7);
       if (monthKey && monthKeys.includes(monthKey)) {
-        row.monthly[monthKey] = (row.monthly[monthKey] ?? 0) + (r.direction === "out" ? Number(r.quantity) : 0);
+        const reason = String(r.reason ?? "").trim().toLowerCase();
+        const isReturn = r.direction === "in" && reason.includes("customer return");
+        const monthlySales = isReturn ? -Number(r.quantity) : r.direction === "out" ? Number(r.quantity) : 0;
+        row.monthly[monthKey] = (row.monthly[monthKey] ?? 0) + monthlySales;
       }
       bySku.set(key, row);
     }
@@ -1469,6 +1472,12 @@ function BulkImportModal({
           date: r.date,
           direction: r.direction!,
           quantity: r.quantity,
+          reason:
+            r.direction === "in" && r.stockOut < 0
+              ? "Customer return"
+              : r.direction === "out" && r.stockIn < 0
+                ? "Supplier return"
+                : reason,
         })),
       });
     },
