@@ -209,6 +209,9 @@ async function buildCashEvents(
 
   // 0. Sales invoices: direct inflow driver in the live ledger, even when sync tables are stale.
   const salesInvoices = await Invoice.list(clientId);
+  const liveSalesInvoiceIds = new Set(salesInvoices.map((invoice) => invoice?.id).filter(Boolean));
+  const purchaseInvoices = await PurchaseInvoice.list(clientId);
+  const livePurchaseInvoiceIds = new Set(purchaseInvoices.map((invoice) => invoice?.id).filter(Boolean));
   for (const invoice of salesInvoices) {
     if (!invoice?.id) continue;
     const status = String(invoice.status || "").toLowerCase();
@@ -258,6 +261,7 @@ async function buildCashEvents(
   for (const inflow of inflows) {
     if (!ExpectedInflow.ACTIVE_INFLOW_STATUSES.includes(inflow.status as any)) continue;
     if (inflow.expectedDate > horizonEnd) continue;
+    if (inflow.source === "invoice" && inflow.sourceId && liveSalesInvoiceIds.has(inflow.sourceId)) continue;
     // Skip inflows that are in the past and not overdue (they've likely been received)
     // But keep OVERDUE and DELAYED inflows
     pushEvent({
@@ -275,7 +279,6 @@ async function buildCashEvents(
   }
 
   // 2. Purchase invoices: direct outflow driver in the live ledger, even when sync tables are stale.
-  const purchaseInvoices = await PurchaseInvoice.list(clientId);
   for (const invoice of purchaseInvoices) {
     if (!invoice?.id) continue;
     const status = String(invoice.status || "").toLowerCase();
@@ -324,6 +327,7 @@ async function buildCashEvents(
   for (const outflow of outflows) {
     if (!ExpectedOutflow.ACTIVE_OUTFLOW_STATUSES.includes(outflow.status as any)) continue;
     if (outflow.expectedDate > horizonEnd) continue;
+    if (outflow.source === "purchase_invoice" && outflow.sourceId && livePurchaseInvoiceIds.has(outflow.sourceId)) continue;
     pushEvent({
       date: outflow.expectedDate,
       type: outflow.type,
@@ -457,7 +461,7 @@ export async function computeForecast(
 
   // Determine horizon based on mode
   let horizonEnd: string;
-  if (mode === "daily") horizonEnd = addDays(today, 30);
+  if (mode === "daily") horizonEnd = addDays(startOfMonth(today), 29);
   else if (mode === "weekly") horizonEnd = addDays(today, 13 * 7);
   else horizonEnd = addDays(today, 6 * 31);
 
@@ -712,6 +716,13 @@ export interface CashCommandCentreSummary {
   totalPlannedPurchaseCommitments: number;
   confirmedSupplierPayables: number;
   totalMarketplaceSettlementsPending: number;
+  overdueCustomerReceipts: number;
+  supplierPayables: number;
+  poCommitments: number;
+  marketplaceInflowsNext7Days: number;
+  salesInflowsNext7Days: number;
+  recurringOutflowsNext7Days: number;
+  purchaseOutflowsNext7Days: number;
   cashStatus: "GREEN" | "AMBER" | "RED";
   alerts: CashFlowAlert[];
 }
@@ -756,9 +767,13 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
       return sum + avail;
     }, 0);
 
+  const liveSalesInvoiceIds = new Set(salesInvoices.map((invoice: any) => invoice?.id).filter(Boolean));
+  const livePurchaseInvoiceIds = new Set(purchaseInvoices.map((invoice: any) => invoice?.id).filter(Boolean));
+
   // Active inflows in next 7 days (direct expected inflows + marketplace settlements)
   const activeInflows = inflows.filter((i) =>
-    ExpectedInflow.ACTIVE_INFLOW_STATUSES.includes(i.status as any)
+    ExpectedInflow.ACTIVE_INFLOW_STATUSES.includes(i.status as any) &&
+    !(i.source === "invoice" && i.sourceId && liveSalesInvoiceIds.has(i.sourceId))
   );
   const directInflows7d = activeInflows
     .filter((i) => i.expectedDate >= today && i.expectedDate <= in7)
@@ -787,7 +802,8 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
 
   // Active outflows in next 7 days (direct expected outflows + commitments + recurring expenses)
   const activeOutflows = outflows.filter((o) =>
-    ExpectedOutflow.ACTIVE_OUTFLOW_STATUSES.includes(o.status as any)
+    ExpectedOutflow.ACTIVE_OUTFLOW_STATUSES.includes(o.status as any) &&
+    !(o.source === "purchase_invoice" && o.sourceId && livePurchaseInvoiceIds.has(o.sourceId))
   );
   const directOutflows7d = activeOutflows
     .filter((o) => o.expectedDate >= today && o.expectedDate <= in7)
@@ -846,6 +862,21 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
     .filter((o) => o.type === "SUPPLIER_PAYMENT")
     .reduce((s, o) => s + (Number(o.amount) || 0), 0);
 
+  const overdueInvoiceReceipts = salesInvoices.reduce((s: number, invoice: any) => {
+    const status = String(invoice?.status || "").toLowerCase();
+    if (!invoice?.id || status === "cancelled" || status === "paid") return s;
+    const totalDue = Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0) - (Number(invoice.advanceDeducted ?? 0) || 0));
+    const outstanding = Math.max(0, totalDue - (Number(invoice.amountReceived) || 0));
+    return s + (invoice.dueDate < today ? outstanding : 0);
+  }, 0);
+
+  const supplierPayables = purchaseInvoices.reduce((s: number, invoice: any) => {
+    const status = String(invoice?.status || "").toLowerCase();
+    if (!invoice?.id || status === "cancelled" || status === "paid") return s;
+    const totalDue = Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0) - (Number(invoice.advanceDeducted ?? 0) || 0));
+    return s + Math.max(0, totalDue - (Number(invoice.amountPaid) || 0));
+  }, 0);
+
   // Run forecast for projected values
   const weekly = await computeForecast(clientId, "weekly");
   const daily = await computeForecast(clientId, "daily");
@@ -871,6 +902,13 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
     totalPlannedPurchaseCommitments: round2(plannedCommitmentsTotal),
     confirmedSupplierPayables: round2(confirmedSupplierPayables),
     totalMarketplaceSettlementsPending: round2(pendingTotal),
+    overdueCustomerReceipts: round2(overdueInvoiceReceipts),
+    supplierPayables: round2(supplierPayables),
+    poCommitments: round2(plannedCommitmentsTotal),
+    marketplaceInflowsNext7Days: round2(settlements7d),
+    salesInflowsNext7Days: round2(invoiceInflows7d),
+    recurringOutflowsNext7Days: round2(recurring7d),
+    purchaseOutflowsNext7Days: round2(invoiceOutflows7d),
     cashStatus: weekly.cashStatus,
     alerts: weekly.alerts,
   };

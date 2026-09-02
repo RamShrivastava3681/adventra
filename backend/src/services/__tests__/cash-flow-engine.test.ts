@@ -266,6 +266,55 @@ describe("Cash-Flow Forecast Engine", () => {
       expect(allPeriods.some((e) => e.direction === "OUTFLOW" && e.amount === 320000 && e.date === outflowDate)).toBe(true);
     });
 
+    it("does not double-count synced expected entries for live invoices", async () => {
+      const expectedDate = addDays(today(), 3);
+      mockSalesInvoices.push({
+        id: "sale-with-sync",
+        debtorId: "debtor-1",
+        amount: 500,
+        grandTotal: 500,
+        dueDate: expectedDate,
+        status: "approved",
+        amountReceived: 0,
+      });
+      mockInflows.push({
+        id: "synced-inflow",
+        source: "invoice",
+        sourceId: "sale-with-sync",
+        type: "CUSTOMER_COLLECTION",
+        amount: 500,
+        expectedDate,
+        status: "EXPECTED",
+      });
+      mockPurchaseInvoices.push({
+        id: "purchase-with-sync",
+        vendorId: "vendor-1",
+        amount: 300,
+        grandTotal: 300,
+        dueDate: expectedDate,
+        status: "approved_for_payment",
+        amountPaid: 0,
+      });
+      mockOutflows.push({
+        id: "synced-outflow",
+        source: "purchase_invoice",
+        sourceId: "purchase-with-sync",
+        type: "SUPPLIER_PAYMENT",
+        amount: 300,
+        expectedDate,
+        status: "PLANNED",
+        priority: "NORMAL",
+      });
+
+      const forecast = await computeForecast(CLIENT, "weekly");
+      const events = forecast.periods[0];
+
+      expect(events.expectedInflows).toBe(500);
+      expect(events.expectedOutflows).toBe(300);
+      expect(events.inflowEvents).toHaveLength(1);
+      expect(events.outflowEvents).toHaveLength(1);
+    });
+
     it("uses the requested day, weekly, and monthly horizons", async () => {
       mockAccounts.push({
         id: "acc1",

@@ -637,6 +637,16 @@ function CashFlowPage() {
               />
             </div>
 
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
+              <SummaryCard icon={<AlertTriangle className="h-4 w-4" />} iconClass="bg-red-500/10 text-red-600" value={fmt(summary?.overdueCustomerReceipts)} label="Overdue Receipts" sublabel="Unpaid sales invoices" />
+              <SummaryCard icon={<CreditCard className="h-4 w-4" />} iconClass="bg-amber-500/10 text-amber-600" value={fmt(summary?.supplierPayables)} label="Supplier Payables" sublabel="Unpaid purchase invoices" />
+              <SummaryCard icon={<ShoppingCart className="h-4 w-4" />} iconClass="bg-orange-500/10 text-orange-600" value={fmt(summary?.poCommitments)} label="PO Commitments" sublabel="Planned purchase orders" />
+              <SummaryCard icon={<ShoppingCart className="h-4 w-4" />} iconClass="bg-violet-500/10 text-violet-600" value={fmt(summary?.marketplaceInflowsNext7Days)} label="Marketplace Inflows" sublabel="Expected in next 7 days" />
+              <SummaryCard icon={<TrendingUp className="h-4 w-4" />} iconClass="bg-emerald-500/10 text-emerald-600" value={fmt(summary?.salesInflowsNext7Days)} label="Sales Inflows" sublabel="Expected in next 7 days" />
+              <SummaryCard icon={<RefreshCw className="h-4 w-4" />} iconClass="bg-blue-500/10 text-blue-600" value={fmt(summary?.recurringOutflowsNext7Days)} label="Recurring Outflows" sublabel="Expected in next 7 days" />
+              <SummaryCard icon={<TrendingDown className="h-4 w-4" />} iconClass="bg-red-500/10 text-red-600" value={fmt(summary?.purchaseOutflowsNext7Days)} label="Purchase Outflows" sublabel="Expected in next 7 days" />
+            </div>
+
             {/* ── Quick Stats Row ────────────────────────── */}
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <QuickStat
