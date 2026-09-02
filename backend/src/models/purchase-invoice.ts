@@ -50,7 +50,9 @@ export interface PurchaseInvoice {
   issueDate: string;
   /** Invoice received date — when the invoice arrived at the business. */
   receivedDate: string | null;
-  dueDate: string | null; paidDate: string | null;
+  dueDate: string | null;
+  agreedPaymentDate?: string | null;
+  paidDate: string | null;
   status: string; notes: string | null;
   /** Linked goods PO (catalogue-backed purchase order). */
   goodsPurchaseOrderId: string | null;

@@ -212,8 +212,21 @@ export async function ensureFresh(clientId: string): Promise<boolean> {
   const latestDate = await ForecastVariable.getLatestComputedDate(clientId);
   const today = new Date().toISOString().slice(0, 10);
 
-  // Recompute if: no forecast exists, or last computed date is before today
-  if (!latestDate || latestDate < today) {
+  const movements = await StockMovement.list(clientId);
+  const latestMovementDate = movements
+    .filter((m: any) => m.status === "confirmed")
+    .map((m: any) => String(m.movementDate ?? m.movement_date ?? ""))
+    .filter(Boolean)
+    .sort()
+    .at(-1) ?? null;
+
+  // Recompute if: no forecast exists, the saved snapshot is older than today,
+  // or there are confirmed movements newer than the latest saved snapshot.
+  if (
+    !latestDate ||
+    latestDate < today ||
+    (latestMovementDate && latestDate < latestMovementDate)
+  ) {
     await recomputeAll(clientId);
     return true; // recomputed
   }

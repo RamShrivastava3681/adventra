@@ -26,6 +26,7 @@ export interface Invoice {
   id: string; clientId: string; debtorId: string;
   invoiceNumber: string; amount: number;
   issueDate: string; dueDate: string;
+  promisedPaymentDate?: string | null;
   status: string;
   advanceRate: number; feeRate: number;
   paidDate: string | null; amountReceived: number | null; receiptDate: string | null;

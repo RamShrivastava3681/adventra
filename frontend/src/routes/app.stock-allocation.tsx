@@ -50,6 +50,7 @@ type CatalogueProduct = {
   unit_of_measure: string;
   unit_cost: number | null;
   image_url: string | null;
+  status?: string;
 };
 
 type StockSummaryItem = {
