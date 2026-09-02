@@ -1364,20 +1364,17 @@ function BulkImportModal({
           if (!row || row.every((c: any) => c === "" || c === null || c === undefined)) continue;
 
           const rawDate = String(row[dateCol] ?? "").trim();
-          const stockIn = inCol >= 0 ? Number(row[inCol]) || 0 : 0;
-          const stockOut = outCol >= 0 ? Number(row[outCol]) || 0 : 0;
+          const rawStockIn = inCol >= 0 ? Number(row[inCol]) || 0 : 0;
+          const rawStockOut = outCol >= 0 ? Number(row[outCol]) || 0 : 0;
 
-          // Negative stock_out is treated as a customer return (stock_in)
-          // Negative stock_in is treated as a dispatch (stock_out)
-          let effectiveIn = stockIn;
-          let effectiveOut = stockOut;
-          if (stockOut < 0) {
-            effectiveIn = 0;
-            effectiveOut = Math.abs(stockOut);
-          } else if (stockIn < 0) {
-            effectiveIn = Math.abs(stockIn);
-            effectiveOut = 0;
-          }
+          // Positive values keep their column meaning.
+          // Negative stock_out is treated as a stock_in return entry.
+          // Negative stock_in is treated as a stock_out adjustment entry.
+          const movementEntries: Array<{ direction: "in" | "out"; quantity: number }> = [];
+          if (rawStockIn > 0) movementEntries.push({ direction: "in", quantity: rawStockIn });
+          if (rawStockIn < 0) movementEntries.push({ direction: "out", quantity: Math.abs(rawStockIn) });
+          if (rawStockOut > 0) movementEntries.push({ direction: "out", quantity: rawStockOut });
+          if (rawStockOut < 0) movementEntries.push({ direction: "in", quantity: Math.abs(rawStockOut) });
 
           // Normalize date
           let dateStr = rawDate;
@@ -1396,51 +1393,32 @@ function BulkImportModal({
             }
           }
 
-          let direction: "in" | "out" | null = null;
-          let quantity = 0;
           let error: string | undefined;
           if (!dateStr || !/^\d{4}-\d{2}-\d{2}/.test(dateStr)) {
             error = `Invalid date: "${rawDate}"`;
-          } else if (effectiveIn === 0 && effectiveOut === 0) {
+          } else if (movementEntries.length === 0) {
             error = "Both stock_in and stock_out are zero — skipping empty row";
           }
 
-          // When both stock_in and stock_out are set in the same row,
-          // create two separate movements (one credit, one debit).
-          if (effectiveIn > 0 && effectiveOut > 0 && !error) {
-            parsed.push({
-              row: i + 1,
-              date: dateStr,
-              stockIn,
-              stockOut,
-              direction: "in",
-              quantity: effectiveIn,
-            });
-            parsed.push({
-              row: i + 1,
-              date: dateStr,
-              stockIn,
-              stockOut,
-              direction: "out",
-              quantity: effectiveOut,
-            });
-          } else {
-            let direction: "in" | "out" | null = null;
-            let quantity = 0;
-            if (effectiveIn > 0) {
-              direction = "in";
-              quantity = effectiveIn;
-            } else if (effectiveOut > 0) {
-              direction = "out";
-              quantity = effectiveOut;
+          if (!error) {
+            for (const entry of movementEntries) {
+              parsed.push({
+                row: i + 1,
+                date: dateStr,
+                stockIn: rawStockIn,
+                stockOut: rawStockOut,
+                direction: entry.direction,
+                quantity: entry.quantity,
+              });
             }
+          } else {
             parsed.push({
               row: i + 1,
               date: dateStr,
-              stockIn,
-              stockOut,
-              direction,
-              quantity,
+              stockIn: rawStockIn,
+              stockOut: rawStockOut,
+              direction: null,
+              quantity: 0,
               error,
             });
           }
