@@ -189,7 +189,7 @@ export async function create(
     supplierName: data.supplierName || null,
     warehouse: data.warehouse || null,
     expectedDeliveryDate: data.expectedDeliveryDate || null,
-    expectedDate: data.expectedDate || data.expectedDeliveryDate || data.poDate || null,
+    expectedDate: data.expectedDate || data.dueDate || data.expectedDeliveryDate || data.poDate || null,
     dueDate: data.dueDate || null,
     paymentTerms: data.paymentTerms || null,
     buyerId: data.buyerId || null,

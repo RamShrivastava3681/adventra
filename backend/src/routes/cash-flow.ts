@@ -684,6 +684,18 @@ router.get("/cash-flow/uninvoiced-pos", async (req: Request, res: Response) => {
   }
 });
 
+router.get("/cash-flow/planned-pos", async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    const planned = (await GoodsPO.list(clientId)).filter((po) =>
+      ["draft", "pending_review"].includes(String(po.status || "").toLowerCase()),
+    );
+    res.json(planned);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===================== TRACEABILITY =====================
 
 /**

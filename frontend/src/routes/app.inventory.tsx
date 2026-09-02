@@ -1310,6 +1310,21 @@ function BulkImportModal({
   const validRows = parsedRows.filter((r) => !r.error);
   const errorRows = parsedRows.filter((r) => r.error);
 
+  const monthlySummary = useMemo(() => {
+    const buckets = new Map<string, { month: string; stockIn: number; stockOut: number }>();
+
+    for (const row of validRows) {
+      if (!row.date) continue;
+      const month = row.date.slice(0, 7);
+      const bucket = buckets.get(month) ?? { month, stockIn: 0, stockOut: 0 };
+      if (row.direction === "in") bucket.stockIn += row.quantity;
+      if (row.direction === "out") bucket.stockOut += row.quantity;
+      buckets.set(month, bucket);
+    }
+
+    return [...buckets.values()].sort((a, b) => a.month.localeCompare(b.month));
+  }, [validRows]);
+
   const handleFile = (file: File) => {
     setFileName(file.name);
     setParseError("");
@@ -1349,8 +1364,8 @@ function BulkImportModal({
           if (!row || row.every((c: any) => c === "" || c === null || c === undefined)) continue;
 
           const rawDate = String(row[dateCol] ?? "").trim();
-          const stockIn = inCol >= 1 ? Number(row[inCol]) || 0 : 0;
-          const stockOut = outCol >= 1 ? Number(row[outCol]) || 0 : 0;
+          const stockIn = inCol >= 0 ? Number(row[inCol]) || 0 : 0;
+          const stockOut = outCol >= 0 ? Number(row[outCol]) || 0 : 0;
 
           // Negative stock_out is treated as a customer return (stock_in)
           // Negative stock_in is treated as a dispatch (stock_out)
@@ -1662,6 +1677,45 @@ function BulkImportModal({
                   </tbody>
                 </table>
               </div>
+
+              {monthlySummary.length > 0 && (
+                <div className="space-y-2 pt-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h5 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                      Month-wise summary
+                    </h5>
+                    <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+                      <span>Total stock in: <span className="font-medium text-success">{monthlySummary.reduce((sum, row) => sum + row.stockIn, 0).toLocaleString()}</span></span>
+                      <span>Total stock out: <span className="font-medium text-warning">{monthlySummary.reduce((sum, row) => sum + row.stockOut, 0).toLocaleString()}</span></span>
+                    </div>
+                  </div>
+
+                  <div className="-mx-2 overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border text-left uppercase tracking-widest text-muted-foreground">
+                          <th className="px-2 py-1.5 font-normal">Month</th>
+                          <th className="px-2 py-1.5 text-right font-normal">Stock in</th>
+                          <th className="px-2 py-1.5 text-right font-normal">Stock out</th>
+                          <th className="px-2 py-1.5 text-right font-normal">Net</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {monthlySummary.map((row) => (
+                          <tr key={row.month} className="border-b border-border/40">
+                            <td className="px-2 py-1.5 font-medium">{new Date(`${row.month}-01T00:00:00`).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</td>
+                            <td className="px-2 py-1.5 text-right num text-success">{row.stockIn.toLocaleString()}</td>
+                            <td className="px-2 py-1.5 text-right num text-warning">{row.stockOut.toLocaleString()}</td>
+                            <td className={`px-2 py-1.5 text-right num ${row.stockIn - row.stockOut >= 0 ? "text-success" : "text-warning"}`}>
+                              {(row.stockIn - row.stockOut).toLocaleString()}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </section>
           )}
 

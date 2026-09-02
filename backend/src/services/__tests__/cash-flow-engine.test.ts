@@ -609,6 +609,27 @@ describe("Cash-Flow Forecast Engine", () => {
     });
   });
 
+  describe("Marketplace settlements", () => {
+    it("keeps received settlements in the forecast on their actual settlement date", async () => {
+      const actualDate = addDays(today(), 2);
+      mockSettlements.push({
+        id: "received-settlement",
+        clientId: CLIENT,
+        marketplaceName: "Amazon",
+        netSettlementExpected: 700,
+        expectedSettlementDate: addDays(today(), 7),
+        actualSettlementDate: actualDate,
+        status: "RECEIVED",
+      });
+
+      const forecast = await computeForecast(CLIENT, "daily");
+      const period = forecast.periods.find((item) => item.startDate === actualDate);
+
+      expect(period?.expectedInflows).toBe(700);
+      expect(period?.inflowEvents[0]?.source).toBe("marketplace");
+    });
+  });
+
   describe("Multi-tenant isolation", () => {
     it("Only returns data for the specified clientId", async () => {
       // This test verifies the engine only queries models with the correct clientId

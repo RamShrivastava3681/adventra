@@ -9,6 +9,7 @@ import {
   Building2,
   Calendar,
   CheckCircle2,
+  ClipboardList,
   ChevronDown,
   ChevronRight,
   Clock,
@@ -318,6 +319,16 @@ function CashFlowPage() {
     queryFn: () => api.cashFlow.uninvoicedPos.list(),
   });
 
+  const plannedPosQ = useQuery({
+    queryKey: ["cash-flow-planned-pos"],
+    queryFn: () => api.cashFlow.plannedPos.list(),
+  });
+
+  const salesInvoicesQ = useQuery({
+    queryKey: ["cash-flow-sales-invoices"],
+    queryFn: () => api.invoices.list(),
+  });
+
   const settlementsQ = useQuery({
     queryKey: ["cash-flow-settlements"],
     queryFn: () => api.cashFlow.settlements.list(),
@@ -332,6 +343,7 @@ function CashFlowPage() {
     queryClient.invalidateQueries({ queryKey: ["cash-flow-recurring"] });
     queryClient.invalidateQueries({ queryKey: ["cash-flow-commitments"] });
     queryClient.invalidateQueries({ queryKey: ["cash-flow-uninvoiced-pos"] });
+    queryClient.invalidateQueries({ queryKey: ["cash-flow-planned-pos"] });
     queryClient.invalidateQueries({ queryKey: ["cash-flow-settlements"] });
     queryClient.invalidateQueries({ queryKey: ["cash-flow-settings"] });
   };
@@ -429,13 +441,15 @@ function CashFlowPage() {
     }
     if (settlementsQ.data) {
       for (const s of settlementsQ.data) {
-        if (s.status !== "RECEIVED" && s.status !== "DISPUTED") {
+        if (s.status !== "DISPUTED") {
           list.push({
             id: s.id,
             type: "MARKETPLACE_SETTLEMENT",
             amount: s.net_settlement_expected ?? s.netSettlementExpected,
             status: s.status,
-            expectedDate: s.expected_settlement_date ?? s.expectedSettlementDate,
+            expectedDate: s.status === "RECEIVED"
+              ? (s.actual_settlement_date ?? s.actualSettlementDate ?? s.expected_settlement_date ?? s.expectedSettlementDate)
+              : (s.expected_settlement_date ?? s.expectedSettlementDate),
             customerName: s.marketplace_name ?? s.marketplaceName,
             displayCategory: "Marketplace Settlement",
           });
@@ -658,6 +672,7 @@ function CashFlowPage() {
               <SummaryCard icon={<AlertTriangle className="h-4 w-4" />} iconClass="bg-red-500/10 text-red-600" value={fmt(summary?.overdueCustomerReceipts)} label="Overdue Receipts" sublabel="Unpaid sales invoices" />
               <SummaryCard icon={<CreditCard className="h-4 w-4" />} iconClass="bg-amber-500/10 text-amber-600" value={fmt(summary?.supplierPayables)} label="Supplier Payables" sublabel="Unpaid purchase invoices" />
               <SummaryCard icon={<ShoppingCart className="h-4 w-4" />} iconClass="bg-orange-500/10 text-orange-600" value={fmt(summary?.poCommitments)} label="PO Commitments" sublabel="Planned purchase orders" />
+              <SummaryCard icon={<ClipboardList className="h-4 w-4" />} iconClass="bg-slate-500/10 text-slate-600" value={fmt(summary?.plannedPurchaseOrders)} label="Planned POs" sublabel="Awaiting checker approval" />
               <SummaryCard icon={<ShoppingCart className="h-4 w-4" />} iconClass="bg-violet-500/10 text-violet-600" value={fmt(summary?.marketplaceInflowsNext7Days)} label="Marketplace Inflows" sublabel="Expected in next 7 days" />
               <SummaryCard icon={<TrendingUp className="h-4 w-4" />} iconClass="bg-emerald-500/10 text-emerald-600" value={fmt(summary?.salesInflowsNext7Days)} label="Sales Inflows" sublabel="Expected in next 7 days" />
               <SummaryCard icon={<RefreshCw className="h-4 w-4" />} iconClass="bg-blue-500/10 text-blue-600" value={fmt(summary?.recurringOutflowsNext7Days)} label="Recurring Outflows" sublabel="Expected in next 7 days" />
@@ -718,6 +733,14 @@ function CashFlowPage() {
                 <TabsTrigger value="commitments" className="text-xs font-medium gap-1.5 px-3">
                   <CreditCard className="h-3.5 w-3.5" />
                   PO Commitments ({commitmentsQ.data?.length || 0})
+                </TabsTrigger>
+                <TabsTrigger value="planned-pos" className="text-xs font-medium gap-1.5 px-3">
+                  <ClipboardList className="h-3.5 w-3.5" />
+                  Planned POs ({plannedPosQ.data?.length || 0})
+                </TabsTrigger>
+                <TabsTrigger value="sales-inflows" className="text-xs font-medium gap-1.5 px-3">
+                  <TrendingUp className="h-3.5 w-3.5" />
+                  Sales Inflows ({salesInvoicesQ.data?.length || 0})
                 </TabsTrigger>
                 <TabsTrigger value="inflows" className="text-xs font-medium gap-1.5 px-3">
                   <TrendingUp className="h-3.5 w-3.5" />
@@ -1331,6 +1354,37 @@ function CashFlowPage() {
                 </div>
               </TabsContent>
 
+              <TabsContent value="planned-pos" className="space-y-5">
+                <div className="rounded-2xl border bg-card p-5 shadow-xs">
+                  <h3 className="text-base font-semibold text-foreground">Planned Purchase Orders</h3>
+                  <p className="text-xs text-muted-foreground">Draft and pending-review purchase orders awaiting checker approval.</p>
+                </div>
+                <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        <th className="px-5 py-3.5">PO Number</th><th className="px-5 py-3.5">Supplier</th><th className="px-5 py-3.5">PO Date</th><th className="px-5 py-3.5 text-right">PO Total</th><th className="px-5 py-3.5 text-center">Status</th>
+                      </tr></thead>
+                      <tbody className="divide-y divide-border/60">
+                        {plannedPosQ.isLoading ? (
+                          <tr><td colSpan={5} className="py-8 text-center text-sm text-muted-foreground"><Loader2 className="mr-2 inline-block h-4 w-4 animate-spin" />Loading planned purchase orders...</td></tr>
+                        ) : plannedPosQ.data?.length === 0 ? (
+                          <tr><td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">No planned purchase orders.</td></tr>
+                        ) : plannedPosQ.data?.map((po: any) => (
+                          <tr key={po.id} className="hover:bg-muted/20">
+                            <td className="px-5 py-3.5 font-mono text-xs">{po.poNumber || "—"}</td>
+                            <td className="px-5 py-3.5">{po.supplierName || "—"}</td>
+                            <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{po.poDate || "—"}</td>
+                            <td className="px-5 py-3.5 text-right font-mono font-bold text-amber-600">{fmtFull(po.grandTotal)}</td>
+                            <td className="px-5 py-3.5 text-center"><span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-700">{po.status || "planned"}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </TabsContent>
+
               {/* ── Tab 5: PO Commitments ──────────────────── */}
               <TabsContent value="commitments" className="space-y-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between rounded-2xl border bg-card p-5 shadow-xs">
@@ -1510,6 +1564,41 @@ function CashFlowPage() {
                             </tr>
                           ))
                         )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="sales-inflows" className="space-y-5">
+                <div className="rounded-2xl border bg-card p-5 shadow-xs">
+                  <h3 className="text-base font-semibold text-foreground">Sales Invoice Inflows</h3>
+                  <p className="text-xs text-muted-foreground">Sales invoice values and their expected collection dates.</p>
+                </div>
+                <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead><tr className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        <th className="px-5 py-3.5">Invoice</th><th className="px-5 py-3.5">Customer</th><th className="px-5 py-3.5">Expected Date</th><th className="px-5 py-3.5 text-right">Invoice Value</th><th className="px-5 py-3.5 text-right">Outstanding</th><th className="px-5 py-3.5 text-center">Status</th>
+                      </tr></thead>
+                      <tbody className="divide-y divide-border/60">
+                        {salesInvoicesQ.isLoading ? (
+                          <tr><td colSpan={6} className="py-8 text-center text-sm text-muted-foreground"><Loader2 className="mr-2 inline-block h-4 w-4 animate-spin" />Loading sales invoices...</td></tr>
+                        ) : salesInvoicesQ.data?.length === 0 ? (
+                          <tr><td colSpan={6} className="py-8 text-center text-sm text-muted-foreground">No sales invoices.</td></tr>
+                        ) : salesInvoicesQ.data?.map((invoice: any) => {
+                          const value = Number(invoice.grand_total ?? invoice.grandTotal ?? invoice.amount ?? 0) || 0;
+                          const received = Number(invoice.amount_received ?? invoice.amountReceived ?? 0) || 0;
+                          const advance = Number(invoice.advance_deducted ?? invoice.advanceDeducted ?? 0) || 0;
+                          return <tr key={invoice.id} className="hover:bg-muted/20">
+                            <td className="px-5 py-3.5 font-mono text-xs">{invoice.invoice_number ?? invoice.invoiceNumber ?? "—"}</td>
+                            <td className="px-5 py-3.5">{invoice.debtor_id ?? invoice.debtorId ?? "—"}</td>
+                            <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{invoice.expected_date ?? invoice.expectedDate ?? invoice.due_date ?? invoice.dueDate ?? "—"}</td>
+                            <td className="px-5 py-3.5 text-right font-mono font-bold text-emerald-600">+{fmtFull(value)}</td>
+                            <td className="px-5 py-3.5 text-right font-mono">{fmtFull(Math.max(0, value - advance - received))}</td>
+                            <td className="px-5 py-3.5 text-center"><span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{invoice.status || "—"}</span></td>
+                          </tr>;
+                        })}
                       </tbody>
                     </table>
                   </div>

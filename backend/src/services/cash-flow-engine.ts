@@ -386,10 +386,13 @@ async function buildCashEvents(
   // 5. Marketplace Settlements (net only)
   const settlements = await MarketplaceSettlement.list(clientId);
   for (const s of settlements) {
-    if (s.status === "RECEIVED" || s.status === "DISPUTED") continue;
-    if (s.expectedSettlementDate > horizonEnd) continue;
+    if (s.status === "DISPUTED") continue;
+    const settlementDate = s.status === "RECEIVED"
+      ? (s.actualSettlementDate || s.expectedSettlementDate)
+      : s.expectedSettlementDate;
+    if (!settlementDate || settlementDate > horizonEnd) continue;
     pushEvent({
-      date: s.expectedSettlementDate,
+      date: settlementDate,
       type: "MARKETPLACE_SETTLEMENT",
       direction: "INFLOW",
       amount: round2(s.netSettlementExpected),
@@ -739,6 +742,7 @@ export interface CashCommandCentreSummary {
   totalPlannedPurchaseCommitments: number;
   confirmedSupplierPayables: number;
   totalMarketplaceSettlementsPending: number;
+  plannedPurchaseOrders: number;
   overdueCustomerReceipts: number;
   supplierPayables: number;
   poCommitments: number;
@@ -796,6 +800,9 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
   const invoicedPOIds = new Set(purchaseInvoices.map((invoice: any) => invoice?.goodsPurchaseOrderId).filter(Boolean));
   const approvedPOs = goodsPurchaseOrders.filter((po: any) =>
     ["approved", "sent", "partially_received"].includes(String(po.status || "").toLowerCase()) && !invoicedPOIds.has(po.id),
+  );
+  const plannedPOs = goodsPurchaseOrders.filter((po: any) =>
+    ["draft", "pending_review"].includes(String(po.status || "").toLowerCase()),
   );
 
   // Active inflows in next 7 days (direct expected inflows + marketplace settlements)
@@ -940,6 +947,7 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
     overdueCustomerReceipts: round2(overdueInvoiceReceipts),
     supplierPayables: round2(supplierPayables),
     poCommitments: round2(plannedCommitmentsTotal),
+    plannedPurchaseOrders: round2(plannedPOs.reduce((sum: number, po: any) => sum + (Number(po.grandTotal) || 0), 0)),
     marketplaceInflowsNext7Days: round2(settlements7d),
     salesInflowsNext7Days: round2(invoiceInflows7d),
     recurringOutflowsNext7Days: round2(recurring7d),

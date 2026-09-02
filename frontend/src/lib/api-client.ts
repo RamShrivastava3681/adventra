@@ -478,6 +478,9 @@ const api = {
     uninvoicedPos: {
       list: async () => normalizeCashFlowResponse(await api.get<any[]>("/cash-flow/uninvoiced-pos")),
     },
+    plannedPos: {
+      list: async () => normalizeCashFlowResponse(await api.get<any[]>("/cash-flow/planned-pos")),
+    },
     // Recurring Expenses
     recurring: {
       list: () => api.get<any[]>("/cash-flow/recurring"),

@@ -673,7 +673,7 @@ function POModal({
     supplier_id: po?.supplier_id ?? "",
     warehouse: po?.warehouse ?? "",
     expected_delivery_date: (po?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
-    expected_date: (po?.expected_date ?? po?.due_date ?? po?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
+    expected_date: (po?.expected_date ?? po?.due_date ?? po?.expected_delivery_date ?? po?.po_date ?? "")?.slice(0, 10) ?? "",
     due_date: (po?.due_date ?? "")?.slice(0, 10) ?? "",
     payment_terms: po?.payment_terms ?? "",
     // Free-text "Buyer / created by" — new POs default to the signed-in
@@ -1145,6 +1145,15 @@ function POModal({
                   className="inp"
                   value={f.due_date}
                   onChange={(e) => setF({ ...f, due_date: e.target.value })}
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Expected cash payment date">
+                <input
+                  type="date"
+                  className="inp"
+                  value={f.expected_date}
+                  onChange={(e) => setF({ ...f, expected_date: e.target.value })}
                   disabled={!editable}
                 />
               </L>
