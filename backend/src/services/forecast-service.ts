@@ -79,6 +79,7 @@ export async function recomputeAll(clientId: string): Promise<{
       quantity: m.quantity,
       direction: m.direction,
       dispatchType: m.dispatchType ?? null,
+      reason: m.reason ?? null,
       status: m.status,
     }));
 

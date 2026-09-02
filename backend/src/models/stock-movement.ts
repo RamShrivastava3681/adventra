@@ -365,15 +365,21 @@ export function getTransferMovements(
  */
 export function isDemandMovement(m: StockMovement): boolean {
   if (m.status !== "confirmed") return false;
+
   if (m.dispatchType) {
     if (m.dispatchType === "customer_sale" || m.dispatchType === "marketplace_sale" || m.dispatchType === "pos_sale") {
-      return m.direction === "out"; // sales are demand
+      return m.direction === "out";
     }
     if (m.dispatchType === "customer_return") {
-      return m.direction === "in"; // returns reduce demand (negative)
+      return m.direction === "in";
     }
-    return false; // transfers, returns to supplier, damage, etc. are NOT demand
+    return false;
   }
-  // Legacy movements without dispatchType: only count outbound as demand
-  return m.direction === "out";
+
+  const reason = String(m.reason ?? "").trim().toLowerCase();
+
+  if (m.direction === "out") return true;
+  if (m.direction === "in" && reason.includes("customer return")) return true;
+
+  return false;
 }

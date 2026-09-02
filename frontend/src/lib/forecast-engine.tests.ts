@@ -9,6 +9,7 @@ import {
   computePaceAdjustment,
   computePricingStrategy,
   forecastSKU,
+  isDemandMovement,
   recomputeTimeline,
   type MonthlyBucket,
   type ForecastResult,
@@ -68,6 +69,20 @@ function makeTrendingHistory(
 }
 
 console.log("correctForAvailability");
+test("all confirmed debits are counted as demand and customer returns reduce it", () => {
+  const entries = [
+    { movement_date: "2026-06-01", quantity: 10, direction: "out", reason: "Stock adjustment", status: "confirmed" },
+    { movement_date: "2026-06-07", quantity: 4, direction: "out", reason: "Damage", status: "confirmed" },
+    { movement_date: "2026-06-09", quantity: 9, direction: "out", reason: "Dispatch", status: "confirmed" },
+    { movement_date: "2026-06-11", quantity: 7, direction: "out", dispatchType: "customer_sale", status: "confirmed" },
+    { movement_date: "2026-06-12", quantity: 2, direction: "in", reason: "Customer return", status: "confirmed" },
+  ];
+  eq(isDemandMovement(entries[0]), true, "manual debit movements count as demand");
+  eq(isDemandMovement(entries[1]), true, "all debits count as demand");
+  eq(isDemandMovement(entries[2]), true, "dispatch debits count as demand");
+  eq(isDemandMovement(entries[3]), true, "customer sales count as demand");
+  eq(isDemandMovement(entries[4]), true, "customer returns reduce demand");
+});
 test("returns raw when availability missing", () => {
   const r = correctForAvailability(42, "2026-01");
   eq(r.correctedDemand, 42);

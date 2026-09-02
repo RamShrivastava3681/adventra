@@ -17,6 +17,7 @@ export type MovementInput = {
   quantity: number;
   direction: string;
   dispatchType?: string | null;
+  reason?: string | null;
   status?: string | null;
 };
 
@@ -25,9 +26,15 @@ export type MovementInput = {
  * Demand = customer_sale + marketplace_sale + pos_sale − customer_return.
  * Explicitly excludes: GRN, stock transfers, return_to_supplier, damage,
  * sample, adjustment, transit, and any draft/cancelled movements.
+ *
+ * Legacy entries without a dispatchType are ambiguous, so only count them when
+ * the reason clearly indicates a sales dispatch or customer return; otherwise
+ * they are treated as non-demand stock adjustments / manual inventory events.
  */
 export function isDemandMovement(m: MovementInput): boolean {
   if (m.status && m.status !== "confirmed") return false;
+
+  // Explicit dispatch/return classifications win when present.
   if (m.dispatchType) {
     if (
       m.dispatchType === "customer_sale" ||
@@ -41,8 +48,16 @@ export function isDemandMovement(m: MovementInput): boolean {
     }
     return false;
   }
-  // Legacy movements without dispatchType: only count outbound as demand
-  return m.direction === "out";
+
+  const reason = String(m.reason ?? "").trim().toLowerCase();
+
+  // For manual inventory entries, the user-entered movement itself is the source
+  // of truth: all confirmed debits represent demand, and customer returns are
+  // the only incoming movements that should reduce that demand.
+  if (m.direction === "out") return true;
+  if (m.direction === "in" && reason.includes("customer return")) return true;
+
+  return false;
 }
 
 // Per-month availability signal for a SKU. Provide as many months as known.
