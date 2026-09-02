@@ -224,6 +224,7 @@ function SalesOrdersPage() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<SO | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const sosQ = useQuery({
     queryKey: ["goods-sos"],
@@ -275,6 +276,16 @@ function SalesOrdersPage() {
       toast.success("Sales order deleted");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const deleteSelected = useMutation({
+    mutationFn: async () => Promise.all([...selectedIds].map((id) => api.goodsSalesOrders.delete(id))),
+    onSuccess: () => {
+      setSelectedIds(new Set());
+      qc.invalidateQueries({ queryKey: ["goods-sos"] });
+      toast.success("Selected sales orders deleted");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete selected orders"),
   });
 
   // Email the sales order PDF to the debtor for their approval.
@@ -377,6 +388,14 @@ function SalesOrdersPage() {
         <TransactionFilters data={sosQ.data ?? []} config={soConfig}>
           {(filtered) => (
             <Card>
+              {canWrite && selectedIds.size > 0 && (
+                <div className="mb-3 flex items-center justify-between rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
+                  <span>{selectedIds.size} sales order(s) selected</span>
+                  <button onClick={() => deleteSelected.mutate()} disabled={deleteSelected.isPending} className="inline-flex items-center gap-1 text-destructive hover:underline">
+                    <Trash2 className="h-3.5 w-3.5" /> Delete selected
+                  </button>
+                </div>
+              )}
               {sosQ.isLoading ? (
                 <TableSkeleton rows={6} cols={8} />
               ) : filtered.length === 0 ? (
@@ -389,6 +408,7 @@ function SalesOrdersPage() {
                   <table className="table-premium w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal"><input type="checkbox" aria-label="Select all sales orders" checked={filtered.length > 0 && filtered.every((s: SO) => selectedIds.has(s.id))} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((s: SO) => s.id)) : new Set())} /></th>
                         <th className="px-5 py-2 text-left font-normal">SO</th>
                         <th className="px-5 py-2 text-left font-normal">Customer</th>
                         <th className="px-5 py-2 text-left font-normal">Dispatch</th>
@@ -412,6 +432,7 @@ function SalesOrdersPage() {
                             : 0;
                         return (
                           <tr key={s.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3"><input type="checkbox" aria-label={`Select sales order ${s.so_number}`} checked={selectedIds.has(s.id)} onChange={(e) => setSelectedIds((current) => { const next = new Set(current); if (e.target.checked) next.add(s.id); else next.delete(s.id); return next; })} /></td>
                             <td className="px-5 py-3 font-mono text-xs">
                               {s.so_number}
                               <div className="text-[10px] text-muted-foreground">
@@ -526,7 +547,7 @@ function SalesOrdersPage() {
                                     <FileDown className="h-3 w-3" />
                                   </button>
                                 )}
-                                {canWrite && s.status === "draft" && (
+                                {canWrite && (
                                   <button
                                     onClick={() => del.mutate(s.id)}
                                     className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
