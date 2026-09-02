@@ -5,6 +5,25 @@
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
+function snakeToCamel(key: string): string {
+  return key.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase());
+}
+
+function normalizeCashFlowResponse<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => normalizeCashFlowResponse(item)) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        snakeToCamel(key),
+        normalizeCashFlowResponse(item),
+      ]),
+    ) as T;
+  }
+  return value;
+}
+
 async function request<T = any>(path: string, options: RequestInit = {}): Promise<T> {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -419,7 +438,7 @@ const api = {
   cashFlow: {
     // Settings
     settings: {
-      get: () => api.get<any>("/cash-flow/settings"),
+      get: async () => normalizeCashFlowResponse(await api.get<any>("/cash-flow/settings")),
       update: (data: any) => api.put<any>("/cash-flow/settings", data),
     },
     // Cash Accounts
@@ -480,17 +499,17 @@ const api = {
         if (mode) params.set("mode", mode);
         if (view) params.set("view", view);
         const qs = params.toString();
-        return api.get<any>(`/cash-flow/forecast${qs ? `?${qs}` : ""}`);
+        return api.get<any>(`/cash-flow/forecast${qs ? `?${qs}` : ""}`).then(normalizeCashFlowResponse);
       },
-      daily: (view?: string) => api.get<any>(`/cash-flow/forecast/daily${view ? `?view=${view}` : ""}`),
-      weekly: (view?: string) => api.get<any>(`/cash-flow/forecast/weekly${view ? `?view=${view}` : ""}`),
-      monthly: (view?: string) => api.get<any>(`/cash-flow/forecast/monthly${view ? `?view=${view}` : ""}`),
+      daily: (view?: string) => api.get<any>(`/cash-flow/forecast/daily${view ? `?view=${view}` : ""}`).then(normalizeCashFlowResponse),
+      weekly: (view?: string) => api.get<any>(`/cash-flow/forecast/weekly${view ? `?view=${view}` : ""}`).then(normalizeCashFlowResponse),
+      monthly: (view?: string) => api.get<any>(`/cash-flow/forecast/monthly${view ? `?view=${view}` : ""}`).then(normalizeCashFlowResponse),
     },
     // Traceability
     trace: (sourceType: string, sourceId: string) =>
       api.get<any>(`/cash-flow/trace/${sourceType}/${sourceId}`),
     // Dashboard Summary
-    summary: () => api.get<any>("/cash-flow/summary"),
+    summary: async () => normalizeCashFlowResponse(await api.get<any>("/cash-flow/summary")),
   },
 
   // E-Way Bill
