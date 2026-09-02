@@ -209,16 +209,16 @@ describe("Cash-Flow Forecast Engine", () => {
         status: "active",
       });
 
-      const inflowDate = addDays(today(), 4);
-      const outflowDate = addDays(today(), 9);
+      const inflowDate = today();
+      const outflowDate = today();
 
       mockSalesInvoices.push({
         id: "inv-live",
         clientId: CLIENT,
         debtorId: "debtor-1",
         amount: 750000,
-        dueDate: inflowDate,
-        issueDate: today(),
+        dueDate: addDays(today(), 25),
+        issueDate: inflowDate,
         status: "draft",
         amountReceived: 0,
       });
@@ -228,8 +228,8 @@ describe("Cash-Flow Forecast Engine", () => {
         clientId: CLIENT,
         vendorId: "vendor-1",
         amount: 320000,
-        dueDate: outflowDate,
-        issueDate: today(),
+        dueDate: addDays(today(), 30),
+        issueDate: outflowDate,
         status: "approved_for_payment",
         amountPaid: 0,
       });

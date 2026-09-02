@@ -218,7 +218,7 @@ async function buildCashEvents(
       - (Number(invoice.amountReceived ?? 0) || 0));
     if (outstanding <= 0) continue;
 
-    const expectedDate = invoice.promisedPaymentDate || invoice.dueDate || invoice.issueDate;
+    const expectedDate = invoice.issueDate || invoice.promisedPaymentDate || invoice.dueDate;
     if (!expectedDate || expectedDate > horizonEnd) continue;
 
     pushEvent({
@@ -267,7 +267,7 @@ async function buildCashEvents(
       - (Number(invoice.amountPaid ?? 0) || 0));
     if (outstanding <= 0) continue;
 
-    const expectedDate = invoice.agreedPaymentDate || invoice.dueDate || invoice.issueDate;
+    const expectedDate = invoice.issueDate || invoice.agreedPaymentDate || invoice.dueDate;
     if (!expectedDate || expectedDate > horizonEnd) continue;
 
     pushEvent({
@@ -736,7 +736,7 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
   const invoiceInflows7d = salesInvoices
     .filter((invoice: any) => invoice && invoice.id && !["paid", "partially_paid", "cancelled", "received"].includes(String(invoice.status || "").toLowerCase()))
     .filter((invoice: any) => {
-      const expectedDate = invoice.promisedPaymentDate || invoice.dueDate || invoice.issueDate;
+      const expectedDate = invoice.issueDate || invoice.promisedPaymentDate || invoice.dueDate;
       return !!expectedDate && expectedDate >= today && expectedDate <= in7;
     })
     .reduce((s, invoice: any) => s + Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0) - (Number(invoice.advanceDeducted ?? 0) || 0) - (Number(invoice.amountReceived ?? 0) || 0)), 0);
@@ -767,7 +767,7 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
   const invoiceOutflows7d = purchaseInvoices
     .filter((invoice: any) => invoice && invoice.id && !["paid", "cancelled"].includes(String(invoice.status || "").toLowerCase()))
     .filter((invoice: any) => {
-      const expectedDate = invoice.agreedPaymentDate || invoice.dueDate || invoice.issueDate;
+      const expectedDate = invoice.issueDate || invoice.agreedPaymentDate || invoice.dueDate;
       return !!expectedDate && expectedDate >= today && expectedDate <= in7;
     })
     .reduce((s, invoice: any) => s + Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0) - (Number(invoice.advanceDeducted ?? 0) || 0) - (Number(invoice.amountPaid ?? 0) || 0)), 0);
