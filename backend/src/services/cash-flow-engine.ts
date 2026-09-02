@@ -195,7 +195,43 @@ async function buildCashEvents(
   horizonEnd: string
 ): Promise<CashEvent[]> {
   const events: CashEvent[] = [];
+  const seen = new Set<string>();
   const today = new Date().toISOString().slice(0, 10);
+
+  const pushEvent = (event: CashEvent) => {
+    const dedupeKey = event.sourceId ? `${event.source}:${event.sourceId}` : `${event.source}:${event.date}:${event.type}:${event.amount}`;
+    if (seen.has(dedupeKey)) return;
+    seen.add(dedupeKey);
+    events.push(event);
+  };
+
+  // 0. Sales invoices: direct inflow driver in the live ledger, even when sync tables are stale.
+  const salesInvoices = await Invoice.list(clientId);
+  for (const invoice of salesInvoices) {
+    if (!invoice?.id) continue;
+    if (["paid", "partially_paid", "cancelled", "received"].includes(String(invoice.status || "").toLowerCase())) continue;
+
+    const outstanding = Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0)
+      - (Number(invoice.advanceDeducted ?? 0) || 0)
+      - (Number(invoice.amountReceived ?? 0) || 0));
+    if (outstanding <= 0) continue;
+
+    const expectedDate = invoice.promisedPaymentDate || invoice.dueDate || invoice.issueDate;
+    if (!expectedDate || expectedDate > horizonEnd) continue;
+
+    pushEvent({
+      date: expectedDate,
+      type: "CUSTOMER_COLLECTION",
+      direction: "INFLOW",
+      amount: round2(outstanding),
+      source: "invoice",
+      sourceId: invoice.id,
+      status: String(invoice.status || "EXPECTED").toUpperCase(),
+      priority: "NORMAL",
+      category: "CUSTOMER_COLLECTION",
+      description: `${invoice.debtorId || "Customer"} - Invoice ${invoice.invoiceNumber || invoice.id}`,
+    });
+  }
 
   // 1. Expected Inflows (from invoice integration and manual entries)
   const inflows = await ExpectedInflow.list(clientId);
@@ -204,7 +240,7 @@ async function buildCashEvents(
     if (inflow.expectedDate > horizonEnd) continue;
     // Skip inflows that are in the past and not overdue (they've likely been received)
     // But keep OVERDUE and DELAYED inflows
-    events.push({
+    pushEvent({
       date: inflow.expectedDate,
       type: inflow.type,
       direction: "INFLOW",
@@ -218,12 +254,40 @@ async function buildCashEvents(
     });
   }
 
-  // 2. Expected Outflows (from purchase invoice integration and manual entries)
+  // 2. Purchase invoices: direct outflow driver in the live ledger, even when sync tables are stale.
+  const purchaseInvoices = await PurchaseInvoice.list(clientId);
+  for (const invoice of purchaseInvoices) {
+    if (!invoice?.id) continue;
+    if (["paid", "cancelled"].includes(String(invoice.status || "").toLowerCase())) continue;
+
+    const outstanding = Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0)
+      - (Number(invoice.advanceDeducted ?? 0) || 0)
+      - (Number(invoice.amountPaid ?? 0) || 0));
+    if (outstanding <= 0) continue;
+
+    const expectedDate = invoice.agreedPaymentDate || invoice.dueDate || invoice.issueDate;
+    if (!expectedDate || expectedDate > horizonEnd) continue;
+
+    pushEvent({
+      date: expectedDate,
+      type: "SUPPLIER_PAYMENT",
+      direction: "OUTFLOW",
+      amount: round2(outstanding),
+      source: "purchase_invoice",
+      sourceId: invoice.id,
+      status: String(invoice.status || "PLANNED").toUpperCase(),
+      priority: "NORMAL",
+      category: "SUPPLIER_PAYMENT",
+      description: `${invoice.supplierName || invoice.vendorId || "Supplier"} - Invoice ${invoice.invoiceNumber || invoice.id}`,
+    });
+  }
+
+  // 3. Expected Outflows (from purchase invoice integration and manual entries)
   const outflows = await ExpectedOutflow.list(clientId);
   for (const outflow of outflows) {
     if (!ExpectedOutflow.ACTIVE_OUTFLOW_STATUSES.includes(outflow.status as any)) continue;
     if (outflow.expectedDate > horizonEnd) continue;
-    events.push({
+    pushEvent({
       date: outflow.expectedDate,
       type: outflow.type,
       direction: "OUTFLOW",
@@ -237,12 +301,12 @@ async function buildCashEvents(
     });
   }
 
-  // 3. Purchase Commitments (pending POs without supplier invoices)
+  // 4. Purchase Commitments (pending POs without supplier invoices)
   const commitments = await PurchaseCommitment.list(clientId);
   for (const c of commitments) {
     if (c.status === "CANCELLED") continue;
     if (c.expectedPaymentDate > horizonEnd) continue;
-    events.push({
+    pushEvent({
       date: c.expectedPaymentDate,
       type: "PURCHASE_COMMITMENT",
       direction: "OUTFLOW",
@@ -256,12 +320,12 @@ async function buildCashEvents(
     });
   }
 
-  // 4. Marketplace Settlements (net only)
+  // 5. Marketplace Settlements (net only)
   const settlements = await MarketplaceSettlement.list(clientId);
   for (const s of settlements) {
     if (s.status === "RECEIVED" || s.status === "DISPUTED") continue;
     if (s.expectedSettlementDate > horizonEnd) continue;
-    events.push({
+    pushEvent({
       date: s.expectedSettlementDate,
       type: "MARKETPLACE_SETTLEMENT",
       direction: "INFLOW",
@@ -275,12 +339,12 @@ async function buildCashEvents(
     });
   }
 
-  // 5. Recurring Expenses — generate future occurrences
+  // 6. Recurring Expenses — generate future occurrences
   const recurring = await RecurringExpense.list(clientId);
   for (const exp of recurring) {
     const occurrences = generateOccurrences(exp, horizonEnd);
     for (const occ of occurrences) {
-      events.push({
+      pushEvent({
         date: occ.date,
         type: exp.category.toUpperCase().replace(/\s+/g, "_"),
         direction: "OUTFLOW",
@@ -616,7 +680,7 @@ export interface CashCommandCentreSummary {
 }
 
 export async function getSummary(clientId: string): Promise<CashCommandCentreSummary> {
-  const [settings, accounts, inflows, outflows, commitments, settlements, recurring] = await Promise.all([
+  const [settings, accounts, inflows, outflows, commitments, settlements, recurring, salesInvoices, purchaseInvoices] = await Promise.all([
     CashFlowSettings.get(clientId),
     CashAccount.list(clientId),
     ExpectedInflow.list(clientId),
@@ -624,6 +688,8 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
     PurchaseCommitment.list(clientId),
     MarketplaceSettlement.list(clientId),
     RecurringExpense.list(clientId),
+    Invoice.list(clientId),
+    PurchaseInvoice.list(clientId),
   ]);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -665,7 +731,15 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
     .filter((s) => s.status !== "RECEIVED" && s.status !== "DISPUTED" && s.expectedSettlementDate >= today && s.expectedSettlementDate <= in7)
     .reduce((s, x) => s + (Number(x.netSettlementExpected) || 0), 0);
 
-  const totalInflows7d = directInflows7d + settlements7d;
+  const invoiceInflows7d = salesInvoices
+    .filter((invoice: any) => invoice && invoice.id && !["paid", "partially_paid", "cancelled", "received"].includes(String(invoice.status || "").toLowerCase()))
+    .filter((invoice: any) => {
+      const expectedDate = invoice.promisedPaymentDate || invoice.dueDate || invoice.issueDate;
+      return !!expectedDate && expectedDate >= today && expectedDate <= in7;
+    })
+    .reduce((s, invoice: any) => s + Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0) - (Number(invoice.advanceDeducted ?? 0) || 0) - (Number(invoice.amountReceived ?? 0) || 0)), 0);
+
+  const totalInflows7d = directInflows7d + settlements7d + invoiceInflows7d;
 
   // Active outflows in next 7 days (direct expected outflows + commitments + recurring expenses)
   const activeOutflows = outflows.filter((o) =>
@@ -688,7 +762,15 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
     .filter((occ) => occ.date >= today && occ.date <= in7)
     .reduce((s, occ) => s + (Number(occ.amount) || 0), 0);
 
-  const totalOutflows7d = directOutflows7d + commitmentsOut + recurring7d;
+  const invoiceOutflows7d = purchaseInvoices
+    .filter((invoice: any) => invoice && invoice.id && !["paid", "cancelled"].includes(String(invoice.status || "").toLowerCase()))
+    .filter((invoice: any) => {
+      const expectedDate = invoice.agreedPaymentDate || invoice.dueDate || invoice.issueDate;
+      return !!expectedDate && expectedDate >= today && expectedDate <= in7;
+    })
+    .reduce((s, invoice: any) => s + Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0) - (Number(invoice.advanceDeducted ?? 0) || 0) - (Number(invoice.amountPaid ?? 0) || 0)), 0);
+
+  const totalOutflows7d = directOutflows7d + commitmentsOut + recurring7d + invoiceOutflows7d;
 
   // Overdue collections
   const overdueTotal = activeInflows

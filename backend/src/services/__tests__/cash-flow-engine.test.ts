@@ -19,6 +19,8 @@ const mockOutflows: any[] = [];
 const mockCommitments: any[] = [];
 const mockSettlements: any[] = [];
 const mockRecurring: any[] = [];
+const mockSalesInvoices: any[] = [];
+const mockPurchaseInvoices: any[] = [];
 
 vi.mock("../../models/cash-account.js", () => ({
   list: vi.fn(() => Promise.resolve(mockAccounts)),
@@ -58,8 +60,12 @@ vi.mock("../../models/recurring-expense.js", () => ({
   list: vi.fn(() => Promise.resolve(mockRecurring)),
 }));
 
-vi.mock("../../models/invoice.js", () => ({}));
-vi.mock("../../models/purchase-invoice.js", () => ({}));
+vi.mock("../../models/invoice.js", () => ({
+  list: vi.fn(() => Promise.resolve(mockSalesInvoices)),
+}));
+vi.mock("../../models/purchase-invoice.js", () => ({
+  list: vi.fn(() => Promise.resolve(mockPurchaseInvoices)),
+}));
 
 // ── Import AFTER mocks ─────────────────────────────────────────────────────
 
@@ -85,6 +91,8 @@ beforeEach(() => {
   mockCommitments.length = 0;
   mockSettlements.length = 0;
   mockRecurring.length = 0;
+  mockSalesInvoices.length = 0;
+  mockPurchaseInvoices.length = 0;
   mockSettings.minimumCashBuffer = 1000000;
 });
 
@@ -189,6 +197,68 @@ describe("Cash-Flow Forecast Engine", () => {
 
       // Period rollover: week 2 opening must equal week 1 closing
       expect(week2.openingCash).toBe(week1.closingCash);
+    });
+  });
+
+  describe("Invoice-backed forecast items", () => {
+    it("uses live sales and purchase invoice dates and amounts when building forecast events", async () => {
+      mockAccounts.push({
+        id: "acc1",
+        clientId: CLIENT,
+        availableForOperations: 1000000,
+        status: "active",
+      });
+
+      const inflowDate = addDays(today(), 4);
+      const outflowDate = addDays(today(), 9);
+
+      mockSalesInvoices.push({
+        id: "inv-live",
+        clientId: CLIENT,
+        debtorId: "debtor-1",
+        amount: 750000,
+        dueDate: inflowDate,
+        issueDate: today(),
+        status: "draft",
+        amountReceived: 0,
+      });
+
+      mockPurchaseInvoices.push({
+        id: "pi-live",
+        clientId: CLIENT,
+        vendorId: "vendor-1",
+        amount: 320000,
+        dueDate: outflowDate,
+        issueDate: today(),
+        status: "approved_for_payment",
+        amountPaid: 0,
+      });
+
+      const forecast = await computeForecast(CLIENT, "weekly");
+      const allPeriods = forecast.periods.flatMap((p) => [
+        ...p.inflowEvents.map((e: any) => ({ period: p.label, direction: e.direction, amount: e.amount, date: e.date })),
+        ...p.outflowEvents.map((e: any) => ({ period: p.label, direction: e.direction, amount: e.amount, date: e.date })),
+      ]);
+
+      expect(allPeriods.some((e) => e.direction === "INFLOW" && e.amount === 750000 && e.date === inflowDate)).toBe(true);
+      expect(allPeriods.some((e) => e.direction === "OUTFLOW" && e.amount === 320000 && e.date === outflowDate)).toBe(true);
+    });
+
+    it("uses the requested day, weekly, and monthly horizons", async () => {
+      mockAccounts.push({
+        id: "acc1",
+        clientId: CLIENT,
+        availableForOperations: 1000000,
+        status: "active",
+      });
+
+      const dailyForecast = await computeForecast(CLIENT, "daily");
+      const weeklyForecast = await computeForecast(CLIENT, "weekly");
+      const monthlyForecast = await computeForecast(CLIENT, "monthly");
+
+      expect(dailyForecast.periods.length).toBe(30);
+      expect(weeklyForecast.periods.length).toBe(13);
+      expect(monthlyForecast.periods.length).toBe(6);
     });
   });
 
