@@ -198,6 +198,28 @@ describe("Cash-Flow Forecast Engine", () => {
       // Period rollover: week 2 opening must equal week 1 closing
       expect(week2.openingCash).toBe(week1.closingCash);
     });
+
+    it("carries each month's closing balance into the next month's opening balance", async () => {
+      mockAccounts.push({
+        id: "acc-monthly",
+        clientId: CLIENT,
+        availableForOperations: 1000,
+        status: "active",
+      });
+      mockInflows.push({
+        id: "monthly-inflow",
+        clientId: CLIENT,
+        type: "CUSTOMER_COLLECTION",
+        amount: 250,
+        expectedDate: addDays(today(), 40),
+        status: "EXPECTED",
+      });
+
+      const forecast = await computeForecast(CLIENT, "monthly");
+
+      expect(forecast.periods[0].openingCash).toBe(1000);
+      expect(forecast.periods[1].openingCash).toBe(forecast.periods[0].closingCash);
+    });
   });
 
   describe("Invoice-backed forecast items", () => {
@@ -209,8 +231,8 @@ describe("Cash-Flow Forecast Engine", () => {
         status: "active",
       });
 
-      const inflowDate = today();
-      const outflowDate = today();
+      const inflowDate = addDays(today(), 25);
+      const outflowDate = addDays(today(), 30);
 
       mockSalesInvoices.push({
         id: "inv-live",
@@ -539,6 +561,38 @@ describe("Cash-Flow Forecast Engine", () => {
   });
 
   describe("Forecast modes", () => {
+    it("includes paid invoice receipts and supplier payments on their paid dates", async () => {
+      const paidDate = today();
+      mockSalesInvoices.push({
+        id: "paid-sale",
+        debtorId: "debtor-1",
+        invoiceNumber: "SI-PAID",
+        amount: 1000,
+        issueDate: addDays(paidDate, -3),
+        paidDate,
+        amountReceived: 1000,
+        status: "paid",
+      });
+      mockPurchaseInvoices.push({
+        id: "paid-purchase",
+        vendorId: "vendor-1",
+        invoiceNumber: "PI-PAID",
+        amount: 400,
+        issueDate: addDays(paidDate, -3),
+        paidDate,
+        amountPaid: 400,
+        status: "paid",
+      });
+
+      const forecast = await computeForecast(CLIENT, "daily");
+      const period = forecast.periods.find((item) => item.startDate === paidDate);
+
+      expect(period?.expectedInflows).toBe(1000);
+      expect(period?.expectedOutflows).toBe(400);
+      expect(period?.inflowEvents[0]?.source).toBe("invoice_payment");
+      expect(period?.outflowEvents[0]?.source).toBe("purchase_invoice_payment");
+    });
+
     it("Daily mode returns 30 periods", async () => {
       const forecast = await computeForecast(CLIENT, "daily");
       expect(forecast.periods.length).toBe(30);

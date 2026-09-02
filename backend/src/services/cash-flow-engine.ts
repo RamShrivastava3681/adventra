@@ -211,24 +211,42 @@ async function buildCashEvents(
   const salesInvoices = await Invoice.list(clientId);
   for (const invoice of salesInvoices) {
     if (!invoice?.id) continue;
-    if (["paid", "partially_paid", "cancelled", "received"].includes(String(invoice.status || "").toLowerCase())) continue;
+    const status = String(invoice.status || "").toLowerCase();
+    if (status === "cancelled") continue;
 
-    const outstanding = Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0)
-      - (Number(invoice.advanceDeducted ?? 0) || 0)
-      - (Number(invoice.amountReceived ?? 0) || 0));
-    if (outstanding <= 0) continue;
+    const totalDue = Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0)
+      - (Number(invoice.advanceDeducted ?? 0) || 0));
+    let paidAmount = Math.min(totalDue, Math.max(0, Number(invoice.amountReceived) || 0));
+    if (status === "paid" && paidAmount <= 0) paidAmount = totalDue;
 
-    const expectedDate = invoice.issueDate || invoice.promisedPaymentDate || invoice.dueDate;
-    if (!expectedDate || expectedDate > horizonEnd) continue;
+    const paidDate = invoice.paidDate || invoice.receiptDate;
+    if (paidAmount > 0 && paidDate && paidDate <= horizonEnd) {
+      pushEvent({
+        date: paidDate,
+        type: "CUSTOMER_COLLECTION",
+        direction: "INFLOW",
+        amount: round2(paidAmount),
+        source: "invoice_payment",
+        sourceId: invoice.id,
+        status: "PAID",
+        priority: "NORMAL",
+        category: "CUSTOMER_COLLECTION",
+        description: `${invoice.debtorId || "Customer"} - Invoice ${invoice.invoiceNumber || invoice.id} payment`,
+      });
+    }
+
+    const outstanding = round2(Math.max(0, totalDue - paidAmount));
+    const expectedDate = invoice.dueDate || invoice.promisedPaymentDate || invoice.issueDate;
+    if (outstanding <= 0 || !expectedDate || expectedDate > horizonEnd) continue;
 
     pushEvent({
       date: expectedDate,
       type: "CUSTOMER_COLLECTION",
       direction: "INFLOW",
-      amount: round2(outstanding),
+      amount: outstanding,
       source: "invoice",
       sourceId: invoice.id,
-      status: String(invoice.status || "EXPECTED").toUpperCase(),
+      status: status ? status.toUpperCase() : "EXPECTED",
       priority: "NORMAL",
       category: "CUSTOMER_COLLECTION",
       description: `${invoice.debtorId || "Customer"} - Invoice ${invoice.invoiceNumber || invoice.id}`,
@@ -260,24 +278,41 @@ async function buildCashEvents(
   const purchaseInvoices = await PurchaseInvoice.list(clientId);
   for (const invoice of purchaseInvoices) {
     if (!invoice?.id) continue;
-    if (["paid", "cancelled"].includes(String(invoice.status || "").toLowerCase())) continue;
+    const status = String(invoice.status || "").toLowerCase();
+    if (status === "cancelled") continue;
 
-    const outstanding = Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0)
-      - (Number(invoice.advanceDeducted ?? 0) || 0)
-      - (Number(invoice.amountPaid ?? 0) || 0));
-    if (outstanding <= 0) continue;
+    const totalDue = Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0)
+      - (Number(invoice.advanceDeducted ?? 0) || 0));
+    let paidAmount = Math.min(totalDue, Math.max(0, Number(invoice.amountPaid) || 0));
+    if (status === "paid" && paidAmount <= 0) paidAmount = totalDue;
 
-    const expectedDate = invoice.issueDate || invoice.agreedPaymentDate || invoice.dueDate;
-    if (!expectedDate || expectedDate > horizonEnd) continue;
+    if (paidAmount > 0 && invoice.paidDate && invoice.paidDate <= horizonEnd) {
+      pushEvent({
+        date: invoice.paidDate,
+        type: "SUPPLIER_PAYMENT",
+        direction: "OUTFLOW",
+        amount: round2(paidAmount),
+        source: "purchase_invoice_payment",
+        sourceId: invoice.id,
+        status: "PAID",
+        priority: "NORMAL",
+        category: "SUPPLIER_PAYMENT",
+        description: `${invoice.supplierName || invoice.vendorId || "Supplier"} - Invoice ${invoice.invoiceNumber || invoice.id} payment`,
+      });
+    }
+
+    const outstanding = round2(Math.max(0, totalDue - paidAmount));
+    const expectedDate = invoice.dueDate || invoice.agreedPaymentDate || invoice.issueDate;
+    if (outstanding <= 0 || !expectedDate || expectedDate > horizonEnd) continue;
 
     pushEvent({
       date: expectedDate,
       type: "SUPPLIER_PAYMENT",
       direction: "OUTFLOW",
-      amount: round2(outstanding),
+      amount: outstanding,
       source: "purchase_invoice",
       sourceId: invoice.id,
-      status: String(invoice.status || "PLANNED").toUpperCase(),
+      status: status ? status.toUpperCase() : "PLANNED",
       priority: "NORMAL",
       category: "SUPPLIER_PAYMENT",
       description: `${invoice.supplierName || invoice.vendorId || "Supplier"} - Invoice ${invoice.invoiceNumber || invoice.id}`,
@@ -734,12 +769,19 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
     .reduce((s, x) => s + (Number(x.netSettlementExpected) || 0), 0);
 
   const invoiceInflows7d = salesInvoices
-    .filter((invoice: any) => invoice && invoice.id && !["paid", "partially_paid", "cancelled", "received"].includes(String(invoice.status || "").toLowerCase()))
-    .filter((invoice: any) => {
-      const expectedDate = invoice.issueDate || invoice.promisedPaymentDate || invoice.dueDate;
-      return !!expectedDate && expectedDate >= today && expectedDate <= in7;
-    })
-    .reduce((s, invoice: any) => s + Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0) - (Number(invoice.advanceDeducted ?? 0) || 0) - (Number(invoice.amountReceived ?? 0) || 0)), 0);
+    .filter((invoice: any) => invoice && invoice.id && String(invoice.status || "").toLowerCase() !== "cancelled")
+    .reduce((s, invoice: any) => {
+      const status = String(invoice.status || "").toLowerCase();
+      const totalDue = Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0) - (Number(invoice.advanceDeducted ?? 0) || 0));
+      let paidAmount = Math.min(totalDue, Math.max(0, Number(invoice.amountReceived) || 0));
+      if (status === "paid" && paidAmount <= 0) paidAmount = totalDue;
+      const paidDate = invoice.paidDate || invoice.receiptDate;
+      const paymentInWindow = paidAmount > 0 && paidDate >= today && paidDate <= in7;
+      const outstanding = Math.max(0, totalDue - paidAmount);
+      const dueDate = invoice.dueDate || invoice.promisedPaymentDate || invoice.issueDate;
+      const unpaidInWindow = outstanding > 0 && dueDate >= today && dueDate <= in7;
+      return s + (paymentInWindow ? paidAmount : 0) + (unpaidInWindow ? outstanding : 0);
+    }, 0);
 
   const totalInflows7d = directInflows7d + settlements7d + invoiceInflows7d;
 
@@ -765,12 +807,19 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
     .reduce((s, occ) => s + (Number(occ.amount) || 0), 0);
 
   const invoiceOutflows7d = purchaseInvoices
-    .filter((invoice: any) => invoice && invoice.id && !["paid", "cancelled"].includes(String(invoice.status || "").toLowerCase()))
-    .filter((invoice: any) => {
-      const expectedDate = invoice.issueDate || invoice.agreedPaymentDate || invoice.dueDate;
-      return !!expectedDate && expectedDate >= today && expectedDate <= in7;
-    })
-    .reduce((s, invoice: any) => s + Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0) - (Number(invoice.advanceDeducted ?? 0) || 0) - (Number(invoice.amountPaid ?? 0) || 0)), 0);
+    .filter((invoice: any) => invoice && invoice.id && String(invoice.status || "").toLowerCase() !== "cancelled")
+    .reduce((s, invoice: any) => {
+      const status = String(invoice.status || "").toLowerCase();
+      const totalDue = Math.max(0, (Number(invoice.grandTotal ?? invoice.amount ?? 0) || 0) - (Number(invoice.advanceDeducted ?? 0) || 0));
+      let paidAmount = Math.min(totalDue, Math.max(0, Number(invoice.amountPaid) || 0));
+      if (status === "paid" && paidAmount <= 0) paidAmount = totalDue;
+      const paidDate = invoice.paidDate;
+      const paymentInWindow = paidAmount > 0 && paidDate >= today && paidDate <= in7;
+      const outstanding = Math.max(0, totalDue - paidAmount);
+      const dueDate = invoice.dueDate || invoice.agreedPaymentDate || invoice.issueDate;
+      const unpaidInWindow = outstanding > 0 && dueDate >= today && dueDate <= in7;
+      return s + (paymentInWindow ? paidAmount : 0) + (unpaidInWindow ? outstanding : 0);
+    }, 0);
 
   const totalOutflows7d = directOutflows7d + commitmentsOut + recurring7d + invoiceOutflows7d;
 

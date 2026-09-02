@@ -469,14 +469,14 @@ const api = {
     },
     // Purchase Commitments
     commitments: {
-      list: () => api.get<any[]>("/cash-flow/commitments"),
+      list: async () => normalizeCashFlowResponse(await api.get<any[]>("/cash-flow/commitments")),
       create: (data: any) => api.post<any>("/cash-flow/commitments", data),
       update: (id: string, data: any) => api.put<any>(`/cash-flow/commitments/${id}`, data),
       delete: (id: string) => api.delete(`/cash-flow/commitments/${id}`),
     },
     // Uninvoiced Purchase Orders (POs without a linked Purchase Invoice)
     uninvoicedPos: {
-      list: () => api.get<any[]>("/cash-flow/uninvoiced-pos"),
+      list: async () => normalizeCashFlowResponse(await api.get<any[]>("/cash-flow/uninvoiced-pos")),
     },
     // Recurring Expenses
     recurring: {
