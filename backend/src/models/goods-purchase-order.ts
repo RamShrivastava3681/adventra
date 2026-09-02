@@ -44,6 +44,8 @@ export interface GoodsPurchaseOrder {
   /** Delivery warehouse / store (free text — no warehouse master yet). */
   warehouse: string | null;
   expectedDeliveryDate: string | null;
+  expectedDate: string | null;
+  dueDate: string | null;
   paymentTerms: string | null;
   buyerId: string | null;
   buyerName: string | null;
@@ -187,6 +189,8 @@ export async function create(
     supplierName: data.supplierName || null,
     warehouse: data.warehouse || null,
     expectedDeliveryDate: data.expectedDeliveryDate || null,
+    expectedDate: data.expectedDate || data.expectedDeliveryDate || data.poDate || null,
+    dueDate: data.dueDate || null,
     paymentTerms: data.paymentTerms || null,
     buyerId: data.buyerId || null,
     buyerName: data.buyerName || null,
@@ -220,6 +224,8 @@ export async function update(id: string, updates: Partial<GoodsPurchaseOrder>) {
     "supplierName",
     "warehouse",
     "expectedDeliveryDate",
+    "expectedDate",
+    "dueDate",
     "paymentTerms",
     "buyerId",
     "buyerName",

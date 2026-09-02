@@ -219,7 +219,7 @@ async function buildCashEvents(
   for (const po of goodsPurchaseOrders) {
     if (!["approved", "sent", "partially_received"].includes(String(po.status || "").toLowerCase())) continue;
     if (invoicedPOIds.has(po.id)) continue;
-    const date = po.expectedDeliveryDate || po.poDate;
+    const date = po.expectedDate || po.dueDate || po.expectedDeliveryDate || po.poDate;
     if (!date || date > horizonEnd) continue;
     pushEvent({
       date,
@@ -261,7 +261,7 @@ async function buildCashEvents(
     }
 
     const outstanding = round2(Math.max(0, totalDue - paidAmount));
-    const expectedDate = invoice.dueDate || invoice.promisedPaymentDate || invoice.issueDate;
+    const expectedDate = invoice.expectedDate || invoice.dueDate || invoice.promisedPaymentDate || invoice.issueDate;
     if (outstanding <= 0 || !expectedDate || expectedDate > horizonEnd) continue;
 
     pushEvent({
@@ -327,7 +327,7 @@ async function buildCashEvents(
     }
 
     const outstanding = round2(Math.max(0, totalDue - paidAmount));
-    const expectedDate = invoice.dueDate || invoice.agreedPaymentDate || invoice.issueDate;
+    const expectedDate = invoice.expectedDate || invoice.dueDate || invoice.agreedPaymentDate || invoice.issueDate;
     if (outstanding <= 0 || !expectedDate || expectedDate > horizonEnd) continue;
 
     pushEvent({
@@ -821,7 +821,7 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
       const paidDate = invoice.paidDate || invoice.receiptDate;
       const paymentInWindow = paidAmount > 0 && paidDate >= today && paidDate <= in7;
       const outstanding = Math.max(0, totalDue - paidAmount);
-      const dueDate = invoice.dueDate || invoice.promisedPaymentDate || invoice.issueDate;
+      const dueDate = invoice.expectedDate || invoice.dueDate || invoice.promisedPaymentDate || invoice.issueDate;
       const unpaidInWindow = outstanding > 0 && dueDate >= today && dueDate <= in7;
       return s + (paymentInWindow ? paidAmount : 0) + (unpaidInWindow ? outstanding : 0);
     }, 0);
@@ -860,14 +860,14 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
       const paidDate = invoice.paidDate;
       const paymentInWindow = paidAmount > 0 && paidDate >= today && paidDate <= in7;
       const outstanding = Math.max(0, totalDue - paidAmount);
-      const dueDate = invoice.dueDate || invoice.agreedPaymentDate || invoice.issueDate;
+      const dueDate = invoice.expectedDate || invoice.dueDate || invoice.agreedPaymentDate || invoice.issueDate;
       const unpaidInWindow = outstanding > 0 && dueDate >= today && dueDate <= in7;
       return s + (paymentInWindow ? paidAmount : 0) + (unpaidInWindow ? outstanding : 0);
     }, 0);
 
   const poOutflows7d = approvedPOs
     .filter((po: any) => {
-      const date = po.expectedDeliveryDate || po.poDate;
+      const date = po.expectedDate || po.dueDate || po.expectedDeliveryDate || po.poDate;
       return date >= today && date <= in7;
     })
     .reduce((s: number, po: any) => s + (Number(po.grandTotal) || 0), 0);

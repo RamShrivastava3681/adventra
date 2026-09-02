@@ -53,6 +53,8 @@ type PO = {
   supplier_name: string | null;
   warehouse: string | null;
   expected_delivery_date: string | null;
+  expected_date: string | null;
+  due_date: string | null;
   payment_terms: string | null;
   buyer_id: string | null;
   buyer_name: string | null;
@@ -209,6 +211,7 @@ function PurchaseOrdersPage() {
   const [editing, setEditing] = useState<PO | null>(null);
   const [receiving, setReceiving] = useState<PO | null>(null);
   const [grnView, setGrnView] = useState<PO | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const posQ = useQuery({
     queryKey: ["goods-pos"],
@@ -278,6 +281,16 @@ function PurchaseOrdersPage() {
       toast.success("Purchase order deleted");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const deleteSelected = useMutation({
+    mutationFn: async () => Promise.all([...selectedIds].map((id) => api.goodsPurchaseOrders.delete(id))),
+    onSuccess: () => {
+      setSelectedIds(new Set());
+      qc.invalidateQueries({ queryKey: ["goods-pos"] });
+      toast.success("Selected purchase orders deleted");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete selected orders"),
   });
 
   // Email the purchase order PDF to the supplier for their approval.
@@ -376,6 +389,14 @@ function PurchaseOrdersPage() {
         <TransactionFilters data={posQ.data ?? []} config={poConfig}>
           {(filtered) => (
             <Card>
+              {canWrite && selectedIds.size > 0 && (
+                <div className="mb-3 flex items-center justify-between rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
+                  <span>{selectedIds.size} purchase order(s) selected</span>
+                  <button onClick={() => deleteSelected.mutate()} disabled={deleteSelected.isPending} className="inline-flex items-center gap-1 text-destructive hover:underline">
+                    <Trash2 className="h-3.5 w-3.5" /> Delete selected
+                  </button>
+                </div>
+              )}
               {posQ.isLoading ? (
                 <TableSkeleton rows={6} cols={8} />
               ) : filtered.length === 0 ? (
@@ -388,6 +409,7 @@ function PurchaseOrdersPage() {
                   <table className="table-premium w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal"><input type="checkbox" aria-label="Select all purchase orders" checked={filtered.length > 0 && filtered.every((p: PO) => selectedIds.has(p.id))} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((p: PO) => p.id)) : new Set())} /></th>
                         <th className="px-5 py-2 text-left font-normal">PO</th>
                         <th className="px-5 py-2 text-left font-normal">Supplier</th>
                         <th className="px-5 py-2 text-left font-normal">Delivery</th>
@@ -409,6 +431,7 @@ function PurchaseOrdersPage() {
                           totalQty > 0 ? Math.min(100, Math.round((recQty / totalQty) * 100)) : 0;
                         return (
                           <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3"><input type="checkbox" aria-label={`Select purchase order ${p.po_number}`} checked={selectedIds.has(p.id)} onChange={(e) => setSelectedIds((current) => { const next = new Set(current); if (e.target.checked) next.add(p.id); else next.delete(p.id); return next; })} /></td>
                             <td className="px-5 py-3 font-mono text-xs">
                               {p.po_number}
                               <div className="text-[10px] text-muted-foreground">
@@ -505,7 +528,7 @@ function PurchaseOrdersPage() {
                                     <FileDown className="h-3 w-3" />
                                   </button>
                                 )}
-                                {canWrite && p.status === "draft" && (
+                                {canWrite && (
                                   <button
                                     onClick={() => del.mutate(p.id)}
                                     className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
@@ -650,6 +673,8 @@ function POModal({
     supplier_id: po?.supplier_id ?? "",
     warehouse: po?.warehouse ?? "",
     expected_delivery_date: (po?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
+    expected_date: (po?.expected_date ?? po?.due_date ?? po?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
+    due_date: (po?.due_date ?? "")?.slice(0, 10) ?? "",
     payment_terms: po?.payment_terms ?? "",
     // Free-text "Buyer / created by" — new POs default to the signed-in
     // user's email (what the backend used to store); the user can type anything.
@@ -695,6 +720,7 @@ function POModal({
     invoice_date: new Date().toISOString().slice(0, 10),
     received_date: "",
     due_date: "",
+    expected_date: "",
     freight: po?.freight != null ? String(po.freight) : "",
     notes: "",
   });
@@ -879,6 +905,8 @@ function POModal({
           : null,
         warehouse: f.warehouse.trim() || null,
         expected_delivery_date: f.expected_delivery_date || null,
+        expected_date: f.expected_date || f.due_date || f.expected_delivery_date || f.po_date,
+        due_date: f.due_date || null,
         payment_terms: f.payment_terms || null,
         buyer_name: f.buyer_name.trim() || null,
         notes: f.notes.trim() || null,
@@ -947,6 +975,7 @@ function POModal({
             issueDate: piForm.invoice_date,
             receivedDate: piForm.received_date || null,
             dueDate: piForm.due_date || null,
+            expectedDate: piForm.expected_date || piForm.due_date || null,
             goodsPurchaseOrderId: savedPo.id,
             goodsPoNumber: savedPo?.po_number ?? null,
             // PO reference lets the backend auto-link an existing purchase
@@ -1107,6 +1136,15 @@ function POModal({
                   className="inp"
                   value={f.expected_delivery_date}
                   onChange={(e) => setF({ ...f, expected_delivery_date: e.target.value })}
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Payment due date">
+                <input
+                  type="date"
+                  className="inp"
+                  value={f.due_date}
+                  onChange={(e) => setF({ ...f, due_date: e.target.value })}
                   disabled={!editable}
                 />
               </L>
@@ -1512,6 +1550,15 @@ function POModal({
                       disabled={!editable}
                     />
                   </L>
+                  <L label="Expected cash payment date">
+                    <input
+                      type="date"
+                      className="inp"
+                      value={f.expected_date}
+                      onChange={(e) => setF({ ...f, expected_date: e.target.value })}
+                      disabled={!editable}
+                    />
+                  </L>
                 </div>
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                   <L label="Advance amount %">
@@ -1588,6 +1635,15 @@ function POModal({
                       className="inp"
                       value={piForm.due_date}
                       onChange={(e) => setPiForm({ ...piForm, due_date: e.target.value })}
+                      disabled={!editable}
+                    />
+                  </L>
+                  <L label="Expected cash payment date">
+                    <input
+                      type="date"
+                      className="inp"
+                      value={piForm.expected_date}
+                      onChange={(e) => setPiForm({ ...piForm, expected_date: e.target.value })}
                       disabled={!editable}
                     />
                   </L>

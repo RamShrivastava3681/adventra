@@ -51,6 +51,7 @@ type Inv = {
   created_at: string;
   issue_date: string;
   due_date: string;
+  expected_date?: string | null;
   status: string;
   advance_rate: number | null;
   paid_date: string | null;
@@ -107,6 +108,7 @@ function InvoicesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Inv | null>(null);
   const [viewing, setViewing] = useState<Inv | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", "list"],
@@ -185,6 +187,16 @@ function InvoicesPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  const deleteSelected = useMutation({
+    mutationFn: async () => Promise.all([...selectedIds].map((id) => api.invoices.delete(id))),
+    onSuccess: () => {
+      setSelectedIds(new Set());
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      toast.success("Selected draft invoices deleted");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete selected invoices"),
+  });
+
   const invConfig: TxFiltersConfig<Inv> = {
     searchPlaceholder: "Search by invoice number, debtor, PO / SO…",
     search: (i) => [
@@ -246,6 +258,14 @@ function InvoicesPage() {
         <TransactionFilters data={invoicesQ.data ?? []} config={invConfig}>
           {(filtered) => (
             <Card>
+              {canCreate && selectedIds.size > 0 && (
+                <div className="mb-3 flex items-center justify-between rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
+                  <span>{selectedIds.size} invoice(s) selected</span>
+                  <button onClick={() => deleteSelected.mutate()} disabled={deleteSelected.isPending} className="inline-flex items-center gap-1 text-destructive hover:underline">
+                    <Trash2 className="h-3.5 w-3.5" /> Delete selected
+                  </button>
+                </div>
+              )}
               {invoicesQ.isLoading ? (
                 <TableSkeleton rows={7} cols={9} />
               ) : filtered.length === 0 ? (
@@ -255,6 +275,7 @@ function InvoicesPage() {
                   <table className="table-premium w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
+                        <th className="px-5 py-2 text-left font-normal"><input type="checkbox" aria-label="Select all invoices" checked={filtered.length > 0 && filtered.every((i: any) => selectedIds.has(i.id))} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((i: any) => i.id)) : new Set())} /></th>
                         <th className="px-5 py-2 text-left font-normal">Invoice</th>
                         <th className="px-5 py-2 text-left font-normal">Debtor</th>
                         <th className="px-5 py-2 text-right font-normal">Grand total</th>
@@ -282,6 +303,7 @@ function InvoicesPage() {
                             : Math.max(0, dpd);
                         return (
                           <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3"><input type="checkbox" aria-label={`Select invoice ${i.invoice_number}`} checked={selectedIds.has(i.id)} onChange={(e) => setSelectedIds((current) => { const next = new Set(current); if (e.target.checked) next.add(i.id); else next.delete(i.id); return next; })} /></td>
                             <td className="px-5 py-3">
                               <div className="font-mono text-xs">{i.invoice_number}</div>
                               {i.goods_sales_order_number && (
@@ -359,7 +381,7 @@ function InvoicesPage() {
                                       Edit
                                     </button>
                                   )}
-                                {canCreate && i.status === "draft" && (
+                                {canCreate && (
                                   <button
                                     onClick={() => review.mutate(i.id)}
                                     disabled={review.isPending}
@@ -401,11 +423,11 @@ function InvoicesPage() {
                                       <Ban className="h-3 w-3" /> Cancel
                                     </button>
                                   )}
-                                {canCreate && i.status === "draft" && (
+                                {canCreate && (
                                   <button
                                     onClick={() => del.mutate(i.id)}
                                     className="text-muted-foreground hover:text-destructive"
-                                    title="Delete draft"
+                                    title="Delete invoice"
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </button>
@@ -494,6 +516,7 @@ function NewInvoiceModal({
       (invoice?.issue_date ?? new Date().toISOString().slice(0, 10))?.slice(0, 10) ??
       new Date().toISOString().slice(0, 10),
     due_date: (invoice?.due_date ?? "")?.slice(0, 10) ?? "",
+    expected_date: (invoice?.expected_date ?? "")?.slice(0, 10) ?? "",
     customer_contact: invoice?.customer_contact ?? "",
     billing_address: invoice?.billing_address ?? "",
     delivery_address: invoice?.delivery_address ?? "",
@@ -768,6 +791,7 @@ function NewInvoiceModal({
         invoice_number: form.invoice_number.trim() || undefined,
         issue_date: form.issue_date,
         due_date: effectiveDue,
+        expected_date: form.expected_date || effectiveDue,
         source: "goods",
         customer_contact: form.customer_contact.trim() || null,
         billing_address: form.billing_address.trim() || null,
@@ -961,6 +985,14 @@ function NewInvoiceModal({
                   className="inp"
                   value={effectiveDue}
                   onChange={(e) => setForm({ ...form, due_date: e.target.value })}
+                />
+              </L>
+              <L label="Expected cash receipt date">
+                <input
+                  type="date"
+                  className="inp"
+                  value={form.expected_date}
+                  onChange={(e) => setForm({ ...form, expected_date: e.target.value })}
                 />
               </L>
             </div>

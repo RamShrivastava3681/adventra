@@ -50,7 +50,7 @@ export interface PurchaseInvoice {
   issueDate: string;
   /** Invoice received date — when the invoice arrived at the business. */
   receivedDate: string | null;
-  dueDate: string | null;
+  dueDate: string | null; expectedDate?: string | null;
   agreedPaymentDate?: string | null;
   paidDate: string | null;
   status: string; notes: string | null;
@@ -191,7 +191,7 @@ export async function create(data: Partial<PurchaseInvoice> & { clientId: string
     amount,
     poNumber: data.poNumber || null, poDate: data.poDate || null, poAmount: data.poAmount || null,
     issueDate: data.issueDate || db.todayDate(), receivedDate: data.receivedDate || null,
-    dueDate: data.dueDate || null, paidDate: null,
+    dueDate: data.dueDate || null, expectedDate: data.expectedDate || data.dueDate || null, paidDate: null,
     status: data.status && PI_STATUSES.includes(data.status as any) ? data.status : "draft",
     notes: data.notes || null,
     goodsPurchaseOrderId: data.goodsPurchaseOrderId || null,
@@ -218,7 +218,7 @@ export async function create(data: Partial<PurchaseInvoice> & { clientId: string
 export async function update(id: string, updates: Partial<PurchaseInvoice>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
   const allowed = [
-    "amount", "status", "paidDate", "dueDate", "issueDate", "receivedDate",
+    "amount", "status", "paidDate", "dueDate", "expectedDate", "issueDate", "receivedDate",
     "invoiceNumber", "vendorId", "supplierName", "poNumber", "poDate", "poAmount",
     "notes", "advanceRate", "advancePaidDate", "fundedDate", "purchaseOrderId",
     "documents", "lastOverdueReminderDate",

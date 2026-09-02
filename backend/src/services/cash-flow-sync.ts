@@ -44,7 +44,7 @@ export async function syncInvoiceToInflow(invoice: any): Promise<void> {
   // 1. Customer-promised payment date (if entered)
   // 2. Invoice due date
   // 3. Invoice date + customer credit period
-  let expectedDate = invoice.promisedPaymentDate || invoice.dueDate || null;
+  let expectedDate = invoice.expectedDate || invoice.promisedPaymentDate || invoice.dueDate || null;
   if (!expectedDate && invoice.issueDate) {
     const d = new Date(invoice.issueDate + "T00:00:00Z");
     d.setUTCDate(d.getUTCDate() + creditPeriodDays);
@@ -172,7 +172,7 @@ export async function syncPurchaseInvoiceToOutflow(pi: any): Promise<void> {
   // 1. Agreed payment date (if entered)
   // 2. Supplier invoice due date
   // 3. Purchase invoice date + supplier credit period
-  let expectedDate = pi.agreedPaymentDate || pi.dueDate || null;
+  let expectedDate = pi.expectedDate || pi.agreedPaymentDate || pi.dueDate || null;
   if (!expectedDate && pi.issueDate) {
     const d = new Date(pi.issueDate + "T00:00:00Z");
     d.setUTCDate(d.getUTCDate() + creditPeriodDays);

@@ -1605,12 +1605,6 @@ router.put("/invoices/:id", authMiddleware, async (req, res) => {
 });
 router.delete("/invoices/:id", authMiddleware, async (req, res) => {
   try {
-    const current = await Invoice.get(req.params.id);
-    if (current && current.status !== "draft") {
-      return res
-        .status(400)
-        .json({ error: "Only draft invoices can be deleted — cancel instead" });
-    }
     await Invoice.remove(req.params.id);
     res.json({ success: true });
   } catch (err: any) {
@@ -2116,14 +2110,6 @@ router.delete("/purchase-invoices/:id", authMiddleware, async (req, res) => {
     const current = await PurchaseInvoice.get(req.params.id);
     if (!current)
       return res.status(404).json({ error: "Purchase invoice not found" });
-    if (!["draft"].includes(current.status)) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Only draft purchase invoices can be deleted — cancel verified+ invoices instead",
-        });
-    }
     await PurchaseInvoice.remove(req.params.id);
     res.json({ success: true });
   } catch (err: any) {
