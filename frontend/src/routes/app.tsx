@@ -468,21 +468,6 @@ function AppLayout() {
   // so the reporting manager keeps browsing the team member's data.
   const viewSearch = viewAsActive ? { viewAsUserId } : {};
 
-  const consoleLabel =
-    effectiveRoles.includes("factor_admin") || effectiveRoles.includes("super_admin")
-      ? "Factor console"
-    : effectiveRoles.includes("treasury")
-      ? "Treasury desk"
-      : effectiveRoles.includes("checker")
-        ? "Checker desk"
-        : effectiveRoles.includes("operations")
-          ? "Operations desk"
-          : effectiveRoles.includes("sales_rep")
-            ? "Sales workspace"
-            : effectiveRoles.includes("reporting_manager")
-              ? "Reporting console"
-              : "Trader portal";
-
   // ─── Render a single nav link ─────────────────────────────────
   const renderNavLink = (n: NavItem, closeSidebar: () => void) => {
     const active = pathname === n.to || pathname.startsWith(n.to + "/");
@@ -534,9 +519,6 @@ function AppLayout() {
         <div className="shrink-0 border-b border-sidebar-border px-5 py-5">
           <div className="text-[15px] font-bold leading-none tracking-[0.08em] text-sidebar-foreground">
             WHIZUNIK COMMAND
-          </div>
-          <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            {consoleLabel}
           </div>
         </div>
 
@@ -684,9 +666,6 @@ function AppLayout() {
                 <div className="truncate text-[13px] font-medium text-sidebar-foreground">
                   {user?.email}
                 </div>
-                <div className="truncate text-[10px] uppercase tracking-[0.12em] text-muted-foreground">
-                  {consoleLabel}
-                </div>
               </div>
             </button>
             <button
@@ -817,16 +796,8 @@ function AppLayout() {
         {/* Top bar — quiet page context left, controls right */}
         <div className="hidden md:flex h-14 items-center justify-between gap-2 border-b border-border bg-background px-6">
           <div className="flex min-w-0 items-center gap-2">
-            {currentPage ? (
-              <>
-                <span className="hidden truncate text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground lg:block">
-                  {consoleLabel}
-                </span>
-                <span className="hidden h-3.5 w-px shrink-0 bg-border lg:block" />
-                <span className="truncate text-sm font-medium text-foreground">{currentPage}</span>
-              </>
-            ) : (
-              <span className="truncate text-sm font-medium text-foreground">{consoleLabel}</span>
+            {currentPage && (
+              <span className="truncate text-sm font-medium text-foreground">{currentPage}</span>
             )}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
