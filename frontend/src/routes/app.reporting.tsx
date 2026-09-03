@@ -361,7 +361,7 @@ function ReportingPage() {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-wrap items-end gap-3 rounded-lg border border-border/60 bg-muted/20 p-3">
+        <div className="flex shrink-0 flex-wrap items-end gap-3 rounded-lg border border-border/60 bg-muted/20 p-3 overflow-x-auto">
           <label className="block">
             <span className="mb-1 block text-[10px] uppercase tracking-widest text-muted-foreground">
               From date

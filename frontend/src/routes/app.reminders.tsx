@@ -513,7 +513,7 @@ function RemindersPage() {
 
       {/* ── Filters ── */}
       <div className="px-6 pt-6 pb-2 md:px-10">
-        <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-3">
+        <div className="flex shrink-0 flex-wrap items-center gap-3 rounded-xl border border-border bg-card p-3 overflow-x-auto">
           <div className="relative flex-1 min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input

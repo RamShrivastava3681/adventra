@@ -130,7 +130,7 @@ export function TransactionFilters<T>({
 
   return (
     <div>
-      <div className="flex flex-wrap items-end gap-3 rounded-xl border border-border bg-card p-4">
+      <div className="flex shrink-0 flex-wrap items-end gap-3 rounded-xl border border-border bg-card p-4 overflow-x-auto">
         <div className="min-w-[220px] flex-1">
           <span className={labelCls}>Search</span>
           <div className="relative">
