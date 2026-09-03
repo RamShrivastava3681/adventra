@@ -12,9 +12,12 @@ export interface Vendor {
   createdAt: string; updatedAt: string;
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, { entityType: "Vendor" });
-  return items as Vendor[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, { entityType: "Vendor" });
+    return items as Vendor[];
+  }
+  return db.scanByType("Vendor", { limit: 1000 }) as Promise<Vendor[]>;
 }
 
 export async function get(id: string) { return db.getItem(`VENDOR#${id}`) as Promise<Vendor | null>; }

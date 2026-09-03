@@ -60,13 +60,16 @@ export const ACTIVE_OUTFLOW_STATUSES: OutflowStatus[] = [
   "PLANNED", "APPROVED", "DUE", "PARTIALLY_PAID", "DEFERRED",
 ];
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, {
-    entityType: "ExpectedOutflow",
-    limit: 2000,
-    reverse: true,
-  });
-  return items as ExpectedOutflow[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, {
+      entityType: "ExpectedOutflow",
+      limit: 2000,
+      reverse: true,
+    });
+    return items as ExpectedOutflow[];
+  }
+  return db.scanByType("ExpectedOutflow", { limit: 2000 }) as Promise<ExpectedOutflow[]>;
 }
 
 export async function get(id: string) {

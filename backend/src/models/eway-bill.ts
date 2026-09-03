@@ -159,13 +159,16 @@ export function requiresEwb(taxableValue: number): boolean {
 
 // ── CRUD ─────────────────────────────────────────────────────────────────────
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, {
-    entityType: "EwayBill",
-    limit: 500,
-    reverse: true,
-  });
-  return items as EwayBill[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, {
+      entityType: "EwayBill",
+      limit: 500,
+      reverse: true,
+    });
+    return items as EwayBill[];
+  }
+  return db.scanByType("EwayBill", { limit: 1000 }) as Promise<EwayBill[]>;
 }
 
 export async function get(id: string) {

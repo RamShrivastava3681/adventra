@@ -19,11 +19,13 @@ export interface CashAccount {
   createdAt: string; updatedAt: string;
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, {
-    entityType: "CashAccount",
-    limit: 100,
-  });
+export async function list(clientId?: string) {
+  const items = clientId
+    ? (await db.queryByGSI1(clientId, {
+        entityType: "CashAccount",
+        limit: 100,
+      })).items || []
+    : await db.scanByType("CashAccount", { limit: 1000 });
   return (items || []).map((a: any) => {
     const accName = a.accountName || a.name || a.account_name || "Cash Account";
     const accType = a.accountType || a.type || a.account_type || "BANK";

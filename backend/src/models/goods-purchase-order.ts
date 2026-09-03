@@ -151,13 +151,16 @@ export function recomputeStatus(
   return po.manualStatus || po.status || "sent";
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, {
-    entityType: "GoodsPurchaseOrder",
-    limit: 500,
-    reverse: true,
-  });
-  return items as GoodsPurchaseOrder[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, {
+      entityType: "GoodsPurchaseOrder",
+      limit: 500,
+      reverse: true,
+    });
+    return items as GoodsPurchaseOrder[];
+  }
+  return db.scanByType("GoodsPurchaseOrder", { limit: 2000 }) as Promise<GoodsPurchaseOrder[]>;
 }
 
 export async function get(id: string) {

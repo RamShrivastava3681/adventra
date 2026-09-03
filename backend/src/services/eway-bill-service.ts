@@ -498,7 +498,7 @@ export function shouldAutoGenerate(
  * List all EWBs for a client, optionally filtered by status.
  */
 export async function listEwbs(
-  clientId: string,
+  clientId?: string,
   status?: string,
 ): Promise<EwayBill.EwayBill[]> {
   const all = await EwayBill.list(clientId);

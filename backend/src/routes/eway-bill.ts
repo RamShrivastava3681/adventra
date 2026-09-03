@@ -1,5 +1,6 @@
 import { Router, Request, Response } from "express";
 import { authMiddleware, AuthPayload } from "../middleware/auth.js";
+import { effectiveListScope } from "../middleware/roles.js";
 import * as ewayBillService from "../services/eway-bill-service.js";
 import * as EwayBill from "../models/eway-bill.js";
 import * as EwbCredentials from "../services/eway-bill-credentials.js";
@@ -16,7 +17,7 @@ router.use(authMiddleware);
 // GET /eway-bill-credentials — List EWB API configurations for this client
 router.get("/eway-bill-credentials", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).userId as string;
+    const clientId = req.user!.userId;
     const credentials = await EwbCredentials.list(clientId);
 
     // Strip sensitive fields from response — never expose secrets to frontend
@@ -51,7 +52,7 @@ router.get("/eway-bill-credentials/:id", async (req: Request, res: Response) => 
     if (!cred) return res.status(404).json({ error: "Configuration not found" });
 
     // Verify ownership
-    const clientId = (req as any).userId as string;
+    const clientId = req.user!.userId;
     if (cred.clientId !== clientId) {
       return res.status(403).json({ error: "Access denied" });
     }
@@ -81,7 +82,7 @@ router.get("/eway-bill-credentials/:id", async (req: Request, res: Response) => 
 // POST /eway-bill-credentials — Create new EWB API configuration
 router.post("/eway-bill-credentials", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).userId as string;
+    const clientId = req.user!.userId;
     const { gstin, apiClientId, clientSecret, apiUsername, apiPassword, environment } = req.body;
 
     // Validate required fields
@@ -133,7 +134,7 @@ router.post("/eway-bill-credentials", async (req: Request, res: Response) => {
 // PUT /eway-bill-credentials/:id — Update EWB API configuration
 router.put("/eway-bill-credentials/:id", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).userId as string;
+    const clientId = req.user!.userId;
     const existing = await EwbCredentials.get(req.params.id);
     if (!existing) return res.status(404).json({ error: "Configuration not found" });
     if (existing.clientId !== clientId) {
@@ -179,7 +180,7 @@ router.put("/eway-bill-credentials/:id", async (req: Request, res: Response) => 
 // DELETE /eway-bill-credentials/:id — Delete EWB API configuration
 router.delete("/eway-bill-credentials/:id", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).userId as string;
+    const clientId = req.user!.userId;
     const existing = await EwbCredentials.get(req.params.id);
     if (!existing) return res.status(404).json({ error: "Configuration not found" });
     if (existing.clientId !== clientId) {
@@ -196,7 +197,7 @@ router.delete("/eway-bill-credentials/:id", async (req: Request, res: Response) 
 // POST /eway-bill-credentials/:id/test — Test connection to NIC API
 router.post("/eway-bill-credentials/:id/test", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).userId as string;
+    const clientId = req.user!.userId;
     const existing = await EwbCredentials.get(req.params.id);
     if (!existing) return res.status(404).json({ error: "Configuration not found" });
     if (existing.clientId !== clientId) {
@@ -232,9 +233,10 @@ router.get("/eway-bill-config", async (req: Request, res: Response) => {
 // GET /eway-bills — List E-Way Bills
 router.get("/eway-bills", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).userId as string;
+    // Platform staff see every client's e-way bills; clients see their own.
+    const scope = effectiveListScope(req);
     const status = req.query.status as string | undefined;
-    const ewbs = await ewayBillService.listEwbs(clientId, status);
+    const ewbs = await ewayBillService.listEwbs(scope, status);
     res.json(ewbs);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -270,8 +272,8 @@ router.post("/eway-bills", async (req: Request, res: Response) => {
       return res.status(400).json({ error: "dispatchId is required" });
     }
 
-    const userId = (req as any).userId as string;
-    const clientId = (req as any).userId as string;
+    const userId = req.user!.userId;
+    const clientId = req.user!.userId;
 
     const result = await ewayBillService.generateEwb(
       {

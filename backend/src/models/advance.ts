@@ -13,9 +13,12 @@ export interface Advance {
   createdAt: string; updatedAt: string;
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, { entityType: "Advance", limit: 500, reverse: true });
-  return items as Advance[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, { entityType: "Advance", limit: 500, reverse: true });
+    return items as Advance[];
+  }
+  return db.scanByType("Advance", { limit: 2000 }) as Promise<Advance[]>;
 }
 
 export async function get(id: string) { return db.getItem(`ADVANCE#${id}`) as Promise<Advance | null>; }

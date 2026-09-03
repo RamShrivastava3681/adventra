@@ -22,13 +22,16 @@ export interface MarketplaceSettlement {
   createdAt: string; updatedAt: string;
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, {
-    entityType: "MarketplaceSettlement",
-    limit: 1000,
-    reverse: true,
-  });
-  return items as MarketplaceSettlement[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, {
+      entityType: "MarketplaceSettlement",
+      limit: 1000,
+      reverse: true,
+    });
+    return items as MarketplaceSettlement[];
+  }
+  return db.scanByType("MarketplaceSettlement", { limit: 2000 }) as Promise<MarketplaceSettlement[]>;
 }
 
 export async function get(id: string) {

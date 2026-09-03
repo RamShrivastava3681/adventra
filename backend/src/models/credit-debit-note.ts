@@ -18,9 +18,12 @@ export interface CreditDebitNote {
   createdAt: string; updatedAt: string;
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, { entityType: "CreditDebitNote", limit: 500, reverse: true });
-  return items as CreditDebitNote[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, { entityType: "CreditDebitNote", limit: 500, reverse: true });
+    return items as CreditDebitNote[];
+  }
+  return db.scanByType("CreditDebitNote", { limit: 2000 }) as Promise<CreditDebitNote[]>;
 }
 
 export async function get(id: string) { return db.getItem(`CD_NOTE#${id}`) as Promise<CreditDebitNote | null>; }

@@ -1,6 +1,6 @@
 import { Router, Request, Response } from "express";
 import { authMiddleware } from "../middleware/auth.js";
-import { requireRole } from "../middleware/roles.js";
+import { requireRole, effectiveListScope } from "../middleware/roles.js";
 import * as db from "../dynamodb.js";
 import * as AuditLog from "../models/audit-log.js";
 import * as CashAccount from "../models/cash-account.js";
@@ -77,8 +77,7 @@ router.put("/cash-flow/settings", requireCashFlowAdmin, async (req: Request, res
 
 router.get("/cash-accounts", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).user.userId;
-    const accounts = await CashAccount.list(clientId);
+    const accounts = await CashAccount.list(effectiveListScope(req));
     res.json(accounts);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -215,8 +214,7 @@ router.post("/cash-accounts/:id/reconcile", requireCashFlowWrite, async (req: Re
 
 router.get("/cash-flow/inflows", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).user.userId;
-    const inflows = await ExpectedInflow.list(clientId);
+    const inflows = await ExpectedInflow.list(effectiveListScope(req));
     res.json(inflows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -315,8 +313,7 @@ router.delete("/cash-flow/inflows/:id", requireCashFlowWrite, async (req: Reques
 
 router.get("/cash-flow/outflows", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).user.userId;
-    const outflows = await ExpectedOutflow.list(clientId);
+    const outflows = await ExpectedOutflow.list(effectiveListScope(req));
     res.json(outflows);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -413,8 +410,7 @@ router.delete("/cash-flow/outflows/:id", requireCashFlowWrite, async (req: Reque
 
 router.get("/cash-flow/commitments", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).user.userId;
-    res.json(await PurchaseCommitment.list(clientId));
+    res.json(await PurchaseCommitment.list(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -475,8 +471,7 @@ router.delete("/cash-flow/commitments/:id", requireCashFlowWrite, async (req: Re
 
 router.get("/cash-flow/recurring", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).user.userId;
-    res.json(await RecurringExpense.list(clientId));
+    res.json(await RecurringExpense.list(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -541,8 +536,7 @@ router.delete("/cash-flow/recurring/:id", requireCashFlowWrite, async (req: Requ
 
 router.get("/cash-flow/settlements", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).user.userId;
-    res.json(await MarketplaceSettlement.list(clientId));
+    res.json(await MarketplaceSettlement.list(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -604,7 +598,7 @@ router.delete("/cash-flow/settlements/:id", requireCashFlowWrite, async (req: Re
 
 router.get("/cash-flow/forecast", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).user.userId;
+    const scope = effectiveListScope(req);
     const mode = (req.query.mode as string) || "weekly";
     const viewMode = (req.query.view as string) || "with_commitments";
     if (!["daily", "weekly", "monthly"].includes(mode)) {
@@ -613,7 +607,7 @@ router.get("/cash-flow/forecast", async (req: Request, res: Response) => {
     if (!["base", "with_commitments"].includes(viewMode)) {
       return res.status(400).json({ error: "view must be base or with_commitments" });
     }
-    const forecast = await CashFlowEngine.computeForecast(clientId, mode as any, viewMode as any);
+    const forecast = await CashFlowEngine.computeForecast(scope, mode as any, viewMode as any);
     res.json(forecast);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -622,9 +616,9 @@ router.get("/cash-flow/forecast", async (req: Request, res: Response) => {
 
 router.get("/cash-flow/forecast/daily", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).user.userId;
+    const scope = effectiveListScope(req);
     const viewMode = (req.query.view as string) || "with_commitments";
-    const forecast = await CashFlowEngine.computeForecast(clientId, "daily", viewMode as any);
+    const forecast = await CashFlowEngine.computeForecast(scope, "daily", viewMode as any);
     res.json(forecast);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -633,9 +627,9 @@ router.get("/cash-flow/forecast/daily", async (req: Request, res: Response) => {
 
 router.get("/cash-flow/forecast/weekly", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).user.userId;
+    const scope = effectiveListScope(req);
     const viewMode = (req.query.view as string) || "with_commitments";
-    const forecast = await CashFlowEngine.computeForecast(clientId, "weekly", viewMode as any);
+    const forecast = await CashFlowEngine.computeForecast(scope, "weekly", viewMode as any);
     res.json(forecast);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -644,9 +638,9 @@ router.get("/cash-flow/forecast/weekly", async (req: Request, res: Response) => 
 
 router.get("/cash-flow/forecast/monthly", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).user.userId;
+    const scope = effectiveListScope(req);
     const viewMode = (req.query.view as string) || "with_commitments";
-    const forecast = await CashFlowEngine.computeForecast(clientId, "monthly", viewMode as any);
+    const forecast = await CashFlowEngine.computeForecast(scope, "monthly", viewMode as any);
     res.json(forecast);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -657,10 +651,10 @@ router.get("/cash-flow/forecast/monthly", async (req: Request, res: Response) =>
 
 router.get("/cash-flow/uninvoiced-pos", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).user.userId;
+    const scope = effectiveListScope(req);
     const [allPOs, allInvoices] = await Promise.all([
-      GoodsPO.list(clientId),
-      PurchaseInvoice.list(clientId),
+      GoodsPO.list(scope),
+      PurchaseInvoice.list(scope),
     ]);
 
     // Build a set of goodsPurchaseOrderId values from LIVE purchase invoices
@@ -687,8 +681,7 @@ router.get("/cash-flow/uninvoiced-pos", async (req: Request, res: Response) => {
 
 router.get("/cash-flow/planned-pos", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).user.userId;
-    const planned = (await GoodsPO.list(clientId)).filter((po) =>
+    const planned = (await GoodsPO.list(effectiveListScope(req))).filter((po) =>
       ["draft", "pending_review"].includes(String(po.status || "").toLowerCase()),
     );
     res.json(planned);
@@ -862,8 +855,7 @@ router.get("/cash-flow/trace/:sourceType/:sourceId", async (req: Request, res: R
 
 router.get("/cash-flow/summary", async (req: Request, res: Response) => {
   try {
-    const clientId = (req as any).user.userId;
-    const summary = await CashFlowEngine.getSummary(clientId);
+    const summary = await CashFlowEngine.getSummary(effectiveListScope(req));
     res.json(summary);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

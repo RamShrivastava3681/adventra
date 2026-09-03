@@ -20,13 +20,16 @@ export interface PurchaseCommitment {
   createdAt: string; updatedAt: string;
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, {
-    entityType: "PurchaseCommitment",
-    limit: 1000,
-    reverse: true,
-  });
-  return items as PurchaseCommitment[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, {
+      entityType: "PurchaseCommitment",
+      limit: 1000,
+      reverse: true,
+    });
+    return items as PurchaseCommitment[];
+  }
+  return db.scanByType("PurchaseCommitment", { limit: 2000 }) as Promise<PurchaseCommitment[]>;
 }
 
 export async function get(id: string) {

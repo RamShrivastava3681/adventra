@@ -104,9 +104,12 @@ function normalizeLines(lines: GoodsReceiptLine[]): GoodsReceiptLine[] {
   });
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, { entityType: "GoodsReceipt", limit: 500, reverse: true });
-  return items as GoodsReceipt[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, { entityType: "GoodsReceipt", limit: 500, reverse: true });
+    return items as GoodsReceipt[];
+  }
+  return db.scanByType("GoodsReceipt", { limit: 2000 }) as Promise<GoodsReceipt[]>;
 }
 
 export async function get(id: string) {

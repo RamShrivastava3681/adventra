@@ -12,9 +12,11 @@ export interface ManualBalanceEntry {
   createdAt: string; updatedAt: string;
 }
 
-export async function listManualEntries(clientId: string) {
+export async function listManualEntries(clientId?: string) {
   const all = await db.scanByType("ManualBalanceEntry");
-  return all.filter((e: any) => e.clientId === clientId) as ManualBalanceEntry[];
+  return clientId
+    ? all.filter((e: any) => e.clientId === clientId)
+    : all;
 }
 
 export async function getManualEntry(id: string) {

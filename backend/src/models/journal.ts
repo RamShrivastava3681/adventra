@@ -21,9 +21,12 @@ export interface JournalLine {
   description: string | null;
 }
 
-export async function listJournals(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, { entityType: "Journal", limit: 500, reverse: true });
-  return items as Journal[];
+export async function listJournals(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, { entityType: "Journal", limit: 500, reverse: true });
+    return items as Journal[];
+  }
+  return db.scanByType("Journal", { limit: 2000 }) as Promise<Journal[]>;
 }
 
 export async function getJournal(id: string) { return db.getItem(`JOURNAL#${id}`) as Promise<Journal | null>; }

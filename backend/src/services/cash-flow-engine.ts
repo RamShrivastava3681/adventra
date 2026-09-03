@@ -485,7 +485,114 @@ function generatePeriods(
 // Main forecast computation
 // ---------------------------------------------------------------------------
 
-export async function computeForecast(
+/**
+ * Distinct client scopes that actually hold cash-flow records. Used to run the
+ * engine portfolio-wide for platform-staff accounts (no single client scope).
+ */
+async function cashDataOwners(): Promise<string[]> {
+  const [accounts, inflows, outflows, recurring, settlements, commitments] =
+    await Promise.all([
+      CashAccount.list(),
+      ExpectedInflow.list(),
+      ExpectedOutflow.list(),
+      RecurringExpense.list(),
+      MarketplaceSettlement.list(),
+      PurchaseCommitment.list(),
+    ]);
+  const owners = new Set<string>();
+  for (const rows of [accounts, inflows, outflows, recurring, settlements, commitments]) {
+    for (const r of rows as any[]) {
+      if (r?.clientId) owners.add(r.clientId);
+    }
+  }
+  return Array.from(owners);
+}
+
+/** Empty forecast used when no cash records exist anywhere on the platform. */
+function emptyForecast(
+  mode: ForecastMode,
+  viewMode: ForecastViewMode,
+): CashFlowForecast {
+  return {
+    clientId: "all",
+    mode,
+    viewMode,
+    currentAvailableCash: 0,
+    minimumCashBuffer: 0,
+    periods: [],
+    lowestProjectedCash: 0,
+    lowestProjectedCashDate: new Date().toISOString().slice(0, 10),
+    shortageRisk: false,
+    shortageAmount: 0,
+    shortageDate: null,
+    cashStatus: "GREEN",
+    alerts: [],
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+/** Combine per-owner projections (same mode ⇒ same period grid) into one view. */
+function mergeOwnerForecasts(
+  forecasts: CashFlowForecast[],
+  mode: ForecastMode,
+  viewMode: ForecastViewMode,
+): CashFlowForecast {
+  const combined = emptyForecast(mode, viewMode);
+  combined.periods = (forecasts[0]?.periods ?? []).map((p, idx) => {
+    const open = forecasts.reduce((s, f) => s + (f.periods[idx]?.openingCash ?? 0), 0);
+    const inflows = forecasts.reduce((s, f) => s + (f.periods[idx]?.expectedInflows ?? 0), 0);
+    const outflows = forecasts.reduce((s, f) => s + (f.periods[idx]?.expectedOutflows ?? 0), 0);
+    return {
+      label: p.label,
+      startDate: p.startDate,
+      endDate: p.endDate,
+      openingCash: round2(open),
+      expectedInflows: round2(inflows),
+      expectedOutflows: round2(outflows),
+      closingCash: round2(open + inflows - outflows),
+      inflowEvents: forecasts.flatMap((f) => f.periods[idx]?.inflowEvents ?? []),
+      outflowEvents: forecasts.flatMap((f) => f.periods[idx]?.outflowEvents ?? []),
+    };
+  });
+  combined.currentAvailableCash = round2(
+    forecasts.reduce((s, f) => s + f.currentAvailableCash, 0),
+  );
+  combined.minimumCashBuffer = round2(
+    forecasts.reduce((s, f) => s + f.minimumCashBuffer, 0),
+  );
+  const lows = combined.periods
+    .map((p) => ({ val: p.closingCash, date: p.endDate }))
+    .concat({ val: combined.currentAvailableCash, date: combined.periods[0]?.startDate ?? "" });
+  const lowest = lows.reduce((a, b) => (b.val < a.val ? b : a), {
+    val: combined.currentAvailableCash,
+    date: combined.periods[0]?.startDate ?? "",
+  });
+  combined.lowestProjectedCash = round2(lowest.val);
+  combined.lowestProjectedCashDate = lowest.date || new Date().toISOString().slice(0, 10);
+  combined.shortageRisk = combined.lowestProjectedCash < combined.minimumCashBuffer;
+  combined.shortageAmount = combined.shortageRisk
+    ? round2(Math.max(0, combined.minimumCashBuffer - combined.lowestProjectedCash))
+    : 0;
+  combined.shortageDate = combined.shortageRisk ? combined.lowestProjectedCashDate : null;
+  combined.cashStatus =
+    combined.lowestProjectedCash < combined.minimumCashBuffer
+      ? "RED"
+      : combined.lowestProjectedCash < combined.minimumCashBuffer * 1.2
+        ? "AMBER"
+        : "GREEN";
+  // Avoid duplicate alert ids across operating accounts.
+  combined.alerts = forecasts.flatMap((f, i) =>
+    f.alerts.map((a) => ({ ...a, id: `${i}-${a.id}` })),
+  );
+  return combined;
+}
+
+/**
+ * Forecast for one operating account. Pass an explicit client id (legacy
+ * behaviour) — staff accounts pass `undefined` and get the pooled portfolio
+ * projection via the exported wrapper.
+ */
+async function computeOwnerForecast(
   clientId: string,
   mode: ForecastMode = "weekly",
   viewMode: ForecastViewMode = "with_commitments"
@@ -625,6 +732,28 @@ export async function computeForecast(
   };
 }
 
+/**
+ * Cash-flow forecast. `clientId` scopes the projection to one operating
+ * account (legacy behaviour). When omitted (platform-staff accounts with no
+ * client scope) the whole portfolio is pooled: if a single account owns the
+ * cash records the caller sees that account's projection verbatim, otherwise
+ * per-owner projections are merged into one combined view.
+ */
+export async function computeForecast(
+  clientId: string | undefined,
+  mode: ForecastMode = "weekly",
+  viewMode: ForecastViewMode = "with_commitments",
+): Promise<CashFlowForecast> {
+  if (clientId) return computeOwnerForecast(clientId, mode, viewMode);
+  const owners = await cashDataOwners();
+  if (owners.length === 0) return emptyForecast(mode, viewMode);
+  if (owners.length === 1) return computeOwnerForecast(owners[0], mode, viewMode);
+  const forecasts = await Promise.all(
+    owners.map((id) => computeOwnerForecast(id, mode, viewMode)),
+  );
+  return mergeOwnerForecasts(forecasts, mode, viewMode);
+}
+
 // ---------------------------------------------------------------------------
 // Alert generation
 // ---------------------------------------------------------------------------
@@ -762,7 +891,7 @@ export interface CashCommandCentreSummary {
   alerts: CashFlowAlert[];
 }
 
-export async function getSummary(clientId: string): Promise<CashCommandCentreSummary> {
+async function getOwnerSummary(clientId: string): Promise<CashCommandCentreSummary> {
   const [settings, accounts, inflows, outflows, commitments, settlements, recurring, salesInvoices, purchaseInvoices, goodsPurchaseOrders] = await Promise.all([
     CashFlowSettings.get(clientId),
     CashAccount.list(clientId),
@@ -970,4 +1099,78 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
     cashStatus: weekly.cashStatus,
     alerts: weekly.alerts,
   };
+}
+
+/**
+ * Dashboard summary for the cash command centre. `clientId` scopes it to one
+ * operating account; omitted ⇒ portfolio-wide pooling (same rules as
+ * `computeForecast`).
+ */
+export async function getSummary(
+  clientId: string | undefined,
+): Promise<CashCommandCentreSummary> {
+  if (clientId) return getOwnerSummary(clientId);
+  const owners = await cashDataOwners();
+  if (owners.length === 0) {
+    const now = new Date().toISOString().slice(0, 10);
+    return {
+      currentAvailableCash: 0,
+      marketplaceValue: 0,
+      expectedInflowsNext7Days: 0,
+      expectedOutflowsNext7Days: 0,
+      totalRecurringExpensesNext7Days: 0,
+      projectedClosingCashNext7Days: 0,
+      projectedClosingCashNext30Days: 0,
+      lowestProjectedCashDate: now,
+      lowestProjectedCash: 0,
+      totalOverdueCollections: 0,
+      totalSupplierPaymentsDue: 0,
+      totalPlannedPurchaseCommitments: 0,
+      confirmedSupplierPayables: 0,
+      totalMarketplaceSettlementsPending: 0,
+      overdueCustomerReceipts: 0,
+      supplierPayables: 0,
+      poCommitments: 0,
+      plannedPurchaseOrders: 0,
+      marketplaceInflowsNext7Days: 0,
+      salesInflowsNext7Days: 0,
+      recurringOutflowsNext7Days: 0,
+      purchaseOutflowsNext7Days: 0,
+      cashStatus: "GREEN",
+      alerts: [],
+    };
+  }
+  if (owners.length === 1) return getOwnerSummary(owners[0]);
+  const summaries = await Promise.all(owners.map((id) => getOwnerSummary(id)));
+  const base = summaries[0];
+  const numericKeys = [
+    "currentAvailableCash", "marketplaceValue", "expectedInflowsNext7Days",
+    "expectedOutflowsNext7Days", "totalRecurringExpensesNext7Days",
+    "projectedClosingCashNext7Days", "projectedClosingCashNext30Days",
+    "lowestProjectedCash", "totalOverdueCollections", "totalSupplierPaymentsDue",
+    "totalPlannedPurchaseCommitments", "confirmedSupplierPayables",
+    "totalMarketplaceSettlementsPending", "overdueCustomerReceipts",
+    "supplierPayables", "poCommitments", "plannedPurchaseOrders",
+    "marketplaceInflowsNext7Days", "salesInflowsNext7Days",
+    "recurringOutflowsNext7Days", "purchaseOutflowsNext7Days",
+  ] as const;
+  const merged: CashCommandCentreSummary = {
+    ...base,
+  };
+  for (const key of numericKeys) {
+    (merged as any)[key] = round2(
+      summaries.reduce((s, x) => s + Number((x as any)[key] ?? 0), 0),
+    );
+  }
+  merged.lowestProjectedCashDate = summaries
+    .map((s) => s.lowestProjectedCashDate)
+    .filter(Boolean)
+    .sort()[0] ?? base.lowestProjectedCashDate;
+  merged.cashStatus = merged.lowestProjectedCash < merged.currentAvailableCash
+    ? "GREEN"
+    : base.cashStatus;
+  merged.alerts = summaries.flatMap((s, i) =>
+    s.alerts.map((a) => ({ ...a, id: `${i}-${a.id}` })),
+  );
+  return merged;
 }

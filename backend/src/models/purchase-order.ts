@@ -87,9 +87,12 @@ export function computeProformaTotals(lines: ProformaLine[], freight: number) {
   return { subtotal, gstTotal, freight: round2(f), grandTotal: round2(subtotal + gstTotal + f) };
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, { entityType: "PurchaseOrder", limit: 500, reverse: true });
-  return items as PurchaseOrder[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, { entityType: "PurchaseOrder", limit: 500, reverse: true });
+    return items as PurchaseOrder[];
+  }
+  return db.scanByType("PurchaseOrder", { limit: 2000 }) as Promise<PurchaseOrder[]>;
 }
 
 export async function get(id: string) { return db.getItem(`PURCHASE_ORDER#${id}`) as Promise<PurchaseOrder | null>; }

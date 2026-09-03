@@ -22,8 +22,14 @@ import {
   auditAdminAction,
   logSecurityEvent,
 } from "../middleware/security.js";
-import { requireAdmin, requireSuperAdmin, requireChecker } from "../middleware/roles.js";
-import { requireRole } from "../middleware/roles.js";
+import {
+  requireAdmin,
+  requireSuperAdmin,
+  requireChecker,
+  requireRole,
+  effectiveListScope,
+  isStaffAccount,
+} from "../middleware/roles.js";
 import * as User from "../models/user.js";
 import * as Submission from "../models/submission.js";
 import * as ReminderLog from "../models/reminder-log.js";
@@ -253,7 +259,7 @@ router.get("/users/:id", authMiddleware, async (req, res) => {
 // ===================== PRODUCTS =====================
 router.get("/products", authMiddleware, async (req, res) => {
   try {
-    const items = await Product.list(req.user!.userId);
+    const items = await Product.list(effectiveListScope(req));
     res.json(items);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -289,24 +295,27 @@ router.put("/products/:id", authMiddleware, async (req, res) => {
 });
 router.delete("/products/:id", authMiddleware, async (req, res) => {
   try {
-    const clientId = req.user!.userId;
     const product = await Product.get(req.params.id);
     if (!product) return res.status(404).json({ error: "Product not found" });
-    if (product.clientId !== clientId) {
+    // Only the owning client (or any platform-staff account) may delete a
+    // product; the cascade runs against the product's own client scope.
+    const isStaff = isStaffAccount(req.user?.roles);
+    if (product.clientId !== req.user!.userId && !isStaff) {
       return res.status(403).json({ error: "Forbidden" });
     }
+    const ownerId = product.clientId;
     // Cascade: remove the catalogue record AND everything that hangs off it —
     // inventory movements and forecast snapshots. Documents (invoices, orders,
     // GRNs, dispatches, quotations) keep their own snapshot copies untouched.
     const movementsDeleted = await StockMovement.removeByProduct(
-      clientId,
+      ownerId,
       product.id,
     );
     const { removeAllForProduct } =
       await import("../models/forecast-variable.js");
-    const forecastsDeleted = await removeAllForProduct(clientId, product.id);
+    const forecastsDeleted = await removeAllForProduct(ownerId, product.id);
     await Product.remove(product.id);
-    recomputeForecast(clientId);
+    recomputeForecast(ownerId);
     res.json({ success: true, movementsDeleted, forecastsDeleted });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -372,7 +381,7 @@ const MANUAL_MOVEMENT_REASONS = [
 router.get("/stock-movements", authMiddleware, async (req, res) => {
   try {
     const { productId } = req.query;
-    const items = await StockMovement.list(req.user!.userId);
+    const items = await StockMovement.list(effectiveListScope(req));
     const result = productId
       ? items.filter((m) => m.productId === productId)
       : items;
@@ -678,10 +687,13 @@ router.post(
 /** POST /stock-movements/:id/cancel — cancel a manual movement (drafts or confirmed). */
 router.post("/stock-movements/:id/cancel", authMiddleware, async (req, res) => {
   try {
-    const clientId = req.user!.userId;
     const current = await StockMovement.get(req.params.id);
     if (!current) return res.status(404).json({ error: "Movement not found" });
-    if (current.clientId !== clientId) {
+    // Platform staff may manage any client's manual entries; clients only theirs.
+    if (
+      current.clientId !== req.user!.userId &&
+      !isStaffAccount(req.user?.roles)
+    ) {
       return res.status(403).json({ error: "Forbidden" });
     }
     if (
@@ -716,7 +728,7 @@ router.post("/stock-movements/:id/cancel", authMiddleware, async (req, res) => {
     // movements — a cancelled entry simply drops out of the balance, so its
     // effect is removed automatically (a cancelled +100 credit leaves the
     // balance at 0, not −100).
-    recomputeForecast(clientId);
+    recomputeForecast(current.clientId);
     res.json(flipped);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -725,10 +737,12 @@ router.post("/stock-movements/:id/cancel", authMiddleware, async (req, res) => {
 
 router.delete("/stock-movements/:id", authMiddleware, async (req, res) => {
   try {
-    const clientId = req.user!.userId;
     const current = await StockMovement.get(req.params.id);
     if (current) {
-      if (current.clientId !== clientId) {
+      if (
+        current.clientId !== req.user!.userId &&
+        !isStaffAccount(req.user?.roles)
+      ) {
         return res.status(403).json({ error: "Forbidden" });
       }
       if (
@@ -754,9 +768,10 @@ router.delete("/stock-movements/:id", authMiddleware, async (req, res) => {
       }
     }
     await StockMovement.remove(req.params.id);
-    // Trigger forecast recompute asynchronously (fire-and-forget)
+    // Trigger forecast recompute asynchronously (fire-and-forget) against the
+    // movement's own client scope.
     const { recomputeAll } = await import("../services/forecast-service.js");
-    recomputeAll(req.user!.userId).catch((err: any) =>
+    recomputeAll(current?.clientId ?? req.user!.userId).catch((err: any) =>
       console.error(
         "  ⚠ Forecast recompute after stock movement deletion failed:",
         err,
@@ -777,7 +792,6 @@ router.delete("/stock-movements/:id", authMiddleware, async (req, res) => {
  */
 router.put("/stock-movements/:id", authMiddleware, async (req, res) => {
   try {
-    const clientId = req.user!.userId;
     const current = await StockMovement.get(req.params.id);
     if (!current) return res.status(404).json({ error: "Movement not found" });
     if (
@@ -857,7 +871,7 @@ router.put("/stock-movements/:id", authMiddleware, async (req, res) => {
     }
 
     const updated = await StockMovement.update(current.id, body);
-    recomputeForecast(clientId);
+    recomputeForecast(current.clientId);
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -907,7 +921,7 @@ router.delete("/debtors/:id", authMiddleware, async (req, res) => {
 // ===================== VENDORS =====================
 router.get("/vendors", authMiddleware, async (req, res) => {
   try {
-    res.json(await Vendor.list(req.user!.userId));
+    res.json(await Vendor.list(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1008,7 +1022,7 @@ router.get(
  * SKUs must come from the catalogue; quantity > 0 and unit price >= 0.
  * Creating an invoice NEVER creates inventory — only a confirmed dispatch debits.
  */
-async function validateInvoiceLines(clientId: string, rawLines: any[]) {
+async function validateInvoiceLines(clientId: string | undefined, rawLines: any[]) {
   const lines = Array.isArray(rawLines) ? rawLines : [];
   if (lines.length === 0) throw new Error("Add at least one product line");
   const products = await Product.list(clientId);
@@ -1144,8 +1158,9 @@ function assertInvoiceMatchesSO(
 router.get("/invoices", authMiddleware, async (req, res) => {
   try {
     // ?scope=all returns every client's invoices — used by the shared dashboard.
+    // Platform staff (non-client roles) also read across the whole portfolio.
     const scopeAll = req.query.scope === "all";
-    res.json(await Invoice.list(scopeAll ? undefined : req.user!.userId));
+    res.json(await Invoice.list(scopeAll ? undefined : effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1531,7 +1546,7 @@ router.put("/invoices/:id", authMiddleware, async (req, res) => {
     if (body.lines !== undefined) {
       let lines: any[];
       try {
-        lines = await validateInvoiceLines(req.user!.userId, body.lines);
+        lines = await validateInvoiceLines(effectiveListScope(req), body.lines);
       } catch (e: any) {
         return res.status(400).json({ error: e.message });
       }
@@ -1777,9 +1792,10 @@ async function syncLinkedPurchaseInvoice(receipt: any, previousPiId?: string) {
 router.get("/purchase-invoices", authMiddleware, async (req, res) => {
   try {
     // ?scope=all returns every client's purchase invoices — used by the shared dashboard.
+    // Platform staff (non-client roles) also read across the whole portfolio.
     const scopeAll = req.query.scope === "all";
     res.json(
-      await PurchaseInvoice.list(scopeAll ? undefined : req.user!.userId),
+      await PurchaseInvoice.list(scopeAll ? undefined : effectiveListScope(req)),
     );
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2130,7 +2146,7 @@ router.delete("/purchase-invoices/:id", authMiddleware, async (req, res) => {
 // reference catalogue SKUs with quantity > 0 and unit price >= 0.
 
 /** Validate proforma (purchase-side) catalogue lines if provided. */
-async function validateProformaLines(clientId: string, rawLines: any[]) {
+async function validateProformaLines(clientId: string | undefined, rawLines: any[]) {
   if (!Array.isArray(rawLines) || rawLines.length === 0) return [];
   const products = await Product.list(clientId);
   const catalogueIds = new Set(products.map((p: any) => p.id));
@@ -2149,7 +2165,7 @@ async function validateProformaLines(clientId: string, rawLines: any[]) {
 
 router.get("/purchase-orders", authMiddleware, async (req, res) => {
   try {
-    res.json(await PurchaseOrder.list(req.user!.userId));
+    res.json(await PurchaseOrder.list(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -2159,7 +2175,7 @@ router.post("/purchase-orders", authMiddleware, async (req, res) => {
     const body = req.body || {};
     if (body.lines !== undefined) {
       try {
-        body.lines = await validateProformaLines(req.user!.userId, body.lines);
+        body.lines = await validateProformaLines(effectiveListScope(req), body.lines);
       } catch (e: any) {
         return res.status(400).json({ error: e.message });
       }
@@ -2344,7 +2360,7 @@ router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
 
     if (body.lines !== undefined) {
       try {
-        body.lines = await validateProformaLines(req.user!.userId, body.lines);
+        body.lines = await validateProformaLines(effectiveListScope(req), body.lines);
       } catch (e: any) {
         return res.status(400).json({ error: e.message });
       }
@@ -2482,7 +2498,7 @@ router.post(
 // only a GRN (goods receipt) credits stock.
 
 /** Shape + catalogue checks for PO lines. SKUs must come from the product catalogue. */
-async function validateGoodsPOLines(clientId: string, rawLines: any[]) {
+async function validateGoodsPOLines(clientId: string | undefined, rawLines: any[]) {
   const lines = Array.isArray(rawLines) ? rawLines : [];
   if (lines.length === 0) throw new Error("Add at least one product line");
   const products = await Product.list(clientId);
@@ -2502,7 +2518,7 @@ async function validateGoodsPOLines(clientId: string, rawLines: any[]) {
 
 router.get("/goods-purchase-orders", authMiddleware, async (req, res) => {
   try {
-    res.json(await GoodsPO.list(req.user!.userId));
+    res.json(await GoodsPO.list(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -2512,7 +2528,7 @@ router.post("/goods-purchase-orders", authMiddleware, async (req, res) => {
     const body = req.body || {};
     let lines: any[];
     try {
-      lines = await validateGoodsPOLines(req.user!.userId, body.lines);
+      lines = await validateGoodsPOLines(effectiveListScope(req), body.lines);
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
@@ -2539,7 +2555,7 @@ router.put("/goods-purchase-orders/:id", authMiddleware, async (req, res) => {
     if (body.lines !== undefined) {
       let lines: any[];
       try {
-        lines = await validateGoodsPOLines(req.user!.userId, body.lines);
+        lines = await validateGoodsPOLines(effectiveListScope(req), body.lines);
       } catch (e: any) {
         return res.status(400).json({ error: e.message });
       }
@@ -2778,7 +2794,7 @@ async function recomputeForecast(clientId: string) {
 
 router.get("/goods-receipts", authMiddleware, async (req, res) => {
   try {
-    res.json(await GoodsReceipt.list(req.user!.userId));
+    res.json(await GoodsReceipt.list(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -3009,7 +3025,7 @@ router.delete("/goods-receipts/:id", authMiddleware, async (req, res) => {
 // (the sales-side mirror of PO → GRN).
 
 /** Shape + catalogue checks for SO lines. SKUs must come from the product catalogue. */
-async function validateGoodsSOLines(clientId: string, rawLines: any[]) {
+async function validateGoodsSOLines(clientId: string | undefined, rawLines: any[]) {
   const lines = Array.isArray(rawLines) ? rawLines : [];
   if (lines.length === 0) throw new Error("Add at least one product line");
   const products = await Product.list(clientId);
@@ -3053,7 +3069,7 @@ async function resolveCustomerName(id: string): Promise<string | null> {
 
 router.get("/goods-sales-orders", authMiddleware, async (req, res) => {
   try {
-    res.json(await GoodsSO.list(req.user!.userId));
+    res.json(await GoodsSO.list(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -3063,7 +3079,7 @@ router.post("/goods-sales-orders", authMiddleware, async (req, res) => {
     const body = req.body || {};
     let lines: any[];
     try {
-      lines = await validateGoodsSOLines(req.user!.userId, body.lines);
+      lines = await validateGoodsSOLines(effectiveListScope(req), body.lines);
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
@@ -3087,7 +3103,7 @@ router.put("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
     if (body.lines !== undefined) {
       let lines: any[];
       try {
-        lines = await validateGoodsSOLines(req.user!.userId, body.lines);
+        lines = await validateGoodsSOLines(effectiveListScope(req), body.lines);
       } catch (e: any) {
         return res.status(400).json({ error: e.message });
       }
@@ -3115,7 +3131,7 @@ router.delete("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
 // accepted quotation converts into a GoodsSalesOrder (linked by id + number).
 
 /** Shape + catalogue checks for quotation lines. SKUs must come from the product catalogue. */
-async function validateQuotationLines(clientId: string, rawLines: any[]) {
+async function validateQuotationLines(clientId: string | undefined, rawLines: any[]) {
   const lines = Array.isArray(rawLines) ? rawLines : [];
   if (lines.length === 0) throw new Error("Add at least one product line");
   const products = await Product.list(clientId);
@@ -3167,7 +3183,7 @@ async function validateQuotationLines(clientId: string, rawLines: any[]) {
 
 router.get("/quotations", authMiddleware, async (req, res) => {
   try {
-    res.json(await Quotation.list(req.user!.userId));
+    res.json(await Quotation.list(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -3186,7 +3202,7 @@ router.post("/quotations", authMiddleware, async (req, res) => {
     const body = req.body || {};
     let lines: any[];
     try {
-      lines = await validateQuotationLines(req.user!.userId, body.lines);
+      lines = await validateQuotationLines(effectiveListScope(req), body.lines);
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
@@ -3289,7 +3305,7 @@ router.put("/quotations/:id", authMiddleware, async (req, res) => {
     if (body.lines !== undefined) {
       let lines: any[];
       try {
-        lines = await validateQuotationLines(req.user!.userId, body.lines);
+        lines = await validateQuotationLines(effectiveListScope(req), body.lines);
       } catch (e: any) {
         return res.status(400).json({ error: e.message });
       }
@@ -4130,7 +4146,7 @@ async function reverseDispatch(clientId: string, dispatch: any, so: any) {
 
 router.get("/goods-dispatches", authMiddleware, async (req, res) => {
   try {
-    res.json(await GoodsDispatch.list(req.user!.userId));
+    res.json(await GoodsDispatch.list(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -4630,8 +4646,9 @@ router.post(
 router.get("/expenses", authMiddleware, async (req, res) => {
   try {
     // ?scope=all returns every client's expenses — used by the shared dashboard.
+    // Platform staff (non-client roles) also read across the whole portfolio.
     const scopeAll = req.query.scope === "all";
-    res.json(await Expense.list(scopeAll ? undefined : req.user!.userId));
+    res.json(await Expense.list(scopeAll ? undefined : effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -4672,7 +4689,7 @@ router.delete("/expenses/:id", authMiddleware, async (req, res) => {
 // ===================== ADVANCES =====================
 router.get("/advances", authMiddleware, async (req, res) => {
   try {
-    res.json(await Advance.list(req.user!.userId));
+    res.json(await Advance.list(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -4794,7 +4811,7 @@ router.post(
 // ===================== CHART OF ACCOUNTS =====================
 router.get("/chart-of-accounts", authMiddleware, async (req, res) => {
   try {
-    res.json(await CoA.list(req.user!.userId));
+    res.json(await CoA.list(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -4836,7 +4853,7 @@ router.post("/chart-of-accounts/seed", authMiddleware, async (req, res) => {
 // ===================== JOURNALS =====================
 router.get("/journals", authMiddleware, async (req, res) => {
   try {
-    res.json(await Journal.listJournals(req.user!.userId));
+    res.json(await Journal.listJournals(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -4901,7 +4918,7 @@ router.get(
 // ===================== CREDIT/DEBIT NOTES =====================
 router.get("/credit-debit-notes", authMiddleware, async (req, res) => {
   try {
-    res.json(await CDNote.list(req.user!.userId));
+    res.json(await CDNote.list(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -4934,7 +4951,7 @@ router.delete("/credit-debit-notes/:id", authMiddleware, async (req, res) => {
 // ===================== MANUAL BALANCE ENTRIES =====================
 router.get("/balance-entries", authMiddleware, async (req, res) => {
   try {
-    res.json(await Combined.listManualEntries(req.user!.userId));
+    res.json(await Combined.listManualEntries(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -4994,7 +5011,7 @@ router.put("/invoice-templates", authMiddleware, async (req, res) => {
 // ===================== LEADS (CRM) =====================
 router.get("/crm/leads", authMiddleware, async (req, res) => {
   try {
-    res.json(await Combined.listLeads(req.user!.userId));
+    res.json(await Combined.listLeads(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -5029,7 +5046,7 @@ router.delete("/crm/leads/:id", authMiddleware, async (req, res) => {
 // ===================== OPPORTUNITIES (CRM) =====================
 router.get("/crm/opportunities", authMiddleware, async (req, res) => {
   try {
-    res.json(await Combined.listOpportunities(req.user!.userId));
+    res.json(await Combined.listOpportunities(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -5067,7 +5084,7 @@ router.delete("/crm/opportunities/:id", authMiddleware, async (req, res) => {
 // ===================== CRM ACTIVITIES =====================
 router.get("/crm/activities", authMiddleware, async (req, res) => {
   try {
-    res.json(await Combined.listActivities(req.user!.userId));
+    res.json(await Combined.listActivities(effectiveListScope(req)));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -5215,8 +5232,8 @@ router.put(
 // ===================== FORECAST (reuses engine) =====================
 router.get("/forecast", authMiddleware, async (req, res) => {
   try {
-    const products = await Product.list(req.user!.userId);
-    const movements = await StockMovement.list(req.user!.userId);
+    const products = await Product.list(effectiveListScope(req));
+    const movements = await StockMovement.list(effectiveListScope(req));
     res.json({ products, movements });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -5230,12 +5247,14 @@ router.get("/forecast", authMiddleware, async (req, res) => {
  */
 router.get("/forecast-variables", authMiddleware, async (req, res) => {
   try {
-    const clientId = req.user!.userId;
+    // Platform staff read the whole portfolio's snapshots; the daily freshness
+    // recompute stays scoped to a single client (staff have none of their own).
+    const clientId = effectiveListScope(req);
     const { ensureFresh, recomputeAll } =
       await import("../services/forecast-service.js");
 
     // Automatically recompute if stale (daily freshness check)
-    const wasRecomputed = await ensureFresh(clientId);
+    const wasRecomputed = clientId ? await ensureFresh(clientId) : false;
 
     // Fetch all persisted forecast variables
     const { listByClient } = await import("../models/forecast-variable.js");
@@ -5291,11 +5310,11 @@ router.post(
 // ===================== DASHBOARD =====================
 router.get("/dashboard", authMiddleware, async (req, res) => {
   try {
-    const invoices = await Invoice.list(req.user!.userId);
-    const advances = await Advance.list(req.user!.userId);
+    const invoices = await Invoice.list(effectiveListScope(req));
+    const advances = await Advance.list(effectiveListScope(req));
     const debtors = await Debtor.list();
-    const products = await Product.list(req.user!.userId);
-    const movements = await StockMovement.list(req.user!.userId);
+    const products = await Product.list(effectiveListScope(req));
+    const movements = await StockMovement.list(effectiveListScope(req));
 
     // Calculate summary
     const pendingInvoices = invoices.filter((i) => i.status === "pending");
@@ -5658,7 +5677,7 @@ router.use(reportsRoutes);
 // ===================== STOCK LOCATIONS =====================
 router.get("/stock-locations", authMiddleware, async (req, res) => {
   try {
-    const items = await StockLocation.list(req.user!.userId);
+    const items = await StockLocation.list(effectiveListScope(req));
     res.json(items);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -5709,7 +5728,7 @@ router.delete("/stock-locations/:id", authMiddleware, async (req, res) => {
  */
 router.get("/stock-summary", authMiddleware, async (req, res) => {
   try {
-    const clientId = req.user!.userId;
+    const clientId = effectiveListScope(req);
     const productId = req.query.productId as string | undefined;
     const [movements, locations, products] = await Promise.all([
       StockMovement.list(clientId),

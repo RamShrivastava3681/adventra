@@ -197,9 +197,12 @@ export function recomputeDeliveredStatus(
   return dispatch.status;
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, { entityType: "GoodsDispatch", limit: 500, reverse: true });
-  return items as GoodsDispatch[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, { entityType: "GoodsDispatch", limit: 500, reverse: true });
+    return items as GoodsDispatch[];
+  }
+  return db.scanByType("GoodsDispatch", { limit: 2000 }) as Promise<GoodsDispatch[]>;
 }
 
 export async function get(id: string) {

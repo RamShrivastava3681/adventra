@@ -190,13 +190,16 @@ export function recomputeStatus(
   return so.manualStatus || so.status || "confirmed";
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, {
-    entityType: "GoodsSalesOrder",
-    limit: 500,
-    reverse: true,
-  });
-  return items as GoodsSalesOrder[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, {
+      entityType: "GoodsSalesOrder",
+      limit: 500,
+      reverse: true,
+    });
+    return items as GoodsSalesOrder[];
+  }
+  return db.scanByType("GoodsSalesOrder", { limit: 2000 }) as Promise<GoodsSalesOrder[]>;
 }
 
 export async function get(id: string) {

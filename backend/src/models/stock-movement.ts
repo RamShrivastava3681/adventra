@@ -84,7 +84,9 @@ function normalize(m: any): StockMovement {
   };
 }
 
-export async function list(clientId: string) {
+export async function list(clientId?: string) {
+  // Whole-portfolio read (staff accounts) — falls back to the full scan.
+  if (!clientId) return listAll();
   const allItems: any[] = [];
   let lastKey: Record<string, any> | undefined;
   do {

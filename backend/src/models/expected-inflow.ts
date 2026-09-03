@@ -56,13 +56,16 @@ export const ACTIVE_INFLOW_STATUSES: InflowStatus[] = [
   "EXPECTED", "PROMISED", "PARTIALLY_RECEIVED", "OVERDUE", "DELAYED",
 ];
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, {
-    entityType: "ExpectedInflow",
-    limit: 2000,
-    reverse: true,
-  });
-  return items as ExpectedInflow[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, {
+      entityType: "ExpectedInflow",
+      limit: 2000,
+      reverse: true,
+    });
+    return items as ExpectedInflow[];
+  }
+  return db.scanByType("ExpectedInflow", { limit: 2000 }) as Promise<ExpectedInflow[]>;
 }
 
 export async function get(id: string) {

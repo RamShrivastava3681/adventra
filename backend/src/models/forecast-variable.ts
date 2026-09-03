@@ -48,13 +48,16 @@ export interface ForecastVariable {
   updatedAt: string;
 }
 
-export async function listByClient(clientId: string): Promise<ForecastVariable[]> {
-  const { items } = await db.queryByGSI1(clientId, {
-    entityType: "ForecastVariable",
-    limit: 500,
-    reverse: true,
-  });
-  return items as ForecastVariable[];
+export async function listByClient(clientId?: string): Promise<ForecastVariable[]> {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, {
+      entityType: "ForecastVariable",
+      limit: 500,
+      reverse: true,
+    });
+    return items as ForecastVariable[];
+  }
+  return db.scanByType("ForecastVariable", { limit: 2000 }) as Promise<ForecastVariable[]>;
 }
 
 export async function getByProduct(

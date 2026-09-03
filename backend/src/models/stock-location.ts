@@ -52,13 +52,16 @@ export interface StockLocation {
   updatedAt: string;
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, {
-    entityType: "StockLocation",
-    limit: 500,
-    reverse: true,
-  });
-  return items as StockLocation[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, {
+      entityType: "StockLocation",
+      limit: 500,
+      reverse: true,
+    });
+    return items as StockLocation[];
+  }
+  return db.scanByType("StockLocation", { limit: 1000 }) as Promise<StockLocation[]>;
 }
 
 export async function get(id: string) {

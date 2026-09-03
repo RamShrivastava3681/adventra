@@ -171,9 +171,12 @@ export function computeTotals(lines: QuotationLine[], freight: number) {
   return { subtotal, totalDiscount, gstTotal, freight: round2(f), grandTotal: round2(subtotal + gstTotal + f) };
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, { entityType: "Quotation", limit: 500, reverse: true });
-  return items as Quotation[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, { entityType: "Quotation", limit: 500, reverse: true });
+    return items as Quotation[];
+  }
+  return db.scanByType("Quotation", { limit: 2000 }) as Promise<Quotation[]>;
 }
 
 export async function get(id: string) {

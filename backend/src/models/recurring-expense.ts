@@ -21,13 +21,16 @@ export interface RecurringExpense {
   createdAt: string; updatedAt: string;
 }
 
-export async function list(clientId: string) {
-  const { items } = await db.queryByGSI1(clientId, {
-    entityType: "RecurringExpense",
-    limit: 500,
-    reverse: true,
-  });
-  return items as RecurringExpense[];
+export async function list(clientId?: string) {
+  if (clientId) {
+    const { items } = await db.queryByGSI1(clientId, {
+      entityType: "RecurringExpense",
+      limit: 500,
+      reverse: true,
+    });
+    return items as RecurringExpense[];
+  }
+  return db.scanByType("RecurringExpense", { limit: 2000 }) as Promise<RecurringExpense[]>;
 }
 
 export async function get(id: string) {
