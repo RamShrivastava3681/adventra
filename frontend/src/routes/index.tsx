@@ -13,12 +13,12 @@ import {
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Whizunik — Receivables factoring & monitoring" },
+      { title: "Whizunik Command — The Executive Control System" },
       {
         name: "description",
         content: "Submit invoices, advance capital in hours, and monitor debtor risk in real time.",
       },
-      { property: "og:title", content: "Whizunik — Receivables factoring & monitoring" },
+      { property: "og:title", content: "Whizunik Command — The Executive Control System" },
       {
         property: "og:description",
         content: "Institutional-grade factoring and live receivables monitoring.",
@@ -68,8 +68,8 @@ function Landing() {
       <header className="border-b border-border/60 bg-background/70 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
           <Link to="/" className="flex items-center gap-2.5">
-            <img src="/logo.png" alt="Whizunik" className="h-8 w-auto rounded-md object-contain" />
-            <span className="text-lg font-semibold tracking-tight">Whizunik</span>
+            <img src="/logo.png" alt="Whizunik Command" className="h-8 w-auto rounded-md object-contain" />
+            <span className="text-lg font-semibold tracking-tight">Whizunik Command</span>
           </Link>
           <div className="flex items-center gap-2">
             <Link
@@ -107,8 +107,8 @@ function Landing() {
               <em className="not-italic text-primary">conviction</em>.
             </h1>
             <p className="mt-6 max-w-xl text-lg text-muted-foreground">
-              Whizunik is the platform for receivables factoring and debtor monitoring — submit
-              invoices, advance capital, and watch risk in real time.
+              Whizunik Command is the executive control system for receivables factoring and
+              debtor monitoring — submit invoices, advance capital, and watch risk in real time.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link
@@ -206,8 +206,8 @@ function Landing() {
               Everything a factoring desk touches — in one room.
             </h2>
             <p className="mt-4 text-muted-foreground">
-              From first invoice to final recovery, Whizunik keeps the whole lifecycle monitored,
-              approved and accounted for.
+              From first invoice to final recovery, Whizunik Command keeps the whole lifecycle
+              monitored, approved and accounted for.
             </p>
           </div>
           <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -250,7 +250,7 @@ function Landing() {
       </section>
 
       <footer className="border-t border-border/60 py-8 text-center text-xs text-muted-foreground">
-        © Whizunik · SOC 2 · ISO 27001 · 256-bit at rest
+        © Whizunik Command · SOC 2 · ISO 27001 · 256-bit at rest
       </footer>
     </div>
   );

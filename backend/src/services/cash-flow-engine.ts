@@ -215,7 +215,14 @@ async function buildCashEvents(
   const purchaseInvoices = await PurchaseInvoice.list(clientId);
   const livePurchaseInvoiceIds = new Set(purchaseInvoices.map((invoice) => invoice?.id).filter(Boolean));
   const goodsPurchaseOrders = await GoodsPO.list(clientId);
-  const invoicedPOIds = new Set(purchaseInvoices.map((invoice: any) => invoice?.goodsPurchaseOrderId).filter(Boolean));
+  // A PO is only consumed by a purchase invoice that is still live — a
+  // cancelled invoice releases the PO so it keeps showing as a commitment.
+  const invoicedPOIds = new Set(
+    purchaseInvoices
+      .filter((invoice: any) => String(invoice?.status || "").toLowerCase() !== "cancelled")
+      .map((invoice: any) => invoice?.goodsPurchaseOrderId)
+      .filter(Boolean),
+  );
   for (const po of goodsPurchaseOrders) {
     if (!["approved", "sent", "partially_received"].includes(String(po.status || "").toLowerCase())) continue;
     if (invoicedPOIds.has(po.id)) continue;
@@ -513,10 +520,11 @@ export async function computeForecast(
   const periods = generatePeriods(mode, today);
 
   // Filter events based on view mode:
-  // "base" = confirmed inflows/outflows only (exclude purchase commitments)
+  // "base" = confirmed inflows/outflows only (exclude all PO commitments,
+  //          both manual entries and approved purchase orders)
   // "with_commitments" = base + planned PO commitments
   const filteredEvents = viewMode === "base"
-    ? events.filter((e) => e.source !== "commitment")
+    ? events.filter((e) => e.source !== "commitment" && e.source !== "purchase_order")
     : events;
 
   // Build a date→events index for fast lookup
@@ -797,7 +805,14 @@ export async function getSummary(clientId: string): Promise<CashCommandCentreSum
 
   const liveSalesInvoiceIds = new Set(salesInvoices.map((invoice: any) => invoice?.id).filter(Boolean));
   const livePurchaseInvoiceIds = new Set(purchaseInvoices.map((invoice: any) => invoice?.id).filter(Boolean));
-  const invoicedPOIds = new Set(purchaseInvoices.map((invoice: any) => invoice?.goodsPurchaseOrderId).filter(Boolean));
+  // Only live purchase invoices consume a PO commitment — cancelled invoices
+  // release the PO back so it keeps showing as an approved-PO outflow.
+  const invoicedPOIds = new Set(
+    purchaseInvoices
+      .filter((invoice: any) => String(invoice?.status || "").toLowerCase() !== "cancelled")
+      .map((invoice: any) => invoice?.goodsPurchaseOrderId)
+      .filter(Boolean),
+  );
   const approvedPOs = goodsPurchaseOrders.filter((po: any) =>
     ["approved", "sent", "partially_received"].includes(String(po.status || "").toLowerCase()) && !invoicedPOIds.has(po.id),
   );

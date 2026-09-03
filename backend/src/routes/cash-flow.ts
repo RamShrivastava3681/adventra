@@ -663,10 +663,11 @@ router.get("/cash-flow/uninvoiced-pos", async (req: Request, res: Response) => {
       PurchaseInvoice.list(clientId),
     ]);
 
-    // Build a set of goodsPurchaseOrderId values from all purchase invoices
+    // Build a set of goodsPurchaseOrderId values from LIVE purchase invoices
+    // (a cancelled invoice releases the PO so it stays an approved commitment).
     const invoicedPOIds = new Set<string>();
     for (const pi of allInvoices) {
-      if (pi.goodsPurchaseOrderId) {
+      if (pi.goodsPurchaseOrderId && String(pi.status || "").toLowerCase() !== "cancelled") {
         invoicedPOIds.add(pi.goodsPurchaseOrderId);
       }
     }

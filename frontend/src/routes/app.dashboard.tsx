@@ -251,7 +251,7 @@ function Dashboard() {
                       tickLine={false}
                       axisLine={false}
                       width={56}
-                      tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                      tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`}
                     />
                     <Tooltip
                       cursor={{ stroke: "var(--color-border-strong)" }}
@@ -581,8 +581,8 @@ function Dashboard() {
                         fontSize={11}
                         tickLine={false}
                         axisLine={false}
-                        width={48}
-                        tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                      width={48}
+                      tickFormatter={(v) => `₹${(v / 1000).toFixed(0)}k`}
                       />
                       <Tooltip
                         cursor={{ fill: "var(--color-muted)" }}

@@ -67,6 +67,17 @@ async function request<T = any>(path: string, options: RequestInit = {}): Promis
 }
 
 // Convenience methods
+function toQuery(params?: Record<string, any>): string {
+  if (!params) return "";
+  const qs = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v === undefined || v === null || v === "") continue;
+    qs.set(k, String(v));
+  }
+  const s = qs.toString();
+  return s ? `?${s}` : "";
+}
+
 const api = {
   get: <T = any>(path: string) => request<T>(path),
   post: <T = any>(path: string, body?: any) =>
@@ -195,8 +206,7 @@ const api = {
   // Purchase Invoices
   purchaseInvoices: {
     // scope="all" returns every client's purchase invoices (shared dashboard).
-    list: (scope?: "all") =>
-      api.get<any[]>(`/purchase-invoices${scope ? `?scope=${scope}` : ""}`),
+    list: (scope?: "all") => api.get<any[]>(`/purchase-invoices${scope ? `?scope=${scope}` : ""}`),
     create: (data: any) => api.post<any>("/purchase-invoices", data),
     update: (id: string, data: any) => api.put<any>(`/purchase-invoices/${id}`, data),
     delete: (id: string) => api.delete(`/purchase-invoices/${id}`),
@@ -219,7 +229,8 @@ const api = {
     update: (id: string, data: any) => api.put<any>(`/goods-purchase-orders/${id}`, data),
     delete: (id: string) => api.delete(`/goods-purchase-orders/${id}`),
     // Email the PO PDF to the supplier for their approval.
-    sendToSupplier: (id: string) => api.post<any>(`/goods-purchase-orders/${id}/send-to-supplier`, {}),
+    sendToSupplier: (id: string) =>
+      api.post<any>(`/goods-purchase-orders/${id}/send-to-supplier`, {}),
   },
 
   // Goods Receipts (GRNs — credit inventory when goods arrive)
@@ -488,7 +499,8 @@ const api = {
     },
     // Uninvoiced Purchase Orders (POs without a linked Purchase Invoice)
     uninvoicedPos: {
-      list: async () => normalizeCashFlowResponse(await api.get<any[]>("/cash-flow/uninvoiced-pos")),
+      list: async () =>
+        normalizeCashFlowResponse(await api.get<any[]>("/cash-flow/uninvoiced-pos")),
     },
     plannedPos: {
       list: async () => normalizeCashFlowResponse(await api.get<any[]>("/cash-flow/planned-pos")),
@@ -514,17 +526,56 @@ const api = {
         if (mode) params.set("mode", mode);
         if (view) params.set("view", view);
         const qs = params.toString();
-        return api.get<any>(`/cash-flow/forecast${qs ? `?${qs}` : ""}`).then(normalizeCashFlowResponse);
+        return api
+          .get<any>(`/cash-flow/forecast${qs ? `?${qs}` : ""}`)
+          .then(normalizeCashFlowResponse);
       },
-      daily: (view?: string) => api.get<any>(`/cash-flow/forecast/daily${view ? `?view=${view}` : ""}`).then(normalizeCashFlowResponse),
-      weekly: (view?: string) => api.get<any>(`/cash-flow/forecast/weekly${view ? `?view=${view}` : ""}`).then(normalizeCashFlowResponse),
-      monthly: (view?: string) => api.get<any>(`/cash-flow/forecast/monthly${view ? `?view=${view}` : ""}`).then(normalizeCashFlowResponse),
+      daily: (view?: string) =>
+        api
+          .get<any>(`/cash-flow/forecast/daily${view ? `?view=${view}` : ""}`)
+          .then(normalizeCashFlowResponse),
+      weekly: (view?: string) =>
+        api
+          .get<any>(`/cash-flow/forecast/weekly${view ? `?view=${view}` : ""}`)
+          .then(normalizeCashFlowResponse),
+      monthly: (view?: string) =>
+        api
+          .get<any>(`/cash-flow/forecast/monthly${view ? `?view=${view}` : ""}`)
+          .then(normalizeCashFlowResponse),
     },
     // Traceability
     trace: (sourceType: string, sourceId: string) =>
       api.get<any>(`/cash-flow/trace/${sourceType}/${sourceId}`),
     // Dashboard Summary
     summary: async () => normalizeCashFlowResponse(await api.get<any>("/cash-flow/summary")),
+  },
+
+  // Reports module (portfolio-wide; see backend/src/routes/reports.ts)
+  reports: {
+    // Server-paginated reports — return { data, total, total_pages, page, limit }
+    salesInvoices: (params?: Record<string, any>) =>
+      api.get<any>(`/reports/sales-invoices${toQuery(params)}`),
+    purchaseInvoices: (params?: Record<string, any>) =>
+      api.get<any>(`/reports/purchase-invoices${toQuery(params)}`),
+    aging: (params?: Record<string, any>) => api.get<any>(`/reports/aging${toQuery(params)}`),
+    // Full-set reports — return arrays
+    proformas: (params?: Record<string, any>) =>
+      api.get<any[]>(`/reports/proformas${toQuery(params)}`),
+    debtors: () => api.get<any[]>("/reports/debtors"),
+    suppliers: () => api.get<any[]>("/reports/suppliers"),
+    advances: (params?: Record<string, any>) =>
+      api.get<any[]>(`/reports/advances${toQuery(params)}`),
+    expenses: (params?: Record<string, any>) =>
+      api.get<any[]>(`/reports/expenses${toQuery(params)}`),
+    inventory: () => api.get<any[]>("/reports/inventory"),
+    // Dedicated views
+    portfolio: () => api.get<any>("/reports/portfolio"),
+    balanceSheet: (asOf?: string) =>
+      api.get<any>(`/reports/balance-sheet${asOf ? `?as_of=${encodeURIComponent(asOf)}` : ""}`),
+    profitLoss: (from?: string, to?: string) =>
+      api.get<any>(`/reports/profit-loss${toQuery({ from, to })}`),
+    // Shared filter options
+    buyers: () => api.get<any[]>("/reports/buyers"),
   },
 
   // E-Way Bill
@@ -542,18 +593,23 @@ const api = {
       transporterGstin?: string;
       transporterName?: string;
     }) => api.post<any>("/eway-bills", data),
-    updateVehicle: (id: string, data: {
-      vehicleNumber: string;
-      fromPlace?: string;
-      fromState?: number;
-      transportMode?: string;
-      reasonCode?: string;
-      reasonRemarks?: string;
-    }) => api.post<any>(`/eway-bills/${id}/vehicle`, data),
+    updateVehicle: (
+      id: string,
+      data: {
+        vehicleNumber: string;
+        fromPlace?: string;
+        fromState?: number;
+        transportMode?: string;
+        reasonCode?: string;
+        reasonRemarks?: string;
+      },
+    ) => api.post<any>(`/eway-bills/${id}/vehicle`, data),
     cancel: (id: string, data: { reason: string; remarks: string }) =>
       api.post<any>(`/eway-bills/${id}/cancel`, data),
-    extend: (id: string, data?: { remainingDistance?: number; reason?: string; remarks?: string }) =>
-      api.post<any>(`/eway-bills/${id}/extend`, data || {}),
+    extend: (
+      id: string,
+      data?: { remainingDistance?: number; reason?: string; remarks?: string },
+    ) => api.post<any>(`/eway-bills/${id}/extend`, data || {}),
     sync: (id: string) => api.post<any>(`/eway-bills/${id}/sync`, {}),
   },
 };

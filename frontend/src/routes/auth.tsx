@@ -81,8 +81,8 @@ function AuthPage() {
         <div className="absolute inset-0 grid-lines opacity-15" aria-hidden />
 
         <Link to="/" className="relative flex items-center gap-2.5">
-          <img src="/logo.png" alt="Whizunik" className="h-8 w-auto rounded-md object-contain" />
-          <span className="text-lg font-semibold tracking-tight">Whizunik</span>
+          <img src="/logo.png" alt="Whizunik Command" className="h-8 w-auto rounded-md object-contain" />
+          <span className="text-lg font-semibold tracking-tight">Whizunik Command</span>
         </Link>
 
         <div className="relative">
@@ -142,10 +142,10 @@ function AuthPage() {
             <div className="mb-6 flex items-center gap-2 md:hidden">
               <img
                 src="/logo.png"
-                alt="Whizunik"
+                alt="Whizunik Command"
                 className="h-7 w-auto rounded-md object-contain"
               />
-              <span className="text-lg font-semibold tracking-tight">Whizunik</span>
+              <span className="text-lg font-semibold tracking-tight">Whizunik Command</span>
             </div>
 
             <h1 className="text-2xl font-semibold tracking-tight text-foreground md:text-3xl">

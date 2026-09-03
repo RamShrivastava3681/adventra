@@ -533,7 +533,7 @@ function AppLayout() {
         {/* Brand header */}
         <div className="shrink-0 border-b border-sidebar-border px-5 py-5">
           <div className="text-[15px] font-bold leading-none tracking-[0.08em] text-sidebar-foreground">
-            WHIZUNIK
+            WHIZUNIK COMMAND
           </div>
           <div className="mt-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             {consoleLabel}
@@ -718,7 +718,7 @@ function AppLayout() {
           </SheetContent>
         </Sheet>
         <div className="flex items-center gap-2">
-          <span className="font-display text-sm tracking-tight">Whizunik</span>
+          <span className="font-display text-sm tracking-tight">Whizunik Command</span>
         </div>
         <div className="ml-auto flex items-center gap-1.5">
           <Link

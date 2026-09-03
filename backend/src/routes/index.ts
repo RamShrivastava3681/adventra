@@ -5650,6 +5650,11 @@ router.use(cashFlowRoutes);
 import ewayBillRoutes from "./eway-bill.js";
 router.use(ewayBillRoutes);
 
+// ===================== REPORTS MODULE =====================
+// 12 report endpoints backing the Reports dashboard and report detail pages.
+import reportsRoutes from "./reports.js";
+router.use(reportsRoutes);
+
 // ===================== STOCK LOCATIONS =====================
 router.get("/stock-locations", authMiddleware, async (req, res) => {
   try {

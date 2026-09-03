@@ -798,4 +798,105 @@ describe("Cash-Flow Forecast Engine", () => {
       expect(summary.expectedOutflowsNext7Days).toBe(190000);
     });
   });
+
+  describe("Goods purchase order commitments in the forecast", () => {
+    const basePO = () => ({
+      id: "po1",
+      clientId: CLIENT,
+      poNumber: "PO-1",
+      supplierName: "Acme",
+      poDate: today(),
+      expectedDate: null,
+      dueDate: null,
+      expectedDeliveryDate: null,
+      status: "approved",
+      grandTotal: 120000,
+      lines: [],
+    });
+
+    const allOutflowEvents = (f: any) =>
+      f.periods.flatMap((p: any) => p.outflowEvents);
+
+    it("Reflects an approved, un-invoiced PO as a commitment outflow in the forecast", async () => {
+      mockAccounts.push({ id: "acc1", clientId: CLIENT, availableForOperations: 500000, status: "active" });
+      mockGoodsPurchaseOrders.push({
+        ...basePO(),
+        expectedDate: addDays(today(), 5),
+      });
+
+      const forecast = await computeForecast(CLIENT, "weekly");
+      const events = allOutflowEvents(forecast);
+      expect(events.filter((e: any) => e.source === "purchase_order" && e.amount === 120000).length).toBe(1);
+      // It must only appear in the with-commitments view, not the base view
+      const base = await computeForecast(CLIENT, "weekly", "base");
+      expect(allOutflowEvents(base).filter((e: any) => e.source === "purchase_order").length).toBe(0);
+    });
+
+    it("Does not reflect draft / pending-review (unapproved) POs as outflows", async () => {
+      mockAccounts.push({ id: "acc1", clientId: CLIENT, availableForOperations: 500000, status: "active" });
+      for (const status of ["draft", "pending_review"]) {
+        mockGoodsPurchaseOrders.push({ ...basePO(), id: `po-${status}`, status, expectedDate: addDays(today(), 5) });
+      }
+
+      const forecast = await computeForecast(CLIENT, "weekly");
+      expect(allOutflowEvents(forecast).filter((e: any) => e.source === "purchase_order").length).toBe(0);
+    });
+
+    it("Keeps an approved PO visible when its only linked purchase invoice was cancelled", async () => {
+      mockAccounts.push({ id: "acc1", clientId: CLIENT, availableForOperations: 500000, status: "active" });
+      mockGoodsPurchaseOrders.push({ ...basePO(), expectedDate: addDays(today(), 5) });
+      mockPurchaseInvoices.push({
+        id: "pi-cancelled",
+        clientId: CLIENT,
+        goodsPurchaseOrderId: "po1",
+        status: "cancelled",
+        amount: 120000,
+        amountPaid: 0,
+      });
+
+      const forecast = await computeForecast(CLIENT, "weekly");
+      expect(allOutflowEvents(forecast).filter((e: any) => e.source === "purchase_order").length).toBe(1);
+    });
+
+    it("Lets a live unpaid purchase invoice replace the PO commitment (no double count)", async () => {
+      mockAccounts.push({ id: "acc1", clientId: CLIENT, availableForOperations: 500000, status: "active" });
+      mockGoodsPurchaseOrders.push({ ...basePO(), expectedDate: addDays(today(), 5) });
+      mockPurchaseInvoices.push({
+        id: "pi-live",
+        clientId: CLIENT,
+        goodsPurchaseOrderId: "po1",
+        status: "approved",
+        amount: 120000,
+        amountPaid: 0,
+        issueDate: today(),
+        dueDate: addDays(today(), 10),
+      });
+
+      const forecast = await computeForecast(CLIENT, "weekly");
+      const events = allOutflowEvents(forecast);
+      expect(events.filter((e: any) => e.source === "purchase_order").length).toBe(0);
+      expect(events.filter((e: any) => e.source === "purchase_invoice" && e.amount === 120000).length).toBe(1);
+    });
+
+    it("Counts approved POs in the 7-day outflows summary and PO-commitments totals", async () => {
+      mockAccounts.push({ id: "acc1", clientId: CLIENT, currentBalance: 1000000, status: "active" });
+      mockGoodsPurchaseOrders.push({
+        ...basePO(),
+        expectedDate: addDays(today(), 2),
+        grandTotal: 75000,
+      });
+      mockGoodsPurchaseOrders.push({
+        ...basePO(),
+        id: "po-planned",
+        poNumber: "PO-2",
+        status: "pending_review",
+        expectedDate: addDays(today(), 2),
+        grandTotal: 40000,
+      });
+
+      const summary = await getSummary(CLIENT);
+      expect(summary.poCommitments).toBe(75000);
+      expect(summary.plannedPurchaseOrders).toBe(40000);
+    });
+  });
 });
