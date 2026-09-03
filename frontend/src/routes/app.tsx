@@ -96,7 +96,7 @@ const TRANSACTIONS_ITEMS: NavItem[] = [
 // ─── Build navigation sections per role ──────────────────────
 // Priority: Checker → Treasury → Operations → Salesman → Admin → fallback
 function buildNavSections(roles: string[]): NavSection[] {
-  const isAdmin = roles.includes("factor_admin");
+  const isAdmin = roles.includes("factor_admin") || roles.includes("super_admin");
   const isChecker = roles.includes("checker");
   const isTreasury = roles.includes("treasury");
   const isOperations = roles.includes("operations");
@@ -247,6 +247,7 @@ function AppLayout() {
     loading,
     signOut,
     isAdmin,
+    isSuperAdmin,
     isTreasury,
     isChecker,
     isSalesRep,
@@ -342,7 +343,7 @@ function AppLayout() {
       "/app/suppliers",
     ];
 
-    if (isAdmin) return; // admin goes anywhere
+    if (isAdmin || isSuperAdmin) return; // admin goes anywhere
 
     if (
       isChecker &&
@@ -391,6 +392,7 @@ function AppLayout() {
     isTreasury,
     isChecker,
     isAdmin,
+    isSuperAdmin,
     isSalesRep,
     isOperations,
     isReportingManager,
@@ -466,8 +468,9 @@ function AppLayout() {
   // so the reporting manager keeps browsing the team member's data.
   const viewSearch = viewAsActive ? { viewAsUserId } : {};
 
-  const consoleLabel = effectiveRoles.includes("factor_admin")
-    ? "Factor console"
+  const consoleLabel =
+    effectiveRoles.includes("factor_admin") || effectiveRoles.includes("super_admin")
+      ? "Factor console"
     : effectiveRoles.includes("treasury")
       ? "Treasury desk"
       : effectiveRoles.includes("checker")

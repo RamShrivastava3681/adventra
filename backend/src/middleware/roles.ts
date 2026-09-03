@@ -20,6 +20,8 @@ export function requireRole(...roles: string[]) {
 }
 
 export const requireAdmin = requireRole("factor_admin");
+// User-management & monitoring endpoints — only the super admin passes.
+export const requireSuperAdmin = requireRole("super_admin");
 export const requireChecker = requireRole("checker", "factor_admin");
 export const requireTreasury = requireRole("treasury", "factor_admin");
 export const requireCheckerOrTreasury = requireRole("checker", "treasury", "factor_admin");

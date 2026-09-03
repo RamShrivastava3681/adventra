@@ -136,6 +136,7 @@ function actionGroup(e: AuditEntry): string {
 // ---------------------------------------------------------------------------
 
 const ROLE_LABELS: Record<string, string> = {
+  super_admin: "Super Admin",
   factor_admin: "Admin",
   checker: "Checker",
   treasury: "Treasury",
@@ -146,6 +147,7 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 const ROLE_BADGE_COLORS: Record<string, string> = {
+  super_admin: "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400",
   checker: "border-warning/40 bg-warning/10 text-warning",
   treasury: "border-primary/40 bg-primary/10 text-primary",
   factor_admin: "border-slate-500/40 bg-slate-500/10 text-slate-600 dark:text-slate-300",
@@ -155,6 +157,7 @@ const ROLE_BADGE_COLORS: Record<string, string> = {
 function roleBadgeClass(roles: string[] | undefined): string {
   const r = roles ?? [];
   const pick =
+    r.find((x) => x === "super_admin") ??
     r.find((x) => x === "checker") ??
     r.find((x) => x === "treasury") ??
     r.find((x) => x === "factor_admin") ??
@@ -164,7 +167,7 @@ function roleBadgeClass(roles: string[] | undefined): string {
 
 function primaryRoleLabel(roles: string[] | undefined): string {
   const r = roles ?? [];
-  for (const x of ["factor_admin", "checker", "treasury", "reporting_manager", "sales_rep", "operations", "client"]) {
+  for (const x of ["super_admin", "factor_admin", "checker", "treasury", "reporting_manager", "sales_rep", "operations", "client"]) {
     if (r.includes(x)) return ROLE_LABELS[x] ?? x;
   }
   return "User";

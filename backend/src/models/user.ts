@@ -6,6 +6,7 @@ import { config } from "../config.js";
 import * as db from "../dynamodb.js";
 import { TOKEN_ISSUER, TOKEN_AUDIENCE, setAuthCookie } from "../middleware/auth.js";
 import { logSecurityEvent } from "../middleware/security.js";
+import { recordLogin } from "../services/presence.js";
 
 // ---- Input validation helpers ----
 
@@ -21,7 +22,13 @@ const KNOWN_ROLES = [
   "treasury",
   "reporting_manager",
   "factor_admin",
+  "super_admin",
 ];
+
+// Roles an admin may assign when creating a user. super_admin is never
+// assignable — the super admin account is designated via SUPER_ADMIN_EMAIL
+// (defaults to ADMIN_EMAIL) and seeded at startup.
+const ASSIGNABLE_ROLES = KNOWN_ROLES.filter((r) => r !== "super_admin");
 
 function validateEmail(value: unknown): string | null {
   if (typeof value !== "string") return "Email is required";
@@ -81,6 +88,10 @@ export interface UserProfile {
   reportingManagerId: string | null;
   createdAt: string;
   updatedAt: string;
+  // Presence tracking (super-admin view): last activity + IP geolocation.
+  lastSeenAt?: string | null;
+  lastSeenIp?: string | null;
+  lastSeenGeo?: { country: string; region: string; city: string } | null;
 }
 
 // ---- Auth Routes ----
@@ -182,6 +193,9 @@ export async function login(req: Request, res: Response) {
     // never read it, so XSS cannot exfiltrate the session.
     setAuthCookie(res, token);
 
+    // Record last-seen + IP presence (fire-and-forget, never blocks login).
+    recordLogin(user.id, req.ip);
+
     return res.json({
       user: {
         id: user.id,
@@ -267,8 +281,8 @@ export async function adminCreateUser(req: Request, res: Response) {
       return res.status(409).json({ error: "Email already registered" });
     }
 
-    // Validate role
-    const assignedRole = KNOWN_ROLES.includes(role) ? role : "client";
+    // Validate role — super_admin can never be granted through user creation.
+    const assignedRole = ASSIGNABLE_ROLES.includes(role) ? role : "client";
 
     // Validate managerId if provided
     if (req.body.managerId) {
@@ -321,9 +335,14 @@ export async function adminCreateUser(req: Request, res: Response) {
 export async function getUsers(req: Request, res: Response) {
   try {
     const users = await db.scanByType("User");
+    // Presence/location fields (last-seen time, IP, geo) are private — only the
+    // super admin may see them for other users.
+    const isSuperAdmin = (req.user?.roles ?? []).includes("super_admin");
     const safe = users.map((u: any) => {
       const { passwordHash, ...rest } = u;
-      return rest;
+      if (isSuperAdmin) return rest;
+      const { lastSeenAt, lastSeenIp, lastSeenGeo, ...noPresence } = rest;
+      return noPresence;
     });
     return res.json(safe);
   } catch (err: any) {
@@ -367,7 +386,7 @@ export async function listManagers(req: Request, res: Response) {
     const managers = users
       .filter((u: any) => (u.roles || []).includes("reporting_manager"))
       .map((u: any) => {
-        const { passwordHash, ...rest } = u;
+        const { passwordHash, lastSeenAt, lastSeenIp, lastSeenGeo, ...rest } = u;
         return rest;
       });
     return res.json(managers);
@@ -383,7 +402,7 @@ export async function getReports(req: Request, res: Response) {
     const reports = users
       .filter((u: any) => u.reportingManagerId === managerId)
       .map((u: any) => {
-        const { passwordHash, ...rest } = u;
+        const { passwordHash, lastSeenAt, lastSeenIp, lastSeenGeo, ...rest } = u;
         return rest;
       });
     return res.json(reports);
@@ -410,6 +429,24 @@ export async function updateUserRole(req: Request, res: Response) {
     const item = await db.getItem(`USER#${userId}`);
     if (!item) return res.status(404).json({ error: "User not found" });
 
+    // super_admin is reserved for the account designated by SUPER_ADMIN_EMAIL
+    // (defaults to ADMIN_EMAIL) — it can't be granted to anyone else, and it
+    // can't be revoked from the primary super admin (prevents lock-out).
+    const canonicalEmail = (config.superAdmin.email ?? "").toLowerCase();
+    const targetEmail = String((item as any).email ?? "").toLowerCase();
+    if (role === "super_admin") {
+      if (add && targetEmail !== canonicalEmail) {
+        return res
+          .status(400)
+          .json({ error: "The super_admin role can only be granted to the designated super admin" });
+      }
+      if (!add && canonicalEmail && targetEmail === canonicalEmail) {
+        return res
+          .status(400)
+          .json({ error: "The primary super admin role cannot be revoked" });
+      }
+    }
+
     let roles: string[] = (item as any).roles || [];
     if (add) {
       if (!roles.includes(role)) roles.push(role);
@@ -421,5 +458,38 @@ export async function updateUserRole(req: Request, res: Response) {
     return res.json(result);
   } catch (err: any) {
     return res.status(500).json({ error: "Failed to update user role" });
+  }
+}
+
+// ---- Admin: Delete user (super admin only) ----
+
+export async function adminDeleteUser(req: Request, res: Response) {
+  try {
+    const { userId } = req.params;
+    const item = await db.getItem(`USER#${userId}`);
+    if (!item) return res.status(404).json({ error: "User not found" });
+    const target = item as any;
+
+    // Guard rails: never allow deleting yourself or the designated super admin
+    // (otherwise the platform could be left without any account manager).
+    if (target.id === req.user!.userId) {
+      return res.status(400).json({ error: "You cannot delete your own account" });
+    }
+    const canonicalEmail = (config.superAdmin.email ?? "").toLowerCase();
+    if (canonicalEmail && String(target.email ?? "").toLowerCase() === canonicalEmail) {
+      return res
+        .status(400)
+        .json({ error: "The designated super admin account cannot be deleted" });
+    }
+
+    await db.deleteItem(`USER#${userId}`);
+    logSecurityEvent("user.deleted", req, {
+      targetUserId: userId,
+      targetEmail: target.email ?? null,
+    });
+    return res.json({ success: true, id: userId });
+  } catch (err: any) {
+    console.error("[Admin] Delete user error:", err);
+    return res.status(500).json({ error: err.message || "Failed to delete user" });
   }
 }

@@ -62,6 +62,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const ROLE_ICONS: Record<string, any> = {
+  super_admin: Shield,
   sales_rep: Users,
   operations: FileText,
   checker: ClipboardCheck,
@@ -71,6 +72,7 @@ const ROLE_ICONS: Record<string, any> = {
 };
 
 const ROLE_COLORS: Record<string, string> = {
+  super_admin: "bg-amber-500/10 text-amber-600 border-amber-500/30",
   sales_rep: "bg-blue-100 text-blue-700 border-blue-200",
   operations: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   checker: "bg-warning/10 text-warning border-warning/20",
@@ -80,6 +82,7 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 const ROLE_LABELS: Record<string, string> = {
+  super_admin: "Super Admin",
   sales_rep: "Salesman",
   operations: "Operations",
   checker: "Checker",

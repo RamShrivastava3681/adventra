@@ -86,6 +86,12 @@ export const config = {
     password: process.env.ADMIN_PASSWORD,
   },
 
+  // Designated super admin account. Defaults to the admin email so the seeded
+  // admin (sankalp@whizunik.com) is also the super admin unless overridden.
+  superAdmin: {
+    email: process.env.SUPER_ADMIN_EMAIL || process.env.ADMIN_EMAIL,
+  },
+
   jwt: {
     secret: process.env.JWT_SECRET || "dev-secret-change-in-production",
     expiresIn: process.env.JWT_EXPIRES_IN || "7d",

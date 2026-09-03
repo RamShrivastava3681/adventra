@@ -7,11 +7,7 @@ import * as db from "./dynamodb.js";
 import { sendInvoiceReminder, sendDebtorReminder, isEmailConfigured } from "./email.js";
 import * as ReminderLog from "./models/reminder-log.js";
 import { config } from "./config.js";
-
-// ---------------------------------------------------------------------------
-// Due-date reminder thresholds (days before due)
-// ---------------------------------------------------------------------------
-const REMINDER_DAYS = [15, 7, 2, 1, 0]; // 0 = due today
+import * as ReminderSettings from "./models/reminder-settings.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -159,6 +155,26 @@ export async function sendReminderForInvoice(
 }
 
 // ---------------------------------------------------------------------------
+// Fire-and-forget automatic send for invoice create/update hooks.
+// Respects the admin's reminder on/off setting — manual sends are unaffected.
+// ---------------------------------------------------------------------------
+
+export async function autoSendReminderOnChange(
+  invoiceId: string,
+  type: "sales" | "purchase"
+): Promise<void> {
+  try {
+    if (!(await ReminderSettings.isEnabled())) return;
+    await sendReminderForInvoice(invoiceId, type);
+  } catch (err: any) {
+    console.error(
+      `  ⚠ Instant reminder trigger failed for ${type} invoice ${invoiceId}:`,
+      err?.message ?? err
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Process a single invoice (sales or purchase)
 // ---------------------------------------------------------------------------
 
@@ -180,6 +196,8 @@ async function processInvoice(params: {
   lineItems: Array<{ description?: string; quantity?: number; unitCost?: number; amount?: number; productId?: string }> | undefined | null;
   notes: string | null;
   type: "sales" | "purchase";
+  /** Day offsets (days before due) that trigger an email — from admin settings. */
+  scheduleDays: number[];
 }): Promise<boolean> {
   if (isPaidOrClosed(params.status)) return false;
   if (!params.dueDate) return false;
@@ -191,11 +209,12 @@ async function processInvoice(params: {
   let shouldSend = false;
 
   if (isOverdue) {
+    // Once overdue, nudge once per day until the invoice is paid/closed.
     if (params.lastReminderDate !== todayDate()) {
       shouldSend = true;
     }
   } else {
-    shouldSend = REMINDER_DAYS.includes(dud);
+    shouldSend = params.scheduleDays.includes(dud);
   }
 
   if (!shouldSend) return false;
@@ -259,11 +278,18 @@ async function processInvoice(params: {
 // Main reminder run — called once per day (or on demand)
 // ---------------------------------------------------------------------------
 
-export async function runDueDateReminders(): Promise<{ checked: number; sent: number }> {
+export async function runDueDateReminders(): Promise<{ checked: number; sent: number; message?: string }> {
   if (!isEmailConfigured()) {
     console.log("  ⚠ Invoice reminders skipped — SMTP not configured");
-    return { checked: 0, sent: 0 };
+    return { checked: 0, sent: 0, message: "SMTP is not configured — cannot send reminders" };
   }
+
+  const settings = await ReminderSettings.get();
+  if (settings.enabled === false) {
+    console.log("  ⚠ Invoice reminders skipped — automatic reminders are turned off");
+    return { checked: 0, sent: 0, message: "Automatic reminders are turned off in Reminder settings" };
+  }
+  const scheduleDays = settings.scheduleDays?.length ? settings.scheduleDays : ReminderSettings.DEFAULT_SCHEDULE_DAYS;
 
   let checked = 0;
   let sent = 0;
@@ -292,6 +318,7 @@ export async function runDueDateReminders(): Promise<{ checked: number; sent: nu
         lineItems: inv.lineItems,
         notes: inv.notes,
         type: "sales",
+        scheduleDays,
       });
       if (wasSent) sent++;
     }
@@ -323,6 +350,7 @@ export async function runDueDateReminders(): Promise<{ checked: number; sent: nu
         lineItems: [],
         notes: inv.notes,
         type: "purchase",
+        scheduleDays,
       });
       if (wasSent) sent++;
     }

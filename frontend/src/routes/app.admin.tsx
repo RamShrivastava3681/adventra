@@ -4,7 +4,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, daysBetween } from "@/components/ledger-ui";
-import { Zap, Shield, UserPlus, Eye, EyeOff, Users, ChevronDown } from "lucide-react";
+import { Zap, Shield, UserPlus, Eye, EyeOff, Users, Trash2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -32,6 +32,7 @@ const ROLE_OPTIONS = [
 ] as const;
 
 const ROLE_COLORS: Record<string, string> = {
+  super_admin: "bg-amber-500/10 text-amber-600 dark:text-amber-400",
   sales_rep: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
   operations: "bg-primary-soft text-[#0a4a8a] dark:text-[#63baff]",
   checker: "bg-warning/10 text-warning",
@@ -41,6 +42,7 @@ const ROLE_COLORS: Record<string, string> = {
 };
 
 const ROLE_LABELS: Record<string, string> = {
+  super_admin: "Super Admin",
   sales_rep: "Salesman",
   operations: "Operations",
   checker: "Checker",
@@ -49,11 +51,27 @@ const ROLE_LABELS: Record<string, string> = {
   factor_admin: "Admin",
 };
 
+/** Compact relative time for the super admin's last-seen column. */
+function timeAgo(iso?: string | null): string {
+  if (!iso) return "Never";
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms) || ms < 0) return "Just now";
+  if (ms < 60_000) return "Just now";
+  const mins = Math.floor(ms / 60_000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
+}
+
 function AdminPage() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, isSuperAdmin, user } = useAuth();
   const qc = useQueryClient();
   const [createOpen, setCreateOpen] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<any | null>(null);
 
   // ── Create user form state ──
   const [form, setForm] = useState({
@@ -73,7 +91,7 @@ function AdminPage() {
       const data = await api.invoices.list();
       return data;
     },
-    enabled: isAdmin,
+    enabled: isAdmin || isSuperAdmin,
   });
 
   // Team & roles
@@ -83,7 +101,8 @@ function AdminPage() {
       const data = await api.admin.users();
       return data;
     },
-    enabled: isAdmin,
+    // Team roster (incl. presence data) is loaded only for the super admin.
+    enabled: isSuperAdmin,
   });
   const rolesQ = useQuery({
     queryKey: ["user_roles-admin"],
@@ -94,7 +113,7 @@ function AdminPage() {
         (u.roles ?? []).map((r: string) => ({ user_id: u.id, role: r })),
       );
     },
-    enabled: isAdmin,
+    enabled: isSuperAdmin,
   });
   const managersQ = useQuery({
     queryKey: ["managers-admin"],
@@ -102,7 +121,7 @@ function AdminPage() {
       const data = await api.admin.listManagers();
       return data;
     },
-    enabled: isAdmin,
+    enabled: isSuperAdmin,
   });
   const managerAssign = useMutation({
     mutationFn: async ({ userId, managerId }: { userId: string; managerId: string | null }) => {
@@ -149,6 +168,20 @@ function AdminPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to create user"),
   });
 
+  const deleteUser = useMutation({
+    mutationFn: async (userId: string) => {
+      await api.admin.deleteUser(userId);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["profiles-admin"] });
+      qc.invalidateQueries({ queryKey: ["user_roles-admin"] });
+      qc.invalidateQueries({ queryKey: ["managers-admin"] });
+      toast.success("User deleted");
+      setDeleteTarget(null);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete user"),
+  });
+
   const generateAlerts = useMutation({
     mutationFn: async () => {
       const invoices = invoicesQ.data ?? [];
@@ -189,11 +222,11 @@ function AdminPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  if (!isAdmin) {
+  if (!isAdmin && !isSuperAdmin) {
     return (
       <div className="grid min-h-[60vh] place-items-center">
         <div className="text-center">
-          <div className="text-sm text-muted-foreground">Factor admin only.</div>
+          <div className="text-sm text-muted-foreground">Admin access only.</div>
         </div>
       </div>
     );
@@ -267,7 +300,18 @@ function AdminPage() {
         </Card>
       </div>
 
-      {/* ── Team & Roles ───────────────────────────────────── */}
+      {/* ── Team & Roles — super admin only (create/delete users, roles, presence) ── */}
+      {!isSuperAdmin ? (
+        <div className="px-6 pb-10 md:px-10">
+          <Card title="Team & roles">
+            <p className="text-sm text-muted-foreground">
+              Creating and deleting users, changing roles, and assigning reporting managers are
+              restricted to the super admin. Your admin access to all platform data is unchanged.
+            </p>
+          </Card>
+        </div>
+      ) : (
+        <>
       <div className="px-6 pb-10 md:px-10">
         <Card
           title="Team & roles"
@@ -442,6 +486,8 @@ function AdminPage() {
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">User</th>
                     <th className="px-5 py-2 text-left font-normal">Email</th>
+                    <th className="px-5 py-2 text-left font-normal">Last seen</th>
+                    <th className="px-5 py-2 text-left font-normal">Location</th>
                     <th className="px-5 py-2 text-left font-normal">Roles</th>
                     <th className="px-5 py-2 text-left font-normal">Reporting Manager</th>
                     <th className="px-5 py-2 text-right font-normal">Actions</th>
@@ -460,6 +506,30 @@ function AdminPage() {
                           <div className="text-xs text-muted-foreground">{p.company_name}</div>
                         </td>
                         <td className="px-5 py-3 text-muted-foreground">{p.email}</td>
+                        <td className="px-5 py-3 whitespace-nowrap">
+                          <span
+                            className="text-xs"
+                            title={p.last_seen_at ? new Date(p.last_seen_at).toLocaleString() : "Never signed in"}
+                          >
+                            {timeAgo(p.last_seen_at)}
+                          </span>
+                        </td>
+                        <td className="px-5 py-3">
+                          {p.last_seen_geo ? (
+                            <div className="text-xs text-muted-foreground">
+                              {[p.last_seen_geo.city, p.last_seen_geo.region, p.last_seen_geo.country]
+                                .filter(Boolean)
+                                .join(", ") || "Unknown"}
+                            </div>
+                          ) : (
+                            <div className="text-xs text-muted-foreground/50">Unknown</div>
+                          )}
+                          {p.last_seen_ip && (
+                            <div className="text-[10px] text-muted-foreground/60">
+                              IP {p.last_seen_ip}
+                            </div>
+                          )}
+                        </td>
                         <td className="px-5 py-3">
                           <div className="flex flex-wrap gap-1">
                             {userRoles.length === 0 ? (
@@ -553,6 +623,17 @@ function AdminPage() {
                                 </button>
                               );
                             })}
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTarget(p)}
+                              disabled={p.id === user?.id || deleteUser.isPending}
+                              title={
+                                p.id === user?.id ? "You cannot delete your own account" : "Delete user permanently"
+                              }
+                              className="ml-2 rounded-md border border-destructive/30 p-1.5 text-destructive/70 transition-colors hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -567,10 +648,50 @@ function AdminPage() {
             Treasury then pays supplier advances on approval, settles balances on the due date, and
             records debtor receipts. Marking an invoice paid closes it and removes it from the
             queue. New roles (Operations, Reporting Manager) are placeholders — working permissions
-            can be configured later.
+            can be configured later. Creating and deleting users is restricted to the super admin.
           </p>
+
+          {/* Delete-user confirmation */}
+          <Dialog
+            open={!!deleteTarget}
+            onOpenChange={(open) => {
+              if (!open) setDeleteTarget(null);
+            }}
+          >
+            <DialogContent className="sm:max-w-[420px]">
+              <DialogHeader>
+                <DialogTitle>Delete user</DialogTitle>
+                <DialogDescription>
+                  Permanently delete{" "}
+                  <span className="font-medium text-foreground">
+                    {deleteTarget?.contact_name || deleteTarget?.email}
+                  </span>
+                  ? Their account and login access are removed immediately. Historical records
+                  (invoices, submissions, audit events) are kept as-is.
+                </DialogDescription>
+              </DialogHeader>
+              <DialogFooter>
+                <button
+                  onClick={() => setDeleteTarget(null)}
+                  className="rounded-md border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => deleteTarget && deleteUser.mutate(deleteTarget.id)}
+                  disabled={deleteUser.isPending}
+                  className="inline-flex items-center gap-2 rounded-md bg-destructive px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-destructive/90 disabled:opacity-50"
+                >
+                  <Trash2 className="h-4 w-4" />
+                  {deleteUser.isPending ? "Deleting…" : "Delete permanently"}
+                </button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </Card>
       </div>
+        </>
+      )}
     </div>
   );
 }

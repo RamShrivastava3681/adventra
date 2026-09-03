@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { config } from "../config.js";
 import { logSecurityEvent } from "./security.js";
+import * as db from "../dynamodb.js";
+import { touchPresence } from "../services/presence.js";
 
 export interface AuthPayload {
   userId: string;
@@ -93,7 +95,32 @@ export function verifyToken(token: string): AuthPayload & { iat?: number; exp?: 
   return payload;
 }
 
-export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+/**
+ * Load the live USER record for a token's subject.
+ *
+ * Identity comes from the database, not the JWT claims:
+ *  - a deleted/disabled account is rejected immediately (401) even if its
+ *    cookie has not yet expired;
+ *  - role changes take effect instantly, without waiting for the user to
+ *    re-login or for the old token to expire.
+ * Returns null when the account no longer exists.
+ */
+async function loadUserFromDb(userId: string): Promise<{
+  id: string;
+  email: string;
+  roles: string[];
+} | null> {
+  const item = await db.getItem(`USER#${userId}`);
+  if (!item) return null;
+  const u = item as any;
+  return {
+    id: u.id ?? userId,
+    email: u.email ?? "",
+    roles: Array.isArray(u.roles) ? u.roles : [],
+  };
+}
+
+export async function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const token = getTokenFromRequest(req);
   if (!token) {
     return res.status(401).json({ error: "No token provided" });
@@ -107,11 +134,18 @@ export function authMiddleware(req: Request, res: Response, next: NextFunction) 
     if (req.viewAsUserId && req.user) {
       return next();
     }
+    const live = await loadUserFromDb(payload.userId);
+    if (!live) {
+      logSecurityEvent("auth.account_not_found", req, { reason: "deleted_or_missing" });
+      return res.status(401).json({ error: "Account no longer exists" });
+    }
     req.user = {
       userId: payload.userId,
-      email: payload.email,
-      roles: payload.roles || [],
+      email: live.email || payload.email,
+      roles: live.roles,
     };
+    // Record last-seen / IP presence (throttled, fire-and-forget).
+    touchPresence(payload.userId, req.ip);
     next();
   } catch (err) {
     logSecurityEvent("auth.invalid_token", req);

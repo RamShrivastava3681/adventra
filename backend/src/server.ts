@@ -114,59 +114,100 @@ app.use((_req, res) => {
 app.use(apiErrorHandler);
 
 // ---------------------------------------------------------------------------
-// Admin seed — auto-create the admin user from .env credentials on startup
+// Admin / super-admin seed on startup
+//
+// - ADMIN_EMAIL / ADMIN_PASSWORD create (or promote) the factor_admin account.
+// - SUPER_ADMIN_EMAIL (defaults to ADMIN_EMAIL) additionally gets the
+//   super_admin role — the only account allowed to create/delete users and
+//   view other users' last-seen/IP-location. The canonical super admin can
+//   never be demoted or deleted through the API.
 // ---------------------------------------------------------------------------
 async function seedAdmin() {
-  if (!config.admin.email || !config.admin.password) {
-    console.log("  ⚠ No ADMIN_EMAIL / ADMIN_PASSWORD set — skipping admin seed");
-    return;
-  }
-
   try {
     const users = await db.scanByType("User");
-    const existing = users.find((u: any) => u.email === config.admin.email);
-    if (existing) {
-      const roles: string[] = existing.roles || [];
+
+    // 1) Factor-admin account from ADMIN_EMAIL / ADMIN_PASSWORD.
+    if (config.admin.email && config.admin.password) {
+      let adminAccount = users.find(
+        (u: any) => String(u.email || "").toLowerCase() === config.admin.email!.toLowerCase()
+      );
+      if (!adminAccount) {
+        const id = uuid();
+        const now = db.nowISO();
+        const passwordHash = await bcrypt.hash(config.admin.password, 12);
+        adminAccount = {
+          pk: `USER#${id}`,
+          sk: `USER#${id}`,
+          gsi1pk: `CLIENT#${id}`,
+          gsi1sk: `User#${now}`,
+          gsi2pk: "User",
+          gsi2sk: `User#${id}`,
+          entityType: "User",
+          id,
+          email: config.admin.email,
+          passwordHash,
+          companyName: "Insight Factor Admin",
+          contactName: null,
+          roles: ["factor_admin"],
+          createdAt: now,
+          updatedAt: now,
+        };
+        await db.putItem(adminAccount);
+        users.push(adminAccount);
+        console.log(`  ✅ Admin user created: ${config.admin.email}`);
+      }
+      const roles: string[] = adminAccount.roles || [];
       if (!roles.includes("factor_admin")) {
         roles.push("factor_admin");
-        await db.updateItem(
-          `USER#${existing.id}`,
-          `USER#${existing.id}`,
-          { roles, updatedAt: db.nowISO() }
-        );
+        await db.updateItem(`USER#${adminAccount.id}`, `USER#${adminAccount.id}`, {
+          roles,
+          updatedAt: db.nowISO(),
+        });
         console.log(`  ✅ Promoted ${config.admin.email} to factor_admin`);
-      } else {
-        console.log(`  ✅ Admin user ${config.admin.email} already exists`);
       }
-      return;
+    } else {
+      console.log("  ⚠ No ADMIN_EMAIL / ADMIN_PASSWORD set — skipping admin seed");
     }
 
-    const id = uuid();
-    const now = db.nowISO();
-    const passwordHash = await bcrypt.hash(config.admin.password, 12);
-
-    const adminUser = {
-      pk: `USER#${id}`,
-      sk: `USER#${id}`,
-      gsi1pk: `CLIENT#${id}`,
-      gsi1sk: `User#${now}`,
-      gsi2pk: "User",
-      gsi2sk: `User#${id}`,
-      entityType: "User",
-      id,
-      email: config.admin.email,
-      passwordHash,
-      companyName: "Insight Factor Admin",
-      contactName: null,
-      roles: ["factor_admin"],
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    await db.putItem(adminUser);
-    console.log(`  ✅ Admin user created: ${config.admin.email}`);
+    // 2) Super-admin role for the designated account (SUPER_ADMIN_EMAIL || ADMIN_EMAIL).
+    const superEmail = config.superAdmin.email;
+    if (!superEmail) {
+      console.log("  ⚠ No SUPER_ADMIN_EMAIL / ADMIN_EMAIL set — skipping super admin seed");
+      return;
+    }
+    const superAccount = users.find(
+      (u: any) => String(u.email || "").toLowerCase() === superEmail.toLowerCase()
+    );
+    if (!superAccount) {
+      console.log(
+        `  ⚠ Super admin account ${superEmail} does not exist yet — ` +
+          `create it (or set ADMIN_EMAIL / ADMIN_PASSWORD to that address) and restart.`
+      );
+      return;
+    }
+    const superRoles: string[] = superAccount.roles || [];
+    const added: string[] = [];
+    // The super admin always keeps full platform access (factor_admin) on top
+    // of user-management powers (super_admin).
+    if (!superRoles.includes("super_admin")) {
+      superRoles.push("super_admin");
+      added.push("super_admin");
+    }
+    if (!superRoles.includes("factor_admin")) {
+      superRoles.push("factor_admin");
+      added.push("factor_admin");
+    }
+    if (added.length > 0) {
+      await db.updateItem(`USER#${superAccount.id}`, `USER#${superAccount.id}`, {
+        roles: superRoles,
+        updatedAt: db.nowISO(),
+      });
+      console.log(`  ✅ ${superEmail} is now ${added.join(" + ")}`);
+    } else {
+      console.log(`  ✅ Super admin ${superEmail} already has super_admin`);
+    }
   } catch (err) {
-    console.error("  ❌ Failed to seed admin user:", err);
+    console.error("  ❌ Failed to seed admin / super admin user:", err);
   }
 }
 

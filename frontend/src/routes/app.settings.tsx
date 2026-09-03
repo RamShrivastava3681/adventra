@@ -11,7 +11,7 @@ export const Route = createFileRoute("/app/settings")({
 });
 
 function SettingsPage() {
-  const { user, isAdmin, refreshRoles } = useAuth();
+  const { user, isAdmin } = useAuth();
   const [profile, setProfile] = useState({ company_name: "", contact_name: "" });
   const [loading, setLoading] = useState(false);
 
@@ -37,18 +37,6 @@ function SettingsPage() {
         contact_name: profile.contact_name,
       });
       toast.success("Profile saved");
-    } catch (e: any) {
-      toast.error(e.message ?? "Failed");
-    }
-    setLoading(false);
-  };
-
-  const becomeAdmin = async () => {
-    setLoading(true);
-    try {
-      await api.admin.updateRole(user!.id, "factor_admin", true);
-      toast.success("You now have factor admin access. Reloading…");
-      await refreshRoles();
     } catch (e: any) {
       toast.error(e.message ?? "Failed");
     }
@@ -98,22 +86,6 @@ function SettingsPage() {
                   ? "You can view every client's invoices, manage debtors, approve advances, and issue alerts."
                   : "You can submit invoices for your company and monitor their status."}
               </p>
-              {!isAdmin && (
-                <div className="mt-4 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs">
-                  <div className="font-medium text-warning">Demo: enable factor admin</div>
-                  <p className="mt-1 text-muted-foreground">
-                    For demonstration purposes, you can grant yourself factor admin to explore the
-                    operations console. In production, this would be granted out-of-band.
-                  </p>
-                  <button
-                    onClick={becomeAdmin}
-                    disabled={loading}
-                    className="mt-3 rounded-md border border-warning/40 px-3 py-1.5 text-xs text-warning hover:bg-warning/10"
-                  >
-                    Promote to factor admin
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         </Card>

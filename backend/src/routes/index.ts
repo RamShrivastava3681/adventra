@@ -22,11 +22,12 @@ import {
   auditAdminAction,
   logSecurityEvent,
 } from "../middleware/security.js";
-import { requireAdmin, requireChecker } from "../middleware/roles.js";
+import { requireAdmin, requireSuperAdmin, requireChecker } from "../middleware/roles.js";
 import { requireRole } from "../middleware/roles.js";
 import * as User from "../models/user.js";
 import * as Submission from "../models/submission.js";
 import * as ReminderLog from "../models/reminder-log.js";
+import * as ReminderSettings from "../models/reminder-settings.js";
 
 // ─── View-As middleware (for reporting managers to see their reports' data) ──
 // NOTE: this runs via router.use() BEFORE the per-route authMiddleware, so it
@@ -160,19 +161,28 @@ router.put("/auth/profile", authMiddleware, (req, res) =>
 router.get("/admin/users", authMiddleware, requireAdmin, (req, res) =>
   User.getUsers(req, res),
 );
+// Create / delete users, role toggles and manager assignment are restricted to
+// the super admin (sankalp@whizunik). Other admins keep all data access.
 router.post(
   "/admin/users/create",
   authMiddleware,
-  requireAdmin,
+  requireSuperAdmin,
   auditAdminAction,
   (req, res) => User.adminCreateUser(req, res),
 );
 router.put(
   "/admin/users/role",
   authMiddleware,
-  requireAdmin,
+  requireSuperAdmin,
   auditAdminAction,
   (req, res) => User.updateUserRole(req, res),
+);
+router.delete(
+  "/admin/users/:userId",
+  authMiddleware,
+  requireSuperAdmin,
+  auditAdminAction,
+  (req, res) => User.adminDeleteUser(req, res),
 );
 router.get("/admin/users/managers", authMiddleware, requireAdmin, (req, res) =>
   User.listManagers(req, res),
@@ -180,7 +190,7 @@ router.get("/admin/users/managers", authMiddleware, requireAdmin, (req, res) =>
 router.put(
   "/admin/users/:userId/assign-manager",
   authMiddleware,
-  requireAdmin,
+  requireSuperAdmin,
   auditAdminAction,
   (req, res) => User.assignManager(req, res),
 );
@@ -227,6 +237,13 @@ router.get("/users/:id", authMiddleware, async (req, res) => {
     const item = await db.getItem(`USER#${targetId}`);
     if (!item) return res.status(404).json({ error: "User not found" });
     const { passwordHash, ...safe } = item as any;
+    // Presence/location data (last seen, IP, geo) stays private: visible only to
+    // the user themself and the super admin, never to other admins/managers.
+    if (!isSelf && !requesterRoles.includes("super_admin")) {
+      delete safe.lastSeenAt;
+      delete safe.lastSeenIp;
+      delete safe.lastSeenGeo;
+    }
     return res.json(safe);
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
@@ -1327,14 +1344,10 @@ router.post("/invoices", authMiddleware, async (req, res) => {
       item.status !== "rejected" &&
       item.status !== "draft"
     ) {
-      const { sendReminderForInvoice } = await import("../invoice-reminder.js");
-      // Fire-and-forget — don't block the response
-      sendReminderForInvoice(item.id, "sales").catch((err: any) =>
-        console.error(
-          `  ⚠ Instant reminder trigger failed for ${item.invoiceNumber}:`,
-          err,
-        ),
-      );
+      // Fire-and-forget — don't block the response. Respects the admin's
+      // automatic-reminders on/off setting.
+      const { autoSendReminderOnChange } = await import("../invoice-reminder.js");
+      void autoSendReminderOnChange(item.id, "sales");
     }
     res.status(201).json(item);
   } catch (err: any) {
@@ -1595,14 +1608,10 @@ router.put("/invoices/:id", authMiddleware, async (req, res) => {
         inv.status !== "paid" &&
         inv.status !== "rejected"
       ) {
-        const { sendReminderForInvoice } =
+        // Fire-and-forget; respects the automatic-reminders on/off setting.
+        const { autoSendReminderOnChange } =
           await import("../invoice-reminder.js");
-        sendReminderForInvoice(inv.id, "sales").catch((err: any) =>
-          console.error(
-            `  ⚠ Instant reminder trigger failed for ${inv.invoiceNumber}:`,
-            err,
-          ),
-        );
+        void autoSendReminderOnChange(inv.id, "sales");
       }
     }
     res.json(updated);
@@ -1880,13 +1889,9 @@ router.post("/purchase-invoices", authMiddleware, async (req, res) => {
       item.dueDate &&
       !["paid", "rejected", "cancelled"].includes(item.status)
     ) {
-      const { sendReminderForInvoice } = await import("../invoice-reminder.js");
-      sendReminderForInvoice(item.id, "purchase").catch((err: any) =>
-        console.error(
-          `  ⚠ Instant reminder trigger failed for purchase ${item.invoiceNumber}:`,
-          err,
-        ),
-      );
+      // Fire-and-forget; respects the automatic-reminders on/off setting.
+      const { autoSendReminderOnChange } = await import("../invoice-reminder.js");
+      void autoSendReminderOnChange(item.id, "purchase");
     }
     res.status(201).json(item);
   } catch (err: any) {
@@ -2097,14 +2102,10 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
         inv.dueDate &&
         !["paid", "rejected", "cancelled"].includes(inv.status)
       ) {
-        const { sendReminderForInvoice } =
+        // Fire-and-forget; respects the automatic-reminders on/off setting.
+        const { autoSendReminderOnChange } =
           await import("../invoice-reminder.js");
-        sendReminderForInvoice(inv.id, "purchase").catch((err: any) =>
-          console.error(
-            `  ⚠ Instant reminder trigger failed for purchase ${inv.invoiceNumber}:`,
-            err,
-          ),
-        );
+        void autoSendReminderOnChange(inv.id, "purchase");
       }
     }
     res.json(updated);
@@ -5169,6 +5170,44 @@ router.post(
       res.json(result);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+// ===================== REMINDER SETTINGS (any admin) =====================
+// Read the current automatic-reminder configuration.
+router.get("/reminder-settings", authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    res.json(await ReminderSettings.get());
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update automatic reminders: enabled on/off + the due-date schedule (e.g.
+// mail when due in 1 / 2 / 7 / 15 / 30 days or on the due date itself).
+router.put(
+  "/reminder-settings",
+  authMiddleware,
+  requireAdmin,
+  auditAdminAction,
+  async (req, res) => {
+    try {
+      const body = req.body || {};
+      if (body.enabled === undefined && body.scheduleDays === undefined) {
+        return res
+          .status(400)
+          .json({ error: "Nothing to update — send enabled and/or scheduleDays" });
+      }
+      const updated = await ReminderSettings.update({
+        enabled: body.enabled,
+        scheduleDays: body.scheduleDays,
+        updatedBy: req.user?.email ?? null,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      const msg = err?.message || "Failed to update reminder settings";
+      return res.status(400).json({ error: msg });
     }
   },
 );

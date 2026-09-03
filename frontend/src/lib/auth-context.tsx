@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 export type AppRole =
   | "client"
   | "factor_admin"
+  | "super_admin"
   | "treasury"
   | "checker"
   | "sales_rep"
@@ -25,6 +26,7 @@ type AuthState = {
   roles: AppRole[];
   loading: boolean;
   isAdmin: boolean;
+  isSuperAdmin: boolean;
   isTreasury: boolean;
   isChecker: boolean;
   isClient: boolean;
@@ -91,6 +93,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const isAdmin = roles.includes("factor_admin");
+  const isSuperAdmin = roles.includes("super_admin");
   const isTreasury = roles.includes("treasury");
   const isChecker = roles.includes("checker");
   const isSalesRep = roles.includes("sales_rep");
@@ -98,13 +101,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const isReportingManager = roles.includes("reporting_manager");
   const isClient =
     roles.includes("client") ||
-    (!isAdmin && !isTreasury && !isChecker && !isSalesRep && !isOperations && !isReportingManager);
+    (!isAdmin &&
+      !isSuperAdmin &&
+      !isTreasury &&
+      !isChecker &&
+      !isSalesRep &&
+      !isOperations &&
+      !isReportingManager);
 
   const value: AuthState = {
     user,
     roles,
     loading,
     isAdmin,
+    isSuperAdmin,
     isTreasury,
     isChecker,
     isClient,

@@ -401,6 +401,12 @@ const api = {
     sendPurchase: (invoiceId: string) =>
       api.post<any>(`/purchase-invoices/${invoiceId}/send-reminder`),
     runAll: () => api.post<any>("/reminders/run"),
+    // Automatic reminders: on/off master switch + due-date schedule (any admin).
+    settings: {
+      get: () => api.get<any>("/reminder-settings"),
+      update: (data: { enabled?: boolean; scheduleDays?: number[] }) =>
+        api.put<any>("/reminder-settings", data),
+    },
   },
 
   // Submissions (Visits, Travel, Expenses, Leave)
@@ -432,6 +438,7 @@ const api = {
     }) => api.post<any>("/admin/users/create", data),
     updateRole: (userId: string, role: string, add: boolean) =>
       api.put("/admin/users/role", { userId, role, add }),
+    deleteUser: (userId: string) => api.delete<any>(`/admin/users/${userId}`),
     listManagers: () => api.get<any[]>("/admin/users/managers"),
     assignManager: (userId: string, managerId: string | null) =>
       api.put(`/admin/users/${userId}/assign-manager`, { managerId }),

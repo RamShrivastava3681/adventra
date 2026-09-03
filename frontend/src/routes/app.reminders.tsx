@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import api from "@/lib/api-client";
 import {
@@ -22,8 +22,10 @@ import {
   TrendingDown,
   Play,
   Loader2,
+  BellOff,
 } from "lucide-react";
-import { PageHeader } from "@/components/ledger-ui";
+import { PageHeader, Card } from "@/components/ledger-ui";
+import { Switch } from "@/components/ui/switch";
 
 export const Route = createFileRoute("/app/reminders")({
   component: RemindersPage,
@@ -132,6 +134,157 @@ function Badge({
   );
 }
 
+// ─── Automatic reminder settings (any admin) ─────────────
+
+const SCHEDULE_OPTIONS: Array<{ days: number; label: string }> = [
+  { days: 0, label: "Due date" },
+  { days: 1, label: "1 day before" },
+  { days: 2, label: "2 days before" },
+  { days: 7, label: "7 days before" },
+  { days: 15, label: "15 days before" },
+  { days: 30, label: "30 days before" },
+];
+
+const DEFAULT_SCHEDULE = [0, 1, 2, 7, 15];
+
+function ReminderSettingsCard() {
+  const qc = useQueryClient();
+  const settingsQ = useQuery({
+    queryKey: ["reminder-settings"],
+    queryFn: () => api.reminders.settings.get(),
+  });
+  const [enabled, setEnabled] = useState(true);
+  const [selected, setSelected] = useState<number[]>([...DEFAULT_SCHEDULE]);
+  const [dirty, setDirty] = useState(false);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Hydrate local form state once the server settings arrive.
+  useEffect(() => {
+    const data = settingsQ.data;
+    if (!data || hydrated) return;
+    setHydrated(true);
+    setEnabled(data.enabled !== false);
+    const stored: number[] = Array.isArray(data.schedule_days) ? data.schedule_days : [];
+    setSelected(stored.length ? stored : [...DEFAULT_SCHEDULE]);
+    setDirty(false);
+  }, [settingsQ.data, hydrated]);
+
+  const savedEnabled = settingsQ.data?.enabled !== false;
+  const savedDays: number[] =
+    Array.isArray(settingsQ.data?.schedule_days) && settingsQ.data!.schedule_days.length
+      ? settingsQ.data!.schedule_days
+      : [...DEFAULT_SCHEDULE];
+
+  const save = useMutation({
+    mutationFn: async () => {
+      await api.reminders.settings.update({ enabled, scheduleDays: selected });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["reminder-settings"] });
+      setDirty(false);
+      toast.success(enabled ? "Automatic reminders turned on" : "Automatic reminders turned off");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to save reminder settings"),
+  });
+
+  const toggleDay = (days: number) => {
+    setSelected((prev) => {
+      const next = prev.includes(days) ? prev.filter((d) => d !== days) : [...prev, days];
+      return next.sort((a, b) => a - b);
+    });
+    setDirty(true);
+  };
+
+  return (
+    <Card
+      title="Automatic reminders"
+      action={
+        dirty ? (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setEnabled(savedEnabled);
+                setSelected(savedDays);
+                setDirty(false);
+              }}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted"
+            >
+              Reset
+            </button>
+            <button
+              onClick={() => save.mutate()}
+              disabled={save.isPending || selected.length === 0}
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+            >
+              {save.isPending ? "Saving…" : "Save changes"}
+            </button>
+          </div>
+        ) : undefined
+      }
+    >
+      <div className="flex flex-col gap-5">
+        {/* Master switch */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 font-medium">
+              {enabled ? (
+                <BellRing className="h-4 w-4 text-primary" />
+              ) : (
+                <BellOff className="h-4 w-4 text-muted-foreground" />
+              )}
+              {enabled ? "Reminder emails are on" : "Reminder emails are paused"}
+            </div>
+            <p className="mt-1 max-w-xl text-xs text-muted-foreground">
+              {enabled
+                ? "Automatic reminder emails are sent on the schedule below, plus daily once an invoice is overdue."
+                : "No automatic reminder emails are sent — this also stops the instant email on new/updated invoices. Manual \"Send Reminder\" clicks still work."}
+            </p>
+          </div>
+          <Switch
+            checked={enabled}
+            onCheckedChange={(v) => {
+              setEnabled(v);
+              setDirty(true);
+            }}
+            aria-label="Toggle automatic reminder emails"
+          />
+        </div>
+
+        {/* Schedule picker */}
+        <div>
+          <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
+            Send reminder emails when an invoice is due in
+          </div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {SCHEDULE_OPTIONS.map((opt) => {
+              const active = selected.includes(opt.days);
+              return (
+                <button
+                  key={opt.days}
+                  type="button"
+                  onClick={() => toggleDay(opt.days)}
+                  className={`rounded-lg border px-3 py-2 text-xs font-medium transition-all ${
+                    active
+                      ? "border-primary bg-primary/5 text-primary ring-1 ring-primary"
+                      : "border-border text-muted-foreground hover:border-primary/40 hover:bg-muted/40"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[10px] text-muted-foreground">
+            {selected.length === 0
+              ? "Pick at least one schedule day to save."
+              : `Currently selected: ${selected.length === SCHEDULE_OPTIONS.length ? "every option" : selected.map((d) => (d === 0 ? "due date" : `${d} day${d === 1 ? "" : "s"} before`)).join(", ")}. Once overdue, reminders go out daily until the invoice is paid or closed.`}
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 // ─── Run All Reminders Button ────────────────────────────
 
 function RunAllButton() {
@@ -140,7 +293,8 @@ function RunAllButton() {
     mutationFn: () => api.reminders.runAll(),
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["reminder-logs"] });
-      toast.success(`Reminder run complete: ${data.checked} checked, ${data.sent} sent`);
+      if (data?.message) toast.info(data.message);
+      else toast.success(`Reminder run complete: ${data.checked} checked, ${data.sent} sent`);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to run reminders"),
   });
@@ -463,8 +617,13 @@ function RemindersPage() {
         }
       />
 
-      {/* ── Stats Grid ── */}
+      {/* ── Automatic reminder settings ── */}
       <div className="px-6 pt-6 md:px-10">
+        <ReminderSettingsCard />
+      </div>
+
+      {/* ── Stats Grid ── */}
+      <div className="px-6 pt-4 md:px-10">
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           <StatCard
             icon={BellRing}
