@@ -713,7 +713,7 @@ function CashFlowPage() {
 
             {/* ── Main Navigation Tabs ───────────────────── */}
             <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-5">
-              <TabsList className="h-10 p-1 bg-muted/60 border border-border/80 rounded-xl overflow-x-auto w-full justify-start md:w-auto">
+              <TabsList className="h-10 w-full max-w-full justify-start overflow-x-auto rounded-xl border border-border/80 bg-muted/60 p-1">
                 <TabsTrigger value="overview" className="text-xs font-medium gap-1.5 px-3">
                   <LayoutDashboard className="h-3.5 w-3.5" />
                   Overview & Forecast
@@ -766,16 +766,16 @@ function CashFlowPage() {
                           Dynamic trajectory comparing projected closing balance against minimum buffer.
                         </p>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         <Tabs value={mode} onValueChange={(v) => setMode(v as any)}>
-                          <TabsList className="h-8">
+                          <TabsList className="h-8 max-w-full overflow-x-auto">
                             <TabsTrigger value="daily" className="text-xs px-2.5">Daily (30d)</TabsTrigger>
                             <TabsTrigger value="weekly" className="text-xs px-2.5">Weekly (13w)</TabsTrigger>
                             <TabsTrigger value="monthly" className="text-xs px-2.5">Monthly (6m)</TabsTrigger>
                           </TabsList>
                         </Tabs>
                         <Tabs value={viewMode} onValueChange={(v) => setViewMode(v as any)}>
-                          <TabsList className="h-8">
+                          <TabsList className="h-8 max-w-full overflow-x-auto">
                             <TabsTrigger value="base" className="text-xs px-2.5">Base Forecast</TabsTrigger>
                             <TabsTrigger value="with_commitments" className="text-xs px-2.5">With PO Commitments</TabsTrigger>
                           </TabsList>

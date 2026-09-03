@@ -281,7 +281,7 @@ function SuppliersPage() {
           onClick={() => setOpen(false)}
         >
           <div
-            className="w-full max-w-2xl rounded-xl border border-border bg-card shadow-2xl"
+            className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
@@ -452,7 +452,7 @@ function SupplierDetailModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-xl border border-border bg-card shadow-vault"
+        className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card shadow-vault"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">

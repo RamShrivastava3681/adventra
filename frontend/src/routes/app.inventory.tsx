@@ -315,7 +315,7 @@ function InventoryPage() {
       <div className="space-y-6 p-6 md:p-10">
         {/* Location-wise Stock Breakdown */}
         <Card>
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h3 className="font-display text-sm font-medium">Location-wise Stock Breakdown</h3>
               <p className="text-[10px] text-muted-foreground">
@@ -700,7 +700,7 @@ function ConfirmAction({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-xl border border-border bg-card p-5"
+        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-5"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="font-display text-lg">
@@ -1116,7 +1116,7 @@ function MovementModal({
             )}
 
             {selected && (
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <L label={`${form.direction === "out" ? "MRP" : "Unit cost"} (auto-filled)`}>
                   <input
                     type="number"
@@ -1601,7 +1601,7 @@ function BulkImportModal({
               </h4>
 
               {/* Movement settings */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <L label="Reason">
                   <select
                     className="inp"

@@ -1141,7 +1141,7 @@ function ManualEntryModal({
   return (
     <div className="fixed inset-0 z-50 grid place-items-center print:hidden">
       <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative m-4 w-full max-w-3xl rounded-xl border border-border bg-background p-6 shadow-2xl">
+      <div className="relative m-4 max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-background p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h3 className="font-display text-xl">{SECTION_LABEL[section]}</h3>

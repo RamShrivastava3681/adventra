@@ -790,7 +790,7 @@ function PayPurchaseModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-vault"
+        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-vault"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="mb-4 font-display text-lg">Record payment · {row.invoice_number}</h3>
@@ -888,7 +888,7 @@ function CloseSaleModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-xl border border-border bg-card p-5 shadow-vault"
+        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-vault"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="mb-4 font-display text-lg">Close sales invoice {row.invoice_number}</h3>

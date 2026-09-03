@@ -490,7 +490,7 @@ function ConfirmProductDelete({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-xl border border-border bg-card p-5"
+        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-5"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="font-display text-lg">Delete {product.name}?</h3>

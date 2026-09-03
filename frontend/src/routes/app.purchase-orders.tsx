@@ -2279,7 +2279,8 @@ function GRNsModal({
                       )}
                     </div>
                   </div>
-                  <table className="w-full text-sm">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
                     <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
                         <th className="py-1 text-left font-normal">Product</th>
@@ -2315,7 +2316,8 @@ function GRNsModal({
                         </tr>
                       ))}
                     </tbody>
-                  </table>
+                    </table>
+                  </div>
                   {acc > 0 && g.notes && (
                     <div className="mt-2 text-[11px] text-muted-foreground">Note: {g.notes}</div>
                   )}

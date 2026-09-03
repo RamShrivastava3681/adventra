@@ -998,9 +998,10 @@ function SKUTable({
       </div>
 
       {/* ── Tablet & desktop: full table ── */}
-      {/* overflow-x-clip (not -auto) so the sticky thead sticks to the
+      {/* Scrolls horizontally on tablet / narrow-desktop widths; falls back to
+          clip on xl+ where the table fits so the sticky thead can stick to the
           viewport instead of to this wrapper's scrollport */}
-      <div className="hidden overflow-x-clip rounded-t-xl md:block">
+      <div className="hidden overflow-x-auto rounded-t-xl md:block xl:overflow-x-clip">
         <table className="w-full min-w-[980px] text-sm">
           <thead className="sticky top-14 z-10 md:top-0">
             <tr className="border-b border-border bg-muted/40">
@@ -2274,7 +2275,7 @@ function ExpandedForecastDetail({
 
           {/* Demand trend chart */}
           <div className="rounded-xl border border-border/50 bg-card p-4">
-            <div className="flex items-center justify-between mb-4">
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
               <div>
                 <h4 className="text-xs uppercase tracking-widest text-muted-foreground">
                   Demand trend
@@ -2283,7 +2284,7 @@ function ExpandedForecastDetail({
                   12mo history · 6mo forecast
                 </p>
               </div>
-              <div className="flex items-center gap-3 text-[10px]">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px]">
                 <span className="flex items-center gap-1.5">
                   <span className="h-2.5 w-2.5 rounded-full bg-primary" />
                   Forecast

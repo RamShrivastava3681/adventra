@@ -266,7 +266,7 @@ function AccountForm({
 
   return (
     <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-lg border border-border bg-card p-6">
+      <div className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-lg border border-border bg-card p-6">
         <div className="flex justify-between mb-4">
           <div className="font-display text-lg">{initial ? "Edit account" : "New account"}</div>
           <button onClick={onClose}>

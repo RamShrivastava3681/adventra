@@ -333,7 +333,7 @@ function NoteDetailModal({ note, onClose }: { note: any; onClose: () => void }) 
       onClick={onClose}
     >
       <div
-        className="w-full max-w-lg rounded-xl border border-border bg-card shadow-vault"
+        className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card shadow-vault"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
@@ -529,7 +529,7 @@ function NewNoteModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-xl border border-border bg-card shadow-vault"
+        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card shadow-vault"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
@@ -608,7 +608,8 @@ function NewNoteModal({
                   + Add line
                 </button>
               </div>
-              <table className="table-premium w-full text-xs">
+              <div className="overflow-x-auto">
+                <table className="table-premium w-full text-xs">
                 <thead className="text-muted-foreground">
                   <tr>
                     <th className="text-left font-normal">Description</th>
@@ -685,7 +686,8 @@ function NewNoteModal({
                     </tr>
                   ))}
                 </tbody>
-              </table>
+                </table>
+              </div>
               <div className="ml-auto w-56 space-y-1 border-t border-border pt-2 text-xs">
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Subtotal</span>
