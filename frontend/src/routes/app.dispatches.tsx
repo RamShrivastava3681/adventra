@@ -260,6 +260,7 @@ function DispatchesPage() {
     qc.invalidateQueries({ queryKey: ["stock-for-dispatch"] });
     qc.invalidateQueries({ queryKey: ["products"] });
     qc.invalidateQueries({ queryKey: ["stock_movements_all"] });
+    qc.invalidateQueries({ queryKey: ["stock-summary"] });
   };
 
   const setSoFilter = (v: string) => {

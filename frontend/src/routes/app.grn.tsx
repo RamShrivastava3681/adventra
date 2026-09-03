@@ -171,6 +171,7 @@ function GrnPage() {
     qc.invalidateQueries({ queryKey: ["goods-receipts"] });
     qc.invalidateQueries({ queryKey: ["products"] });
     qc.invalidateQueries({ queryKey: ["stock_movements_all"] });
+    qc.invalidateQueries({ queryKey: ["stock-summary"] });
     qc.invalidateQueries({ queryKey: ["inventory"] });
   };
 

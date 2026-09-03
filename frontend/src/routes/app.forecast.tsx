@@ -870,7 +870,7 @@ function FiltersToolbar({
       </Popover>
 
       {/* Month selector */}
-      <div className="flex items-center gap-1 rounded-[10px] border border-border bg-card px-1 py-1">
+      <div className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-[10px] border border-border bg-card px-1 py-1">
         <button
           onClick={prevMonth}
           title="Previous month"
@@ -878,7 +878,7 @@ function FiltersToolbar({
         >
           <ChevronLeft className="h-4 w-4" />
         </button>
-        <span className="min-w-[100px] text-center text-sm font-semibold tabular-nums text-foreground">
+        <span className="w-[112px] text-center text-sm font-semibold tabular-nums text-foreground">
           {targetMonthLabel}
         </span>
         <button
@@ -888,14 +888,16 @@ function FiltersToolbar({
         >
           <ChevronRight className="h-4 w-4" />
         </button>
-        {!isDefaultMonth && (
-          <button
-            onClick={() => onTargetMonthChange(todayKey)}
-            className="ml-1 inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary transition-colors hover:bg-primary/20"
-          >
-            Today
-          </button>
-        )}
+        <button
+          onClick={() => onTargetMonthChange(todayKey)}
+          aria-hidden={isDefaultMonth}
+          tabIndex={isDefaultMonth ? -1 : 0}
+          className={`ml-1 inline-flex items-center rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary transition-colors hover:bg-primary/20 ${
+            isDefaultMonth ? "invisible pointer-events-none" : ""
+          }`}
+        >
+          Today
+        </button>
       </div>
 
       {/* Right group */}

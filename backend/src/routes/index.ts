@@ -2804,6 +2804,11 @@ router.post("/goods-receipts", authMiddleware, async (req, res) => {
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
+    const receivingLocation = body.receivingLocationId
+      ? await StockLocation.get(body.receivingLocationId)
+      : await StockLocation.getDefaultLocation(clientId);
+    if (!receivingLocation || receivingLocation.clientId !== clientId || receivingLocation.status !== "active")
+      return res.status(400).json({ error: "A valid active receiving location is required" });
     const receipt = await GoodsReceipt.create({
       clientId,
       goodsPurchaseOrderId: po.id,
@@ -2820,7 +2825,7 @@ router.post("/goods-receipts", authMiddleware, async (req, res) => {
       documents: body.documents || [],
       status: "draft",
       lines,
-      receivingLocationId: body.receivingLocationId || null,
+      receivingLocationId: receivingLocation.id,
     });
     await syncLinkedPurchaseInvoice(receipt);
     res.status(201).json(receipt);
@@ -2852,6 +2857,11 @@ router.post("/goods-receipts/:id/confirm", authMiddleware, async (req, res) => {
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
+    const receivingLocation = receipt.receivingLocationId
+      ? await StockLocation.get(receipt.receivingLocationId)
+      : await StockLocation.getDefaultLocation(clientId);
+    if (!receivingLocation || receivingLocation.clientId !== clientId || receivingLocation.status !== "active")
+      return res.status(400).json({ error: "The GRN receiving location is missing or inactive" });
     // Re-validate at confirm time — the PO may have been received further in the
     // meantime, so pending is checked against the live PO.
     try {
@@ -2866,7 +2876,7 @@ router.post("/goods-receipts/:id/confirm", authMiddleware, async (req, res) => {
       req.user!.email,
     );
     if (!flipped) return res.json({ ...receipt, alreadyConfirmed: true });
-    await creditGoodsReceipt(clientId, flipped, po);
+    await creditGoodsReceipt(clientId, { ...flipped, receivingLocationId: receivingLocation.id }, po);
     trackAction(req, "grn.confirmed", receipt.id, {
       entityType: "grn",
       entityRef: receipt.receiptNumber,
@@ -3989,11 +3999,14 @@ function debitedQty(l: any): number {
 /** Available stock per product (confirmed credits − confirmed debits). */
 async function stockBalanceByProduct(
   clientId: string,
+  locationId: string,
 ): Promise<Map<string, number>> {
   const movements = await StockMovement.list(clientId);
   const balance = new Map<string, number>();
   for (const m of movements) {
     if (!m.productId || m.status !== "confirmed") continue;
+    if (m.direction === "in" && m.destinationLocationId !== locationId) continue;
+    if (m.direction === "out" && m.sourceLocationId !== locationId) continue;
     balance.set(
       m.productId,
       (balance.get(m.productId) ?? 0) +
@@ -4225,17 +4238,22 @@ router.post(
       } catch (e: any) {
         return res.status(400).json({ error: e.message });
       }
-      // Soft stock check: warn (don't block) when available stock is short.
-      const balance = await stockBalanceByProduct(clientId);
-      const warnings: string[] = [];
+      if (!dispatch.sourceLocationId)
+        return res.status(400).json({ error: "Select the warehouse to dispatch from" });
+      const sourceLocation = await StockLocation.get(dispatch.sourceLocationId);
+      if (!sourceLocation || sourceLocation.clientId !== clientId || sourceLocation.status !== "active")
+        return res.status(400).json({ error: "The dispatch source location is missing or inactive" });
+      // Stock is owned by a location. Never debit another warehouse or allow a
+      // dispatch to create a negative balance in the selected warehouse.
+      const balance = await stockBalanceByProduct(clientId, dispatch.sourceLocationId);
       for (const ln of dispatch.lines ?? []) {
         const qty = debitedQty(ln);
         if (!(qty > 0)) continue;
         const available = balance.get(ln.productId) ?? 0;
         if (qty > available) {
-          warnings.push(
-            `${ln.name}: dispatching ${qty} but only ${Math.max(0, available)} in stock`,
-          );
+          return res.status(400).json({
+            error: `${ln.name}: only ${Math.max(0, available)} available in ${sourceLocation.name}; cannot dispatch ${qty}`,
+          });
         }
       }
       // Atomic draft → confirmed flip: exactly one concurrent confirm wins and
@@ -4276,7 +4294,7 @@ router.post(
           console.error("  ⚠ Cash-flow marketplace sync failed:", err?.message ?? err);
         }
       })();
-      res.json({ ...flipped, stockWarnings: warnings });
+      res.json(flipped);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

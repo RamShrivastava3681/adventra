@@ -168,8 +168,9 @@ function InventoryPage() {
   const stockSummaryQ = useQuery({
     queryKey: ["stock-summary"],
     queryFn: async () => api.stockSummary.list(),
+    refetchInterval: 5000,
   });
-  const [showLocationBreakdown, setShowLocationBreakdown] = useState(false);
+  const [showLocationBreakdown, setShowLocationBreakdown] = useState(true);
 
   const rows = (movementsQ.data ?? []).filter(
     (m: Movement) =>
@@ -325,7 +326,7 @@ function InventoryPage() {
               onClick={() => setShowLocationBreakdown(!showLocationBreakdown)}
               className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary"
             >
-              {showLocationBreakdown ? "Hide" : "Show"} breakdown
+              {showLocationBreakdown ? "Hide" : "Show"} live breakdown
             </button>
           </div>
           {showLocationBreakdown && (
