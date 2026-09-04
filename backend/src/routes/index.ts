@@ -274,11 +274,96 @@ router.get("/products/:id", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+// Inherited commercial details when a child SKU (colour/size variant) is
+// created — the variant form only asks for colour, size and an optional SKU,
+// so everything else is copied from the parent record at creation time.
+const VARIANT_INHERITED_FIELDS = [
+  "name",
+  "description",
+  "category",
+  "subcategory",
+  "gender",
+  "brand",
+  "model",
+  "unitOfMeasure",
+  "season",
+  "unitPrice",
+  "unitCost",
+  "mrp",
+  "ecommercePrice",
+  "retailerPrice",
+  "distributorPrice",
+  "flexiblePrice",
+  "minimumGrossMarginPercentage",
+  "reorderLevel",
+  "maxStock",
+  "leadTimeDays",
+  "safetyStockDays",
+  "supplierId",
+  "supplierProductCode",
+  "minimumOrderQuantity",
+  "orderMultiple",
+  "hsnCode",
+  "gstRate",
+  "imageUrl",
+  "unitsPerCarton",
+  "status",
+] as const;
+
+/** Load a parent product and validate it can own variants. Throws on error. */
+async function resolveVariantParent(clientId: string, parentId: string, isStaff: boolean) {
+  const parent = await Product.get(parentId);
+  if (!parent) throw new Error("Parent product not found");
+  if (parent.clientId !== clientId && !isStaff) {
+    throw new Error("Forbidden — the parent product belongs to another client");
+  }
+  if (parent.parentId) {
+    throw new Error(
+      "Variants are one level deep — a variant cannot itself have variants. Create this colour/size under the top-level parent instead.",
+    );
+  }
+  return parent;
+}
+
 router.post("/products", authMiddleware, async (req, res) => {
+  const clientId = req.user!.userId;
+  const body = req.body || {};
+  // Child SKUs inherit the parent's commercial details server-side; only
+  // colour / size / optional SKU (and parentId) are taken from the request.
+  if (body.parentId) {
+    try {
+      const parent = await resolveVariantParent(
+        clientId,
+        body.parentId,
+        isStaffAccount(req.user?.roles),
+      );
+      for (const key of VARIANT_INHERITED_FIELDS) {
+        if ((parent as any)[key] !== undefined && (body as any)[key] === undefined) {
+          (body as any)[key] = (parent as any)[key];
+        }
+      }
+      if (!body.name) body.name = parent.name;
+      // The variant name reads as a concrete sellable line, e.g. "Running Shoe — Black / 42".
+      const colour = (body.color ?? "").toString().trim();
+      const size = (body.size ?? "").toString().trim();
+      const attrs = [colour, size].filter(Boolean).map((a) => a.toUpperCase()).join(" / ");
+      body.name = attrs ? `${parent.name} — ${attrs}` : parent.name;
+      if (!body.sku) {
+        body.sku = await Product.nextAvailableVariantSku(
+          clientId,
+          parent.sku,
+          colour,
+          size,
+        );
+      }
+    } catch (err: any) {
+      return res.status(400).json({ error: err.message });
+    }
+  }
   try {
     const item = await Product.create({
-      ...req.body,
-      clientId: req.user!.userId,
+      ...body,
+      clientId,
     });
     res.status(201).json(item);
   } catch (err: any) {
@@ -304,19 +389,30 @@ router.delete("/products/:id", authMiddleware, async (req, res) => {
       return res.status(403).json({ error: "Forbidden" });
     }
     const ownerId = product.clientId;
-    // Cascade: remove the catalogue record AND everything that hangs off it —
-    // inventory movements and forecast snapshots. Documents (invoices, orders,
-    // GRNs, dispatches, quotations) keep their own snapshot copies untouched.
-    const movementsDeleted = await StockMovement.removeByProduct(
-      ownerId,
-      product.id,
-    );
+    // Variant cascade: deleting a parent also deletes every child SKU. Each
+    // one removes its catalogue record AND everything that hangs off it —
+    // inventory movements and forecast snapshots. Documents (invoices,
+    // orders, GRNs, dispatches, quotations) keep their snapshot copies.
+    const siblings = (await Product.list(ownerId)) as any[];
+    const childIds = siblings
+      .filter((p) => p.parentId === product.id)
+      .map((p) => p.id);
     const { removeAllForProduct } =
       await import("../models/forecast-variable.js");
-    const forecastsDeleted = await removeAllForProduct(ownerId, product.id);
-    await Product.remove(product.id);
+    let movementsDeleted = 0;
+    let forecastsDeleted = 0;
+    for (const id of [product.id, ...childIds]) {
+      movementsDeleted += (await StockMovement.removeByProduct(ownerId, id)) ?? 0;
+      forecastsDeleted += (await removeAllForProduct(ownerId, id)) ?? 0;
+      await Product.remove(id);
+    }
     recomputeForecast(ownerId);
-    res.json({ success: true, movementsDeleted, forecastsDeleted });
+    res.json({
+      success: true,
+      movementsDeleted,
+      forecastsDeleted,
+      variantsDeleted: childIds.length,
+    });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1026,11 +1122,11 @@ async function validateInvoiceLines(clientId: string | undefined, rawLines: any[
   const lines = Array.isArray(rawLines) ? rawLines : [];
   if (lines.length === 0) throw new Error("Add at least one product line");
   const products = await Product.list(clientId);
-  const catalogueIds = new Set(products.map((p: any) => p.id));
+  const productById = new Map(products.map((p: any) => [p.id, p]));
   for (const l of lines) {
     if (!l.productId)
       throw new Error("Every line must select a product from the catalogue");
-    if (!catalogueIds.has(l.productId))
+    if (!productById.has(l.productId))
       throw new Error("Every SKU must come from the product catalogue");
     if (!(Number(l.quantity) > 0))
       throw new Error("Quantity must be greater than zero");
@@ -1038,8 +1134,31 @@ async function validateInvoiceLines(clientId: string | undefined, rawLines: any[
       throw new Error(
         "Unit selling price must be greater than or equal to zero",
       );
+    applyVariantSnapshot(l, productById.get(l.productId));
   }
   return lines;
+}
+
+// ── Colour/size variant snapshots on document lines ─────────────────────────
+// Document lines keep snapshot copies (sku, name, unit…) so later catalogue
+// edits never rewrite history. Colour/size are snapshotted the same way so
+// printed line items and PDFs can show "Black · 42" for variant SKUs.
+
+/** Copy colour/size attributes from a catalogue product onto a document line. */
+function applyVariantSnapshot(line: any, product: any): void {
+  if (!line || !product) return;
+  const color = product.color ?? null;
+  const size = product.size ?? null;
+  if (color !== null && color !== undefined) line.color = color;
+  else delete line.color;
+  if (size !== null && size !== undefined) line.size = size;
+  else delete line.size;
+}
+
+/** Copy colour/size snapshots from a linked document's line (PO→PI, PO→GRN…). */
+function copyVariantSnapshot(line: any, sourceLine: any): void {
+  if (!line || !sourceLine) return;
+  applyVariantSnapshot(line, sourceLine);
 }
 
 /**
@@ -1708,6 +1827,8 @@ function validatePurchaseInvoiceLines(po: any, rawLines: any[]) {
       sku: poLine.sku,
       name: poLine.name,
       unit: poLine.unit ?? "unit",
+      color: poLine.color ?? null,
+      size: poLine.size ?? null,
       orderedQty: Number(poLine.orderedQty) || 0,
       grnReceivedQty: Number(ln.grnReceivedQty) || 0,
       invoiceQty,
@@ -2149,16 +2270,17 @@ router.delete("/purchase-invoices/:id", authMiddleware, async (req, res) => {
 async function validateProformaLines(clientId: string | undefined, rawLines: any[]) {
   if (!Array.isArray(rawLines) || rawLines.length === 0) return [];
   const products = await Product.list(clientId);
-  const catalogueIds = new Set(products.map((p: any) => p.id));
+  const productById = new Map(products.map((p: any) => [p.id, p]));
   for (const l of rawLines) {
     if (!l.productId)
       throw new Error("Every line must select a product from the catalogue");
-    if (!catalogueIds.has(l.productId))
+    if (!productById.has(l.productId))
       throw new Error("Every SKU must come from the product catalogue");
     if (!(Number(l.quantity) > 0))
       throw new Error("Quantity must be greater than zero");
     if (Number(l.unitPrice) < 0)
       throw new Error("Unit price must be greater than or equal to zero");
+    applyVariantSnapshot(l, productById.get(l.productId));
   }
   return rawLines;
 }
@@ -2502,16 +2624,17 @@ async function validateGoodsPOLines(clientId: string | undefined, rawLines: any[
   const lines = Array.isArray(rawLines) ? rawLines : [];
   if (lines.length === 0) throw new Error("Add at least one product line");
   const products = await Product.list(clientId);
-  const catalogueIds = new Set(products.map((p: any) => p.id));
+  const productById = new Map(products.map((p: any) => [p.id, p]));
   for (const l of lines) {
     if (!l.productId)
       throw new Error("Every line must select a product from the catalogue");
-    if (!catalogueIds.has(l.productId))
+    if (!productById.has(l.productId))
       throw new Error("Every SKU must come from the product catalogue");
     if (!(Number(l.orderedQty) > 0))
       throw new Error("Ordered quantity must be greater than zero");
     if (Number(l.unitPrice) < 0)
       throw new Error("Unit price must be greater than or equal to zero");
+    applyVariantSnapshot(l, productById.get(l.productId));
   }
   return lines;
 }
@@ -3029,11 +3152,11 @@ async function validateGoodsSOLines(clientId: string | undefined, rawLines: any[
   const lines = Array.isArray(rawLines) ? rawLines : [];
   if (lines.length === 0) throw new Error("Add at least one product line");
   const products = await Product.list(clientId);
-  const catalogueIds = new Set(products.map((p: any) => p.id));
+  const productById = new Map(products.map((p: any) => [p.id, p]));
   for (const l of lines) {
     if (!l.productId)
       throw new Error("Every line must select a product from the catalogue");
-    if (!catalogueIds.has(l.productId))
+    if (!productById.has(l.productId))
       throw new Error("Every SKU must come from the product catalogue");
     if (!(Number(l.orderedQty) > 0))
       throw new Error("Ordered quantity must be greater than zero");
@@ -3051,6 +3174,7 @@ async function validateGoodsSOLines(clientId: string | undefined, rawLines: any[
         throw new Error("Discount must be a percentage between 0 and 100");
       }
     }
+    applyVariantSnapshot(l, productById.get(l.productId));
   }
   return lines;
 }
@@ -3135,11 +3259,11 @@ async function validateQuotationLines(clientId: string | undefined, rawLines: an
   const lines = Array.isArray(rawLines) ? rawLines : [];
   if (lines.length === 0) throw new Error("Add at least one product line");
   const products = await Product.list(clientId);
-  const catalogueIds = new Set(products.map((p: any) => p.id));
+  const productById = new Map(products.map((p: any) => [p.id, p]));
   for (const l of lines) {
     if (!l.productId)
       throw new Error("Every line must select a product from the catalogue");
-    if (!catalogueIds.has(l.productId))
+    if (!productById.has(l.productId))
       throw new Error("Every SKU must come from the product catalogue");
     if (!(Number(l.quantity) > 0))
       throw new Error("Quantity must be greater than zero");
@@ -3177,6 +3301,7 @@ async function validateQuotationLines(clientId: string | undefined, rawLines: an
     if (l.discountType === "amount" && Number(l.discountValue) < 0) {
       throw new Error("Discount amount must be greater than or equal to zero");
     }
+    applyVariantSnapshot(l, productById.get(l.productId));
   }
   return lines;
 }
@@ -3990,6 +4115,8 @@ function validateDispatchLines(
       sku: soLine.sku,
       name: soLine.name,
       unit: soLine.unit ?? "unit",
+      color: soLine.color ?? null,
+      size: soLine.size ?? null,
       orderedQty: soLine.orderedQty,
       dispatchedQty,
       unitPrice: Number(ln.unitPrice ?? soLine.unitPrice) || 0,

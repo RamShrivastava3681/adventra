@@ -16,6 +16,7 @@ import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { ProductVariantPicker } from "@/components/product-variant-picker";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/invoices")({
@@ -1046,14 +1047,10 @@ function NewInvoiceModal({
                   >
                     <div className="col-span-2 md:col-span-3">
                       <L label="Product">
-                        <SearchableSelect
+                        <ProductVariantPicker
+                          products={productsQ.data ?? []}
                           value={l.product_id}
                           onChange={(v) => pickProduct(i, v)}
-                          placeholder="Select product…"
-                          options={(productsQ.data ?? []).map((p: any) => ({
-                            value: p.id,
-                            label: p.sku ? `${p.sku} · ${p.name}` : p.name,
-                          }))}
                         />
                       </L>
                       {l.name && (

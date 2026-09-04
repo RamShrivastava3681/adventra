@@ -20,6 +20,7 @@ import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { ProductVariantPicker } from "@/components/product-variant-picker";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/proformas")({
@@ -1099,19 +1100,15 @@ function SalesProformaModal({
                   >
                     <div className="col-span-2 md:col-span-4">
                       <L label="Product">
-                        <SearchableSelect
-                          value={l.product_id}
-                          onChange={(v) => pickProduct(i, v)}
-                          placeholder="Select product…"
-                          options={products.map((p) => ({
-                            value: p.id,
-                            label: p.sku ? `${p.sku} · ${p.name}` : p.name,
-                          }))}
-                        />
-                      </L>
-                      {l.name && (
-                        <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
-                      )}
+                          <ProductVariantPicker
+                            products={products}
+                            value={l.product_id}
+                            onChange={(v) => pickProduct(i, v)}
+                          />
+                        </L>
+                        {l.name && (
+                          <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
+                        )}
                     </div>
                     <div>
                       <L label="Unit">
@@ -1587,19 +1584,15 @@ function PurchaseProformaModal({
                   >
                     <div className="col-span-2 md:col-span-4">
                       <L label="Product">
-                        <SearchableSelect
-                          value={l.product_id}
-                          onChange={(v) => pickProduct(i, v)}
-                          placeholder="Select product…"
-                          options={products.map((p) => ({
-                            value: p.id,
-                            label: p.sku ? `${p.sku} · ${p.name}` : p.name,
-                          }))}
-                        />
-                      </L>
-                      {l.name && (
-                        <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
-                      )}
+                          <ProductVariantPicker
+                            products={products}
+                            value={l.product_id}
+                            onChange={(v) => pickProduct(i, v)}
+                          />
+                        </L>
+                        {l.name && (
+                          <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
+                        )}
                     </div>
                     <div>
                       <L label="Unit">

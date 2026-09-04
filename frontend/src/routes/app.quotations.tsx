@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { ProductVariantPicker } from "@/components/product-variant-picker";
 import { TableSkeleton } from "@/components/skeletons";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
@@ -1047,15 +1048,11 @@ function QModal({
                       <div className="grid grid-cols-2 items-end gap-2 md:grid-cols-12">
                         <div className="col-span-2 md:col-span-2">
                           <L label="Product">
-                            <SearchableSelect
+                            <ProductVariantPicker
+                              products={products}
                               value={l.product_id}
                               onChange={(v) => pickProduct(i, v)}
-                              placeholder="Select product…"
                               disabled={!editable}
-                              options={products.map((p) => ({
-                                value: p.id,
-                                label: p.sku ? `${p.sku} · ${p.name}` : p.name,
-                              }))}
                             />
                           </L>
                           {l.name && (

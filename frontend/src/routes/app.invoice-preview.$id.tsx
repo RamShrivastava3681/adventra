@@ -52,6 +52,8 @@ function PreviewPage() {
     unit_price: Number(l.unit_price ?? 0),
     line_total: Number(l.line_total ?? 0),
     sku: l.sku ?? null,
+    color: l.color ?? l.colour ?? null,
+    size: l.size ?? null,
     discount_pct: l.discount_pct ?? null,
     gst_rate: l.gst_rate ?? null,
   }));

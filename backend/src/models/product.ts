@@ -11,6 +11,8 @@ export interface Product {
   entityType: "Product";
   id: string;
   clientId: string;
+  /** Id of the parent product when this is a child SKU (colour/size variant). null = top-level product. Variants are one level deep only. */
+  parentId: string | null;
   sku: string;
   name: string;
   description: string | null;
@@ -93,6 +95,7 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
     entityType: "Product",
     id,
     clientId: data.clientId,
+    parentId: data.parentId || null,
     sku,
     name: data.name,
     description: data.description || null,
@@ -136,7 +139,7 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
 }
 
 export async function update(id: string, updates: Partial<Product>) {
-  const allowed = ["name","description","category","subcategory","gender","brand","size","color","model","unitOfMeasure","season","barcode","barcodeType","unitsPerCarton","unitPrice","unitCost","mrp","ecommercePrice","retailerPrice","distributorPrice","flexiblePrice","minimumGrossMarginPercentage","reorderLevel","maxStock","leadTimeDays","safetyStockDays","supplierId","supplierProductCode","minimumOrderQuantity","orderMultiple","hsnCode","gstRate","imageUrl","status","sku"];
+  const allowed = ["name","description","category","subcategory","gender","brand","size","color","model","unitOfMeasure","season","barcode","barcodeType","unitsPerCarton","unitPrice","unitCost","mrp","ecommercePrice","retailerPrice","distributorPrice","flexiblePrice","minimumGrossMarginPercentage","reorderLevel","maxStock","leadTimeDays","safetyStockDays","supplierId","supplierProductCode","minimumOrderQuantity","orderMultiple","hsnCode","gstRate","imageUrl","status","sku","parentId"];
   const patch: Record<string, any> = {};
   for (const key of allowed) {
     if ((updates as any)[key] !== undefined) patch[key] = (updates as any)[key];
@@ -147,4 +150,49 @@ export async function update(id: string, updates: Partial<Product>) {
 
 export async function remove(id: string) {
   return db.deleteItem(`PRODUCT#${id}`);
+}
+
+/** Slugify a single variant attribute (colour / size) for SKU building. */
+export function slugifyVariantPart(value: string | null | undefined): string {
+  return (value ?? "")
+    .trim()
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/**
+ * Deterministic child SKU base from the parent SKU + colour/size, e.g.
+ * RUN-100 + Black + 42 → "RUN-100-BLACK-42". Parts that are blank are omitted.
+ */
+export function buildVariantSku(
+  parentSku: string,
+  color?: string | null,
+  size?: string | null,
+): string {
+  return slugifyVariantPart(
+    [slugifyVariantPart(parentSku), slugifyVariantPart(color), slugifyVariantPart(size)]
+      .filter(Boolean)
+      .join("-"),
+  );
+}
+
+/**
+ * Child SKU with collision avoidance — if the deterministic base is already
+ * taken by another product of this client, append -2, -3, … until free.
+ */
+export async function nextAvailableVariantSku(
+  clientId: string,
+  parentSku: string,
+  color?: string | null,
+  size?: string | null,
+): Promise<string> {
+  const base = buildVariantSku(parentSku, color, size);
+  const products = await list(clientId);
+  const taken = new Set((products as Product[]).map((p) => (p.sku ?? "").toUpperCase()));
+  let candidate = base;
+  for (let n = 2; taken.has(candidate.toUpperCase()); n++) {
+    candidate = `${base}-${n}`;
+  }
+  return candidate;
 }

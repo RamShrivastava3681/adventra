@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { ProductVariantPicker } from "@/components/product-variant-picker";
 import { TableSkeleton } from "@/components/skeletons";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
@@ -51,6 +52,8 @@ type CatalogueProduct = {
   unit_cost: number | null;
   image_url: string | null;
   status?: string;
+  /** Colour/size variant linkage (parent product id when this is a variant). */
+  parent_id?: string | null;
 };
 
 type StockSummaryItem = {
@@ -577,12 +580,17 @@ function AllocateModal({
 
   const selectedProduct = products.find((p) => p.id === f.product_id);
 
-  // SKU search: find product by SKU or name
+  // SKU search: find product by SKU or name. Parents that own colour/size
+  // variants are not directly transferable — only the variant SKUs are, so
+  // they are skipped here (the dropdown below handles parent → variant).
   const handleSkuSearch = (value: string) => {
     setF({ ...f, sku_search: value });
     if (!value.trim()) return;
     const q = value.trim().toLowerCase();
-    const match = products.find(
+    const pickable = products.filter(
+      (p) => !p.parent_id && !products.some((c) => c.parent_id === p.id),
+    );
+    const match = pickable.find(
       (p) =>
         (p.sku ?? "").toLowerCase() === q ||
         (p.sku ?? "").toLowerCase().startsWith(q) ||
@@ -649,17 +657,13 @@ function AllocateModal({
           </L>
 
           <L label="Product *">
-            <SearchableSelect
+            <ProductVariantPicker
+              products={products}
               value={f.product_id}
               onChange={(v) => {
-                const p = products.find((x) => x.id === v);
-                setF({ ...f, product_id: v, sku_search: p?.sku ?? f.sku_search });
+                const p = v ? products.find((x) => x.id === v) : undefined;
+                setF({ ...f, product_id: v, sku_search: p?.sku ?? "" });
               }}
-              placeholder="Select product…"
-              options={products.map((p) => ({
-                value: p.id,
-                label: p.sku ? `${p.sku} · ${p.name}` : p.name,
-              }))}
             />
           </L>
 

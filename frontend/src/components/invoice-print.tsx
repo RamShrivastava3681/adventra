@@ -9,6 +9,9 @@ export type PreviewLine = {
   line_total: number;
   /** Optional SKU shown next to the description. */
   sku?: string | null;
+  /** Optional colour / size variant attributes shown under the description. */
+  color?: string | null;
+  size?: string | null;
   /** Optional discount % shown in the rate column. */
   discount_pct?: number | null;
   /** Optional GST % shown in the rate column. */
@@ -256,10 +259,17 @@ export function PrintShell({
                   ]
               ).map((li, idx) => (
                 <tr key={idx} className="border-b border-slate-100">
-                  <td className="px-3 py-2 align-top whitespace-pre-line">
-                    {li.description || "—"}
-                    {li.sku && (
-                      <span className="ml-1 font-mono text-xs text-slate-400">{li.sku}</span>
+                  <td className="px-3 py-2 align-top">
+                    <div className="whitespace-pre-line">
+                      {li.description || "—"}
+                      {li.sku && (
+                        <span className="ml-1 font-mono text-xs text-slate-400">{li.sku}</span>
+                      )}
+                    </div>
+                    {(li.color || li.size) && (
+                      <div className="text-xs text-slate-500">
+                        {[li.color, li.size].filter(Boolean).join(" · ")}
+                      </div>
                     )}
                   </td>
                   <td className="px-3 py-2 text-right align-top">

@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
+
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductThumb } from "@/components/product-thumb";
 import { useSignedImageUrl, s3KeyFromUrl } from "@/lib/s3-image";
@@ -18,6 +19,7 @@ import {
   ImagePlus,
   Image as ImageIcon,
   RefreshCw,
+  Layers,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -29,6 +31,8 @@ export const Route = createFileRoute("/app/products")({
 
 type Product = {
   id: string;
+  /** Id of the parent product when this SKU is a colour/size variant. */
+  parent_id: string | null;
   sku: string;
   name: string;
   description: string | null;
@@ -93,6 +97,7 @@ function ProductsPage() {
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
+  const [variantFor, setVariantFor] = useState<{ parent: Product; child?: Product } | null>(null);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
   const [deleting, setDeleting] = useState<Product | null>(null);
@@ -177,18 +182,76 @@ function ProductsPage() {
     return m;
   }, [movementsQ.data]);
 
-  const rows = (productsQ.data ?? []).filter((p) => {
-    const matchQ =
-      !q ||
-      p.sku.toLowerCase().includes(q.toLowerCase()) ||
-      p.name.toLowerCase().includes(q.toLowerCase()) ||
-      (p.brand ?? "").toLowerCase().includes(q.toLowerCase()) ||
-      (p.model ?? "").toLowerCase().includes(q.toLowerCase()) ||
-      (p.color ?? "").toLowerCase().includes(q.toLowerCase()) ||
-      (p.barcode ?? "").toLowerCase().includes(q.toLowerCase());
-    const matchC = cat === "all" || p.category === cat;
-    return matchQ && matchC;
-  });
+  // ── Parent / colour-size variant grouping ─────────────────────────────────
+  // Products with a parent_id are variants of the parent SKU. The catalogue
+  // renders each parent as a row followed by its variant rows beneath it.
+  const childrenByParent = useMemo(() => {
+    const m = new Map<string, Product[]>();
+    for (const p of productsQ.data ?? []) {
+      if (p.parent_id) {
+        const list = m.get(p.parent_id) ?? [];
+        list.push(p);
+        m.set(p.parent_id, list);
+      }
+    }
+    return m;
+  }, [productsQ.data]);
+
+  // Flattened display rows — a parent plus its variants. Searching a variant
+  // (e.g. "Black") also surfaces its parent row so the family context stays
+  // visible.
+  const rows = useMemo(() => {
+    const out: Array<{ product: Product; depth: number }> = [];
+    const match = (p: Product) => {
+      const matchQ =
+        !q ||
+        p.sku.toLowerCase().includes(q.toLowerCase()) ||
+        p.name.toLowerCase().includes(q.toLowerCase()) ||
+        (p.brand ?? "").toLowerCase().includes(q.toLowerCase()) ||
+        (p.model ?? "").toLowerCase().includes(q.toLowerCase()) ||
+        (p.color ?? "").toLowerCase().includes(q.toLowerCase()) ||
+        (p.barcode ?? "").toLowerCase().includes(q.toLowerCase());
+      const matchC = cat === "all" || p.category === cat;
+      return matchQ && matchC;
+    };
+    const parents = (productsQ.data ?? [])
+      .filter((p) => !p.parent_id)
+      .sort((a, b) => a.sku.localeCompare(b.sku ?? "") || a.name.localeCompare(b.name));
+    for (const p of parents) {
+      const kids = childrenByParent.get(p.id) ?? [];
+      if (!match(p)) {
+        const matchedKids = kids.filter(match);
+        if (matchedKids.length === 0) continue;
+        out.push({ product: p, depth: 0 });
+        for (const k of matchedKids) out.push({ product: k, depth: 1 });
+        continue;
+      }
+      out.push({ product: p, depth: 0 });
+      for (const k of kids) out.push({ product: k, depth: 1 });
+    }
+    return out;
+  }, [productsQ.data, childrenByParent, q, cat]);
+
+  // Live stock for a row — variants carry their own stock (stock hangs off the
+  // concrete SKU), while a parent row aggregates its own plus all variants.
+  const stockFor = useCallback(
+    (p: Product) => {
+      let s = stockByProduct.get(p.id) ?? 0;
+      if (!p.parent_id) {
+        for (const k of childrenByParent.get(p.id) ?? []) {
+          s += stockByProduct.get(k.id) ?? 0;
+        }
+      }
+      return s;
+    },
+    [stockByProduct, childrenByParent],
+  );
+
+  const parentOf = useCallback(
+    (p: Product) =>
+      p.parent_id ? (productsQ.data ?? []).find((x) => x.id === p.parent_id) ?? null : null,
+    [productsQ.data],
+  );
 
   const del = useMutation({
     mutationFn: async (p: Product) => {
@@ -211,20 +274,28 @@ function ProductsPage() {
   });
 
   const summary = useMemo(() => {
-    const total = productsQ.data?.length ?? 0;
+    const all = (productsQ.data ?? []) as Product[];
+    const total = all.length; // every SKU, variants included
     let active = 0,
       low = 0,
       out = 0,
       inventoryValue = 0;
-    for (const p of (productsQ.data ?? []) as Product[]) {
-      if (p.status === "active") active++;
-      const stock = stockByProduct.get(p.id) ?? 0;
+    for (const p of all) if (p.status === "active") active++;
+    // Stock metrics roll up per parent family — a parent row aggregates its
+    // variants' stock, and variant rows are handled by their parent.
+    for (const p of all) {
+      if (p.parent_id) continue;
+      const kids = childrenByParent.get(p.id) ?? [];
+      const stock = kids.reduce(
+        (s, k) => s + (stockByProduct.get(k.id) ?? 0),
+        stockByProduct.get(p.id) ?? 0,
+      );
       inventoryValue += stock * Number(p.unit_cost);
       if (stock <= 0) out++;
       else if (stock <= p.reorder_level) low++;
     }
     return { total, active, low, out, inventoryValue };
-  }, [productsQ.data, stockByProduct]);
+  }, [productsQ.data, stockByProduct, childrenByParent]);
 
   return (
     <div>
@@ -352,23 +423,48 @@ function ProductsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((p) => {
-                    const stock = stockByProduct.get(p.id) ?? 0;
+                  {rows.map(({ product: p, depth }) => {
+                    const stock = stockFor(p);
                     const low = stock <= p.reorder_level && stock > 0;
                     const out = stock <= 0;
+                    const isVariant = !!p.parent_id;
+                    const variantCount = isVariant ? 0 : (childrenByParent.get(p.id) ?? []).length;
                     return (
-                      <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                      <tr
+                        key={p.id}
+                        className={`border-b border-border/60 hover:bg-muted/30 ${isVariant ? "bg-muted/10" : ""}`}
+                      >
                         <td className="px-5 py-3">
-                          <div className="flex items-center gap-2.5">
-                            <ProductThumb imageUrl={p.image_url} name={p.name} />
+                          <div
+                            className={`flex items-center gap-2.5 ${isVariant ? "pl-8" : ""}`}
+                          >
+                            {isVariant ? (
+                              <span className="text-muted-foreground/50">└</span>
+                            ) : (
+                              <ProductThumb imageUrl={p.image_url} name={p.name} />
+                            )}
                             <span className="font-mono text-xs">{p.sku}</span>
                           </div>
                         </td>
                         <td className="px-5 py-3">
                           <div className="font-medium">{p.name}</div>
-                          <div className="text-[10px] text-muted-foreground">
-                            {[p.category, p.subcategory, p.brand].filter(Boolean).join(" · ") ||
-                              "—"}
+                          <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                            {isVariant ? (
+                              <span className="rounded border border-primary/20 bg-primary/5 px-1 py-px font-medium text-primary">
+                                Variant of {parentOf(p)?.sku ?? "parent"}
+                              </span>
+                            ) : (
+                              <>
+                                {[p.category, p.subcategory, p.brand]
+                                  .filter(Boolean)
+                                  .join(" · ") || "—"}
+                                {variantCount > 0 && (
+                                  <span className="rounded border border-border bg-muted/40 px-1.5 py-px font-medium text-muted-foreground">
+                                    {variantCount} colour/size variant{variantCount > 1 ? "s" : ""}
+                                  </span>
+                                )}
+                              </>
+                            )}
                           </div>
                         </td>
                         <td className="px-5 py-3 text-xs text-muted-foreground">
@@ -418,10 +514,24 @@ function ProductsPage() {
                         <td className="px-5 py-3 text-right">
                           {canWrite && (
                             <div className="flex justify-end gap-2">
+                              {!isVariant && (
+                                <button
+                                  onClick={() => setVariantFor({ parent: p })}
+                                  title="Add a colour/size variant SKU"
+                                  className="text-muted-foreground hover:text-primary"
+                                >
+                                  <Layers className="h-3.5 w-3.5" />
+                                </button>
+                              )}
                               <button
                                 onClick={() => {
-                                  setEditing(p);
-                                  setOpen(true);
+                                  if (isVariant) {
+                                    const parent = parentOf(p);
+                                    if (parent) setVariantFor({ parent, child: p });
+                                  } else {
+                                    setEditing(p);
+                                    setOpen(true);
+                                  }
                                 }}
                                 className="text-muted-foreground hover:text-foreground"
                               >
@@ -429,7 +539,11 @@ function ProductsPage() {
                               </button>
                               <button
                                 onClick={() => setDeleting(p)}
-                                title="Delete product & its inventory entries"
+                                title={
+                                  isVariant
+                                    ? "Delete this variant & its inventory entries"
+                                    : "Delete product & its inventory entries"
+                                }
                                 className="text-muted-foreground hover:text-destructive"
                               >
                                 <Trash2 className="h-3.5 w-3.5" />
@@ -456,11 +570,23 @@ function ProductsPage() {
           onClose={() => setOpen(false)}
         />
       )}
+      {variantFor && (
+        <VariantModal
+          parent={variantFor.parent}
+          child={variantFor.child}
+          onClose={() => setVariantFor(null)}
+        />
+      )}
       {deleting && (
         <ConfirmProductDelete
           product={deleting}
+          variantCount={(childrenByParent.get(deleting.id) ?? []).length}
           movementCount={
-            (movementsQ.data ?? []).filter((m: any) => m.product_id === deleting.id).length
+            (movementsQ.data ?? []).filter(
+              (m: any) =>
+                m.product_id === deleting.id ||
+                (childrenByParent.get(deleting.id) ?? []).some((k) => k.id === m.product_id),
+            ).length
           }
           onClose={() => setDeleting(null)}
           onConfirm={() => del.mutate(deleting)}
@@ -473,12 +599,14 @@ function ProductsPage() {
 
 function ConfirmProductDelete({
   product,
+  variantCount = 0,
   movementCount,
   onClose,
   onConfirm,
   pending,
 }: {
   product: Product;
+  variantCount?: number;
   movementCount: number;
   onClose: () => void;
   onConfirm: () => void;
@@ -496,19 +624,20 @@ function ConfirmProductDelete({
         <h3 className="font-display text-lg">Delete {product.name}?</h3>
         <p className="mt-1 text-sm text-muted-foreground">
           This permanently removes{" "}
-          <span className="font-medium text-foreground">{product.sku}</span> from the catalogue
-          {movementCount > 0 ? (
+          <span className="font-medium text-foreground">{product.sku}</span>
+          {variantCount > 0 ? (
             <>
-              , along with its{" "}
+              {" "}plus its{" "}
               <span className="font-medium text-foreground">
-                {movementCount} stock movement{movementCount === 1 ? "" : "s"}
-              </span>{" "}
-              and forecast entries
+                {variantCount} colour/size variant{variantCount === 1 ? "" : "s"}
+              </span>
             </>
-          ) : (
-            " and its forecast entries"
-          )}
-          . Invoices, orders and receipts keep their records.
+          ) : null}{" "}
+          from the catalogue, along with its{" "}
+          <span className="font-medium text-foreground">
+            {movementCount} stock movement{movementCount === 1 ? "" : "s"}
+          </span>{" "}
+          and forecast entries. Invoices, orders and receipts keep their records.
         </p>
         <div className="mt-4 flex justify-end gap-2">
           <button
@@ -526,6 +655,152 @@ function ConfirmProductDelete({
             Delete product
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// Variant-name builder — mirrors the backend rule so an edited variant keeps
+// the same readable name ("Parent name — BLACK / 42").
+function variantDisplayName(parentName: string, color?: string | null, size?: string | null): string {
+  const attrs = [color, size]
+    .map((a) => (a ?? "").toString().trim())
+    .filter(Boolean)
+    .map((a) => a.toUpperCase())
+    .join(" / ");
+  return attrs ? `${parentName} — ${attrs}` : parentName;
+}
+
+// Minimal colour/size form for a child SKU. Pricing, cost, tax and the image
+// are inherited from the parent record (server-side on create). Only the
+// colour, size and an optional SKU override are asked for.
+function VariantModal({
+  parent,
+  child,
+  onClose,
+}: {
+  parent: Product;
+  child?: Product;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const isEdit = !!child;
+  const [f, setF] = useState({
+    color: child?.color ?? "",
+    size: child?.size ?? "",
+    sku: child?.sku ?? "",
+  });
+
+  const refresh = () => {
+    qc.invalidateQueries({ queryKey: ["products"] });
+    qc.invalidateQueries({ queryKey: ["products-forecast"] });
+    qc.invalidateQueries({ queryKey: ["products-inventory"] });
+  };
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const color = f.color.trim() || null;
+      const size = f.size.trim() || null;
+      const sku = f.sku.trim() || undefined;
+      const name = variantDisplayName(parent.name, color, size);
+      if (!color && !size) throw new Error("Enter a colour or a size for this variant");
+      if (isEdit && child) {
+        await api.products.update(child.id, { color, size, sku, name });
+      } else {
+        await api.products.create({ parent_id: parent.id, color, size, sku });
+      }
+    },
+    onSuccess: () => {
+      refresh();
+      toast.success(isEdit ? "Variant updated" : "Variant created");
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border pb-3">
+          <div>
+            <h3 className="font-display text-lg">
+              {isEdit ? "Edit variant" : "Add colour/size variant"}
+            </h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Parent{" "}
+              <span className="font-mono font-medium text-foreground">{parent.sku}</span> ·{" "}
+              {parent.name}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate();
+          }}
+          className="mt-4 space-y-3"
+        >
+          <div className="grid grid-cols-2 gap-3">
+            <L label="Colour">
+              <input
+                className="inp"
+                value={f.color}
+                onChange={(e) => setF({ ...f, color: e.target.value })}
+                placeholder="e.g. Black"
+                autoFocus
+              />
+            </L>
+            <L label="Size">
+              <input
+                className="inp"
+                value={f.size}
+                onChange={(e) => setF({ ...f, size: e.target.value })}
+                placeholder="e.g. M, 42, XL"
+              />
+            </L>
+          </div>
+          <L label="SKU (optional — auto-generated from parent, colour & size)">
+            <input
+              className="inp"
+              value={f.sku}
+              onChange={(e) => setF({ ...f, sku: e.target.value })}
+              placeholder={`e.g. ${parent.sku}-BLACK-42`}
+            />
+          </L>
+          <div className="rounded-md border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+            <Layers className="mb-1 h-3.5 w-3.5 text-primary" />
+            Prices, cost, GST, supplier and image are inherited from the parent{" "}
+            <span className="font-mono">{parent.sku}</span> — only colour and size define this
+            SKU. Leave the SKU blank to auto-generate it.
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={save.isPending}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+            >
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {isEdit ? "Save variant" : "Create variant"}
+            </button>
+          </div>
+        </form>
+        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
       </div>
     </div>
   );

@@ -18,6 +18,9 @@ export interface DocumentPdfLine {
   sku: string | null;
   name: string;
   unit: string;
+  /** Colour / size of a variant SKU — shown under the item name when set. */
+  color?: string | null;
+  size?: string | null;
   quantity: number;
   /** Effective unit price — the updated price when set, else the quoted price. */
   unitPrice: number;
@@ -290,9 +293,11 @@ function drawLineRows(
   lines.forEach((l, i) => {
     const itemW = COLS.item.w;
     const skuLine = l.sku ? `${l.sku}` : "";
+    const variantLine = variantLabel(l);
     const nameH = doc.heightOfString(l.name || "", { width: itemW - 4 });
+    const variantH = variantLine ? 11 : 0;
     const skuH = skuLine ? 11 : 0;
-    const rowH = Math.max(26, nameH + skuH + rowPad * 2 + 2);
+    const rowH = Math.max(26, nameH + variantH + skuH + rowPad * 2 + 2);
 
     // Page break — start a fresh page (with a repeated table header) when the
     // row would run past the printable area.
@@ -309,15 +314,24 @@ function drawLineRows(
       doc.restore();
     }
 
-    // Item name + SKU
+    // Item name + colour/size variant label + SKU
     doc.font("Helvetica-Bold").fontSize(9).fillColor(INK.slate900);
     doc.text(l.name || "—", COLS.item.x, y + rowPad, { width: itemW - 4 });
+    let subY = y + rowPad + nameH + 1;
+    if (variantLine) {
+      doc
+        .font("Helvetica")
+        .fontSize(7.5)
+        .fillColor(INK.teal)
+        .text(variantLine, COLS.item.x, subY, { width: itemW - 4 });
+      subY += 11;
+    }
     if (skuLine) {
       doc
         .font("Helvetica")
         .fontSize(7.5)
         .fillColor(INK.slate500)
-        .text(skuLine, COLS.item.x, y + rowPad + nameH + 1, { width: itemW - 4 });
+        .text(skuLine, COLS.item.x, subY, { width: itemW - 4 });
     }
 
     // Numeric cells (right-aligned, single line)
@@ -503,6 +517,14 @@ function discountLabel(l: any): string {
   return money(value);
 }
 
+/** Compact variant label from a line's colour/size snapshots ("Black · 42"). */
+function variantLabel(l: { color?: string | null; size?: string | null }): string {
+  const parts = [l.color ?? "", l.size ?? ""]
+    .map((v) => String(v ?? "").trim())
+    .filter(Boolean);
+  return parts.join(" · ");
+}
+
 /** Human label for a document kind (used for PDF titles/metadata). */
 function docTypeLabel(kind: PdfDocKind): string {
   if (kind === "quotation") return "Quotation";
@@ -518,6 +540,8 @@ export function quotationToPdfData(q: any, companyName: string, companyContact?:
       sku: l.sku ?? null,
       name: l.name || "Item",
       unit: l.unit || "unit",
+      color: l.color ?? l.colour ?? null,
+      size: l.size ?? null,
       quantity,
       unitPrice,
       discountLabel: discountLabel(l),
@@ -558,6 +582,8 @@ export function purchaseOrderToPdfData(
     sku: l.sku ?? null,
     name: l.name || "Item",
     unit: l.unit || "unit",
+    color: l.color ?? l.colour ?? null,
+    size: l.size ?? null,
     quantity: Number(l.orderedQty ?? l.ordered_qty) || 0,
     unitPrice: Number(l.unitPrice ?? l.unit_price) || 0,
     discountLabel: "—",
@@ -598,6 +624,8 @@ export function salesOrderToPdfData(so: any, companyName: string, companyContact
       sku: l.sku ?? null,
       name: l.name || "Item",
       unit: l.unit || "unit",
+      color: l.color ?? l.colour ?? null,
+      size: l.size ?? null,
       quantity,
       unitPrice,
       discountLabel: discountLabelText,
@@ -639,6 +667,9 @@ export interface InvoicePdfLine {
   sku: string | null;
   name: string;
   unit: string;
+  /** Colour / size of a variant SKU — shown under the item name when set. */
+  color?: string | null;
+  size?: string | null;
   quantity: number;
   unitPrice: number;
   discountPct: number | null;
@@ -818,9 +849,11 @@ export function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       : [{ name: data.notes || "Goods/services supplied", sku: null, unit: "unit", quantity: 1, unitPrice: data.subtotal, discountPct: null, gstRate: null, amount: data.subtotal }];
     for (const l of rows) {
       const itemW = LCOLS.item.w;
+      const variantLine = variantLabel(l);
       const nameH = doc.heightOfString(l.name || "Item", { width: itemW - 4 });
+      const variantH = variantLine ? 11 : 0;
       const skuH = l.sku ? 11 : 0;
-      const rowH = Math.max(24, nameH + skuH + 10);
+      const rowH = Math.max(24, nameH + variantH + skuH + 10);
       if (y + rowH > PAGE.height - PAGE.margin) {
         doc.addPage();
         drawInvoiceTableHeader(PAGE.margin);
@@ -828,9 +861,15 @@ export function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
       }
       doc.font("Helvetica-Bold").fontSize(9).fillColor(INV_INK.slate900);
       doc.text(l.name || "Item", LCOLS.item.x, y + 5, { width: itemW - 4 });
+      let subY = y + 5 + nameH + 1;
+      if (variantLine) {
+        doc.font("Helvetica").fontSize(7.5).fillColor("#0f766e");
+        doc.text(variantLine, LCOLS.item.x, subY, { width: itemW - 4 });
+        subY += 11;
+      }
       if (l.sku) {
         doc.font("Helvetica").fontSize(7.5).fillColor(INV_INK.slate500);
-        doc.text(l.sku, LCOLS.item.x, y + 5 + nameH + 1, { width: itemW - 4 });
+        doc.text(l.sku, LCOLS.item.x, subY, { width: itemW - 4 });
       }
       const cell = (value: string, col: { x: number; w: number }, bold = false) => {
         doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(9).fillColor(INV_INK.slate700);
@@ -970,6 +1009,8 @@ export function invoiceToPdfData(
     sku: l.sku ?? null,
     name: l.name ?? l.description ?? "Item",
     unit: l.unit ?? "unit",
+    color: l.color ?? l.colour ?? null,
+    size: l.size ?? null,
     quantity: Number(l.quantity ?? l.qty ?? 0),
     unitPrice: Number(l.unitPrice ?? l.unit_price ?? 0),
     discountPct: l.discountPct ?? l.discount_pct ?? null,

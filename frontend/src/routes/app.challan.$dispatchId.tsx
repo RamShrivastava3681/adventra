@@ -113,7 +113,14 @@ function ChallanPage() {
                 {(d.lines ?? []).map((l: any) => (
                   <tr key={l.product_id} className="border-b border-slate-200">
                     <td className="py-2 pr-2 font-mono text-xs">{l.sku ?? "—"}</td>
-                    <td className="py-2 pr-2">{l.name}</td>
+                    <td className="py-2 pr-2">
+                      {l.name}
+                      {(l.color || l.size) && (
+                        <div className="text-xs text-slate-500">
+                          {[l.color, l.size].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                    </td>
                     <td className="py-2 pr-2 text-right">{l.unit}</td>
                     <td className="py-2 pr-2 text-right">{l.dispatched_qty.toLocaleString()}</td>
                     <td className="py-2 pr-2 text-right">{fmtMoney(l.unit_price)}</td>
