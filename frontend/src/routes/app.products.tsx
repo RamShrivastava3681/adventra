@@ -517,10 +517,11 @@ function ProductsPage() {
                               {!isVariant && (
                                 <button
                                   onClick={() => setVariantFor({ parent: p })}
-                                  title="Add a colour/size variant SKU"
-                                  className="text-muted-foreground hover:text-primary"
+                                  title={`Add a colour/size variant SKU to ${p.name}`}
+                                  className="inline-flex max-w-[220px] items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-all duration-200 hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
                                 >
-                                  <Layers className="h-3.5 w-3.5" />
+                                  <Layers className="h-3.5 w-3.5 shrink-0" />
+                                  <span className="truncate">Add variant · {p.name}</span>
                                 </button>
                               )}
                               <button

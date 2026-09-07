@@ -19,12 +19,18 @@ import {
   Truck,
   FileDown,
   CircleDollarSign,
+  Layers,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductVariantPicker } from "@/components/product-variant-picker";
+import {
+  QuickAddVariantModal,
+  QuickCreateProductModal,
+  type QuickCreatedProduct,
+} from "@/components/product-quick-create";
 import { TableSkeleton } from "@/components/skeletons";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
@@ -110,6 +116,10 @@ type CatalogueProduct = {
   sku: string | null;
   name: string;
   unit_of_measure: string;
+  /** Variant linkage — child SKUs (colour/size) point at their parent product. */
+  parent_id: string | null;
+  color: string | null;
+  size: string | null;
   gst_rate: number | null;
   unit_cost: number | null;
   mrp: number | null;
@@ -698,6 +708,12 @@ function POModal({
   );
   const [docs, setDocs] = useState<DocMeta[]>(po?.documents ?? []);
 
+  // Inline catalogue creation from the line editor: "New item" opens the
+  // quick product popup, "Add variant" opens the colour/size popup — both
+  // snapshot the created SKU straight into the originating line.
+  const [newItemLine, setNewItemLine] = useState<number | null>(null);
+  const [variantLine, setVariantLine] = useState<number | null>(null);
+
   // ── "Create document from this PO" section ──
   // Exactly ONE of {none, proforma, purchase_invoice} can be selected — the
   // proforma and the purchase invoice are mutually exclusive. All entries
@@ -752,38 +768,68 @@ function POModal({
     }
   };
 
-  const pickProduct = (i: number, id: string) => {
-    const p = products.find((x) => x.id === id);
+  // Snapshot a catalogue product (an existing pick, or a SKU just created via
+  // the inline popups) into the line — defaults follow the catalogue record.
+  const applyProductToLine = (
+    i: number,
+    p: Pick<
+      QuickCreatedProduct,
+      "id" | "sku" | "name" | "unit_of_measure" | "unit_cost" | "gst_rate"
+    >,
+  ) => {
     setLine(i, {
-      product_id: id,
-      name: p?.name ?? "",
-      sku: p?.sku ?? null,
-      unit: p?.unit_of_measure ?? "piece",
-      unit_price: lastPrices.has(id)
-        ? String(lastPrices.get(id))
-        : p?.unit_cost != null
+      product_id: p.id,
+      name: p.name ?? "",
+      sku: p.sku ?? null,
+      unit: p.unit_of_measure || "piece",
+      unit_price: lastPrices.has(p.id)
+        ? String(lastPrices.get(p.id))
+        : p.unit_cost != null
           ? String(p.unit_cost)
           : "",
-      gst_rate: p?.gst_rate != null ? String(p.gst_rate) : "",
+      gst_rate: p.gst_rate != null ? String(p.gst_rate) : "",
       price_tier: "",
     });
   };
 
-  const addLine = () =>
-    setLines((ls) => [
-      ...ls,
-      {
-        product_id: "",
-        sku: null,
-        name: "",
-        unit: "piece",
-        ordered_qty: "",
-        unit_price: "",
-        gst_rate: "",
-        received_qty: 0,
-        price_tier: "",
-      },
-    ]);
+  const pickProduct = (i: number, id: string) => {
+    const p = products.find((x) => x.id === id);
+    if (!p) {
+      setLine(i, { product_id: id });
+      return;
+    }
+    applyProductToLine(i, p);
+  };
+
+  // The top-level product a line's "Add variant" action targets — the selected
+  // SKU itself when it is a parent, otherwise its parent (variants are one
+  // level deep, so a variant line adds siblings under its parent).
+  const variantTargetFor = (i: number) => {
+    const p = products.find((x) => x.id === lines[i]?.product_id);
+    if (!p) return null;
+    return p.parent_id ? (products.find((x) => x.id === p.parent_id) ?? null) : p;
+  };
+
+  const emptyLine = (): LineDraft => ({
+    product_id: "",
+    sku: null,
+    name: "",
+    unit: "piece",
+    ordered_qty: "",
+    unit_price: "",
+    gst_rate: "",
+    received_qty: 0,
+    price_tier: "",
+  });
+
+  const addLine = () => setLines((ls) => [...ls, emptyLine()]);
+
+  // Footer "New item": append a blank line and open the quick product popup
+  // targeted at it in one step.
+  const addLineWithNewItem = () => {
+    setNewItemLine(lines.length);
+    setLines((ls) => [...ls, emptyLine()]);
+  };
 
   const removeLine = (i: number) => {
     const l = lines[i];
@@ -1211,10 +1257,19 @@ function POModal({
             <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
               Purchase order item lines
             </legend>
-            {products.length === 0 ? (
+            {products.length === 0 && lines.length === 0 ? (
               <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
                 No active products in the catalogue yet — add products in the Product catalogue tab
                 first.
+                {editable && (
+                  <button
+                    type="button"
+                    onClick={addLineWithNewItem}
+                    className="ml-2 inline-flex items-center gap-1 font-medium text-warning underline"
+                  >
+                    <Plus className="h-3 w-3" /> or create one here
+                  </button>
+                )}
               </div>
             ) : (
               <div className="space-y-2">
@@ -1250,6 +1305,27 @@ function POModal({
                         </L>
                         {l.name && (
                           <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
+                        )}
+                        {editable && (
+                          <div className="mt-1 flex flex-wrap items-center gap-3">
+                            <button
+                              type="button"
+                              onClick={() => setNewItemLine(i)}
+                              className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
+                            >
+                              <Plus className="h-3 w-3" /> New item
+                            </button>
+                            {variantTargetFor(i) && (
+                              <button
+                                type="button"
+                                onClick={() => setVariantLine(i)}
+                                className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
+                                title="Add a colour/size variant SKU under this product"
+                              >
+                                <Layers className="h-3 w-3" /> Add variant
+                              </button>
+                            )}
+                          </div>
                         )}
                       </div>
                       <div>
@@ -1362,13 +1438,23 @@ function POModal({
                   );
                 })}
                 {editable && (
-                  <button
-                    type="button"
-                    onClick={addLine}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Add line
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={addLine}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> Add line
+                    </button>
+                    <button
+                      type="button"
+                      onClick={addLineWithNewItem}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-primary/50 px-3 py-1.5 text-xs text-primary hover:border-primary hover:bg-primary/5"
+                      title="Create a brand-new catalogue item without leaving this PO"
+                    >
+                      <Plus className="h-3.5 w-3.5" /> New item
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -1877,6 +1963,33 @@ function POModal({
           <option value="18" />
           <option value="28" />
         </datalist>
+
+        {/* Inline catalogue popups — stopPropagation keeps clicks inside them
+            from closing the PO modal behind them. */}
+        {newItemLine !== null && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <QuickCreateProductModal
+              userId={userId}
+              onClose={() => setNewItemLine(null)}
+              onCreated={(created) => {
+                if (newItemLine !== null) applyProductToLine(newItemLine, created);
+                setNewItemLine(null);
+              }}
+            />
+          </div>
+        )}
+        {variantLine !== null && variantTargetFor(variantLine) !== null && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <QuickAddVariantModal
+              parent={variantTargetFor(variantLine)!}
+              onClose={() => setVariantLine(null)}
+              onCreated={(created) => {
+                if (variantLine !== null) applyProductToLine(variantLine, created);
+                setVariantLine(null);
+              }}
+            />
+          </div>
+        )}
       </div>
     </div>
   );
