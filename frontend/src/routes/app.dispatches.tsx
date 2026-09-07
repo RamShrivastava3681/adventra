@@ -96,6 +96,8 @@ type SO = {
   so_number: string;
   order_date: string;
   customer_name: string | null;
+  customer_id: string | null;
+  delivery_address: string | null;
   status: string;
   lines: SOLine[];
 };
@@ -215,8 +217,20 @@ function DispatchesPage() {
     },
   });
 
+  // Get all dispatch IDs that are linked to invoices
+  const dispatchedInvoiceIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const d of dispatchQ.data ?? []) {
+      if (d.linked_sales_invoice_id) {
+        ids.add(d.linked_sales_invoice_id);
+      }
+    }
+    return ids;
+  }, [dispatchQ.data]);
+
   // Pending invoices: those with an expected dispatch date but no linked dispatch yet.
   // These are invoices waiting to be dispatched so the goods can be shipped.
+  // Only shows invoices that have been approved/pending (after checker approval).
   const pendingInvoices = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return (invoicesQ.data ?? [])
@@ -227,7 +241,7 @@ function DispatchesPage() {
           inv.status !== "paid" &&
           inv.status !== "cancelled" &&
           inv.status !== "rejected" &&
-          !inv.linked_sales_invoice_id, // Not yet dispatched (no dispatch linked)
+          !dispatchedInvoiceIds.has(inv.id), // Not yet dispatched (no dispatch links to this invoice)
       )
       .map((inv: any) => ({
         ...inv,
@@ -240,7 +254,7 @@ function DispatchesPage() {
         ),
       }))
       .sort((a: any, b: any) => a.expected_dispatch_date.localeCompare(b.expected_dispatch_date));
-  }, [invoicesQ.data]);
+  }, [invoicesQ.data, dispatchedInvoiceIds]);
   const stockLocationsQ = useQuery({
     queryKey: ["stock-locations-for-dispatch"],
     queryFn: async () => {
@@ -408,6 +422,11 @@ function DispatchesPage() {
                       </td>
                       <td className="px-5 py-3">
                         <StatusPill status={inv.status} label={DOC_LABELS_INV[inv.status]} />
+                        {inv.status === "pending" && (
+                          <div className="mt-1 text-[9px] uppercase tracking-widest text-muted-foreground">
+                            Awaiting dispatch
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -597,6 +616,12 @@ function DispatchCreateModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const debtorsQ = useQuery({
+    queryKey: ["debtors-for-dispatch"],
+    queryFn: async () => api.debtors.list(),
+  });
+  const debtors = debtorsQ.data ?? [];
+  
   const qc = useQueryClient();
   const [soId, setSoId] = useState<string>(preselectSoId ?? "");
   const [f, setF] = useState({
@@ -608,6 +633,7 @@ function DispatchCreateModal({
     linked_customer_proforma_id: "",
     linked_sales_invoice_id: "",
     notes: "",
+    delivery_address: "",
     dispatch_type: "customer_sale",
     source_location_id: "",
     destination_location_id: "",
@@ -616,6 +642,10 @@ function DispatchCreateModal({
   const [lines, setLines] = useState<DispatchLineDraft[]>([]);
   const [scan, setScan] = useState("");
   const so = sos.find((s) => s.id === soId) ?? null;
+  const selectedDebtor = useMemo(() => {
+    if (!so?.customer_id) return null;
+    return debtors.find((d) => d.id === so.customer_id) ?? null;
+  }, [so, debtors]);
 
   // When the SO is picked, preload all lines with pending quantity.
   const pickSo = (id: string) => {
@@ -724,6 +754,7 @@ function DispatchCreateModal({
         source_location_id: f.source_location_id || null,
         destination_location_id: f.destination_location_id || null,
         channel: f.channel || null,
+        delivery_address: f.delivery_address.trim() || null,
       });
     },
     onSuccess: () => {
@@ -918,7 +949,41 @@ function DispatchCreateModal({
                 </L>
               </div>
             </div>
-            <div className="mt-3">
+            {selectedDebtor && (
+              <div className="mt-3 rounded-lg border border-border/60 p-3">
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <div className="text-xs uppercase tracking-widest text-muted-foreground">PAN</div>
+                    <div className="font-mono text-xs">{selectedDebtor.panCardNo ?? selectedDebtor.pan_card_no ?? "—"}</div>
+                  </div>
+                  <div>
+                    <div className="text-xs uppercase tracking-widest text-muted-foreground">GSTIN</div>
+                    <div className="font-mono text-xs">{selectedDebtor.gstin ?? "—"}</div>
+                  </div>
+                </div>
+              </div>
+            )}
+            <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
+              <L label="Delivery address">
+                <textarea
+                  rows={2}
+                  className="inp resize-y"
+                  value={f.delivery_address}
+                  onChange={(e) => setF({ ...f, delivery_address: e.target.value })}
+                  placeholder="Auto-filled from sales order"
+                />
+                {so && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setF({ ...f, delivery_address: so.delivery_address ?? "" })}
+                      className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
+                    >
+                      Use SO delivery
+                    </button>
+                  </div>
+                )}
+              </L>
               <L label="Notes">
                 <textarea
                   rows={2}
@@ -1115,6 +1180,15 @@ function DispatchDetailModal({
   onChanged: () => void;
 }) {
   const qc = useQueryClient();
+  const debtorsQ = useQuery({
+    queryKey: ["debtors-for-detail"],
+    queryFn: async () => api.debtors.list(),
+  });
+  const debtors = debtorsQ.data ?? [];
+  const debtor = useMemo(() => {
+    if (!dispatch.customer_id) return null;
+    return debtors.find((d) => d.id === dispatch.customer_id) ?? null;
+  }, [dispatch.customer_id, debtors]);
   const [deliverOpen, setDeliverOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -1223,6 +1297,12 @@ function DispatchDetailModal({
               <D label="Transporter" value={d.transporter_name ?? "—"} />
               <D label="Tracking / AWB" value={d.tracking_number ?? "—"} />
               <D label="Delivery challan" value={d.delivery_challan_number ?? "—"} />
+              {debtor && (
+                <>
+                  <D label="PAN" value={debtor.panCardNo ?? debtor.pan_card_no ?? "—"} />
+                  <D label="GSTIN" value={debtor.gstin ?? "—"} />
+                </>
+              )}
               <D label="Linked proforma" value={d.linked_customer_proforma_number ?? "—"} />
               <D label="Linked sales invoice" value={d.linked_sales_invoice_number ?? "—"} />
               <D label="Created by" value={d.dispatched_by ?? "—"} />
@@ -1965,18 +2045,6 @@ function D({ label, value }: { label: string; value: string }) {
       <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</div>
       <div className="mt-0.5 text-sm">{value}</div>
     </div>
-  );
-}
-
-function StatusPill({ status, label, tone }: { status: string; label: string; tone?: string }) {
-  const cls =
-    tone ?? DISPATCH_STATUS_TONES[status] ?? "bg-muted/60 text-muted-foreground border-border";
-  return (
-    <span
-      className={`inline-block whitespace-nowrap rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${cls}`}
-    >
-      {label}
-    </span>
   );
 }
 

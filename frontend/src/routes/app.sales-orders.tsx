@@ -103,7 +103,8 @@ type Customer = {
   id: string;
   name: string;
   contact_name: string | null;
-  address_line: string | null;
+  billing_address: string | null;
+  shipping_address: string | null;
   city: string | null;
   country: string | null;
   postal_code: string | null;
@@ -252,7 +253,8 @@ function SalesOrdersPage() {
           id: d.id,
           name: d.name ?? d.id,
           contact_name: d.contact_name ?? null,
-          address_line: d.address_line ?? null,
+          billing_address: d.billing_address ?? d.address_line ?? null,
+          shipping_address: d.shipping_address ?? null,
           city: d.city ?? null,
           country: d.country ?? null,
           postal_code: d.postal_code ?? null,
@@ -698,12 +700,8 @@ function SOModal({
       ...prev,
       customer_id: id,
       contact_person: c?.contact_name ?? prev.contact_person,
-      billing_address: c
-        ? [c.address_line, c.city, c.country, c.postal_code].filter(Boolean).join(", ")
-        : prev.billing_address,
-      delivery_address: c
-        ? [c.address_line, c.city, c.country, c.postal_code].filter(Boolean).join(", ")
-        : prev.delivery_address,
+      billing_address: c?.billing_address ?? prev.billing_address,
+      delivery_address: c?.shipping_address ?? c?.billing_address ?? prev.delivery_address,
     }));
   };
 
@@ -955,8 +953,19 @@ function SOModal({
                   placeholder="Auto-filled from customer"
                   disabled={!editable}
                 />
+                {editable && f.customer_id && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setF({ ...f, billing_address: customers.find((c) => c.id === f.customer_id)?.billing_address ?? "" })}
+                      className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
+                    >
+                      Use customer billing
+                    </button>
+                  </div>
+                )}
               </L>
-              <L label="Delivery address">
+              <L label="Delivery / shipping address">
                 <textarea
                   rows={2}
                   className="inp resize-y"
@@ -965,6 +974,24 @@ function SOModal({
                   placeholder="Auto-filled from customer"
                   disabled={!editable}
                 />
+                {editable && f.customer_id && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setF({ ...f, delivery_address: customers.find((c) => c.id === f.customer_id)?.shipping_address ?? customers.find((c) => c.id === f.customer_id)?.billing_address ?? "" })}
+                      className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
+                    >
+                      Use customer shipping
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setF({ ...f, delivery_address: customers.find((c) => c.id === f.customer_id)?.billing_address ?? "" })}
+                      className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
+                    >
+                      Use customer billing
+                    </button>
+                  </div>
+                )}
               </L>
               <L label="Salesperson / owner">
                 <input className="inp" value={so?.salesperson_name ?? "You"} disabled />

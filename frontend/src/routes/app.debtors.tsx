@@ -78,23 +78,25 @@ function DebtorsPage() {
             </div>
           ) : (
             <div className="-mx-5 overflow-x-auto">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+              <table className="table-premium w-full text-sm">                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Name</th>
                     <th className="px-5 py-2 text-left font-normal">Industry</th>
+                    <th className="px-5 py-2 text-left font-normal">PAN</th>
+                    <th className="px-5 py-2 text-left font-normal">GSTIN</th>
                     <th className="px-5 py-2 text-right font-normal">Exposure</th>
                     <th className="px-5 py-2 text-right font-normal">Terms</th>
                     <th className="px-5 py-2 text-right font-normal" />
                   </tr>
                 </thead>
-                <tbody>
-                  {(debtorsQ.data ?? []).map((d) => {
+                <tbody>                      {(debtorsQ.data ?? []).map((d) => {
                     const exposure = exposureFor(d.id);
                     return (
                       <tr key={d.id} className="border-b border-border/60">
                         <td className="px-5 py-3 font-medium">{d.name}</td>
                         <td className="px-5 py-3 text-muted-foreground">{d.industry ?? "—"}</td>
+                        <td className="px-5 py-3 text-xs font-mono text-muted-foreground">{d.panCardNo ?? d.pan_card_no ?? "—"}</td>
+                        <td className="px-5 py-3 text-xs font-mono text-muted-foreground">{d.gstin ?? "—"}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(exposure)}</td>
                         <td className="px-5 py-3 text-right text-muted-foreground">
                           Net {d.payment_terms_days}
@@ -164,7 +166,9 @@ function DebtorModal({
     industry: debtor?.industry ?? "",
     payment_terms_days: String(debtor?.payment_terms_days ?? debtor?.paymentTermsDays ?? "30"),
     gstin: debtor?.gstin ?? "",
-    address_line: debtor?.address_line ?? "",
+    panCardNo: debtor?.panCardNo ?? debtor?.pan_card_no ?? "",
+    billing_address: debtor?.billing_address ?? debtor?.address_line ?? "",
+    shipping_address: debtor?.shipping_address ?? "",
     city: debtor?.city ?? "",
     country: debtor?.country ?? "",
     postal_code: debtor?.postal_code ?? "",
@@ -189,16 +193,17 @@ function DebtorModal({
         payment_terms_days: Number(form.payment_terms_days),
         gstin: form.gstin || null,
         panCardNo: form.panCardNo || null,
-        address_line: form.address_line || null,
+        billingAddress: form.billing_address || null,
+        shippingAddress: form.shipping_address || null,
         city: form.city || null,
         country: form.country || null,
-        postal_code: form.postal_code || null,
+        postalCode: form.postal_code || null,
         phone: form.phone || null,
         website: form.website || null,
-        contact_name: form.contact_name || null,
-        contact_email: form.contact_email || null,
-        contact_designation: form.contact_designation || null,
-        contact_phone: form.contact_phone || null,
+        contactName: form.contact_name || null,
+        contactEmail: form.contact_email || null,
+        contactDesignation: form.contact_designation || null,
+        contactPhone: form.contact_phone || null,
       };
       if (isEdit && debtor) {
         await api.debtors.update(debtor.id, payload);
@@ -288,20 +293,42 @@ function DebtorModal({
             </div>
           </Section>
 
-          <Section title="Address">
-            <div className="grid gap-3 md:grid-cols-2">
-              <L label="Address" full>
-                <input
-                  maxLength={300}
-                  className="inp"
-                  value={form.address_line}
-                  onChange={set("address_line")}
+          <Section title="Billing address">
+            <div className="grid gap-3">
+              <L label="Billing address" full>
+                <textarea
+                  rows={3}
+                  maxLength={500}
+                  className="inp resize-y"
+                  value={form.billing_address}
+                  onChange={(e) => setForm({ ...form, billing_address: e.target.value })}
+                  placeholder="Street, building, landmarks…"
                 />
               </L>
+            </div>
+          </Section>
+
+          <Section title="Shipping address">
+            <div className="grid gap-3">
+              <L label="Shipping address" full>
+                <textarea
+                  rows={3}
+                  maxLength={500}
+                  className="inp resize-y"
+                  value={form.shipping_address}
+                  onChange={(e) => setForm({ ...form, shipping_address: e.target.value })}
+                  placeholder="Separate delivery address — leave blank to use billing address"
+                />
+              </L>
+            </div>
+          </Section>
+
+          <Section title="City / State / ZIP">
+            <div className="grid gap-3 md:grid-cols-3">
               <L label="City">
                 <input maxLength={100} className="inp" value={form.city} onChange={set("city")} />
               </L>
-              <L label="Country">
+              <L label="State / Country">
                 <input
                   maxLength={100}
                   className="inp"
@@ -405,9 +432,14 @@ function DebtorDetailModal({
   exposure: number;
   onClose: () => void;
 }) {
-  const address = [debtor.address_line, debtor.city, debtor.country, debtor.postal_code]
-    .filter(Boolean)
-    .join(", ");
+  const billingAddress =
+    [debtor.billing_address, debtor.city, debtor.country, debtor.postal_code]
+      .filter(Boolean)
+      .join(", ") || "—";
+  const shippingAddress =
+    [debtor.shipping_address, debtor.city, debtor.country, debtor.postal_code]
+      .filter(Boolean)
+      .join(", ") || "—";
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
@@ -431,12 +463,22 @@ function DebtorDetailModal({
               value={`Net ${debtor.payment_terms_days ?? debtor.paymentTermsDays ?? "—"}`}
             />
             <D label="Open exposure" value={<span className="num">{fmtMoney(exposure)}</span>} />
+            <D label="PAN" value={debtor.panCardNo ?? debtor.pan_card_no ?? "—"} />
             <D label="GSTIN" value={debtor.gstin ?? "—"} />
             <D label="Website" value={debtor.website ?? "—"} />
             <D label="Phone" value={debtor.phone ?? "—"} />
-            <div className="col-span-2">
-              <D label="Address" value={address || "—"} />
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Billing address</div>
+            <div className="text-sm">{billingAddress}</div>
+          </div>
+          {shippingAddress !== billingAddress && (
+            <div>
+              <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Shipping address</div>
+              <div className="text-sm">{shippingAddress}</div>
             </div>
+          )}
+          <div className="grid grid-cols-2 gap-3">
             <D label="Contact name" value={debtor.contact_name ?? "—"} />
             <D label="Designation" value={debtor.contact_designation ?? "—"} />
             <D label="Contact email" value={debtor.contact_email ?? "—"} />

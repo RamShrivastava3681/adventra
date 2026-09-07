@@ -14,7 +14,6 @@ import {
   Building2,
   Truck,
   ShoppingCart,
-  Receipt,
   Banknote,
   ClipboardCheck,
   Boxes,
@@ -76,21 +75,33 @@ type NavSection =
   | { type: "single"; label: string; icon: any; to: string }
   | { type: "group"; label: string; icon: any; items: NavItem[] };
 
-// ─── Shared Transactions items (used by operations, treasury, checker, admin) ──
-const TRANSACTIONS_ITEMS: NavItem[] = [
+// ─── Procurement items (purchase side) ──
+const PROCUREMENT_ITEMS: NavItem[] = [
   { to: "/app/purchases", label: "Purchase invoices", icon: ShoppingCart },
+  { to: "/app/proformas", label: "Purchase proforma", icon: FileSignature },
   { to: "/app/purchase-orders", label: "Purchase orders", icon: ClipboardList },
-  { to: "/app/grn", label: "Goods received (GRN)", icon: PackageCheck },
+  { to: "/app/advances", label: "Advances (purchase)", icon: Wallet },
+  { to: "/app/notes", label: "Credit / Debit notes", icon: FileMinus },
+];
+
+// ─── Sales Operator items ──
+const SALES_OPERATOR_ITEMS: NavItem[] = [
   { to: "/app/quotations", label: "Quotations", icon: ScrollText },
   { to: "/app/sales-orders", label: "Sales orders", icon: ShoppingBag },
-  { to: "/app/dispatches", label: "Dispatch", icon: Truck },
   { to: "/app/invoices", label: "Sales invoices", icon: FileText },
-  { to: "/app/proformas", label: "Proforma invoices", icon: FileSignature },
-  { to: "/app/debtors", label: "Debtors", icon: Building2 },
-  { to: "/app/suppliers", label: "Suppliers", icon: Truck },
+  { to: "/app/proformas", label: "Sales proforma", icon: FileSignature },
+  { to: "/app/advances", label: "Advances (sales)", icon: Wallet },
   { to: "/app/notes", label: "Credit / Debit notes", icon: FileMinus },
-  { to: "/app/expenses", label: "Expenses", icon: Receipt },
-  { to: "/app/advances", label: "Advances", icon: Wallet },
+];
+
+// ─── Inventory items ──
+const INVENTORY_ITEMS: NavItem[] = [
+  { to: "/app/grn", label: "GRN", icon: PackageCheck },
+  { to: "/app/dispatches", label: "Dispatch", icon: Truck },
+  { to: "/app/inventory", label: "Inventory", icon: Boxes },
+  { to: "/app/products", label: "Product Catalogue", icon: Package },
+  { to: "/app/stock-allocation", label: "Stock Allocation", icon: MapPin },
+  { to: "/app/forecast", label: "Forecast", icon: TrendingUp },
 ];
 
 // ─── Build navigation sections per role ──────────────────────
@@ -103,63 +114,66 @@ function buildNavSections(roles: string[]): NavSection[] {
   const isSalesRep = roles.includes("sales_rep");
   const isReportingManager = roles.includes("reporting_manager");
 
-  // Checker — operations items + checker desk + Workspace
+  // Base sections available to most roles
+  const baseSections: NavSection[] = [
+    { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+    { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
+  ];
+
+  // Checker — checker desk only + workspace
   if (isChecker && !isAdmin) {
     return [
-      { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+      ...baseSections,
       { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
       { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
-      { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
-      {
-        type: "group",
-        label: "Transactions",
-        icon: Receipt,
-        items: TRANSACTIONS_ITEMS,
-      },
     ];
   }
 
-  // Treasury — operations items + funding queue + Cash Command Centre + Workspace
+  // Treasury — Cash Command Centre + Funding Queue + workspace
   if (isTreasury && !isAdmin && !isChecker) {
     return [
-      { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+      ...baseSections,
       { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
-      { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
       { type: "single", label: "Cash Command Centre", icon: Wallet, to: "/app/cash-flow" },
-      { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
-      {
-        type: "group",
-        label: "Transactions",
-        icon: Receipt,
-        items: TRANSACTIONS_ITEMS,
-      },
+      { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
     ];
   }
 
-  // Operations — all transaction items + Workspace
+  // Operations — full access to Procurement, Sales Operator, Inventory
   if (isOperations && !isAdmin && !isChecker && !isTreasury) {
     return [
-      { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+      ...baseSections,
       { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
-      { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
       {
         type: "group",
-        label: "Transactions",
-        icon: Receipt,
-        items: TRANSACTIONS_ITEMS,
+        label: "Procurement",
+        icon: ShoppingCart,
+        items: PROCUREMENT_ITEMS,
+      },
+      {
+        type: "group",
+        label: "Sales Operator",
+        icon: ShoppingBag,
+        items: SALES_OPERATOR_ITEMS,
+      },
+      {
+        type: "group",
+        label: "Inventory",
+        icon: Boxes,
+        items: INVENTORY_ITEMS,
       },
     ];
   }
 
-  // Salesman — CRM / leads, debtors, suppliers + Workspace
+  // Salesman — Sales Operator items + Leads
   if (isSalesRep && !isAdmin && !isChecker && !isTreasury && !isOperations) {
     return [
-      { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
+      ...baseSections,
       { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
       {
         type: "group",
-        label: "Sales",
-        icon: Users,
+        label: "Sales Operator",
+        icon: ShoppingBag,
         items: [
           { to: "/app/crm", label: "Leads", icon: Users },
           { to: "/app/quotations", label: "Quotations", icon: ScrollText },
@@ -170,7 +184,7 @@ function buildNavSections(roles: string[]): NavSection[] {
     ];
   }
 
-  // Reporting Manager — My Reports + Requests + Dashboard + Settings
+  // Reporting Manager — Reports + Requests + System
   if (isReportingManager && !isAdmin && !isChecker && !isTreasury && !isOperations && !isSalesRep) {
     return [
       { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
@@ -186,42 +200,39 @@ function buildNavSections(roles: string[]): NavSection[] {
     ];
   }
 
-  // ── Admin — full access ──
+  // ── Admin — full access to all sections ──
   if (isAdmin) {
     return [
       { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
-      { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
-      { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
+      // Treasury section
       { type: "single", label: "Cash Command Centre", icon: Wallet, to: "/app/cash-flow" },
+      { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
+      // Checker section
+      { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
+      // Reports
       { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
+      // Procurement section
       {
         type: "group",
-        label: "Transactions",
-        icon: Receipt,
-        items: TRANSACTIONS_ITEMS,
+        label: "Procurement",
+        icon: ShoppingCart,
+        items: PROCUREMENT_ITEMS,
       },
+      // Sales Operator section
       {
         type: "group",
-        label: "Catalog & Inventory",
+        label: "Sales Operator",
+        icon: ShoppingBag,
+        items: SALES_OPERATOR_ITEMS,
+      },
+      // Inventory section
+      {
+        type: "group",
+        label: "Inventory",
         icon: Boxes,
-        items: [
-          { to: "/app/products", label: "Product catalog", icon: Package },
-          { to: "/app/forecast", label: "Demand forecasting", icon: TrendingUp },
-          { to: "/app/inventory", label: "Inventory", icon: Boxes },
-  { to: "/app/stock-allocation", label: "Stock Allocation", icon: MapPin },
-        ],
+        items: INVENTORY_ITEMS,
       },
-      {
-        type: "group",
-        label: "Sales",
-        icon: Users,
-        items: [
-          { to: "/app/crm", label: "Leads", icon: Users },
-          { to: "/app/quotations", label: "Quotations", icon: ScrollText },
-          { to: "/app/debtors", label: "Debtors", icon: Building2 },
-          { to: "/app/suppliers", label: "Suppliers", icon: Truck },
-        ],
-      },
+      // System section
       {
         type: "group",
         label: "System",
@@ -237,7 +248,7 @@ function buildNavSections(roles: string[]): NavSection[] {
     ];
   }
 
-  // ── Fallback for unknown / unreporting_manager roles ──
+  // ── Fallback for unknown roles ──
   return [{ type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" }];
 }
 
@@ -314,25 +325,41 @@ function AppLayout() {
     // Allowed pages per role
     // Shared routes accessible to all logged-in users
     const SHARED_ROUTES = ["/app/profile", "/app/workspace", "/app/settings"];
-    const operationsAllowed = [
-      "/app/dashboard",
-      "/app/debtors",
-      "/app/suppliers",
-      "/app/invoices",
+    // Procurement routes
+    const procurementRoutes = [
       "/app/purchases",
+      "/app/proformas",
       "/app/purchase-orders",
+      "/app/advances",
+      "/app/notes",
+    ];
+    // Sales Operator routes
+    const salesOperatorRoutes = [
       "/app/quotations",
       "/app/quotation",
       "/app/sales-orders",
-      "/app/dispatches",
-      "/app/challan",
-      "/app/grn",
+      "/app/invoices",
       "/app/proformas",
       "/app/advances",
-      "/app/expenses",
       "/app/notes",
+    ];
+    // Inventory routes
+    const inventoryRoutes = [
+      "/app/grn",
+      "/app/dispatches",
+      "/app/challan",
+      "/app/inventory",
+      "/app/products",
+      "/app/stock-allocation",
+      "/app/forecast",
+    ];
+    const operationsAllowed = [
+      "/app/dashboard",
       "/app/reporting",
       "/app/cash-flow",
+      ...procurementRoutes,
+      ...salesOperatorRoutes,
+      ...inventoryRoutes,
     ];
     const salesmanAllowed = [
       "/app/dashboard",

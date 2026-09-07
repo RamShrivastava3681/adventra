@@ -128,6 +128,8 @@ function InvoicesPage() {
         id: d.id,
         name: d.name,
         payment_terms_days: d.paymentTermsDays ?? d.payment_terms_days,
+        billing_address: d.billing_address ?? d.address_line ?? null,
+        shipping_address: d.shipping_address ?? null,
       }));
     },
   });
@@ -977,18 +979,58 @@ function NewInvoiceModal({
                 />
               </L>
               <L label="Billing address">
-                <input
-                  className="inp"
+                <textarea
+                  rows={2}
+                  className="inp resize-y"
                   value={form.billing_address}
                   onChange={(e) => setForm({ ...form, billing_address: e.target.value })}
                 />
+                {form.debtor_id && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const d = debtors.find((x: any) => x.id === form.debtor_id);
+                        if (d) setForm({ ...form, billing_address: d.billing_address ?? "" });
+                      }}
+                      className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
+                    >
+                      Use debtor billing
+                    </button>
+                  </div>
+                )}
               </L>
-              <L label="Delivery address">
-                <input
-                  className="inp"
+              <L label="Delivery / shipping address">
+                <textarea
+                  rows={2}
+                  className="inp resize-y"
                   value={form.delivery_address}
                   onChange={(e) => setForm({ ...form, delivery_address: e.target.value })}
                 />
+                {form.debtor_id && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const d = debtors.find((x: any) => x.id === form.debtor_id);
+                        if (d) setForm({ ...form, delivery_address: d.shipping_address ?? d.billing_address ?? "" });
+                      }}
+                      className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
+                    >
+                      Use debtor shipping
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const d = debtors.find((x: any) => x.id === form.debtor_id);
+                        if (d) setForm({ ...form, delivery_address: d.billing_address ?? "" });
+                      }}
+                      className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
+                    >
+                      Use debtor billing
+                    </button>
+                  </div>
+                )}
               </L>
               <L label="Payment terms">
                 <input
