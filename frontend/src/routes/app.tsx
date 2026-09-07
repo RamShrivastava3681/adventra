@@ -84,6 +84,12 @@ const PROCUREMENT_ITEMS: NavItem[] = [
   { to: "/app/notes", label: "Credit / Debit notes", icon: FileMinus },
 ];
 
+// ─── Finance items ──
+const FINANCE_ITEMS: NavItem[] = [
+  { to: "/app/cash-flow", label: "Cash Command", icon: Wallet },
+  { to: "/app/queue", label: "Treasury", icon: Banknote },
+];
+
 // ─── Sales Operator items ──
 const SALES_OPERATOR_ITEMS: NavItem[] = [
   { to: "/app/quotations", label: "Quotations", icon: ScrollText },
@@ -129,17 +135,21 @@ function buildNavSections(roles: string[]): NavSection[] {
     ];
   }
 
-  // Treasury — Cash Command Centre + Funding Queue + workspace
+  // Treasury — Finance section + workspace
   if (isTreasury && !isAdmin && !isChecker) {
     return [
       ...baseSections,
       { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
-      { type: "single", label: "Cash Command Centre", icon: Wallet, to: "/app/cash-flow" },
-      { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
+      {
+        type: "group",
+        label: "Finance",
+        icon: TrendingUp,
+        items: FINANCE_ITEMS,
+      },
     ];
   }
 
-  // Operations — full access to Procurement, Sales Operator, Inventory
+  // Operations — full access to Procurement, Sales Operator, Inventory, Finance
   if (isOperations && !isAdmin && !isChecker && !isTreasury) {
     return [
       ...baseSections,
@@ -161,6 +171,12 @@ function buildNavSections(roles: string[]): NavSection[] {
         label: "Inventory",
         icon: Boxes,
         items: INVENTORY_ITEMS,
+      },
+      {
+        type: "group",
+        label: "Finance",
+        icon: TrendingUp,
+        items: FINANCE_ITEMS,
       },
     ];
   }
@@ -204,9 +220,13 @@ function buildNavSections(roles: string[]): NavSection[] {
   if (isAdmin) {
     return [
       { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
-      // Treasury section
-      { type: "single", label: "Cash Command Centre", icon: Wallet, to: "/app/cash-flow" },
-      { type: "single", label: "Funding queue", icon: Banknote, to: "/app/queue" },
+      // Finance section
+      {
+        type: "group",
+        label: "Finance",
+        icon: TrendingUp,
+        items: FINANCE_ITEMS,
+      },
       // Checker section
       { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
       // Reports
@@ -357,6 +377,7 @@ function AppLayout() {
       "/app/dashboard",
       "/app/reporting",
       "/app/cash-flow",
+      "/app/queue",
       ...procurementRoutes,
       ...salesOperatorRoutes,
       ...inventoryRoutes,
