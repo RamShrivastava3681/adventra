@@ -1023,8 +1023,8 @@ export function invoiceToPdfData(
   const amountReceived = Number(inv.amountReceived ?? inv.amount_received ?? 0);
   const subtotal = Number(inv.subtotalGoods ?? inv.subtotal_goods ?? inv.subtotal ?? 0);
   const partyAddress = [
-    debtor?.addressLine,
-    debtor?.address_line,
+    debtor?.billingAddress,
+    debtor?.shippingAddress,
     debtor?.city,
     debtor?.country,
   ]

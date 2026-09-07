@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
+import { PageHeader, Card, fmtMoney, fmtDate, StatusPill } from "@/components/ledger-ui";
 import {
   Plus,
   X,
@@ -118,6 +118,20 @@ const DISPATCH_STATUSES = [
   "returned",
 ] as const;
 
+// Invoice status labels for pending dispatch section
+const DOC_LABELS_INV: Record<string, string> = {
+  draft: "Draft",
+  pending: "Issued",
+  approved: "Approved",
+  funded: "Funded",
+  advanced: "Advanced",
+  paid: "Paid",
+  partially_paid: "Partially Paid",
+  overdue: "Overdue",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+};
+
 const DISPATCH_STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
   confirmed: "Confirmed",
@@ -200,6 +214,33 @@ function DispatchesPage() {
       return data.map((i) => ({ id: i.id, number: i.invoice_number ?? i.id }));
     },
   });
+
+  // Pending invoices: those with an expected dispatch date but no linked dispatch yet.
+  // These are invoices waiting to be dispatched so the goods can be shipped.
+  const pendingInvoices = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return (invoicesQ.data ?? [])
+      .filter(
+        (inv: any) =>
+          inv.expected_dispatch_date &&
+          inv.expected_dispatch_date >= today &&
+          inv.status !== "paid" &&
+          inv.status !== "cancelled" &&
+          inv.status !== "rejected" &&
+          !inv.linked_sales_invoice_id, // Not yet dispatched (no dispatch linked)
+      )
+      .map((inv: any) => ({
+        ...inv,
+        daysRemaining: Math.max(
+          0,
+          Math.round(
+            (new Date(inv.expected_dispatch_date).getTime() - new Date(today).getTime()) /
+              (1000 * 60 * 60 * 24),
+          ),
+        ),
+      }))
+      .sort((a: any, b: any) => a.expected_dispatch_date.localeCompare(b.expected_dispatch_date));
+  }, [invoicesQ.data]);
   const stockLocationsQ = useQuery({
     queryKey: ["stock-locations-for-dispatch"],
     queryFn: async () => {
@@ -301,6 +342,80 @@ function DispatchesPage() {
           <StatTile label="Delivered" value={stats.delivered} icon={PackageCheck} />
           <StatTile label="Returned" value={stats.returned} icon={Undo2} />
         </div>
+
+        {/* Pending invoices to dispatch */}
+        {pendingInvoices.length > 0 && (
+          <Card>
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
+                Pending Dispatch Invoices
+              </h3>
+              <span className="text-[10px] text-muted-foreground">
+                {pendingInvoices.length} invoice(s) awaiting dispatch
+              </span>
+            </div>
+            <div className="-mx-5 overflow-x-auto">
+              <table className="table-premium w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">Invoice</th>
+                    <th className="px-5 py-2 text-left font-normal">Customer</th>
+                    <th className="px-5 py-2 text-left font-normal">SO</th>
+                    <th className="px-5 py-2 text-right font-normal">Amount</th>
+                    <th className="px-5 py-2 text-left font-normal">Expected Dispatch</th>
+                    <th className="px-5 py-2 text-center font-normal">Days Left</th>
+                    <th className="px-5 py-2 text-right font-normal">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {pendingInvoices.map((inv: any) => (
+                    <tr key={inv.id} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-5 py-3">
+                        <div className="font-mono text-xs">{inv.invoice_number}</div>
+                      </td>
+                      <td className="px-5 py-3">{inv.debtor?.name ?? "—"}</td>
+                      <td className="px-5 py-3 font-mono text-xs text-muted-foreground">
+                        {inv.goods_sales_order_number ?? "—"}
+                      </td>
+                      <td className="px-5 py-3 text-right num">{fmtMoney(inv.amount)}</td>
+                      <td className="px-5 py-3 text-sm">
+                        {fmtDate(inv.expected_dispatch_date)}
+                        <div className="text-[10px] text-muted-foreground">
+                          {inv.daysRemaining === 0
+                            ? "Due today"
+                            : `${inv.daysRemaining} day${inv.daysRemaining !== 1 ? "s" : ""} remaining`}
+                        </div>
+                      </td>
+                      <td className="px-5 py-3 text-center">
+                        {inv.daysRemaining <= 3 ? (
+                          <span
+                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                              inv.daysRemaining === 0
+                                ? "bg-destructive/10 text-destructive border border-destructive/30"
+                                : inv.daysRemaining <= 1
+                                  ? "bg-warning/10 text-warning border border-warning/30"
+                                  : "bg-warning/10 text-warning border border-warning/30"
+                            }`}
+                          >
+                            {inv.daysRemaining === 0
+                              ? "⚠ Due today"
+                              : `${inv.daysRemaining}d`
+                            }
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground text-[10px]">{inv.daysRemaining}d</span>
+                        )}
+                      </td>
+                      <td className="px-5 py-3">
+                        <StatusPill status={inv.status} label={DOC_LABELS_INV[inv.status]} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
 
         <div className="flex flex-wrap items-center gap-2">
           <div className="ml-auto w-56">

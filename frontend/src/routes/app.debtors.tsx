@@ -188,6 +188,7 @@ function DebtorModal({
         industry: form.industry || null,
         payment_terms_days: Number(form.payment_terms_days),
         gstin: form.gstin || null,
+        panCardNo: form.panCardNo || null,
         address_line: form.address_line || null,
         city: form.city || null,
         country: form.country || null,
@@ -273,6 +274,15 @@ function DebtorModal({
                   placeholder="15-digit GSTIN"
                   value={form.gstin}
                   onChange={set("gstin")}
+                />
+              </L>
+              <L label="PAN Card No">
+                <input
+                  maxLength={10}
+                  className="inp"
+                  placeholder="10-character PAN"
+                  value={form.panCardNo}
+                  onChange={set("panCardNo")}
                 />
               </L>
             </div>

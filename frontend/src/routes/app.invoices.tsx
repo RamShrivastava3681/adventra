@@ -68,6 +68,7 @@ type Inv = {
   delivery_address: string | null;
   goods_sales_order_id: string | null;
   goods_sales_order_number: string | null;
+  expected_dispatch_date?: string | null;
   payment_terms: string | null;
   lines: InvLine[];
   subtotal_goods: number;
@@ -283,6 +284,7 @@ function InvoicesPage() {
                         <th className="px-5 py-2 text-right font-normal">Received</th>
                         <th className="px-5 py-2 text-right font-normal">Balance</th>
                         <th className="px-5 py-2 text-left font-normal">Due</th>
+                        <th className="px-5 py-2 text-left font-normal">Expected Dispatch</th>
                         <th className="px-5 py-2 text-left font-normal">Status</th>
                         <th className="px-5 py-2 text-left font-normal">NOA</th>
                         <th className="px-5 py-2 text-right font-normal">Actions</th>
@@ -343,6 +345,20 @@ function InvoicesPage() {
                               {fmtMoney(balance)}
                             </td>
                             <td className="px-5 py-3 text-sm">{fmtDate(i.due_date)}</td>
+                            <td className="px-5 py-3 text-sm">
+                              {i.expected_dispatch_date ? (
+                                <div className="flex flex-col">
+                                  <div className="text-xs">{fmtDate(i.expected_dispatch_date)}</div>
+                                  {i.status !== "paid" && i.status !== "cancelled" && i.status !== "rejected" && i.expected_dispatch_date >= new Date().toISOString().slice(0, 10) && (
+                                    <div className="text-[10px] text-muted-foreground">
+                                      {daysBetween(i.expected_dispatch_date)} days remaining
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
                             <td className="px-5 py-3">
                               <div className="flex flex-col items-start gap-1">
                                 <StatusPill status={i.status} label={DOC_LABELS[i.status]} />
@@ -518,6 +534,7 @@ function NewInvoiceModal({
       new Date().toISOString().slice(0, 10),
     due_date: (invoice?.due_date ?? "")?.slice(0, 10) ?? "",
     expected_date: (invoice?.expected_date ?? "")?.slice(0, 10) ?? "",
+    expected_dispatch_date: (invoice?.expected_dispatch_date ?? "")?.slice(0, 10) ?? "",
     customer_contact: invoice?.customer_contact ?? "",
     billing_address: invoice?.billing_address ?? "",
     delivery_address: invoice?.delivery_address ?? "",
@@ -793,6 +810,7 @@ function NewInvoiceModal({
         issue_date: form.issue_date,
         due_date: effectiveDue,
         expected_date: form.expected_date || effectiveDue,
+        expected_dispatch_date: form.expected_dispatch_date || null,
         source: "goods",
         customer_contact: form.customer_contact.trim() || null,
         billing_address: form.billing_address.trim() || null,
@@ -994,6 +1012,14 @@ function NewInvoiceModal({
                   className="inp"
                   value={form.expected_date}
                   onChange={(e) => setForm({ ...form, expected_date: e.target.value })}
+                />
+              </L>
+              <L label="Expected dispatch date">
+                <input
+                  type="date"
+                  className="inp"
+                  value={form.expected_dispatch_date}
+                  onChange={(e) => setForm({ ...form, expected_dispatch_date: e.target.value })}
                 />
               </L>
             </div>
@@ -1390,6 +1416,9 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
             />
             <D label="Issue date" value={invoice.issue_date ? fmtDate(invoice.issue_date) : "—"} />
             <D label="Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "—"} />
+            {invoice.expected_dispatch_date && (
+              <D label="Expected dispatch" value={fmtDate(invoice.expected_dispatch_date)} />
+            )}
             {invoice.goods_sales_order_number && (
               <D label="Linked sales order" value={invoice.goods_sales_order_number} />
             )}

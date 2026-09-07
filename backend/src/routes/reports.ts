@@ -620,7 +620,7 @@ router.get(
         const contact = [d.contactName, d.contactEmail, d.contactPhone]
           .filter(Boolean)
           .join(" · ");
-        const address = [d.addressLine, d.city, d.country, d.postalCode]
+        const address = [d.billingAddress, d.shippingAddress, d.city, d.country]
           .filter(Boolean)
           .join(", ");
         return {

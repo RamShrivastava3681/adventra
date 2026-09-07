@@ -27,6 +27,7 @@ export interface Invoice {
   invoiceNumber: string; amount: number;
   issueDate: string; dueDate: string; expectedDate?: string | null;
   promisedPaymentDate?: string | null;
+  expectedDispatchDate?: string | null;
   status: string;
   advanceRate: number; feeRate: number;
   paidDate: string | null; amountReceived: number | null; receiptDate: string | null;
@@ -189,6 +190,7 @@ export async function create(data: Partial<Invoice> & { clientId: string; debtor
     clientId: data.clientId, debtorId: data.debtorId,
     invoiceNumber: data.invoiceNumber, amount,
     issueDate: data.issueDate || db.todayDate(), dueDate: data.dueDate, expectedDate: data.expectedDate || data.dueDate || null,
+    expectedDispatchDate: data.expectedDispatchDate || null,
     status: data.status || "draft",
     advanceRate: data.advanceRate ?? 0.80, feeRate: data.feeRate ?? 0.025,
     paidDate: null, amountReceived: null, receiptDate: null,
@@ -223,7 +225,7 @@ export async function create(data: Partial<Invoice> & { clientId: string; debtor
 
 export async function update(id: string, updates: Partial<Invoice>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
-  const allowed = ["amount","status","paidDate","amountReceived","receiptDate","shortPayment","lateDays","advanceRate","feeRate","poNumber","poDate","poAmount","purchaseInvoiceId","purchaseOrderId","supplierId","lineItems","subtotal","taxRate","taxAmount","notes","documents","noaStatus","noaSentAt","noaRespondedAt","noaComments","issueDate","dueDate","expectedDate","invoiceNumber","debtorId","lastOverdueReminderDate","debtorReminderToken","customerContact","billingAddress","deliveryAddress","goodsSalesOrderId","goodsSalesOrderNumber","paymentTerms","lines","subtotalGoods","totalDiscount","gstTotal","freight","grandTotal","linkedCustomerProformaId","linkedCustomerProformaNumber","advanceDeducted"];
+  const allowed = ["amount","status","paidDate","amountReceived","receiptDate","shortPayment","lateDays","advanceRate","feeRate","poNumber","poDate","poAmount","purchaseInvoiceId","purchaseOrderId","supplierId","lineItems","subtotal","taxRate","taxAmount","notes","documents","noaStatus","noaSentAt","noaRespondedAt","noaComments","issueDate","dueDate","expectedDate","invoiceNumber","debtorId",      "lastOverdueReminderDate","debtorReminderToken","customerContact","billingAddress","deliveryAddress","goodsSalesOrderId","goodsSalesOrderNumber","paymentTerms","lines","subtotalGoods","totalDiscount","gstTotal","freight","grandTotal","linkedCustomerProformaId","linkedCustomerProformaNumber","advanceDeducted","expectedDispatchDate"];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   // Recompute line totals + document totals whenever lines/freight/advance change.
   if (
