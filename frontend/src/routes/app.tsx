@@ -43,6 +43,7 @@ import {
   BarChart3,
   MapPin,
   ArrowRightLeft,
+  AlertTriangle,
 } from "lucide-react";
 import { useTheme, type Theme } from "@/lib/theme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -75,15 +76,6 @@ type NavSection =
   | { type: "single"; label: string; icon: any; to: string }
   | { type: "group"; label: string; icon: any; items: NavItem[] };
 
-// ─── Procurement items (purchase side) ──
-const PROCUREMENT_ITEMS: NavItem[] = [
-  { to: "/app/purchases", label: "Purchase invoices", icon: ShoppingCart },
-  { to: "/app/proformas", label: "Purchase proforma", icon: FileSignature },
-  { to: "/app/purchase-orders", label: "Purchase orders", icon: ClipboardList },
-  { to: "/app/advances", label: "Advances (purchase)", icon: Wallet },
-  { to: "/app/notes", label: "Credit / Debit notes", icon: FileMinus },
-];
-
 // ─── Finance items ──
 const FINANCE_ITEMS: NavItem[] = [
   { to: "/app/cash-flow", label: "Cash Command", icon: Wallet },
@@ -92,12 +84,43 @@ const FINANCE_ITEMS: NavItem[] = [
 
 // ─── Sales Operator items ──
 const SALES_OPERATOR_ITEMS: NavItem[] = [
+  { to: "/app/debtors", label: "Debtors", icon: Building2 },
   { to: "/app/quotations", label: "Quotations", icon: ScrollText },
+  { to: "/app/suppliers", label: "Suppliers", icon: Truck },
   { to: "/app/sales-orders", label: "Sales orders", icon: ShoppingBag },
   { to: "/app/invoices", label: "Sales invoices", icon: FileText },
   { to: "/app/proformas", label: "Sales proforma", icon: FileSignature },
   { to: "/app/advances", label: "Advances (sales)", icon: Wallet },
   { to: "/app/notes", label: "Credit / Debit notes", icon: FileMinus },
+];
+
+// ─── Procurement items (purchase side) ──
+const PROCUREMENT_ITEMS: NavItem[] = [
+  { to: "/app/suppliers", label: "Suppliers", icon: Truck },
+  { to: "/app/purchases", label: "Purchase invoices", icon: ShoppingCart },
+  { to: "/app/proformas", label: "Purchase proforma", icon: FileSignature },
+  { to: "/app/purchase-orders", label: "Purchase orders", icon: ClipboardList },
+  { to: "/app/advances", label: "Advances (purchase)", icon: Wallet },
+  { to: "/app/notes", label: "Credit / Debit notes", icon: FileMinus },
+  { to: "/app/debtors", label: "Debtors", icon: Building2 },
+];
+
+// ─── (admin) quick-action item buckets ──
+export const QUICK_SUPPLIER_ITEMS: NavItem[] = [
+  { to: "/app/suppliers", label: "Suppliers", icon: Truck },
+];
+export const QUICK_DEBTOR_ITEMS: NavItem[] = [
+  { to: "/app/debtors", label: "Debtors", icon: Building2 },
+];
+
+// ─── Naughty list nav item constants ──
+const NAUGHTY_LIST_ITEMS: NavItem[] = [
+  { to: "/app/naughty-list", label: "Naughty List", icon: AlertTriangle },
+];
+
+// ─── Debtors list nav item constants ──
+const DEBTORS_ITEMS: NavItem[] = [
+  { to: "/app/debtors", label: "Debtors", icon: Building2 },
 ];
 
 // ─── Inventory items ──
@@ -120,156 +143,117 @@ function buildNavSections(roles: string[]): NavSection[] {
   const isSalesRep = roles.includes("sales_rep");
   const isReportingManager = roles.includes("reporting_manager");
 
-  // Base sections available to most roles
-  const baseSections: NavSection[] = [
-    { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
-    { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
-  ];
+  // ── Build each of the 7 tabs, only including items the role can see ──
 
-  // Checker — checker desk only + workspace
-  if (isChecker && !isAdmin) {
-    return [
-      ...baseSections,
-      { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
-      { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
-    ];
-  }
+  // Dashboard — single link, always present
+  const dashboardSection: NavSection = {
+    type: "single",
+    label: "Dashboard",
+    icon: LayoutDashboard,
+    to: "/app/dashboard",
+  };
 
-  // Treasury — Finance section + workspace
-  if (isTreasury && !isAdmin && !isChecker) {
-    return [
-      ...baseSections,
-      { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
-      {
-        type: "group",
-        label: "Finance",
-        icon: TrendingUp,
-        items: FINANCE_ITEMS,
-      },
-    ];
-  }
+  // Checker — visible to checker + admin
+  const checkerSection: NavSection | null =
+    (isChecker || isAdmin)
+      ? { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" }
+      : null;
 
-  // Operations — full access to Procurement, Sales Operator, Inventory, Finance
-  if (isOperations && !isAdmin && !isChecker && !isTreasury) {
-    return [
-      ...baseSections,
-      { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
-      {
-        type: "group",
-        label: "Procurement",
-        icon: ShoppingCart,
-        items: PROCUREMENT_ITEMS,
-      },
-      {
-        type: "group",
-        label: "Sales Operator",
-        icon: ShoppingBag,
-        items: SALES_OPERATOR_ITEMS,
-      },
-      {
-        type: "group",
-        label: "Inventory",
-        icon: Boxes,
-        items: INVENTORY_ITEMS,
-      },
-      {
-        type: "group",
-        label: "Finance",
-        icon: TrendingUp,
-        items: FINANCE_ITEMS,
-      },
-    ];
-  }
+  // Finance — visible to treasury, operations, admin
+  const financeSection: NavSection | null =
+    (isTreasury || isOperations || isAdmin)
+      ? {
+          type: "group",
+          label: "Finance",
+          icon: TrendingUp,
+          items: FINANCE_ITEMS,
+        }
+      : null;
 
-  // Salesman — Sales Operator items + Leads
-  if (isSalesRep && !isAdmin && !isChecker && !isTreasury && !isOperations) {
-    return [
-      ...baseSections,
-      { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" },
-      {
-        type: "group",
-        label: "Sales Operator",
-        icon: ShoppingBag,
-        items: [
+  // Procurement — visible to operations + admin
+  const procurementSection: NavSection | null =
+    (isOperations || isAdmin)
+      ? {
+          type: "group",
+          label: "Procurement",
+          icon: ShoppingCart,
+          items: [...PROCUREMENT_ITEMS],
+        }
+      : null;
+
+  // Sales Operator — visible to operations, sales rep, admin
+  const salesOperatorItems: NavItem[] =
+    isSalesRep
+      ? [
           { to: "/app/crm", label: "Leads", icon: Users },
           { to: "/app/quotations", label: "Quotations", icon: ScrollText },
           { to: "/app/debtors", label: "Debtors", icon: Building2 },
           { to: "/app/suppliers", label: "Suppliers", icon: Truck },
-        ],
-      },
-    ];
+          { to: "/app/naughty-list", label: "Naughty List", icon: AlertTriangle },
+        ]
+      : [...SALES_OPERATOR_ITEMS];
+  const salesOperatorSection: NavSection | null =
+    (isSalesRep || isOperations || isAdmin)
+      ? {
+          type: "group",
+          label: "Sales Operator",
+          icon: ShoppingBag,
+          items: salesOperatorItems,
+        }
+      : null;
+
+  // Reports — visible to everyone (reporting manager gets extra "My Reports")
+  const reportsSections: NavSection[] = [
+    { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
+    isReportingManager
+      ? { type: "single", label: "My Reports", icon: Users, to: "/app/reports" }
+      : null,
+  ].filter((s): s is NavSection => s !== null);
+
+  // System — visible to reporting manager + admin
+  const systemSection: NavSection | null =
+    (isReportingManager || isAdmin)
+      ? {
+          type: "group",
+          label: "System",
+          icon: Settings,
+          items: isAdmin
+            ? [
+                { to: "/app/alerts", label: "Alerts", icon: BellRing },
+                { to: "/app/reminders", label: "Reminders", icon: Mail },
+                { to: "/app/admin", label: "Operations", icon: Shield },
+                { to: "/app/template", label: "Invoice template", icon: Palette },
+                { to: "/app/settings", label: "Settings", icon: Settings },
+              ]
+            : [{ to: "/app/settings", label: "Settings", icon: Settings }],
+        }
+      : null;
+
+  // My Workspace — present for checker, treasury, operations, sales rep
+  const workspaceSection: NavSection | null =
+    (isChecker || isTreasury || isOperations || isSalesRep)
+      ? { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" }
+      : null;
+
+  // Assemble in the desired order: Dashboard, Checker, Finance, Procurement,
+  // Sales Operator, Reports, System
+  const sections: NavSection[] = [
+    dashboardSection,
+    workspaceSection,
+    checkerSection,
+    financeSection,
+    procurementSection,
+    salesOperatorSection,
+    ...reportsSections,
+    systemSection,
+  ].filter((s): s is NavSection => s !== null);
+
+  // Fallback for unknown roles — just dashboard
+  if (sections.length === 1 && sections[0] === dashboardSection) {
+    return sections;
   }
 
-  // Reporting Manager — Reports + Requests + System
-  if (isReportingManager && !isAdmin && !isChecker && !isTreasury && !isOperations && !isSalesRep) {
-    return [
-      { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
-      { type: "single", label: "My Reports", icon: Users, to: "/app/reports" },
-      { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
-      { type: "single", label: "Requests", icon: ClipboardList, to: "/app/requests" },
-      {
-        type: "group",
-        label: "System",
-        icon: Settings,
-        items: [{ to: "/app/settings", label: "Settings", icon: Settings }],
-      },
-    ];
-  }
-
-  // ── Admin — full access to all sections ──
-  if (isAdmin) {
-    return [
-      { type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" },
-      // Finance section
-      {
-        type: "group",
-        label: "Finance",
-        icon: TrendingUp,
-        items: FINANCE_ITEMS,
-      },
-      // Checker section
-      { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" },
-      // Reports
-      { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
-      // Procurement section
-      {
-        type: "group",
-        label: "Procurement",
-        icon: ShoppingCart,
-        items: PROCUREMENT_ITEMS,
-      },
-      // Sales Operator section
-      {
-        type: "group",
-        label: "Sales Operator",
-        icon: ShoppingBag,
-        items: SALES_OPERATOR_ITEMS,
-      },
-      // Inventory section
-      {
-        type: "group",
-        label: "Inventory",
-        icon: Boxes,
-        items: INVENTORY_ITEMS,
-      },
-      // System section
-      {
-        type: "group",
-        label: "System",
-        icon: Settings,
-        items: [
-          { to: "/app/alerts", label: "Alerts", icon: BellRing },
-          { to: "/app/reminders", label: "Reminders", icon: Mail },
-          { to: "/app/admin", label: "Operations", icon: Shield },
-          { to: "/app/template", label: "Invoice template", icon: Palette },
-          { to: "/app/settings", label: "Settings", icon: Settings },
-        ],
-      },
-    ];
-  }
-
-  // ── Fallback for unknown roles ──
-  return [{ type: "single", label: "Dashboard", icon: LayoutDashboard, to: "/app/dashboard" }];
+  return sections;
 }
 
 function AppLayout() {
@@ -345,16 +329,10 @@ function AppLayout() {
     // Allowed pages per role
     // Shared routes accessible to all logged-in users
     const SHARED_ROUTES = ["/app/profile", "/app/workspace", "/app/settings"];
-    // Procurement routes
-    const procurementRoutes = [
-      "/app/purchases",
-      "/app/proformas",
-      "/app/purchase-orders",
-      "/app/advances",
-      "/app/notes",
-    ];
+
     // Sales Operator routes
-    const salesOperatorRoutes = [
+    const salesOperatorRoutes: string[] = [
+      "/app/debtors",
       "/app/quotations",
       "/app/quotation",
       "/app/sales-orders",
@@ -362,9 +340,31 @@ function AppLayout() {
       "/app/proformas",
       "/app/advances",
       "/app/notes",
+      "/app/naughty-list",
+    ];
+    // Procurement routes (purchase side)
+    const procurementRoutes: string[] = [
+      "/app/suppliers",
+      "/app/purchases",
+      "/app/proformas",
+      "/app/purchase-orders",
+      "/app/advances",
+      "/app/notes",
+    ];
+    // Supplier list routes
+    const supplierListRoutes: string[] = [
+      "/app/suppliers",
+    ];
+    // Debtor list routes
+    const debtorListRoutes: string[] = [
+      "/app/debtors",
+    ];
+    // Naughty list routes
+    const naughtyListRoutes: string[] = [
+      "/app/naughty-list",
     ];
     // Inventory routes
-    const inventoryRoutes = [
+    const inventoryRoutes: string[] = [
       "/app/grn",
       "/app/dispatches",
       "/app/challan",
@@ -373,22 +373,48 @@ function AppLayout() {
       "/app/stock-allocation",
       "/app/forecast",
     ];
-    const operationsAllowed = [
+
+    const operationsAllowed: string[] = [
       "/app/dashboard",
       "/app/reporting",
       "/app/cash-flow",
       "/app/queue",
       ...procurementRoutes,
+      ...supplierListRoutes,
       ...salesOperatorRoutes,
+      ...naughtyListRoutes,
       ...inventoryRoutes,
     ];
-    const salesmanAllowed = [
+
+    // Quick admin allowed routes (for admin quick items)
+    const adminQuickAllowed: string[] = [
+      ...debtorListRoutes,
+      ...supplierListRoutes,
+    ];
+
+    // Sales rep allowed routes
+    const salesmanAllowed: string[] = [
       "/app/dashboard",
       "/app/crm",
       "/app/quotations",
       "/app/quotation",
       "/app/debtors",
       "/app/suppliers",
+      "/app/naughty-list",
+    ];
+
+    // Seller allowed routes (for view-as)
+    const sellerAllowed: string[] = [
+      "/app/quotations",
+      "/app/quotation",
+      "/app/sales-orders",
+      "/app/invoices",
+      "/app/proformas",
+      "/app/advances",
+      "/app/notes",
+      "/app/debtors",
+      "/app/suppliers",
+      "/app/naughty-list",
     ];
 
     if (isAdmin || isSuperAdmin) return; // admin goes anywhere
