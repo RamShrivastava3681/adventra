@@ -204,11 +204,22 @@ function buildNavSections(roles: string[]): NavSection[] {
 
   // Reports — visible to everyone (reporting manager gets extra "My Reports")
   const reportsSections: NavSection[] = [
-    { type: "single", label: "Reports", icon: BarChart3, to: "/app/reporting" },
-    isReportingManager
-      ? { type: "single", label: "My Reports", icon: Users, to: "/app/reports" }
-      : null,
-  ].filter((s): s is NavSection => s !== null);
+    { type: "single" as const, label: "Reports", icon: BarChart3, to: "/app/reporting" },
+    ...(isReportingManager
+      ? [{ type: "single" as const, label: "My Reports", icon: Users, to: "/app/reports" }]
+      : []),
+  ];
+
+  // Inventory — visible to operations + admin
+  const inventorySection: NavSection | null =
+    (isOperations || isAdmin)
+      ? {
+          type: "group",
+          label: "Inventory",
+          icon: Boxes,
+          items: INVENTORY_ITEMS,
+        }
+      : null;
 
   // System — visible to reporting manager + admin
   const systemSection: NavSection | null =
@@ -236,17 +247,18 @@ function buildNavSections(roles: string[]): NavSection[] {
       : null;
 
   // Assemble in the desired order: Dashboard, Checker, Finance, Procurement,
-  // Sales Operator, Reports, System
-  const sections: NavSection[] = [
+  // Sales Operator, Inventory, Reports, System
+  const sections = [
     dashboardSection,
     workspaceSection,
     checkerSection,
     financeSection,
     procurementSection,
     salesOperatorSection,
+    inventorySection,
     ...reportsSections,
     systemSection,
-  ].filter((s): s is NavSection => s !== null);
+  ].filter((s: any): s is NavSection => s != null) as NavSection[];
 
   // Fallback for unknown roles — just dashboard
   if (sections.length === 1 && sections[0] === dashboardSection) {
@@ -374,6 +386,24 @@ function AppLayout() {
       "/app/forecast",
     ];
 
+    // Include all inventory routes for admin (they have full access)
+    const adminAllowedRoutes = [
+      "/app/dashboard",
+      "/app/reporting",
+      "/app/cash-flow",
+      "/app/queue",
+      "/app/admin",
+      "/app/alerts",
+      "/app/reminders",
+      "/app/template",
+      "/app/settings",
+      ...procurementRoutes,
+      ...supplierListRoutes,
+      ...salesOperatorRoutes,
+      ...naughtyListRoutes,
+      ...inventoryRoutes,
+    ];
+
     const operationsAllowed: string[] = [
       "/app/dashboard",
       "/app/reporting",
@@ -417,7 +447,8 @@ function AppLayout() {
       "/app/naughty-list",
     ];
 
-    if (isAdmin || isSuperAdmin) return; // admin goes anywhere
+    // Admin goes anywhere — no route wall needed
+    if (isAdmin || isSuperAdmin) return;
 
     if (
       isChecker &&
