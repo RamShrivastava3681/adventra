@@ -3,8 +3,25 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeader, Card, fmtMoney, daysBetween } from "@/components/ledger-ui";
-import { Zap, Shield, UserPlus, Eye, EyeOff, Users, Trash2 } from "lucide-react";
+import { PageHeader, Card, fmtMoney, daysBetween, StatusPill, fmtDate } from "@/components/ledger-ui";
+import { TableSkeleton } from "@/components/skeletons";
+import {
+  Zap,
+  Shield,
+  UserPlus,
+  Eye,
+  EyeOff,
+  Users,
+  Trash2,
+  ScrollText,
+  Building2,
+  Truck,
+  ShoppingBag,
+  Users as UsersIcon,
+  LayoutDashboard,
+  Mail,
+  PhoneCall,
+} from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -51,6 +68,18 @@ const ROLE_LABELS: Record<string, string> = {
   factor_admin: "Admin",
 };
 
+// ── Sales sub-tab config ──────────────────────────────────────────
+type SalesTab = "sales-overview" | "quotations" | "crm" | "sales-orders" | "debtors" | "suppliers";
+
+const SALES_TABS: { id: SalesTab; label: string; icon: any }[] = [
+  { id: "sales-overview", label: "Overview", icon: LayoutDashboard },
+  { id: "quotations", label: "Quotations", icon: ScrollText },
+  { id: "crm", label: "CRM", icon: UsersIcon },
+  { id: "sales-orders", label: "Sales Orders", icon: ShoppingBag },
+  { id: "debtors", label: "Debtors", icon: Building2 },
+  { id: "suppliers", label: "Suppliers", icon: Truck },
+];
+
 /** Compact relative time for the super admin's last-seen column. */
 function timeAgo(iso?: string | null): string {
   if (!iso) return "Never";
@@ -93,6 +122,77 @@ function AdminPage() {
     },
     enabled: isAdmin || isSuperAdmin,
   });
+
+  // ── Sales data queries ──────────────────────────────────────────
+  const [salesTab, setSalesTab] = useState<SalesTab>("sales-overview");
+
+  const quotationsQ = useQuery({
+    queryKey: ["quotations-admin"],
+    queryFn: async () => {
+      const data = await api.quotations.list();
+      return data.sort((a: any, b: any) => (b.quotation_date || "").localeCompare(a.quotation_date || ""));
+    },
+    enabled: isAdmin || isSuperAdmin,
+  });
+
+  const opportunitiesQ = useQuery({
+    queryKey: ["crm-opportunities-admin"],
+    queryFn: async () => {
+      const data = await api.crm.opportunities.list();
+      return data.reverse();
+    },
+    enabled: isAdmin || isSuperAdmin,
+  });
+
+  const leadsQ = useQuery({
+    queryKey: ["crm-leads-admin"],
+    queryFn: async () => {
+      const data = await api.crm.leads.list();
+      return data.reverse();
+    },
+    enabled: isAdmin || isSuperAdmin,
+  });
+
+  const salesOrdersQ = useQuery({
+    queryKey: ["sales-orders-admin"],
+    queryFn: async () => {
+      const data = await api.goodsSalesOrders.list();
+      return data.sort((a: any, b: any) => (b.order_date || "").localeCompare(a.order_date || ""));
+    },
+    enabled: isAdmin || isSuperAdmin,
+  });
+
+  const debtorsQ = useQuery({
+    queryKey: ["debtors-admin"],
+    queryFn: async () => {
+      const data = await api.debtors.list();
+      return data.sort((a: any, b: any) => a.name?.localeCompare(b.name ?? "") ?? 0);
+    },
+    enabled: isAdmin || isSuperAdmin,
+  });
+
+  const suppliersQ = useQuery({
+    queryKey: ["suppliers-admin"],
+    queryFn: async () => {
+      const data = await api.suppliers.list();
+      return data.sort((a: any, b: any) => a.name?.localeCompare(b.name ?? "") ?? 0);
+    },
+    enabled: isAdmin || isSuperAdmin,
+  });
+
+  const salesInvoicesQ = useQuery({
+    queryKey: ["sales-invoices-admin"],
+    queryFn: async () => {
+      const data = await api.invoices.list();
+      return data;
+    },
+    enabled: isAdmin || isSuperAdmin,
+  });
+
+  const exposureForDebtor = (id: string) =>
+    (salesInvoicesQ.data ?? [])
+      .filter((i: any) => i.debtor_id === id && i.status !== "paid" && i.status !== "rejected")
+      .reduce((s: number, i: any) => s + Number(i.amount), 0);
 
   // Team & roles
   const profilesQ = useQuery({
@@ -297,6 +397,396 @@ function AdminPage() {
           <div className="mt-1 text-xs text-muted-foreground">
             {fmtMoney(tot(["overdue", "rejected"]))}
           </div>
+        </Card>
+      </div>
+
+      {/* ── Sales tab — admin & super admin ── */}
+      <div className="px-6 pb-10 md:px-10">
+        <Card
+          title="Sales console"
+        >
+          <div className="text-[11px] text-muted-foreground mb-3">Quotations, CRM pipeline, sales orders, debtors and suppliers — full portfolio view.</div>
+          {/* Sales sub-tab nav */}
+          <div className="flex flex-wrap gap-1 border-b border-border pb-3 mb-4">
+            {SALES_TABS.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setSalesTab(t.id)}
+                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  salesTab === t.id
+                    ? "bg-primary/10 text-primary ring-1 ring-primary/25"
+                    : "text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                }`}
+              >
+                <t.icon className="h-3.5 w-3.5" />
+                {t.label}
+              </button>
+            ))}
+          </div>
+
+          {/* ── Overview ── */}
+          {salesTab === "sales-overview" && (
+            <div>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mb-6">
+                <StatTileSmall label="Quotations" value={quotationsQ.data?.length ?? 0} sub={(quotationsQ.data ?? []).filter((q: any) => q.status === "draft").length + " drafts"} />
+                <StatTileSmall label="Open pipeline" value={fmtMoney((opportunitiesQ.data ?? []).filter((o: any) => o.stage !== "closed_won" && o.stage !== "closed_lost").reduce((s: number, o: any) => s + Number(o.amount), 0))} sub={(opportunitiesQ.data ?? []).filter((o: any) => o.stage !== "closed_won" && o.stage !== "closed_lost").length + " deals"} />
+                <StatTileSmall label="Sales orders" value={(salesOrdersQ.data ?? []).length} sub={fmtMoney((salesOrdersQ.data ?? []).reduce((s: number, sO: any) => s + Number(sO.grand_total || 0), 0))} />
+                <StatTileSmall label="Debtors" value={debtorsQ.data?.length ?? 0} sub={fmtMoney((debtorsQ.data ?? []).reduce((s: number, d: any) => s + exposureForDebtor(d.id), 0))} />
+              </div>
+
+              {/* Recent quotations */}
+              <div className="mb-6">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">Recent quotations</h3>
+                  <Link to="/app/quotations" className="text-[10px] font-medium text-primary hover:underline">View all</Link>
+                </div>
+                {quotationsQ.isLoading ? (
+                  <TableSkeleton rows={4} cols={6} />
+                ) : (quotationsQ.data ?? []).length === 0 ? (
+                  <p className="py-4 text-center text-xs text-muted-foreground">No quotations yet.</p>
+                ) : (
+                  <div className="-mx-5 overflow-x-auto">
+                    <table className="table-premium w-full text-xs">
+                      <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                        <tr><th>Quotation</th><th>Customer</th><th className="text-right">Grand total</th><th>Status</th></tr>
+                      </thead>
+                      <tbody>
+                        {(quotationsQ.data ?? []).slice(0, 5).map((q: any) => (
+                          <tr key={q.id} className="border-b border-border/60">
+                            <td className="font-mono">{q.quotation_number}</td>
+                            <td>{q.customer_name ?? "—"}</td>
+                            <td className="text-right num">{fmtMoney(q.grand_total)}</td>
+                            <td><StatusPill status={q.status} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Recent pipeline */}
+              <div className="mb-6">
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">Sales pipeline</h3>
+                  <Link to="/app/crm" className="text-[10px] font-medium text-primary hover:underline">Open CRM</Link>
+                </div>
+                {opportunitiesQ.isLoading ? (
+                  <TableSkeleton rows={4} cols={5} />
+                ) : (opportunitiesQ.data ?? []).length === 0 ? (
+                  <p className="py-4 text-center text-xs text-muted-foreground">No opportunities yet.</p>
+                ) : (
+                  <div className="-mx-5 overflow-x-auto">
+                    <table className="table-premium w-full text-xs">
+                      <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                        <tr><th>Deal</th><th>Account</th><th>Stage</th><th className="text-right">Amount</th><th>Close date</th></tr>
+                      </thead>
+                      <tbody>
+                        {(opportunitiesQ.data ?? []).slice(0, 5).map((o: any) => (
+                          <tr key={o.id} className="border-b border-border/60">
+                            <td>{o.name}</td>
+                            <td>{o.account_name ?? "—"}</td>
+                            <td>{oppStageLabel(o.stage)}</td>
+                            <td className="text-right num">{fmtMoney(o.amount)}</td>
+                            <td>{o.expected_close_date ? fmtDate(o.expected_close_date) : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Recent sales orders */}
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <h3 className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">Recent sales orders</h3>
+                  <Link to="/app/sales-orders" className="text-[10px] font-medium text-primary hover:underline">View all</Link>
+                </div>
+                {salesOrdersQ.isLoading ? (
+                  <TableSkeleton rows={4} cols={5} />
+                ) : (salesOrdersQ.data ?? []).length === 0 ? (
+                  <p className="py-4 text-center text-xs text-muted-foreground">No sales orders yet.</p>
+                ) : (
+                  <div className="-mx-5 overflow-x-auto">
+                    <table className="table-premium w-full text-xs">
+                      <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                        <tr><th>SO</th><th>Customer</th><th className="text-right">Grand total</th><th>Status</th></tr>
+                      </thead>
+                      <tbody>
+                        {(salesOrdersQ.data ?? []).slice(0, 5).map((s: any) => (
+                          <tr key={s.id} className="border-b border-border/60">
+                            <td className="font-mono">{s.so_number}</td>
+                            <td>{s.customer_name ?? "—"}</td>
+                            <td className="text-right num">{fmtMoney(s.grand_total)}</td>
+                            <td><StatusPill status={s.status} /></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Quotations ── */}
+          {salesTab === "quotations" && (
+            <div>
+              <div className="mb-4 flex items-center gap-2">
+                <Link to="/app/quotations" className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary">Open full page ↗</Link>
+              </div>
+              {quotationsQ.isLoading ? (
+                <TableSkeleton rows={6} cols={7} />
+              ) : (quotationsQ.data ?? []).length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground"><ScrollText className="mx-auto mb-2 h-8 w-8 opacity-40" />No quotations yet.</div>
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr><th>Quotation</th><th>Customer / prospect</th><th className="text-right">Grand total</th><th>Status</th><th>Created</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                      {(quotationsQ.data ?? []).map((q: any) => (
+                        <tr key={q.id} className="border-b border-border/60 hover:bg-muted/30">
+                          <td className="font-mono text-xs">{q.quotation_number}</td>
+                          <td>{q.customer_name ?? "—"}{q.contact_person ? <div className="text-[10px] text-muted-foreground">{q.contact_person}</div> : null}</td>
+                          <td className="text-right num font-medium">{fmtMoney(q.grand_total)}</td>
+                          <td><StatusPill status={q.status} />{q.approval_status && <div className="mt-1"><StatusPill status={q.approval_status} /></div>}</td>
+                          <td className="text-muted-foreground">{fmtDate(q.quotation_date)}</td>
+                          <td className="text-right"><Link to="/app/quotation/$quotationId" params={{ quotationId: q.id }} className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">View</Link></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── CRM ── */}
+          {salesTab === "crm" && (
+            <div>
+              <div className="mb-4 flex items-center gap-2">
+                <Link to="/app/crm" className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary">Open full CRM ↗</Link>
+              </div>
+
+              {/* Pipeline summary */}
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mb-6">
+                <StatTileSmall label="Open pipeline" value={fmtMoney((opportunitiesQ.data ?? []).filter((o: any) => o.stage !== "closed_won" && o.stage !== "closed_lost").reduce((s: number, o: any) => s + Number(o.amount), 0))} />
+                <StatTileSmall label="Weighted forecast" value={fmtMoney((opportunitiesQ.data ?? []).filter((o: any) => o.stage !== "closed_won" && o.stage !== "closed_lost").reduce((s: number, o: any) => s + Number(o.amount) * ((o.probability || 50) / 100), 0))} />
+                <StatTileSmall label="Won (all time)" value={fmtMoney((opportunitiesQ.data ?? []).filter((o: any) => o.stage === "closed_won").reduce((s: number, o: any) => s + Number(o.amount), 0))} tone="success" />
+                <StatTileSmall label="Lost (all time)" value={fmtMoney((opportunitiesQ.data ?? []).filter((o: any) => o.stage === "closed_lost").reduce((s: number, o: any) => s + Number(o.amount), 0))} tone="destructive" />
+              </div>
+
+              {/* Pipeline by stage */}
+              <div className="mb-6">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">Pipeline by stage</h3>
+                <div className="grid gap-2 md:grid-cols-3 lg:grid-cols-6">
+                  {["prospecting", "qualification", "proposal", "negotiation", "closed_won", "closed_lost"].map((s) => {
+                    const oppsInStage = (opportunitiesQ.data ?? []).filter((o: any) => o.stage === s);
+                    const value = oppsInStage.reduce((sum: number, o: any) => sum + Number(o.amount), 0);
+                    return (
+                      <div key={s} className="rounded-lg border border-border bg-muted/20 p-3">
+                        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{s.replace("_", " ")}</div>
+                        <div className="mt-1 font-display text-lg">{fmtMoney(value)}</div>
+                        <div className="text-[10px] text-muted-foreground">{oppsInStage.length} deals</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Opportunities table */}
+              <div className="mb-6">
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">Opportunities</h3>
+                {opportunitiesQ.isLoading ? (
+                  <TableSkeleton rows={4} cols={6} />
+                ) : (opportunitiesQ.data ?? []).length === 0 ? (
+                  <p className="py-4 text-center text-xs text-muted-foreground">No opportunities yet.</p>
+                ) : (
+                  <div className="-mx-5 overflow-x-auto">
+                    <table className="table-premium w-full text-sm">
+                      <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                        <tr><th>Deal</th><th>Account</th><th>Stage</th><th className="text-right">Amount</th><th>Prob</th><th>Close date</th></tr>
+                      </thead>
+                      <tbody>
+                        {(opportunitiesQ.data ?? []).map((o: any) => (
+                          <tr key={o.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td>{o.name}</td>
+                            <td>{o.account_name ?? "—"}</td>
+                            <td>{oppStageLabel(o.stage)}</td>
+                            <td className="text-right num">{fmtMoney(o.amount)}</td>
+                            <td className="text-right num text-muted-foreground">{o.probability ?? "—"}%</td>
+                            <td className="text-muted-foreground">{o.expected_close_date ? fmtDate(o.expected_close_date) : "—"}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+
+              {/* Leads table */}
+              <div>
+                <h3 className="mb-2 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">Leads</h3>
+                {leadsQ.isLoading ? (
+                  <TableSkeleton rows={4} cols={6} />
+                ) : (leadsQ.data ?? []).length === 0 ? (
+                  <p className="py-4 text-center text-xs text-muted-foreground">No leads yet.</p>
+                ) : (
+                  <div className="-mx-5 overflow-x-auto">
+                    <table className="table-premium w-full text-sm">
+                      <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                        <tr><th>Name</th><th>Company</th><th>Contact</th><th>Source</th><th className="text-right">Est. value</th><th>Status</th></tr>
+                      </thead>
+                      <tbody>
+                        {(leadsQ.data ?? []).map((l: any) => (
+                          <tr key={l.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="font-medium">{l.name}</td>
+                            <td>{l.company ?? "—"}</td>
+                            <td className="text-xs text-muted-foreground">
+                              {l.email && <div className="flex items-center gap-1"><Mail className="h-3 w-3" />{l.email}</div>}
+                              {l.phone && <div className="flex items-center gap-1"><PhoneCall className="h-3 w-3" />{l.phone}</div>}
+                            </td>
+                            <td className="text-muted-foreground capitalize">{l.source}</td>
+                            <td className="text-right num">{fmtMoney(l.estimated_value)}</td>
+                            <td><span className="inline-flex items-center rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider">{l.status}</span></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Sales Orders ── */}
+          {salesTab === "sales-orders" && (
+            <div>
+              <div className="mb-4 flex items-center gap-2">
+                <Link to="/app/sales-orders" className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary">Open full page ↗</Link>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mb-6">
+                <StatTileSmall label="Open orders" value={((salesOrdersQ.data ?? []).filter((s: any) => ["draft", "pending_review", "confirmed"].includes(s.status)).length)} />
+                <StatTileSmall label="Order book value" value={fmtMoney((salesOrdersQ.data ?? []).filter((s: any) => ["draft", "pending_review", "confirmed"].includes(s.status)).reduce((sum: number, sO: any) => sum + Number(sO.grand_total || 0), 0))} />
+                <StatTileSmall label="Dispatched value" value={fmtMoney((salesOrdersQ.data ?? []).filter((s: any) => s.status !== "cancelled").reduce((sum: number, sO: any) => sum + (sO.lines ?? []).reduce((lSum: number, l: any) => lSum + (Number(l.dispatched_qty) || 0) * Number(l.unit_price), 0), 0))} />
+                <StatTileSmall label="Fully dispatched" value={(salesOrdersQ.data ?? []).filter((s: any) => s.status === "fully_dispatched").length} />
+              </div>
+
+              {salesOrdersQ.isLoading ? (
+                <TableSkeleton rows={6} cols={7} />
+              ) : (salesOrdersQ.data ?? []).length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground"><ShoppingBag className="mx-auto mb-2 h-8 w-8 opacity-40" />No sales orders yet.</div>
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr><th>SO</th><th>Customer</th><th>Dispatch</th><th className="text-right">Grand total</th><th>Status</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                      {(salesOrdersQ.data ?? []).map((s: any) => (
+                        <tr key={s.id} className="border-b border-border/60 hover:bg-muted/30">
+                          <td className="font-mono text-xs">{s.so_number}</td>
+                          <td>{s.customer_name ?? "—"}{s.contact_person ? <div className="text-[10px] text-muted-foreground">{s.contact_person}</div> : null}</td>
+                          <td className="text-xs text-muted-foreground">{s.expected_dispatch_date ? `from ${fmtDate(s.expected_dispatch_date)}` : "—"}</td>
+                          <td className="text-right num font-medium">{fmtMoney(s.grand_total)}</td>
+                          <td><StatusPill status={s.status} />{s.debtor_approval_status && <div className="mt-1"><StatusPill status={s.debtor_approval_status} /></div>}</td>
+                          <td className="text-right"><Link to="/app/dispatches" search={{ soId: s.id }} className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">Dispatch</Link></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Debtors ── */}
+          {salesTab === "debtors" && (
+            <div>
+              <div className="mb-4 flex items-center gap-2">
+                <Link to="/app/debtors" className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary">Open full page ↗</Link>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mb-6">
+                <StatTileSmall label="Total debtors" value={debtorsQ.data?.length ?? 0} />
+                <StatTileSmall label="Total exposure" value={fmtMoney((debtorsQ.data ?? []).reduce((s: number, d: any) => s + exposureForDebtor(d.id), 0))} tone="warning" />
+                <StatTileSmall label="Avg terms" value={debtorsQ.data?.length ? `Net ${Math.round((debtorsQ.data ?? []).reduce((s: number, d: any) => s + Number(d.payment_terms_days ?? 30), 0) / (debtorsQ.data ?? []).length)}` : "—"} />
+                <StatTileSmall label="Avg exposure/debtor" value={fmtMoney((debtorsQ.data ?? []).length ? (debtorsQ.data ?? []).reduce((s: number, d: any) => s + exposureForDebtor(d.id), 0) / (debtorsQ.data ?? []).length : 0)} />
+              </div>
+
+              {debtorsQ.isLoading ? (
+                <TableSkeleton rows={6} cols={6} />
+              ) : (debtorsQ.data ?? []).length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground"><Building2 className="mx-auto mb-2 h-8 w-8 opacity-40" />No debtors yet.</div>
+              ) : (
+                <div className="-mx-5 overflow-x-auto">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                      <tr><th>Name</th><th>Industry</th><th className="text-right">Exposure</th><th className="text-right">Terms</th><th>PAN</th><th>GSTIN</th><th></th></tr>
+                    </thead>
+                    <tbody>
+                      {(debtorsQ.data ?? []).map((d: any) => {
+                        const exposure = exposureForDebtor(d.id);
+                        return (
+                          <tr key={d.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="font-medium">{d.name}</td>
+                            <td className="text-muted-foreground">{d.industry ?? "—"}</td>
+                            <td className="text-right num">{fmtMoney(exposure)}</td>
+                            <td className="text-right text-muted-foreground">Net {d.payment_terms_days ?? "30"}</td>
+                            <td className="text-xs font-mono text-muted-foreground">{d.panCardNo ?? d.pan_card_no ?? "—"}</td>
+                            <td className="text-xs font-mono text-muted-foreground">{d.gstin ?? "—"}</td>
+                            <td className="text-right"><Link to="/app/debtors" className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">View</Link></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── Suppliers ── */}
+          {salesTab === "suppliers" && (
+            <div>
+              <div className="mb-4 flex items-center gap-2">
+                <Link to="/app/suppliers" className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary">Open full page ↗</Link>
+              </div>
+
+              <div className="mb-6">
+                <h3 className="mb-3 text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">Supplier directory</h3>
+                {suppliersQ.isLoading ? (
+                  <TableSkeleton rows={6} cols={5} />
+                ) : (suppliersQ.data ?? []).length === 0 ? (
+                  <div className="py-10 text-center text-sm text-muted-foreground"><Truck className="mx-auto mb-2 h-8 w-8 opacity-40" />No suppliers yet.</div>
+                ) : (
+                  <div className="-mx-5 overflow-x-auto">
+                    <table className="table-premium w-full text-sm">
+                      <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                        <tr><th>Name</th><th>Category</th><th>PAN</th><th>GSTIN</th><th>Payment terms</th><th></th></tr>
+                      </thead>
+                      <tbody>
+                        {(suppliersQ.data ?? []).map((s: any) => (
+                          <tr key={s.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="font-medium">{s.name}</td>
+                            <td className="text-muted-foreground">{s.category ?? "—"}</td>
+                            <td className="text-xs font-mono text-muted-foreground">{s.pan_card_no ?? s.panCardNo ?? "—"}</td>
+                            <td className="text-xs font-mono text-muted-foreground">{s.gstin ?? "—"}</td>
+                            <td className="text-muted-foreground">Net {s.payment_terms_days ?? "30"}</td>
+                            <td className="text-right"><Link to="/app/suppliers" className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">View</Link></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </Card>
       </div>
 
@@ -694,4 +1184,45 @@ function AdminPage() {
       )}
     </div>
   );
+}
+
+// ─── Helper components for the Sales console ────────────────────────────
+
+interface StatTileSmallProps {
+  label: string;
+  value: string | number;
+  sub?: string;
+  tone?: "neutral" | "success" | "warning" | "destructive" | "primary";
+}
+
+function StatTileSmall({ label, value, sub, tone = "neutral" }: StatTileSmallProps) {
+  const toneClasses: Record<string, string> = {
+    neutral: "",
+    success: "text-success",
+    warning: "text-warning",
+    destructive: "text-destructive",
+    primary: "text-primary",
+  };
+  return (
+    <div className="rounded-lg border border-border bg-card p-4">
+      <div className="text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">{label}</div>
+      <div className={`num mt-1 text-lg font-semibold leading-none tracking-tight ${toneClasses[tone]}`}>
+        {typeof value === "number" ? value.toLocaleString() : value}
+      </div>
+      {sub && <div className="mt-1 text-[10px] text-muted-foreground">{sub}</div>}
+    </div>
+  );
+}
+
+const OPP_STAGE_LABELS: Record<string, string> = {
+  prospecting: "Prospecting",
+  qualification: "Qualification",
+  proposal: "Proposal",
+  negotiation: "Negotiation",
+  closed_won: "Won",
+  closed_lost: "Lost",
+};
+
+function oppStageLabel(stage: string): string {
+  return OPP_STAGE_LABELS[stage] ?? stage;
 }
