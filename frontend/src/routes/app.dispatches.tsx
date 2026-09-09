@@ -30,10 +30,12 @@ import { TransactionFilters, type TxFiltersConfig } from "@/components/transacti
 
 export const Route = createFileRoute("/app/dispatches")({
   component: DispatchesPage,
-  validateSearch: (search: Record<string, unknown>): { soId?: string; soFilter?: string; createFromInvoice?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { soId?: string; soFilter?: string; createFromInvoice?: string; createFromSO?: string; initialStatus?: string } => ({
     soId: typeof search.soId === "string" ? search.soId : undefined,
     soFilter: typeof search.soFilter === "string" ? search.soFilter : undefined,
     createFromInvoice: typeof search.createFromInvoice === "string" ? search.createFromInvoice : undefined,
+    createFromSO: typeof search.createFromSO === "string" ? search.createFromSO : undefined,
+    initialStatus: typeof search.initialStatus === "string" ? search.initialStatus : undefined,
   }),
 });
 
@@ -159,7 +161,7 @@ function DispatchesPage() {
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const { soId, soFilter, createFromInvoice } = Route.useSearch();
+  const { soId, soFilter, createFromInvoice, createFromSO, initialStatus } = Route.useSearch();
   const [soFilterSel, setSoFilterSel] = useState<string>(soFilter ?? "");
   const [createOpen, setCreateOpen] = useState(false);
   const [preselectSoId, setPreselectSoId] = useState<string | null>(null);
@@ -175,6 +177,15 @@ function DispatchesPage() {
       navigate({ to: "/app/dispatches", search: {}, replace: true });
     }
   }, [soId, navigate]);
+
+  // Coming from warehouse ready tab with SO and initial status
+  useEffect(() => {
+    if (createFromSO) {
+      setPreselectSoId(createFromSO);
+      setCreateOpen(true);
+      navigate({ to: "/app/dispatches", search: {}, replace: true });
+    }
+  }, [createFromSO, navigate]);
 
   // Coming from an invoice ("Create dispatch" button in warehouse) — open with invoice preselected
   useEffect(() => {
@@ -563,6 +574,9 @@ function DispatchesPage() {
         <DispatchCreateModal
           userId={user.id}
           preselectSoId={preselectSoId}
+          preselectInvoiceId={preselectInvoiceId}
+          createFromInvoice={!!preselectInvoiceId}
+          initialStatus={initialStatus}
           sos={(sosQ.data ?? []).filter((s: SO) =>
             ["confirmed", "partially_dispatched"].includes(s.status),
           )}
@@ -621,6 +635,8 @@ function DispatchCreateModal({
   userId,
   preselectSoId,
   preselectInvoiceId,
+  createFromInvoice,
+  initialStatus,
   sos,
   products,
   stockBalance,
@@ -633,6 +649,8 @@ function DispatchCreateModal({
   userId: string;
   preselectSoId: string | null;
   preselectInvoiceId: string | null;
+  createFromInvoice: boolean;
+  initialStatus: string | undefined;
   sos: SO[];
   products: CatalogueProduct[];
   stockBalance: Map<string, number>;
@@ -656,7 +674,7 @@ function DispatchCreateModal({
   const qc = useQueryClient();
   const [soId, setSoId] = useState<string>(preselectSoId ?? "");
   const [invoiceId, setInvoiceId] = useState<string>(preselectInvoiceId ?? "");
-  const [createFromInvoice, setCreateFromInvoice] = useState(!!preselectInvoiceId);
+  const [createFromInvoiceState, setCreateFromInvoice] = useState(createFromInvoice || !!preselectInvoiceId);
   const [f, setF] = useState({
     dispatch_date: new Date().toISOString().slice(0, 10),
     warehouse: "",
@@ -824,7 +842,7 @@ function DispatchCreateModal({
         ? (selectedInvoice?.goods_sales_order_id ?? null)
         : soId;
       
-      await api.goodsDispatches.create({
+      const created = await api.goodsDispatches.create({
         goods_sales_order_id: soIdForDispatch || undefined,
         dispatch_date: f.dispatch_date,
         warehouse: f.warehouse.trim() || null,
@@ -841,9 +859,19 @@ function DispatchCreateModal({
         channel: f.channel || null,
         delivery_address: f.delivery_address.trim() || null,
       });
+      
+      // If an initial status was specified, set it immediately
+      if (initialStatus && created?.id) {
+        await api.goodsDispatches.shippingStatus(created.id, initialStatus as any, {});
+      }
+      
+      return created;
     },
     onSuccess: () => {
-      toast.success("Draft dispatch note recorded — confirm it to debit inventory");
+      const msg = initialStatus
+        ? `Dispatch created with status "${initialStatus}"`
+        : "Draft dispatch note recorded — confirm it to debit inventory";
+      toast.success(msg);
       onDone();
       qc.invalidateQueries({ queryKey: ["sales-proformas-for-dispatch"] });
       qc.invalidateQueries({ queryKey: ["invoices-for-dispatch"] });

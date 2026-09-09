@@ -186,7 +186,7 @@ type GoodsReceipt = {
   supplier_name: string | null;
 };
 
-type Tab = "overview" | "orders" | "ready" | "dispatches" | "stock" | "reports";
+type Tab = "overview" | "orders" | "ready" | "pos" | "grns" | "dispatches" | "stock" | "reports";
 
 function WarehousePage() {
   const { user, isAdmin, isOperations } = useAuth();
@@ -441,6 +441,8 @@ function WarehousePage() {
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "orders", label: "Order sign-offs", icon: ClipboardCheck, count: pendingSignoffs.length },
     { id: "ready", label: "Ready to dispatch", icon: PackageCheck, count: readyOrders.length },
+    { id: "pos", label: "Pending POs", icon: ClipboardList, count: readyPOs.length },
+    { id: "grns", label: "GRNs", icon: CheckCircle2, count: pendingGrns.length },
     { id: "dispatches", label: "Dispatches", icon: Truck, count: openDispatches.length },
     { id: "stock", label: "Stock on hand", icon: Boxes },
     { id: "reports", label: "Movement report", icon: BarChart3 },
@@ -664,10 +666,10 @@ function WarehousePage() {
                       <td className="num px-5 py-3 text-right">{fmtMoney(o.pendingValue)}</td>
                       <td className="px-5 py-3 text-right">
                         <a
-                          href="/app/dispatches"
+                          href={`/app/dispatches?createFromSO=${encodeURIComponent(o.id)}&initialStatus=picking`}
                           className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground"
                         >
-                          <Truck className="h-3 w-3" /> Create dispatch
+                          <Truck className="h-3 w-3" /> Create & set to picking
                         </a>
                       </td>
                     </tr>
@@ -718,7 +720,7 @@ function WarehousePage() {
                         </td>
                         <td className="px-5 py-3 text-right">
                           <button
-                            onClick={() => (window.location.href = `/app/dispatches?createFromInvoice=${inv.id}`)}
+                            onClick={() => (window.location.href = `/app/dispatches?createFromInvoice=${inv.id}&initialStatus=picking`)}
                             className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground"
                           >
                             <Truck className="h-3 w-3" /> Create dispatch
@@ -734,108 +736,141 @@ function WarehousePage() {
                 appears in the movement report. Create a dispatch from here to auto-link the invoice.
               </p>
             </Card>
+          </div>
+        )}
 
-            {/* Purchase Orders ready for goods receipt */}
-            <Card title="Purchase orders awaiting goods receipt">
-              {posQ.isLoading ? (
-                <TableSkeleton rows={3} />
-              ) : readyPOs.length === 0 ? (
-                <EmptyState
-                  icon={<ClipboardList className="h-5 w-5" />}
-                  title="No POs waiting"
-                  description="Approved purchase orders with pending quantity appear here. Create a GRN to receive the goods."
-                />
-              ) : (
-                <Table head={["PO", "Supplier", "Expected delivery", "Pending qty", "Value", ""]}>
-                  {readyPOs.map((po) => {
-                    const pendingQty = (po.lines ?? []).reduce(
-                      (s, l) => s + Math.max(0, l.ordered_qty - (l.received_qty ?? 0)),
-                      0
-                    );
-                    const pendingValue = (po.lines ?? []).reduce(
-                      (s, l) => s + Math.max(0, l.ordered_qty - (l.received_qty ?? 0)) * (l.unit_price || 0),
-                      0
-                    );
-                    return (
-                      <tr key={po.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3">
-                          <div className="font-mono text-xs">{po.po_number}</div>
-                        </td>
-                        <td className="px-5 py-3">{po.supplier_name ?? "—"}</td>
-                        <td className="px-5 py-3 text-muted-foreground">{fmtDate(po.expected_delivery_date)}</td>
-                        <td className="num px-5 py-3 text-right">{pendingQty.toLocaleString()}</td>
-                        <td className="num px-5 py-3 text-right">{fmtMoney(pendingValue)}</td>
-                        <td className="px-5 py-3 text-right">
-                          <a
-                            href="/app/grn?createFromPO=${encodeURIComponent(po.id)}"
-                            className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground"
-                          >
-                            <PackageCheck className="h-3 w-3" /> Create GRN
-                          </a>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </Table>
-              )}
-              <p className="mt-4 text-xs text-muted-foreground">
-                Goods Receipt Notes (GRNs) credit inventory when goods arrive. Create a GRN from here to auto-link the
-                purchase order and record the received quantities.
-              </p>
-            </Card>
+        {tab === "pos" && (
+          <Card title="Purchase orders awaiting goods receipt">
+            {posQ.isLoading ? (
+              <TableSkeleton rows={3} />
+            ) : readyPOs.length === 0 ? (
+              <EmptyState
+                icon={<ClipboardList className="h-5 w-5" />}
+                title="No POs waiting"
+                description="Approved purchase orders with pending quantity appear here. Create a GRN to receive the goods."
+              />
+            ) : (
+              <Table head={["PO", "Supplier", "Expected delivery", "Pending qty", "Value", ""]}>
+                {readyPOs.map((po) => {
+                  const pendingQty = (po.lines ?? []).reduce(
+                    (s, l) => s + Math.max(0, l.ordered_qty - (l.received_qty ?? 0)),
+                    0
+                  );
+                  const pendingValue = (po.lines ?? []).reduce(
+                    (s, l) => s + Math.max(0, l.ordered_qty - (l.received_qty ?? 0)) * (l.unit_price || 0),
+                    0
+                  );
+                  return (
+                    <tr key={po.id} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-5 py-3">
+                        <div className="font-mono text-xs">{po.po_number}</div>
+                      </td>
+                      <td className="px-5 py-3">{po.supplier_name ?? "—"}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{fmtDate(po.expected_delivery_date)}</td>
+                      <td className="num px-5 py-3 text-right">{pendingQty.toLocaleString()}</td>
+                      <td className="num px-5 py-3 text-right">{fmtMoney(pendingValue)}</td>
+                      <td className="px-5 py-3 text-right">
+                        <a
+                          href="/app/grn?createFromPO=${encodeURIComponent(po.id)}"
+                          className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground"
+                        >
+                          <PackageCheck className="h-3 w-3" /> Create GRN
+                        </a>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </Table>
+            )}
+            <p className="mt-4 text-xs text-muted-foreground">
+              Goods Receipt Notes (GRNs) credit inventory when goods arrive. Create a GRN from here to auto-link the
+              purchase order and record the received quantities.
+            </p>
+          </Card>
+        )}
 
-            {/* GRNs pending confirmation */}
-            <Card title="Goods receipts pending confirmation">
-              {grnsQ.isLoading ? (
-                <TableSkeleton rows={3} />
-              ) : pendingGrns.length === 0 ? (
-                <EmptyState
-                  icon={<ClipboardCheck className="h-5 w-5" />}
-                  title="No GRNs pending"
-                  description="Draft goods receipts awaiting confirmation appear here. Confirm to credit stock."
-                />
-              ) : (
-                <Table head={["GRN", "PO", "Supplier", "Received", "Value", ""]}>
-                  {pendingGrns.map((grn) => {
-                    const totalReceived = (grn.lines ?? []).reduce(
-                      (s, l) => s + (l.accepted_qty ?? l.received_qty ?? 0),
-                      0
-                    );
-                    const totalValue = (grn.lines ?? []).reduce(
-                      (s, l) => s + (l.accepted_qty ?? l.received_qty ?? 0) * (l.unit_cost || 0),
-                      0
-                    );
-                    return (
-                      <tr key={grn.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3">
-                          <div className="font-mono text-xs">{grn.receipt_number}</div>
-                        </td>
-                        <td className="px-5 py-3">{grn.po_number ?? "—"}</td>
-                        <td className="px-5 py-3">{grn.supplier_name ?? "—"}</td>
-                        <td className="num px-5 py-3 text-right">{totalReceived.toLocaleString()}</td>
-                        <td className="num px-5 py-3 text-right">{fmtMoney(totalValue)}</td>
-                        <td className="px-5 py-3 text-right">
+        {tab === "grns" && (
+          <Card title="Goods receipts">
+            {grnsQ.isLoading ? (
+              <TableSkeleton rows={3} />
+            ) : grns.length === 0 ? (
+              <EmptyState
+                icon={<ClipboardCheck className="h-5 w-5" />}
+                title="No goods receipts yet"
+                description="GRNs are created when goods arrive against a purchase order."
+              />
+            ) : (
+              <Table head={["GRN", "PO", "Supplier", "Received", "Status", ""]}>
+                {grns.map((grn) => {
+                  const totalReceived = (grn.lines ?? []).reduce(
+                    (s, l) => s + (l.accepted_qty ?? l.received_qty ?? 0),
+                    0
+                  );
+                  const totalValue = (grn.lines ?? []).reduce(
+                    (s, l) => s + (l.accepted_qty ?? l.received_qty ?? 0) * (l.unit_cost || 0),
+                    0
+                  );
+                  const statusClass =
+                    grn.status === "confirmed"
+                      ? "bg-success/15 text-success"
+                      : grn.status === "cancelled"
+                        ? "bg-destructive/15 text-destructive"
+                        : "bg-warning/15 text-warning";
+                  return (
+                    <tr key={grn.id} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-5 py-3">
+                        <div className="font-mono text-xs">{grn.receipt_number}</div>
+                      </td>
+                      <td className="px-5 py-3">{grn.po_number ?? "—"}</td>
+                      <td className="px-5 py-3">{grn.supplier_name ?? "—"}</td>
+                      <td className="num px-5 py-3 text-right">{totalReceived.toLocaleString()}</td>
+                      <td className="px-5 py-3">
+                        <span className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${statusClass}`}>
+                          {grn.status?.replace("_", " ")}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-right">
+                        {grn.status === "draft" && (
+                          <>
+                            <a
+                              href="/app/grn?edit=${grn.id}"
+                              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs mr-1"
+                            >
+                              <Pencil className="h-3 w-3" /> Edit
+                            </a>
+                            <button
+                              onClick={() => {
+                                window.location.href = `/app/grn?id=${grn.id}`;
+                              }}
+                              className="inline-flex items-center gap-1 rounded-md bg-success/10 px-2.5 py-1 text-xs text-success"
+                            >
+                              <CheckCircle2 className="h-3 w-3" /> Confirm
+                            </button>
+                          </>
+                        )}
+                        {grn.status === "confirmed" && canWrite && (
                           <button
                             onClick={() => {
-                              // Navigate to GRN page for confirmation
-                              window.location.href = `/app/grn?id=${grn.id}`;
+                              if (confirm("Cancel this GRN? Stock will be reversed.")) {
+                                window.location.href = `/app/grn?cancel=${grn.id}`;
+                              }
                             }}
-                            className="inline-flex items-center gap-1 rounded-md bg-success/10 px-2.5 py-1 text-xs text-success"
+                            className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-destructive"
                           >
-                            <CheckCircle2 className="h-3 w-3" /> Confirm
+                            <X className="h-3 w-3" /> Cancel
                           </button>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </Table>
-              )}
-              <p className="mt-4 text-xs text-muted-foreground">
-                Confirming a GRN credits stock-in movements and updates the purchase order's received quantities.
-                Draft GRNs can be edited before confirmation.
-              </p>
-            </Card>
-          </div>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </Table>
+            )}
+            <p className="mt-4 text-xs text-muted-foreground">
+              Confirming a GRN credits stock-in movements and updates the purchase order's received quantities.
+              Draft GRNs can be edited before confirmation.
+            </p>
+          </Card>
         )}
 
         {tab === "dispatches" && (
