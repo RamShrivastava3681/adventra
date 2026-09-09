@@ -270,7 +270,7 @@ function WarehousePage() {
 
   // ── Order sign-off queue (hard gate: only approved SOs can be dispatched) ──
   const signoffOrders = orders.filter(
-    (o) => ["warehouse_pending", "warehouse_approved", "checker_pending", "confirmed"].includes(o.status),
+    (o) => ["warehouse_pending", "checker_pending", "confirmed", "partially_dispatched"].includes(o.status),
   );
   const pendingSignoffs = signoffOrders.filter(
     (o) => o.status === "warehouse_pending",
@@ -280,6 +280,7 @@ function WarehousePage() {
   const readyOrders = useMemo(() => {
     return signoffOrders
       .filter((o) => (o.warehouse_status ?? "pending") === "approved")
+      .filter((o) => o.status === "confirmed" || o.status === "partially_dispatched")
       .filter((o) => o.status !== "fully_dispatched")
       .map((o) => {
         const lines = (o.lines ?? []).map((l) => ({
@@ -406,8 +407,8 @@ function WarehousePage() {
       qc.invalidateQueries({ queryKey: ["goods_sales_orders"] });
       toast.success(
         vars.action === "approve"
-          ? "Order approved — it can now be dispatched"
-          : "Order rejected — it was returned for correction",
+          ? "Order approved — sent to Checker"
+          : "Order rejected — returned to Sales review",
       );
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Sign-off failed"),
@@ -572,7 +573,7 @@ function WarehousePage() {
               <EmptyState
                 icon={<ClipboardCheck className="h-5 w-5" />}
                 title="No sales orders yet"
-                description="Confirmed sales orders appear here for warehouse accept / hold."
+                description="Sales-reviewed orders appear here for warehouse approval."
               />
             ) : (
               <Table head={["Order", "Buyer", "Ordered", "Expected", "Value", "Commercial", "Warehouse", ""]}>
@@ -635,8 +636,7 @@ function WarehousePage() {
               </Table>
             )}
             <p className="mt-4 text-xs text-muted-foreground">
-              Sign-off is a hard gate — dispatch notes cannot be created (or confirmed) for an order that is pending,
-              on hold or rejected.
+              Warehouse approval sends the order to the Checker. Dispatch notes cannot be created until both approvals are complete.
             </p>
           </Card>
         )}
@@ -644,14 +644,14 @@ function WarehousePage() {
         {tab === "ready" && (
           <div className="space-y-6">
             {/* Orders ready for dispatch */}
-            <Card title="Warehouse-approved orders ready for dispatch">
+            <Card title="Checker-confirmed orders ready for dispatch">
               {ordersQ.isLoading ? (
                 <TableSkeleton rows={3} />
               ) : readyOrders.length === 0 ? (
                 <EmptyState
                   icon={<PackageCheck className="h-5 w-5" />}
                   title="No orders waiting"
-                  description="Approve sales orders in the sign-off tab — approved orders with pending quantity appear here."
+                  description="Approve orders in Order sign-offs, then wait for Checker approval. Confirmed orders appear here."
                 />
               ) : (
                 <Table head={["Order", "Buyer", "Expected", "Pending qty", "Pending value", ""]}>

@@ -115,6 +115,7 @@ type Customer = {
 
 const SO_STATUSES = [
   "draft",
+  "pending_review",
   "warehouse_pending",
   "warehouse_approved",
   "checker_pending",
@@ -126,6 +127,7 @@ const SO_STATUSES = [
 
 const SO_STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
+  pending_review: "Awaiting sales review",
   warehouse_pending: "Awaiting warehouse",
   warehouse_approved: "Warehouse approved",
   checker_pending: "Awaiting checker",
@@ -137,6 +139,7 @@ const SO_STATUS_LABELS: Record<string, string> = {
 
 const SO_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
+  pending_review: "bg-warning/10 text-warning border-warning/30 dark:text-warning",
   warehouse_pending: "bg-warning/10 text-warning border-warning/30 dark:text-warning",
   warehouse_approved: "bg-blue-500/10 text-blue-600 border-blue-500/30",
   checker_pending: "bg-warning/10 text-warning border-warning/30 dark:text-warning",
@@ -189,7 +192,7 @@ function resolveTierPrice(
 }
 
 function SalesOrdersPage() {
-  const { user, isSalesRep, isAdmin, isChecker, isOperations } = useAuth();
+  const { user, isSalesRep, isAdmin, isReportingManager } = useAuth();
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -234,28 +237,6 @@ function SalesOrdersPage() {
         .sort((a, b) => a.name.localeCompare(b.name)) as Customer[];
     },
   });
-  const warehouseAction = useMutation({
-    mutationFn: async ({ id, action }: { id: string; action: "submit" | "approve" | "reject" }) => {
-      await api.goodsSalesOrders.warehouseApprove(id, action);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["goods-sos"] });
-      toast.success("Warehouse workflow updated");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  const checkerSubmit = useMutation({
-    mutationFn: async (id: string) => {
-      await api.goodsSalesOrders.checkerApprove(id, "submit");
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["goods-sos"] });
-      toast.success("Sales order sent to checker");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
   const cancel = useMutation({
     mutationFn: async (id: string) => {
       await api.goodsSalesOrders.update(id, { status: "cancelled" });
@@ -290,7 +271,7 @@ function SalesOrdersPage() {
 
   const stats = useMemo(() => {
     const sos = sosQ.data ?? [];
-    const open = sos.filter((s) => ["draft", "warehouse_pending", "warehouse_approved", "checker_pending", "confirmed"].includes(s.status));
+    const open = sos.filter((s) => ["draft", "pending_review", "warehouse_pending", "checker_pending", "confirmed"].includes(s.status));
     const orderBook = open.reduce((sum, s) => sum + Number(s.grand_total || 0), 0);
     let dispatchedValue = 0;
     for (const s of sos) {
@@ -478,34 +459,6 @@ function SalesOrdersPage() {
                                     <Pencil className="h-3 w-3" />
                                   </button>
                                 )}
-                                {isOperations && s.status === "draft" && (
-                                  <button
-                                    onClick={() => warehouseAction.mutate({ id: s.id, action: "submit" })}
-                                    disabled={warehouseAction.isPending}
-                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
-                                    title="Send the sales order to the warehouse"
-                                  >
-                                    <Send className="h-3 w-3" /> Send to warehouse
-                                  </button>
-                                )}
-                                {isOperations && s.status === "warehouse_pending" && (
-                                  <button
-                                    onClick={() => warehouseAction.mutate({ id: s.id, action: "approve" })}
-                                    disabled={warehouseAction.isPending}
-                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
-                                  >
-                                    <CheckCircle2 className="h-3 w-3" /> Warehouse approve
-                                  </button>
-                                )}
-                                {isChecker && s.status === "warehouse_approved" && (
-                                  <button
-                                    onClick={() => checkerSubmit.mutate(s.id)}
-                                    disabled={checkerSubmit.isPending}
-                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
-                                  >
-                                    <Send className="h-3 w-3" /> Send to checker
-                                  </button>
-                                )}
                                 {canWrite && !["cancelled", "fully_dispatched"].includes(s.status) && (
                                   <button
                                     onClick={() => cancel.mutate(s.id)}
@@ -537,7 +490,7 @@ function SalesOrdersPage() {
           products={productsQ.data ?? []}
           customers={customersQ.data ?? []}
           canWrite={canWrite}
-          canApprove={isAdmin || isChecker}
+          canApprove={isAdmin || isReportingManager}
           onClose={() => setOpen(false)}
           onSaved={() => {
             qc.invalidateQueries({ queryKey: ["goods-sos"] });
@@ -786,12 +739,13 @@ function SOModal({
   const changeStatus = async (next: string) => {
     if (!so) return;
     try {
-      await api.goodsSalesOrders.update(so.id, { status: next });
+        const action = next === "pending_review" ? "submit" : next === "warehouse_pending" ? "approve" : "reject";
+        await api.goodsSalesOrders.salesReview(so.id, action);
       onSaved();
       const msg: Record<string, string> = {
-        pending_review: "SO submitted for checker review",
+        pending_review: "SO submitted for Sales review",
         draft: "SO returned to draft",
-        confirmed: "SO confirmed",
+        warehouse_pending: "Sales review approved — sent to Warehouse sign-off",
       };
       toast.success(msg[next] ?? `SO ${SO_STATUS_LABELS[next] ?? next}`);
       onClose();
@@ -1228,10 +1182,10 @@ function SOModal({
                 <>
                   <button
                     type="button"
-                    onClick={() => changeStatus("confirmed")}
+                    onClick={() => changeStatus("warehouse_pending")}
                     className="inline-flex items-center gap-1.5 rounded-md border border-success/50 px-3 py-1.5 text-xs font-medium text-success hover:bg-success/10"
                   >
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Approve and send to Warehouse
                   </button>
                   <button
                     type="button"

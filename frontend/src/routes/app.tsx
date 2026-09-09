@@ -80,6 +80,7 @@ type NavSection =
 const FINANCE_ITEMS: NavItem[] = [
   { to: "/app/cash-flow", label: "Cash Command", icon: Wallet },
   { to: "/app/queue", label: "Treasury", icon: Banknote },
+  { to: "/app/bulk-payments", label: "Bulk Payments", icon: ArrowRightLeft },
 ];
 
 // ─── Sales Operator items ──
@@ -396,6 +397,7 @@ function AppLayout() {
       "/app/reporting",
       "/app/cash-flow",
       "/app/queue",
+      "/app/bulk-payments",
       "/app/admin",
       "/app/alerts",
       "/app/reminders",
@@ -413,6 +415,7 @@ function AppLayout() {
       "/app/reporting",
       "/app/cash-flow",
       "/app/queue",
+      "/app/bulk-payments",
       ...procurementRoutes,
       ...supplierListRoutes,
       ...salesOperatorRoutes,

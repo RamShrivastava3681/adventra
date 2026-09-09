@@ -17,6 +17,7 @@ import { Route as AppAdminRouteImport } from './routes/app.admin'
 import { Route as AppAdvancesRouteImport } from './routes/app.advances'
 import { Route as AppAlertsRouteImport } from './routes/app.alerts'
 import { Route as AppBalanceSheetRouteImport } from './routes/app.balance-sheet'
+import { Route as AppBulkPaymentsRouteImport } from './routes/app.bulk-payments'
 import { Route as AppCashFlowRouteImport } from './routes/app.cash-flow'
 import { Route as AppCheckerRouteImport } from './routes/app.checker'
 import { Route as AppCrmRouteImport } from './routes/app.crm'
@@ -93,6 +94,11 @@ const AppAlertsRoute = AppAlertsRouteImport.update({
 const AppBalanceSheetRoute = AppBalanceSheetRouteImport.update({
   id: '/balance-sheet',
   path: '/balance-sheet',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppBulkPaymentsRoute = AppBulkPaymentsRouteImport.update({
+  id: '/bulk-payments',
+  path: '/bulk-payments',
   getParentRoute: () => AppRoute,
 } as any)
 const AppCashFlowRoute = AppCashFlowRouteImport.update({
@@ -290,6 +296,7 @@ export interface FileRoutesByFullPath {
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
   '/app/balance-sheet': typeof AppBalanceSheetRoute
+  '/app/bulk-payments': typeof AppBulkPaymentsRoute
   '/app/cash-flow': typeof AppCashFlowRoute
   '/app/checker': typeof AppCheckerRoute
   '/app/crm': typeof AppCrmRoute
@@ -337,6 +344,7 @@ export interface FileRoutesByTo {
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
   '/app/balance-sheet': typeof AppBalanceSheetRoute
+  '/app/bulk-payments': typeof AppBulkPaymentsRoute
   '/app/cash-flow': typeof AppCashFlowRoute
   '/app/checker': typeof AppCheckerRoute
   '/app/crm': typeof AppCrmRoute
@@ -384,6 +392,7 @@ export interface FileRoutesById {
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
   '/app/balance-sheet': typeof AppBalanceSheetRoute
+  '/app/bulk-payments': typeof AppBulkPaymentsRoute
   '/app/cash-flow': typeof AppCashFlowRoute
   '/app/checker': typeof AppCheckerRoute
   '/app/crm': typeof AppCrmRoute
@@ -433,6 +442,7 @@ export interface FileRouteTypes {
     | '/app/advances'
     | '/app/alerts'
     | '/app/balance-sheet'
+    | '/app/bulk-payments'
     | '/app/cash-flow'
     | '/app/checker'
     | '/app/crm'
@@ -480,6 +490,7 @@ export interface FileRouteTypes {
     | '/app/advances'
     | '/app/alerts'
     | '/app/balance-sheet'
+    | '/app/bulk-payments'
     | '/app/cash-flow'
     | '/app/checker'
     | '/app/crm'
@@ -526,6 +537,7 @@ export interface FileRouteTypes {
     | '/app/advances'
     | '/app/alerts'
     | '/app/balance-sheet'
+    | '/app/bulk-payments'
     | '/app/cash-flow'
     | '/app/checker'
     | '/app/crm'
@@ -629,6 +641,13 @@ declare module '@tanstack/react-router' {
       path: '/balance-sheet'
       fullPath: '/app/balance-sheet'
       preLoaderRoute: typeof AppBalanceSheetRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/bulk-payments': {
+      id: '/app/bulk-payments'
+      path: '/bulk-payments'
+      fullPath: '/app/bulk-payments'
+      preLoaderRoute: typeof AppBulkPaymentsRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/cash-flow': {
@@ -913,6 +932,7 @@ interface AppRouteChildren {
   AppAdvancesRoute: typeof AppAdvancesRoute
   AppAlertsRoute: typeof AppAlertsRoute
   AppBalanceSheetRoute: typeof AppBalanceSheetRoute
+  AppBulkPaymentsRoute: typeof AppBulkPaymentsRoute
   AppCashFlowRoute: typeof AppCashFlowRoute
   AppCheckerRoute: typeof AppCheckerRoute
   AppCrmRoute: typeof AppCrmRoute
@@ -954,6 +974,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAdvancesRoute: AppAdvancesRoute,
   AppAlertsRoute: AppAlertsRoute,
   AppBalanceSheetRoute: AppBalanceSheetRoute,
+  AppBulkPaymentsRoute: AppBulkPaymentsRoute,
   AppCashFlowRoute: AppCashFlowRoute,
   AppCheckerRoute: AppCheckerRoute,
   AppCrmRoute: AppCrmRoute,

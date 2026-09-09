@@ -109,6 +109,15 @@ const api = {
     create: (data: any) => api.post<any>("/products", data),
     update: (id: string, data: any) => api.put<any>(`/products/${id}`, data),
     delete: (id: string) => api.delete(`/products/${id}`),
+    createHierarchy: (data: any) => api.post<any>("/products/create-hierarchy", data),
+    checkSku: (sku: string) =>
+      api.get<{ exists: boolean; sku: string }>(`/products/check-sku?sku=${encodeURIComponent(sku)}`),
+  },
+
+  skuMasters: {
+    list: (type: "category" | "gender" | "color" | "size") => api.get<any[]>(`/sku-masters/${type}`),
+    create: (type: "category" | "gender" | "color" | "size", data: any) => api.post<any>(`/sku-masters/${type}`, data),
+    update: (id: string, data: any) => api.put<any>(`/sku-masters/${id}`, data),
   },
 
   // Catalogue settings (default minimum margin for products without their own)
@@ -253,9 +262,11 @@ const api = {
     // Warehouse sign-off (hard gate): approve / hold / reject a confirmed SO.
     warehouseSignoff: (id: string, status: "approved" | "on_hold" | "rejected", notes?: string) =>
       api.post<any>(`/goods-sales-orders/${id}/warehouse-signoff`, { status, notes }),
-    warehouseApprove: (id: string, action: "submit" | "approve" | "reject", notes?: string) =>
+    warehouseApprove: (id: string, action: "approve" | "reject", notes?: string) =>
       api.post<any>(`/goods-sales-orders/${id}/warehouse-approve`, { action, notes }),
-    checkerApprove: (id: string, action: "submit" | "approve" | "reject") =>
+    salesReview: (id: string, action: "submit" | "approve" | "reject", notes?: string) =>
+      api.post<any>(`/goods-sales-orders/${id}/sales-review`, { action, notes }),
+    checkerApprove: (id: string, action: "approve" | "reject") =>
       api.post<any>(`/goods-sales-orders/${id}/checker-approve`, { action }),
   },
 

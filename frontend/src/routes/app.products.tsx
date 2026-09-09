@@ -20,6 +20,8 @@ import {
   Image as ImageIcon,
   RefreshCw,
   Layers,
+  Check,
+  Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -69,6 +71,7 @@ type Product = {
   image_url: string | null;
   status: string;
 };
+type SkuMaster = { id: string; name: string; code: string; active: boolean; size_system?: string | null };
 
 const GENDERS = ["mens", "womens", "kids", "unisex"];
 const SEASONS = ["all", "spring", "summer", "fall", "winter"];
@@ -96,8 +99,11 @@ function ProductsPage() {
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [skuWizard, setSkuWizard] = useState(false);
+  const [mastersOpen, setMastersOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [variantFor, setVariantFor] = useState<{ parent: Product; child?: Product } | null>(null);
+  const [detailFor, setDetailFor] = useState<Product | null>(null);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
   const [deleting, setDeleting] = useState<Product | null>(null);
@@ -109,6 +115,10 @@ function ProductsPage() {
       return data.sort((a, b) => a.sku?.localeCompare(b.sku ?? "") ?? 0);
     },
   });
+  const categoriesQ = useQuery({ queryKey: ["sku-masters", "category"], queryFn: () => api.skuMasters.list("category") });
+  const gendersQ = useQuery({ queryKey: ["sku-masters", "gender"], queryFn: () => api.skuMasters.list("gender") });
+  const colorsQ = useQuery({ queryKey: ["sku-masters", "color"], queryFn: () => api.skuMasters.list("color") });
+  const sizesQ = useQuery({ queryKey: ["sku-masters", "size"], queryFn: () => api.skuMasters.list("size") });
 
   // Preferred-supplier picker for the catalogue form's Buying details section.
   const suppliersQ = useQuery({
@@ -217,18 +227,15 @@ function ProductsPage() {
     const parents = (productsQ.data ?? [])
       .filter((p) => !p.parent_id)
       .sort((a, b) => a.sku.localeCompare(b.sku ?? "") || a.name.localeCompare(b.name));
-    for (const p of parents) {
-      const kids = childrenByParent.get(p.id) ?? [];
-      if (!match(p)) {
-        const matchedKids = kids.filter(match);
-        if (matchedKids.length === 0) continue;
-        out.push({ product: p, depth: 0 });
-        for (const k of matchedKids) out.push({ product: k, depth: 1 });
-        continue;
-      }
-      out.push({ product: p, depth: 0 });
-      for (const k of kids) out.push({ product: k, depth: 1 });
-    }
+    const hasMatchDeep = (p: Product): boolean =>
+      match(p) || (childrenByParent.get(p.id) ?? []).some(hasMatchDeep);
+    const append = (p: Product, depth: number, forceVisible = false) => {
+      const visible = forceVisible || match(p) || hasMatchDeep(p);
+      if (!visible) return;
+      out.push({ product: p, depth });
+      for (const child of childrenByParent.get(p.id) ?? []) append(child, depth + 1, match(p));
+    };
+    for (const p of parents) append(p, 0);
     return out;
   }, [productsQ.data, childrenByParent, q, cat]);
 
@@ -238,9 +245,13 @@ function ProductsPage() {
     (p: Product) => {
       let s = stockByProduct.get(p.id) ?? 0;
       if (!p.parent_id) {
-        for (const k of childrenByParent.get(p.id) ?? []) {
-          s += stockByProduct.get(k.id) ?? 0;
-        }
+        const addDescendants = (parentId: string) => {
+          for (const k of childrenByParent.get(parentId) ?? []) {
+            s += stockByProduct.get(k.id) ?? 0;
+            addDescendants(k.id);
+          }
+        };
+        addDescendants(p.id);
       }
       return s;
     },
@@ -307,15 +318,17 @@ function ProductsPage() {
         breadcrumbs={[{ label: "Dashboard", href: "/app/dashboard" }, { label: "Catalog" }]}
         actions={
           canWrite ? (
+            <div className="flex gap-2">
+            {isAdmin && <button onClick={() => setMastersOpen(true)} className="rounded-md border border-border px-3 py-2 text-sm font-medium hover:border-primary hover:text-primary">SKU Masters</button>}
             <button
               onClick={() => {
-                setEditing(null);
-                setOpen(true);
+                setSkuWizard(true);
               }}
               className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
             >
               <Plus className="h-4 w-4" /> New product
             </button>
+            </div>
           ) : (
             <span className="text-xs uppercase tracking-widest text-muted-foreground">
               Read-only
@@ -437,13 +450,14 @@ function ProductsPage() {
                         <td className="px-5 py-3">
                           <div
                             className={`flex items-center gap-2.5 ${isVariant ? "pl-8" : ""}`}
+                            style={isVariant ? { paddingLeft: `${depth * 2}rem` } : undefined}
                           >
                             {isVariant ? (
                               <span className="text-muted-foreground/50">└</span>
                             ) : (
                               <ProductThumb imageUrl={p.image_url} name={p.name} />
                             )}
-                            <span className="font-mono text-xs">{p.sku}</span>
+                            <button onClick={() => setDetailFor(isVariant ? (parentOf(p) ?? p) : p)} title="Open SKU hierarchy" className="font-mono text-xs text-primary hover:underline">{p.sku}</button>
                           </div>
                         </td>
                         <td className="px-5 py-3">
@@ -571,11 +585,35 @@ function ProductsPage() {
           onClose={() => setOpen(false)}
         />
       )}
+      {skuWizard && user && (
+        <SkuBuilderModal
+          categories={(categoriesQ.data ?? []).filter((x: SkuMaster) => x.active)}
+          genders={(gendersQ.data ?? []).filter((x: SkuMaster) => x.active)}
+          colors={(colorsQ.data ?? []).filter((x: SkuMaster) => x.active)}
+          sizes={(sizesQ.data ?? []).filter((x: SkuMaster) => x.active)}
+          onClose={() => setSkuWizard(false)}
+          onSaved={() => { qc.invalidateQueries({ queryKey: ["products"] }); setSkuWizard(false); }}
+        />
+      )}
+      {mastersOpen && (
+        <SkuMastersModal
+          onClose={() => setMastersOpen(false)}
+          onSaved={() => { ["category", "gender", "color", "size"].forEach((type) => qc.invalidateQueries({ queryKey: ["sku-masters", type] })); }}
+        />
+      )}
       {variantFor && (
         <VariantModal
           parent={variantFor.parent}
           child={variantFor.child}
           onClose={() => setVariantFor(null)}
+        />
+      )}
+      {detailFor && (
+        <ProductDetailDrawer
+          product={detailFor}
+          all={(productsQ.data ?? []) as Product[]}
+          childrenByParent={childrenByParent}
+          onClose={() => setDetailFor(null)}
         />
       )}
       {deleting && (
@@ -594,6 +632,51 @@ function ProductsPage() {
           pending={del.isPending}
         />
       )}
+    </div>
+  );
+}
+
+function ProductDetailDrawer({ product, all, childrenByParent, onClose }: { product: Product; all: Product[]; childrenByParent: Map<string, Product[]>; onClose: () => void }) {
+  const byId = new Map(all.map((p) => [p.id, p]));
+  // Hierarchy is parent → colour SKUs → size SKUs (two levels under the parent).
+  const colourNodes = (childrenByParent.get(product.id) ?? []).slice().sort((a, b) => a.sku.localeCompare(b.sku));
+  const totalFinal = colourNodes.reduce((n, c) => n + (childrenByParent.get(c.id) ?? []).length, 0);
+  void byId;
+  return (
+    <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm" onClick={onClose}>
+      <div className="flex max-h-screen w-full max-w-xl flex-col overflow-hidden border-l border-border bg-card" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between border-b border-border p-5">
+          <div><p className="text-[10px] uppercase tracking-widest text-primary">Product detail</p><h3 className="mt-1 font-display text-lg">{product.name}</h3><p className="mt-1 font-mono text-sm font-semibold text-primary">{product.sku}</p><p className="mt-1 text-xs text-muted-foreground">{[product.category, product.gender, product.model].filter(Boolean).join(" · ")}</p></div>
+          <button onClick={onClose} className="rounded-md p-2 hover:bg-muted"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex-1 space-y-5 overflow-y-auto p-5">
+          <div className="grid grid-cols-3 gap-2 text-center">
+            <div className="rounded-lg border border-border p-3"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Colours</p><p className="mt-1 font-display text-xl">{colourNodes.length}</p></div>
+            <div className="rounded-lg border border-border p-3"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Final SKUs</p><p className="mt-1 font-display text-xl">{totalFinal}</p></div>
+            <div className="rounded-lg border border-border p-3"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">MRP</p><p className="mt-1 font-display text-xl">{product.mrp ? fmtMoney(product.mrp) : "—"}</p></div>
+          </div>
+          <div className="rounded-lg border border-border/70 p-4 text-xs">
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Pricing (₹)</p>
+            <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 font-mono"><span className="text-muted-foreground">Cost</span><span className="text-right">{fmtMoney(product.unit_cost)}</span><span className="text-muted-foreground">Selling</span><span className="text-right">{fmtMoney(product.unit_price)}</span><span className="text-muted-foreground">Retailer</span><span className="text-right">{product.retailer_price ? fmtMoney(product.retailer_price) : "—"}</span><span className="text-muted-foreground">Distributor</span><span className="text-right">{product.distributor_price ? fmtMoney(product.distributor_price) : "—"}</span></div>
+          </div>
+          <div>
+            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">SKU hierarchy — Product → Colour → Size</p>
+            <div className="mt-2 rounded-lg border border-primary/25 bg-primary/5 p-3"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Parent SKU</p><p className="mt-0.5 flex items-center justify-between font-mono text-sm font-semibold text-primary">{product.sku}<button onClick={() => { navigator.clipboard.writeText(product.sku); toast.success("Parent SKU copied"); }} className="rounded p-1 hover:bg-primary/10"><Copy className="h-3.5 w-3.5" /></button></p></div>
+            <div className="mt-3 space-y-3">
+              {colourNodes.length === 0 && <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">No colour variants yet — use “Add variant”.</p>}
+              {colourNodes.map((c) => {
+                const sizes = (childrenByParent.get(c.id) ?? []).slice().sort((a, b) => a.sku.localeCompare(b.sku));
+                return (
+                  <div key={c.id} className="rounded-lg border border-border/70">
+                    <div className="flex items-center justify-between border-b border-border/60 bg-muted/20 px-3 py-2"><div><span className="font-medium">{c.color ?? c.name}</span><p className="font-mono text-xs text-primary">{c.sku}</p></div><button onClick={() => { navigator.clipboard.writeText(c.sku); toast.success("Colour SKU copied"); }} className="rounded p-1.5 text-muted-foreground hover:text-primary"><Copy className="h-3.5 w-3.5" /></button></div>
+                    <div className="p-2">{sizes.length === 0 ? <p className="px-2 py-1 text-xs text-muted-foreground">Colour SKU only — no sizes.</p> : sizes.map((s) => <div key={s.id} className="flex items-center justify-between px-2 py-1.5 text-sm"><span className="text-muted-foreground">→ {s.size ?? s.sku.split("-").slice(-1)}</span><span className="flex items-center gap-2 font-mono text-xs">{s.sku}<button onClick={() => { navigator.clipboard.writeText(s.sku); toast.success("Final SKU copied"); }} className="rounded p-1 text-muted-foreground hover:text-primary"><Copy className="h-3 w-3" /></button></span></div>)}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1636,4 +1719,197 @@ function Pill({
       {children}
     </span>
   );
+}
+
+function SkuMastersModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
+  const [type, setType] = useState<"category" | "gender" | "color" | "size">("category");
+  const [name, setName] = useState(""); const [code, setCode] = useState(""); const [sizeSystem, setSizeSystem] = useState("International");
+  const [search, setSearch] = useState(""); const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState(""); const [editCode, setEditCode] = useState(""); const [editSystem, setEditSystem] = useState("International");
+  const [confirmTarget, setConfirmTarget] = useState<SkuMaster | null>(null);
+  const mastersQ = useQuery({ queryKey: ["sku-masters", type], queryFn: () => api.skuMasters.list(type) });
+  const productsQ = useQuery({ queryKey: ["products"], queryFn: async () => api.products.list() });
+  const usageCount = (m: SkuMaster) => {
+    const key = type === "category" ? "categoryMasterId" : type === "gender" ? "genderMasterId" : type === "color" ? "colorMasterId" : "sizeMasterId";
+    return ((productsQ.data as any[]) ?? []).filter((p) => (p as any)[key] === m.id || (p as any)[key.replace("MasterId", "_master_id")] === m.id).length;
+  };
+  const save = useMutation({ mutationFn: () => api.skuMasters.create(type, { name: name.trim(), code, sizeSystem }), onSuccess: () => { toast.success("SKU master added"); setName(""); setCode(""); mastersQ.refetch(); onSaved(); }, onError: (e) => toast.error(e instanceof Error ? e.message : "Could not save master — code may already exist") });
+  const toggle = useMutation({ mutationFn: (m: any) => api.skuMasters.update(m.id, { active: !((m as any).active ?? (m as any).is_active ?? true) }), onSuccess: () => { setConfirmTarget(null); mastersQ.refetch(); onSaved(); }, onError: (e) => toast.error(e instanceof Error ? e.message : "Could not update master") });
+  const startEdit = (m: any) => { setEditingId(m.id); setEditName(m.name); setEditCode(m.code); setEditSystem(m.size_system ?? m.sizeSystem ?? "International"); };
+  const saveEdit = useMutation({
+    mutationFn: () => api.skuMasters.update(editingId!, { name: editName.trim(), code: editCode, ...(type === "size" ? { sizeSystem: editSystem } : {}) }),
+    onSuccess: () => { toast.success("Master updated"); setEditingId(null); mastersQ.refetch(); onSaved(); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not update — code may be in use or duplicated"),
+  });
+  const filtered = ((mastersQ.data as any[]) ?? []).filter((m: any) => {
+    const active = m.active ?? m.is_active ?? true;
+    const q = search.trim().toLowerCase();
+    const matchQ = !q || String(m.name ?? "").toLowerCase().includes(q) || String(m.code ?? "").toLowerCase().includes(q);
+    const matchS = statusFilter === "all" || (statusFilter === "active" ? active : !active);
+    return matchQ && matchS;
+  });
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={onClose}><div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card p-6" onClick={(e) => e.stopPropagation()}>
+    <div className="flex items-center justify-between"><div><h3 className="font-display text-xl">SKU Masters</h3><p className="text-xs text-muted-foreground">Codes flow into SKUs as <span className="font-mono">AD-GENDER-CATEGORY-MODEL-COLOUR-SIZE</span>. Deactivating or renaming a code used by products needs confirmation.</p></div><button onClick={onClose}><X className="h-4 w-4" /></button></div>
+    <div className="mt-5 flex flex-wrap gap-2">{(["category", "gender", "color", "size"] as const).map((x) => <button key={x} onClick={() => { setType(x); setSearch(""); setEditingId(null); }} className={`rounded-md px-3 py-2 text-xs capitalize ${type === x ? "bg-primary text-primary-foreground" : "bg-muted"}`}>{x === "color" ? "Colours" : `${x}s`}</button>)}</div>
+    <div className="mt-5 grid gap-3 md:grid-cols-[1fr_140px_160px_auto]"><input className="inp" value={name} onChange={(e) => setName(e.target.value)} placeholder={`${type} name — e.g. ${type === "category" ? "T-Shirts" : type === "gender" ? "Unisex" : type === "color" ? "Aqua Blue" : "EU 38"}`} /><input className="inp font-mono uppercase" value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder="Code — e.g. TN" />{type === "size" ? <select className="inp" value={sizeSystem} onChange={(e) => setSizeSystem(e.target.value)}>{["International", "EU", "UK", "US", "Custom"].map((x) => <option key={x}>{x}</option>)}</select> : <span className="hidden md:block" />}<button disabled={save.isPending || !name.trim() || !code.trim()} onClick={() => save.mutate()} className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50">{save.isPending ? "Adding…" : `Add ${type}`}</button></div>
+    <div className="mt-4 flex flex-wrap items-center gap-2"><div className="relative min-w-[200px] flex-1"><Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or code…" className="w-full rounded-md border border-border bg-input py-2 pl-9 pr-3 text-sm" /></div><div className="flex gap-1.5">{(["all", "active", "inactive"] as const).map((s) => <button key={s} onClick={() => setStatusFilter(s)} className={`rounded-full border px-3 py-1 text-xs capitalize ${statusFilter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}>{s}</button>)}</div><span className="ml-auto text-xs text-muted-foreground">{filtered.length} shown</span></div>
+    <div className="mt-3 max-h-80 overflow-y-auto rounded-lg border border-border"><table className="w-full text-sm"><thead className="sticky top-0 bg-muted/80 text-left text-xs backdrop-blur"><tr><th className="p-3">Name</th><th>Code</th>{type === "size" && <th>System</th>}<th className="text-right">Used by</th><th>Status</th><th className="text-right">Actions</th></tr></thead><tbody>{mastersQ.isLoading ? <tr><td colSpan={6} className="p-6 text-center text-sm text-muted-foreground">Loading…</td></tr> : filtered.length === 0 ? <tr><td colSpan={6} className="p-6 text-center text-sm text-muted-foreground">No masters match. Add one above.</td></tr> : filtered.map((m: any) => {
+      const active = m.active ?? true; const used = usageCount(m); const isEditing = editingId === m.id;
+      return <tr key={m.id} className="border-t border-border">{isEditing ? (<><td className="p-2"><input className="inp !py-1.5" value={editName} onChange={(e) => setEditName(e.target.value)} /></td><td className="p-2"><input className="inp !py-1.5 font-mono uppercase" value={editCode} onChange={(e) => setEditCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} /></td>{type === "size" && <td className="p-2"><select className="inp !py-1.5" value={editSystem} onChange={(e) => setEditSystem(e.target.value)}>{["International", "EU", "UK", "US", "Custom"].map((x) => <option key={x}>{x}</option>)}</select></td>}<td className="p-2 text-right text-xs text-muted-foreground">{used}</td><td className="p-2"><span className={`rounded-full px-2 py-1 text-xs ${active ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{active ? "Active" : "Inactive"}</span></td><td className="p-2"><div className="flex justify-end gap-1"><button disabled={saveEdit.isPending} onClick={() => saveEdit.mutate()} className="rounded-md p-1.5 text-success hover:bg-success/10"><Check className="h-3.5 w-3.5" /></button><button onClick={() => setEditingId(null)} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"><X className="h-3.5 w-3.5" /></button></div></td></> ) : (<><td className="p-3 font-medium">{m.name}</td><td className="font-mono text-xs">{m.code}</td>{type === "size" && <td className="text-xs text-muted-foreground">{m.size_system ?? m.sizeSystem ?? "—"}</td>}<td className="p-3 text-right text-xs text-muted-foreground">{used ? `${used} product${used === 1 ? "" : "s"}` : "—"}</td><td><button title={used > 0 && active ? "Used by products — confirmation required" : "Toggle status"} onClick={() => { if (used > 0 && active) setConfirmTarget(m); else toggle.mutate(m); }} className={`rounded-full px-2 py-1 text-xs ${active ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{active ? "Active" : "Inactive"}</button></td><td className="p-3"><div className="flex justify-end gap-1"><button onClick={() => startEdit(m)} className="rounded-md p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary"><Pencil className="h-3.5 w-3.5" /></button></div></td></>)}
+      </tr>;
+    })}</tbody></table></div>
+    {confirmTarget && <div className="mt-4 rounded-lg border border-warning/40 bg-warning/5 p-4 text-sm"><p className="font-medium">Deactivate “{(confirmTarget as any).name} ({(confirmTarget as any).code})”?</p><p className="mt-1 text-xs text-muted-foreground">This code is used by {usageCount(confirmTarget)} product(s). Existing SKUs keep their text, but new variants can no longer use it. History is preserved in the audit log.</p><div className="mt-3 flex justify-end gap-2"><button onClick={() => setConfirmTarget(null)} className="rounded-md border border-border px-3 py-1.5 text-xs">Keep active</button><button disabled={toggle.isPending} onClick={() => toggle.mutate(confirmTarget)} className="rounded-md bg-warning px-3 py-1.5 text-xs font-medium text-white">{toggle.isPending ? "Updating…" : "Deactivate anyway"}</button></div></div>}
+    <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+  </div></div>;
+}
+
+const WIZARD_STEPS = ["Product details", "Pricing", "Colours", "Sizes", "Variant matrix", "Review & create"] as const;
+
+function sanitizeModel(v: string) { return v.trim().toUpperCase().replace(/[^A-Z0-9]+/g, ""); }
+
+function SkuBuilderModal({
+  categories, genders, colors, sizes, onClose, onSaved,
+}: {
+  categories: SkuMaster[]; genders: SkuMaster[]; colors: SkuMaster[]; sizes: SkuMaster[];
+  onClose: () => void; onSaved: () => void;
+}) {
+  const qc = useQueryClient();
+  const [step, setStep] = useState(0);
+  const [f, setF] = useState({ name: "", categoryMasterId: "", genderMasterId: "", model: "", unitCost: "", unitPrice: "", mrp: "", retailerPrice: "", distributorPrice: "", ecommercePrice: "", unitOfMeasure: "piece" });
+  const [colorIds, setColorIds] = useState<string[]>([]);
+  const [sizeIds, setSizeIds] = useState<string[]>([]);
+  const [disabledKeys, setDisabledKeys] = useState<Set<string>>(new Set());
+  const [previewCell, setPreviewCell] = useState<{ colorId: string; sizeId: string } | null>(null);
+  const [quickColor, setQuickColor] = useState({ name: "", code: "" });
+  const [quickSize, setQuickSize] = useState({ name: "", code: "", system: "International" });
+  const [localColors, setLocalColors] = useState<SkuMaster[]>(colors);
+  const [localSizes, setLocalSizes] = useState<SkuMaster[]>(sizes);
+  useEffect(() => setLocalColors(colors), [colors]);
+  useEffect(() => setLocalSizes(sizes), [sizes]);
+  const category = categories.find((x) => x.id === f.categoryMasterId);
+  const gender = genders.find((x) => x.id === f.genderMasterId);
+  const model = sanitizeModel(f.model);
+  const parentSku = category && gender && model ? `AD-${gender.code}-${category.code}-${model}` : "";
+  const selectedColors = localColors.filter((x) => colorIds.includes(x.id));
+  const selectedSizes = localSizes.filter((x) => sizeIds.includes(x.id));
+  const enabledCombos = selectedColors.flatMap((c) => selectedSizes.map((s) => ({ c, s }))).filter(({ c, s }) => !disabledKeys.has(`${c.id}:${s.id}`));
+  const previewColor = previewCell ? localColors.find((x) => x.id === previewCell.colorId) : selectedColors[0];
+  const previewSize = previewCell ? localSizes.find((x) => x.id === previewCell.sizeId) : selectedSizes[0];
+  const previewFinalSku = parentSku && previewColor ? `${parentSku}-${previewColor.code}${previewSize ? `-${previewSize.code}` : ""}` : parentSku;
+  const skuCheckQ = useQuery({
+    queryKey: ["check-sku", parentSku],
+    queryFn: () => api.products.checkSku(parentSku),
+    enabled: parentSku.length > 5,
+    staleTime: 15000,
+  });
+  const skuTaken = !!skuCheckQ.data?.exists;
+  const num = (v: string) => (v === "" ? null : Number(v));
+  const priceError = (() => {
+    for (const [label, v] of [["Unit price", f.unitCost], ["Selling price", f.unitPrice], ["MRP", f.mrp], ["Retailer price", f.retailerPrice], ["Distributor price", f.distributorPrice]] as const) {
+      if (v !== "" && !(Number(v) >= 0)) return `${label} cannot be negative`;
+    }
+    if (f.mrp !== "" && f.unitPrice !== "" && Number(f.mrp) < Number(f.unitPrice)) return "MRP should not be lower than Selling price";
+    return null;
+  })();
+  const canStep = (s: number): boolean => {
+    if (s === 0) return !!(f.name.trim() && category && gender && model && !skuTaken);
+    if (s === 1) return !priceError;
+    if (s === 2) return colorIds.length > 0;
+    if (s === 3) return sizeIds.length > 0;
+    if (s === 4) return enabledCombos.length > 0;
+    return true;
+  };
+  const save = useMutation({
+    mutationFn: () => api.products.createHierarchy({
+      ...f, model,
+      unitCost: Number(f.unitCost || 0), unitPrice: Number(f.unitPrice || 0),
+      mrp: f.mrp === "" ? "" : Number(f.mrp), ecommercePrice: f.ecommercePrice === "" ? "" : Number(f.ecommercePrice),
+      retailerPrice: f.retailerPrice === "" ? "" : Number(f.retailerPrice), distributorPrice: f.distributorPrice === "" ? "" : Number(f.distributorPrice),
+      colorMasterIds: colorIds, sizeMasterIds: sizeIds, disabledKeys: [...disabledKeys],
+    }),
+    onSuccess: (result) => { qc.invalidateQueries({ queryKey: ["products"] }); toast.success(`Created ${parentSku} with ${result.variants.length} final SKUs`); onSaved(); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not create product"),
+  });
+  const quickCreate = useMutation({
+    mutationFn: async (kind: "color" | "size") => {
+      if (kind === "color") {
+        const created: any = await api.skuMasters.create("color", { name: quickColor.name.trim(), code: quickColor.code });
+        setLocalColors((prev) => [...prev, { id: created.id ?? created.pk ?? String(Date.now()), name: created.name, code: created.code, active: true } as SkuMaster]);
+        setColorIds((prev) => [...prev, created.id]);
+        setQuickColor({ name: "", code: "" });
+      } else {
+        const created: any = await api.skuMasters.create("size", { name: quickSize.name.trim(), code: quickSize.code, sizeSystem: quickSize.system });
+        setLocalSizes((prev) => [...prev, { id: created.id ?? created.pk ?? String(Date.now()), name: created.name, code: created.code, active: true, size_system: created.sizeSystem } as SkuMaster]);
+        setSizeIds((prev) => [...prev, created.id]);
+        setQuickSize({ name: "", code: "", system: "International" });
+      }
+    },
+    onSuccess: () => { ["color", "size"].forEach((t) => qc.invalidateQueries({ queryKey: ["sku-masters", t] })); toast.success("Master created & selected"); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not create master — code may exist"),
+  });
+  const toggleId = (id: string, setter: React.Dispatch<React.SetStateAction<string[]>>) => setter((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]);
+  const toggleCell = (c: string, s: string) => setDisabledKeys((prev) => { const n = new Set(prev); const k = `${c}:${s}`; if (n.has(k)) n.delete(k); else n.add(k); return n; });
+  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
+    <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-border bg-card" onClick={(e) => e.stopPropagation()}>
+      <div className="flex items-center justify-between border-b border-border bg-card px-6 py-4">
+        <div><h3 className="font-display text-xl">Create Product & SKU Hierarchy</h3><p className="text-xs text-muted-foreground">Brand <span className="font-mono font-semibold">AD</span> is fixed · Step {step + 1} of {WIZARD_STEPS.length} — {WIZARD_STEPS[step]}</p></div>
+        <button className="rounded-md p-2 hover:bg-muted" onClick={onClose}><X className="h-4 w-4" /></button>
+      </div>
+      <div className="flex flex-wrap gap-1.5 border-b border-border bg-muted/20 px-6 py-3">
+        {WIZARD_STEPS.map((label, i) => (
+          <button key={label} disabled={i > step && !canStep(step)} onClick={() => { if (i <= step || canStep(step)) setStep(i); }} className={`rounded-full border px-3 py-1 text-xs transition ${i === step ? "border-primary bg-primary text-primary-foreground" : i < step ? "border-success/40 bg-success/10 text-success" : "border-border text-muted-foreground"}`}>
+            {i + 1}. {label}{i < step ? " ✓" : ""}
+          </button>
+        ))}
+      </div>
+      <div className="grid flex-1 gap-6 overflow-y-auto p-6 lg:grid-cols-[1fr_330px]">
+        <div className="min-w-0 space-y-6">
+          {step === 0 && <Card title="Step 1 — Product details"><div className="grid gap-4 md:grid-cols-2">
+            <L label="Product name *"><input className="inp" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Essential T-Shirt" /></L>
+            <L label="Model number *"><input className="inp font-mono uppercase" value={f.model} onChange={(e) => setF({ ...f, model: e.target.value.toUpperCase() })} placeholder="ET1100" /><span className="mt-1 block text-[10px] text-muted-foreground">Letters + digits only · becomes the MODEL part of the SKU</span></L>
+            <L label="Category *"><SearchableSelect value={f.categoryMasterId} onChange={(v) => setF({ ...f, categoryMasterId: v })} placeholder="Select category…" options={categories.map((x) => ({ value: x.id, label: `${x.name} (${x.code})`, hint: x.code }))} /></L>
+            <L label="Gender *"><SearchableSelect value={f.genderMasterId} onChange={(v) => setF({ ...f, genderMasterId: v })} placeholder="Select gender…" options={genders.map((x) => ({ value: x.id, label: `${x.name} (${x.code})`, hint: x.code }))} /></L>
+          </div>
+          {parentSku ? <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-3"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Generated parent SKU</p><p className="mt-1 font-mono text-lg font-semibold text-primary">{parentSku}</p>{skuCheckQ.isFetching ? <p className="mt-1 text-xs text-muted-foreground">Checking uniqueness…</p> : skuTaken ? <p className="mt-1 text-xs font-medium text-destructive">SKU already exists: {parentSku} — change model / category / gender.</p> : <p className="mt-1 text-xs text-success">Available ✓</p>}</div> : <p className="mt-4 text-xs text-muted-foreground">Pick a category, gender and model number to generate <span className="font-mono">AD-U-TN-ET1100</span>.</p>}
+          </Card>}
+          {step === 1 && <Card title="Step 2 — Pricing (₹ INR)"><div className="grid gap-4 md:grid-cols-3">
+            {[["Unit Price (cost)", "unitCost"], ["Selling Price", "unitPrice"], ["MRP", "mrp"], ["Retailer Price", "retailerPrice"], ["Distributor Price", "distributorPrice"], ["E-commerce Price", "ecommercePrice"]].map(([label, key]) => (
+              <L key={key} label={`₹ ${label}`}><input type="number" min="0" step="0.01" className="inp" value={(f as any)[key]} onChange={(e) => setF({ ...f, [key]: e.target.value })} placeholder="0.00" /></L>
+            ))}
+          </div>{priceError ? <p className="mt-3 text-xs font-medium text-destructive">{priceError}</p> : <p className="mt-3 text-xs text-muted-foreground">Prices cannot be negative. MRP should not be lower than Selling Price. Stored at product level and inherited by every variant.</p>}</Card>}
+          {step === 2 && <Card title="Step 3 — Colours"><p className="-mt-1 mb-3 text-xs text-muted-foreground">Each colour becomes <span className="font-mono">{parentSku || "AD-…"}-COLOUR</span>, e.g. <span className="font-mono">{parentSku || "AD-U-TN-ET1100"}-AQB</span>.</p>
+            <div className="flex flex-wrap gap-2">{localColors.map((x) => <button key={x.id} onClick={() => toggleId(x.id, setColorIds)} className={`rounded-md border px-3 py-1.5 text-xs ${colorIds.includes(x.id) ? "border-primary bg-primary/10 text-primary" : "border-border"}`}>{colorIds.includes(x.id) && <Check className="mr-1 inline h-3 w-3" />}{x.name} <span className="font-mono">({x.code})</span></button>)}</div>
+            <div className="mt-4 grid gap-2 rounded-lg border border-dashed border-border p-3 md:grid-cols-[1fr_120px_auto]"><input className="inp !py-1.5" value={quickColor.name} onChange={(e) => setQuickColor({ ...quickColor, name: e.target.value })} placeholder="New colour — Aqua Blue" /><input className="inp !py-1.5 font-mono uppercase" value={quickColor.code} onChange={(e) => setQuickColor({ ...quickColor, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} placeholder="AQB" /><button disabled={quickCreate.isPending || !quickColor.name.trim() || !quickColor.code.trim()} onClick={() => quickCreate.mutate("color")} className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-50">+ Add & select</button></div>
+          </Card>}
+          {step === 3 && <Card title="Step 4 — Sizes"><p className="-mt-1 mb-3 text-xs text-muted-foreground">Grouped by size system. Each size appends <span className="font-mono">-SIZE</span>, e.g. <span className="font-mono">…-AQB-3P</span>.</p>
+            {(["International", "EU", "UK", "US", "Custom"] as const).map((sys) => { const list = localSizes.filter((x: any) => (x.size_system ?? x.sizeSystem ?? "Custom") === sys); if (!list.length) return null; return <div key={sys} className="mb-3"><p className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">{sys}</p><div className="flex flex-wrap gap-2">{list.map((x) => <button key={x.id} onClick={() => toggleId(x.id, setSizeIds)} className={`rounded-md border px-3 py-1.5 text-xs ${sizeIds.includes(x.id) ? "border-primary bg-primary/10 text-primary" : "border-border"}`}>{sizeIds.includes(x.id) && <Check className="mr-1 inline h-3 w-3" />}{x.name} <span className="font-mono">({x.code})</span></button>)}</div></div>; })}
+            <div className="mt-2 grid gap-2 rounded-lg border border-dashed border-border p-3 md:grid-cols-[1fr_100px_130px_auto]"><input className="inp !py-1.5" value={quickSize.name} onChange={(e) => setQuickSize({ ...quickSize, name: e.target.value })} placeholder="New size — 3 Pair" /><input className="inp !py-1.5 font-mono uppercase" value={quickSize.code} onChange={(e) => setQuickSize({ ...quickSize, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} placeholder="3P" /><select className="inp !py-1.5" value={quickSize.system} onChange={(e) => setQuickSize({ ...quickSize, system: e.target.value })}>{["International", "EU", "UK", "US", "Custom"].map((x) => <option key={x}>{x}</option>)}</select><button disabled={quickCreate.isPending || !quickSize.name.trim() || !quickSize.code.trim()} onClick={() => quickCreate.mutate("size")} className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-50">+ Add & select</button></div>
+          </Card>}
+          {step === 4 && <Card title={`Step 5 — Variant matrix · ${enabledCombos.length} of ${selectedColors.length * selectedSizes.length} enabled`}><p className="-mt-1 mb-3 text-xs text-muted-foreground">Click a cell to preview it on the right. Uncheck combinations you don’t sell.</p>
+            {selectedColors.length === 0 || selectedSizes.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">Select at least one colour and one size.</p> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr><th className="p-2 text-left text-xs uppercase tracking-widest text-muted-foreground">Colour \ Size</th>{selectedSizes.map((s) => <th key={s.id} className="p-2 text-left font-mono text-xs">{s.code}<div className="font-sans text-[10px] font-normal text-muted-foreground">{s.name}</div></th>)}</tr></thead><tbody>{selectedColors.map((c) => <tr key={c.id} className="border-t border-border"><td className="p-2 font-medium">{c.name} <span className="font-mono text-xs text-muted-foreground">{c.code}</span><div className="font-mono text-[10px] text-muted-foreground">{parentSku}-{c.code}</div></td>{selectedSizes.map((s) => { const k = `${c.id}:${s.id}`; const off = disabledKeys.has(k); const sku = parentSku ? `${parentSku}-${c.code}-${s.code}` : "—"; return <td key={s.id} onClick={() => setPreviewCell({ colorId: c.id, sizeId: s.id })} className={`cursor-pointer p-1.5 align-top ${previewCell?.colorId === c.id && previewCell?.sizeId === s.id ? "bg-primary/5" : ""}`}><label className={`block rounded-md border p-2 ${off ? "border-border bg-muted/30 opacity-50" : "border-primary/25 bg-primary/5"}`} onClick={(e) => e.stopPropagation()}><span className="flex items-center gap-1.5 text-[11px]"><input type="checkbox" checked={!off} onChange={() => toggleCell(c.id, s.id)} />{off ? "Off" : "On"}</span><span className="mt-1 block font-mono text-[10px] leading-tight">{sku}</span></label></td>; })}</tr>)}</tbody></table></div>}
+          </Card>}
+          {step === 5 && <Card title="Step 6 — Review & create"><div className="grid gap-4 text-sm md:grid-cols-2">
+            <div><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Product</p><p className="mt-1 font-medium">{f.name || "—"} <span className="text-muted-foreground">· {model || "—"}</span></p><p className="mt-1 text-xs text-muted-foreground">{category?.name} ({category?.code}) · {gender?.name} ({gender?.code})</p><p className="mt-2 font-mono text-sm font-semibold text-primary">{parentSku}</p></div>
+            <div><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Pricing (₹)</p><p className="mt-1 font-mono text-xs">Cost {f.unitCost || "0"} · Sell {f.unitPrice || "0"} · MRP {f.mrp || "—"}</p><p className="mt-1 font-mono text-xs text-muted-foreground">Ret {f.retailerPrice || "—"} · Dist {f.distributorPrice || "—"}</p></div>
+          </div>
+          <div className="mt-4 text-sm"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Colours ({selectedColors.length}) → Sizes ({selectedSizes.length}) → {enabledCombos.length} final SKUs</p>
+          <div className="mt-2 max-h-56 space-y-3 overflow-y-auto">{selectedColors.map((c) => { const cells = selectedSizes.filter((s) => !disabledKeys.has(`${c.id}:${s.id}`)); if (!cells.length) return null; return <div key={c.id}><p className="font-medium">{c.name} <span className="font-mono text-xs text-primary">{parentSku}-{c.code}</span></p><div className="mt-1 flex flex-wrap gap-1.5">{cells.map((s) => <span key={s.id} className="rounded border border-border bg-muted/30 px-2 py-1 font-mono text-[10px]">{parentSku}-{c.code}-{s.code}</span>)}</div></div>; })}</div></div>
+          </Card>}
+        </div>
+        <aside className="h-fit rounded-xl border border-primary/25 bg-primary/5 p-5 lg:sticky lg:top-0">
+          <p className="text-xs uppercase tracking-widest text-muted-foreground">Live SKU Builder</p>
+          <div className="mt-3 space-y-1.5 text-sm">
+            {[["Brand", "AD"], ["Gender", gender?.code ?? "—"], ["Category", category?.code ?? "—"], ["Model", model || "—"], ["Colour", previewColor?.code ?? "—"], ["Size", previewSize?.code ?? "—"]].map(([k, v]) => <p key={k} className="flex items-center justify-between text-muted-foreground">{k}<span className="font-mono font-medium text-foreground">{v}</span></p>)}
+          </div>
+          <p className="mt-3 text-[10px] uppercase tracking-widest text-muted-foreground">Final SKU</p>
+          <p className="mt-1 break-all font-mono text-base font-semibold text-primary">{previewFinalSku || "AD-…"}</p>
+          <div className="mt-3 flex gap-2"><button disabled={!previewFinalSku} onClick={() => { navigator.clipboard.writeText(previewFinalSku); toast.success("SKU copied"); }} className="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-50"><Copy className="h-3 w-3" /> Copy SKU</button></div>
+          <div className="mt-4 flex gap-2"><button disabled={step === 0} onClick={() => setStep((s) => s - 1)} className="flex-1 rounded-md border border-border px-3 py-2 text-sm disabled:opacity-40">Back</button>{step < WIZARD_STEPS.length - 1 ? <button disabled={!canStep(step)} onClick={() => setStep((s) => s + 1)} className="flex-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40">Continue</button> : <button disabled={save.isPending || !canStep(0) || !canStep(4)} onClick={() => save.mutate()} className="flex-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40">{save.isPending ? "Creating…" : `Create · ${enabledCombos.length} SKUs`}</button>}</div>
+          {!canStep(step) && step !== 5 && <p className="mt-2 text-[11px] text-warning">Complete this step to continue{step === 0 && skuTaken ? " — parent SKU is taken" : ""}.</p>}
+        </aside>
+      </div>
+    </div>
+    <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+  </div>;
 }

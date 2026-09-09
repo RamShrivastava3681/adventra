@@ -96,6 +96,7 @@ const viewAsMiddleware = async (
   }
 };
 import * as Product from "../models/product.js";
+import * as SkuMaster from "../models/sku-master.js";
 import * as CatalogueSettings from "../models/catalogue-settings.js";
 import * as StockMovement from "../models/stock-movement.js";
 import * as Debtor from "../models/debtor.js";
@@ -256,6 +257,105 @@ router.get("/users/:id", authMiddleware, async (req, res) => {
 });
 
 // ===================== PRODUCTS =====================
+const SKU_MASTER_TYPES = ["category", "gender", "color", "size"] as const;
+function isSkuMasterType(value: string): value is SkuMaster.SkuMasterType {
+  return (SKU_MASTER_TYPES as readonly string[]).includes(value);
+}
+
+router.get("/sku-masters/:type", authMiddleware, async (req, res) => {
+  try {
+    if (!isSkuMasterType(req.params.type)) return res.status(400).json({ error: "Invalid master type" });
+    res.json(await SkuMaster.list(effectiveListScope(req), req.params.type));
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.post("/sku-masters/:type", authMiddleware, requireRole("factor_admin", "super_admin"), async (req, res) => {
+  try {
+    if (!isSkuMasterType(req.params.type)) return res.status(400).json({ error: "Invalid master type" });
+    const item = await SkuMaster.create({ ...req.body, masterType: req.params.type, clientId: req.user!.userId });
+    trackAction(req, "sku_master.created", item.id, { entityType: item.masterType, entityRef: item.code });
+    res.status(201).json(item);
+  } catch (err: any) { res.status(400).json({ error: err.message }); }
+});
+router.put("/sku-masters/:id", authMiddleware, requireRole("factor_admin", "super_admin"), async (req, res) => {
+  try {
+    const current = await SkuMaster.get(req.params.id);
+    if (!current) return res.status(404).json({ error: "SKU master not found" });
+    const products = await Product.list(current.clientId);
+    const used = (products as any[]).some((p) =>
+      [p.categoryMasterId, p.genderMasterId, p.colorMasterId, p.sizeMasterId].includes(current.id),
+    );
+    if (used && req.body?.code !== undefined && SkuMaster.normalizeCode(req.body.code) !== current.code) {
+      return res.status(409).json({ error: "This code is already used by SKUs and cannot be changed" });
+    }
+    const item = await SkuMaster.update(current.id, req.body || {});
+    trackAction(req, "sku_master.updated", current.id, { entityType: current.masterType, entityRef: current.code, used });
+    res.json(item);
+  } catch (err: any) { res.status(400).json({ error: err.message }); }
+});
+
+function validPrice(value: unknown, label: string) {
+  const n = Number(value ?? 0); if (!Number.isFinite(n) || n < 0) throw new Error(`${label} cannot be negative`); return n;
+}
+
+/** Creates the complete parent → colour → final-SKU hierarchy atomically from configured masters. */
+router.post("/products/create-hierarchy", authMiddleware, async (req, res) => {
+  try {
+    const body = req.body || {}; const clientId = req.user!.userId;
+    const [category, gender] = await Promise.all([SkuMaster.get(body.categoryMasterId), SkuMaster.get(body.genderMasterId)]);
+    if (!category || category.masterType !== "category" || !category.active) throw new Error("Select an active category");
+    if (!gender || gender.masterType !== "gender" || !gender.active) throw new Error("Select an active gender");
+    const model = String(body.model ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "");
+    const name = String(body.name ?? "").trim(); if (!name || !model) throw new Error("Product name and model number are required");
+    const parentSku = `AD-${gender.code}-${category.code}-${model}`;
+    const all = await Product.list(clientId);
+    const taken = new Set((all as any[]).map((p) => String(p.sku).toUpperCase()));
+    if (taken.has(parentSku)) throw new Error(`SKU already exists: ${parentSku}`);
+    const colors = await Promise.all((Array.isArray(body.colorMasterIds) ? body.colorMasterIds : []).map((id: string) => SkuMaster.get(id)));
+    const sizes = await Promise.all((Array.isArray(body.sizeMasterIds) ? body.sizeMasterIds : []).map((id: string) => SkuMaster.get(id)));
+    if (colors.some((x) => !x || x.masterType !== "color" || !x.active)) throw new Error("Select only active colours");
+    if (sizes.some((x) => !x || x.masterType !== "size" || !x.active)) throw new Error("Select only active sizes");
+    const unitCost = validPrice(body.unitCost, "Unit price"); const unitPrice = validPrice(body.unitPrice, "Selling price");
+    const mrp = body.mrp === undefined || body.mrp === "" ? null : validPrice(body.mrp, "MRP");
+    if (mrp !== null && mrp < unitPrice) throw new Error("MRP cannot be lower than selling price");
+    const ecommercePrice = body.ecommercePrice === undefined || body.ecommercePrice === "" ? null : validPrice(body.ecommercePrice, "E-commerce price");
+    const common: any = { name, category: category.name, gender: gender.name, model, unitPrice, unitCost, mrp, ecommercePrice,
+      retailerPrice: body.retailerPrice === "" ? null : validPrice(body.retailerPrice, "Retailer price"),
+      distributorPrice: body.distributorPrice === "" ? null : validPrice(body.distributorPrice, "Distributor price"),
+      unitOfMeasure: body.unitOfMeasure || "piece", categoryMasterId: category.id, genderMasterId: gender.id, status: "active" };
+    const parent = await Product.create({ ...common, clientId, sku: parentSku, skuLevel: "parent" });
+    const colourProducts: any[] = []; const variants: any[] = [];
+    // Variant-matrix opt-outs: frontend sends ["<colorId>:<sizeId>"] for disabled cells.
+    const disabled = new Set(Array.isArray(body.disabledKeys) ? body.disabledKeys.map((x: unknown) => String(x)) : []);
+    for (const color of colors as SkuMaster.SkuMaster[]) {
+      const colorSku = `${parentSku}-${color.code}`;
+      if (taken.has(colorSku)) throw new Error(`SKU already exists: ${colorSku}`);
+      const colourProduct = await Product.create({ ...common, clientId, parentId: parent.id, sku: colorSku, skuLevel: "color", color: color.name, colorMasterId: color.id });
+      colourProducts.push(colourProduct); taken.add(colorSku);
+      for (const size of sizes as SkuMaster.SkuMaster[]) {
+        if (disabled.has(`${color.id}:${size.id}`)) continue;
+        const sku = `${colorSku}-${size.code}`;
+        if (taken.has(sku)) throw new Error(`SKU already exists: ${sku}`);
+        variants.push(await Product.create({ ...common, clientId, parentId: colourProduct.id, sku, skuLevel: "variant", color: color.name, size: size.name, colorMasterId: color.id, sizeMasterId: size.id }));
+        taken.add(sku);
+      }
+    }
+    trackAction(req, "product.sku_hierarchy_created", parent.id, { entityType: "product", entityRef: parentSku, variants: variants.length });
+    res.status(201).json({ parent, colors: colourProducts, variants });
+  } catch (err: any) { res.status(400).json({ error: err.message }); }
+});
+
+router.get("/products/check-sku", authMiddleware, async (req, res) => {
+  try {
+    const sku = String(req.query.sku ?? "").trim().toUpperCase();
+    if (!sku) return res.json({ exists: false, sku: "" });
+    const items = await Product.list(effectiveListScope(req));
+    const exists = (items as any[]).some((p) => String(p.sku ?? "").toUpperCase() === sku);
+    res.json({ exists, sku });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get("/products", authMiddleware, async (req, res) => {
   try {
     const items = await Product.list(effectiveListScope(req));
@@ -393,9 +493,16 @@ router.delete("/products/:id", authMiddleware, async (req, res) => {
     // inventory movements and forecast snapshots. Documents (invoices,
     // orders, GRNs, dispatches) keep their snapshot copies.
     const siblings = (await Product.list(ownerId)) as any[];
-    const childIds = siblings
-      .filter((p) => p.parentId === product.id)
-      .map((p) => p.id);
+    // SKU hierarchies may be parent → colour → final size SKU. Remove every
+    // descendant rather than only the first variant level.
+    const childIds: string[] = [];
+    const pending = [product.id];
+    while (pending.length) {
+      const parentId = pending.shift()!;
+      const direct = siblings.filter((p) => p.parentId === parentId).map((p) => p.id);
+      childIds.push(...direct);
+      pending.push(...direct);
+    }
     const { removeAllForProduct } =
       await import("../models/forecast-variable.js");
     let movementsDeleted = 0;
@@ -3328,6 +3435,8 @@ router.post("/goods-sales-orders", authMiddleware, async (req, res) => {
       body.customerName = await resolveCustomerName(body.customerId);
     const item = await GoodsSO.create({
       ...body,
+      // Every newly created sales order must enter the Sales review gate.
+      status: "draft",
       lines,
       clientId: req.user!.userId,
       salespersonId: req.user!.userId,
@@ -3344,6 +3453,14 @@ router.put("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
     const roles = req.user?.roles ?? [];
     if (roles.includes("checker") && !roles.includes("factor_admin") && !roles.includes("super_admin")) {
       return res.status(403).json({ error: "Checker users may only approve or reject sales orders" });
+    }
+    const current = await GoodsSO.get(req.params.id);
+    if (!current) return res.status(404).json({ error: "Sales order not found" });
+    // Workflow states are changed only through the dedicated review endpoints.
+    // This prevents a generic edit request from skipping Sales, Warehouse, or
+    // Checker approval. Cancellation remains an explicit normal edit action.
+    if (body.status !== undefined && body.status !== current.status && body.status !== "cancelled") {
+      return res.status(403).json({ error: "Use the sales-order workflow actions to change status" });
     }
     if (body.lines !== undefined) {
       let lines: any[];
@@ -3365,7 +3482,6 @@ router.put("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
     // A re-confirmed SO re-enters the warehouse queue: clear the previous
     // sign-off so the hard gate re-applies after a checker review cycle.
     if (body.status === "confirmed") {
-      const current = await GoodsSO.get(req.params.id);
       if (current && ["draft", "pending_review", "cancelled"].includes(current.status)) {
         body.warehouseStatus = null;
         body.warehouseApprovedBy = null;
@@ -3387,7 +3503,57 @@ router.delete("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
   }
 });
 
-/** Warehouse approval: draft -> warehouse_pending -> warehouse_approved. */
+/** Sales review: draft -> pending_review -> warehouse_pending. */
+router.post(
+  "/goods-sales-orders/:id/sales-review",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const so = await GoodsSO.get(req.params.id);
+      if (!so) return res.status(404).json({ error: "Sales order not found" });
+      const action = String(req.body?.action || "submit");
+      const roles = req.user!.roles ?? [];
+      const isSalesReviewer = roles.some((r) =>
+        ["reporting_manager", "factor_admin", "super_admin"].includes(r),
+      );
+      const transitions: Record<string, { from: string; to: string }> = {
+        submit: { from: "draft", to: "pending_review" },
+        approve: { from: "pending_review", to: "warehouse_pending" },
+        reject: { from: "pending_review", to: "draft" },
+      };
+      const transition = transitions[action];
+      if (!transition)
+        return res.status(400).json({ error: "action must be submit, approve or reject" });
+      if ((action === "approve" || action === "reject") && !isSalesReviewer) {
+        return res.status(403).json({ error: "Only a reporting manager or admin can review sales orders" });
+      }
+      if (so.status !== transition.from)
+        return res.status(409).json({ error: `Sales order must be ${transition.from}` });
+
+      const isDecision = action !== "submit";
+      const updated = await GoodsSO.update(so.id, {
+        status: transition.to as any,
+        manualStatus: transition.to as any,
+        salesReviewedBy: isDecision ? req.user!.userId : null,
+        salesReviewedAt: isDecision ? new Date().toISOString() : null,
+        salesReviewNotes: req.body?.notes ? String(req.body.notes) : null,
+        // A fresh Sales approval always starts a fresh warehouse sign-off.
+        ...(action === "approve"
+          ? { warehouseStatus: null, warehouseApprovedBy: null, warehouseApprovedAt: null, warehouseNotes: null }
+          : {}),
+      });
+      trackAction(req, `sales_order.sales_review_${action}`, so.id, {
+        entityType: "sales_order", entityRef: so.soNumber,
+        previous: so.status, status: transition.to,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+/** Warehouse sign-off: warehouse_pending -> checker_pending. */
 router.post(
   "/goods-sales-orders/:id/warehouse-approve",
   authMiddleware,
@@ -3398,22 +3564,21 @@ router.post(
       if (!so) return res.status(404).json({ error: "Sales order not found" });
       const action = String(req.body?.action || "approve");
       const transitions: Record<string, { from: string; to: string }> = {
-        submit: { from: "draft", to: "warehouse_pending" },
-        approve: { from: "warehouse_pending", to: "warehouse_approved" },
-        reject: { from: "warehouse_pending", to: "draft" },
+        approve: { from: "warehouse_pending", to: "checker_pending" },
+        reject: { from: "warehouse_pending", to: "pending_review" },
       };
       const transition = transitions[action];
       if (!transition)
-        return res.status(400).json({ error: "action must be submit, approve or reject" });
+        return res.status(400).json({ error: "action must be approve or reject" });
       if (so.status !== transition.from)
         return res.status(409).json({ error: `Sales order must be ${transition.from}` });
 
       const updated = await GoodsSO.update(so.id, {
         status: transition.to as any,
         manualStatus: transition.to as any,
-        warehouseStatus: action === "approve" ? "approved" : null,
-        warehouseApprovedBy: action === "approve" ? req.user!.userId : null,
-        warehouseApprovedAt: action === "approve" ? new Date().toISOString() : null,
+        warehouseStatus: action === "approve" ? "approved" : "on_hold",
+        warehouseApprovedBy: req.user!.userId,
+        warehouseApprovedAt: new Date().toISOString(),
         warehouseNotes: req.body?.notes ? String(req.body.notes) : null,
       });
       trackAction(req, `sales_order.warehouse_${action}`, so.id, {
@@ -3427,7 +3592,7 @@ router.post(
   },
 );
 
-/** Checker approval: warehouse_approved -> checker_pending -> confirmed. */
+/** Checker approval: checker_pending -> confirmed. */
 router.post(
   "/goods-sales-orders/:id/checker-approve",
   authMiddleware,
@@ -3438,13 +3603,18 @@ router.post(
       if (!so) return res.status(404).json({ error: "Sales order not found" });
       const action = String(req.body?.action || "approve");
       const transitions: Record<string, { from: string; to: string }> = {
-        submit: { from: "warehouse_approved", to: "checker_pending" },
         approve: { from: "checker_pending", to: "confirmed" },
         reject: { from: "checker_pending", to: "warehouse_pending" },
       };
-      const transition = transitions[action];
+      // Existing records from the former workflow may still be parked at
+      // warehouse_approved. Let a checker complete those legacy records; all
+      // newly approved warehouse orders go directly to checker_pending.
+      const transition =
+        action === "approve" && so.status === "warehouse_approved"
+          ? { from: "warehouse_approved", to: "confirmed" }
+          : transitions[action];
       if (!transition)
-        return res.status(400).json({ error: "action must be submit, approve or reject" });
+        return res.status(400).json({ error: "action must be approve or reject" });
       if (so.status !== transition.from)
         return res.status(409).json({ error: `Sales order must be ${transition.from}` });
 
@@ -5835,6 +6005,11 @@ router.use(ewayBillRoutes);
 // 12 report endpoints backing the Reports dashboard and report detail pages.
 import reportsRoutes from "./reports.js";
 router.use(reportsRoutes);
+
+// ===================== BULK PAYMENTS =====================
+// FIFO / two-pass FIFO / manual allocation across open invoices (AR + AP).
+import bulkPaymentsRoutes from "./bulk-payments.js";
+router.use(bulkPaymentsRoutes);
 
 // ===================== STOCK LOCATIONS =====================
 router.get("/stock-locations", authMiddleware, async (req, res) => {

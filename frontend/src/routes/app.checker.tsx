@@ -332,7 +332,7 @@ function CheckerPage() {
   });
 
   const reviewSO = useMutation({
-    mutationFn: async ({ id, action }: { id: string; action: "submit" | "approve" | "reject" }) => {
+    mutationFn: async ({ id, action }: { id: string; action: "approve" | "reject" }) => {
       await api.goodsSalesOrders.checkerApprove(id, action);
     },
     onSuccess: () => {
@@ -926,13 +926,13 @@ function CheckerPage() {
                                   onClick={() =>
                                     reviewSO.mutate({
                                       id: s.id,
-                                      action: s.status === "warehouse_approved" ? "submit" : "approve",
+                                      action: "approve",
                                     })
                                   }
                                   className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10"
                                 >
                                   <Check className="h-3 w-3" />
-                                  {s.status === "warehouse_approved" ? "Send to checker" : "Approve"}
+                                  Approve
                                 </button>
                                 {s.status === "checker_pending" && (
                                   <button

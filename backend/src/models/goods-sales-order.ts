@@ -88,6 +88,10 @@ export interface GoodsSalesOrder {
   reviewedBy: string | null;
   /** When the checker reviewed this SO. null = not yet reviewed. */
   reviewedAt: string | null;
+  /** Sales-review decision recorded before the warehouse can receive the order. */
+  salesReviewedBy: string | null;
+  salesReviewedAt: string | null;
+  salesReviewNotes: string | null;
   /** Debtor (customer) approval via the emailed PDF. null = never sent. */
   debtorApprovalStatus: "pending" | "approved" | "rejected" | null;
   /** One-time secure token embedded in the approval link — nulled on response. */
@@ -292,6 +296,9 @@ export async function create(
     manualStatus: status as GoodsSalesOrder["manualStatus"],
     reviewedBy: data.reviewedBy || null,
     reviewedAt: data.reviewedAt || null,
+    salesReviewedBy: data.salesReviewedBy || null,
+    salesReviewedAt: data.salesReviewedAt || null,
+    salesReviewNotes: data.salesReviewNotes || null,
     lines,
     ...totals,
     createdAt: now,
@@ -324,6 +331,9 @@ export async function update(id: string, updates: Partial<GoodsSalesOrder>) {
     "manualStatus",
     "reviewedBy",
     "reviewedAt",
+    "salesReviewedBy",
+    "salesReviewedAt",
+    "salesReviewNotes",
     "lines",
     "totalQty",
     "subtotal",

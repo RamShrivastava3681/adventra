@@ -11,8 +11,14 @@ export interface Product {
   entityType: "Product";
   id: string;
   clientId: string;
-  /** Id of the parent product when this is a child SKU (colour/size variant). null = top-level product. Variants are one level deep only. */
+  /** Id of the parent product when this is a colour or size SKU. */
   parentId: string | null;
+  /** parent → colour → variant; legacy records have null. */
+  skuLevel: "parent" | "color" | "variant" | null;
+  categoryMasterId: string | null;
+  genderMasterId: string | null;
+  colorMasterId: string | null;
+  sizeMasterId: string | null;
   sku: string;
   name: string;
   description: string | null;
@@ -85,6 +91,10 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
   const id = uuid();
   const now = db.nowISO();
   const sku = data.sku || `SKU-${id.slice(0, 8).toUpperCase()}`;
+  const existing = await list(data.clientId);
+  if ((existing as Product[]).some((p) => p.sku?.toUpperCase() === sku.toUpperCase())) {
+    throw new Error(`SKU already exists: ${sku}`);
+  }
   const item: Product = {
     pk: `PRODUCT#${id}`,
     sk: `PRODUCT#${id}`,
@@ -96,6 +106,11 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
     id,
     clientId: data.clientId,
     parentId: data.parentId || null,
+    skuLevel: data.skuLevel || null,
+    categoryMasterId: data.categoryMasterId || null,
+    genderMasterId: data.genderMasterId || null,
+    colorMasterId: data.colorMasterId || null,
+    sizeMasterId: data.sizeMasterId || null,
     sku,
     name: data.name,
     description: data.description || null,
@@ -139,7 +154,15 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
 }
 
 export async function update(id: string, updates: Partial<Product>) {
-  const allowed = ["name","description","category","subcategory","gender","brand","size","color","model","unitOfMeasure","season","barcode","barcodeType","unitsPerCarton","unitPrice","unitCost","mrp","ecommercePrice","retailerPrice","distributorPrice","flexiblePrice","minimumGrossMarginPercentage","reorderLevel","maxStock","leadTimeDays","safetyStockDays","supplierId","supplierProductCode","minimumOrderQuantity","orderMultiple","hsnCode","gstRate","imageUrl","status","sku","parentId"];
+  const current = await get(id);
+  if (!current) throw new Error("Product not found");
+  if (updates.sku !== undefined && String(updates.sku).toUpperCase() !== current.sku.toUpperCase()) {
+    const siblings = await list(current.clientId);
+    if ((siblings as Product[]).some((p) => p.id !== id && p.sku?.toUpperCase() === String(updates.sku).toUpperCase())) {
+      throw new Error(`SKU already exists: ${updates.sku}`);
+    }
+  }
+  const allowed = ["name","description","category","subcategory","gender","brand","size","color","model","unitOfMeasure","season","barcode","barcodeType","unitsPerCarton","unitPrice","unitCost","mrp","ecommercePrice","retailerPrice","distributorPrice","flexiblePrice","minimumGrossMarginPercentage","reorderLevel","maxStock","leadTimeDays","safetyStockDays","supplierId","supplierProductCode","minimumOrderQuantity","orderMultiple","hsnCode","gstRate","imageUrl","status","sku","parentId","skuLevel","categoryMasterId","genderMasterId","colorMasterId","sizeMasterId"];
   const patch: Record<string, any> = {};
   for (const key of allowed) {
     if ((updates as any)[key] !== undefined) patch[key] = (updates as any)[key];
