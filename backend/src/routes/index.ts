@@ -1238,6 +1238,9 @@ async function resolveProformaForInvoice(
  * confirmed/open (never draft or cancelled), the invoice customer must be the
  * SO customer, and every line must reference a product on the SO with a
  * quantity that fits the ordered quantity.
+ *
+ * Additionally, the SO must have warehouse sign-off (warehouseStatus === "approved")
+ * to be eligible for invoicing from the sales invoice tab as a "pending sales order".
  */
 function assertInvoiceMatchesSO(
   so: any,
@@ -1249,6 +1252,11 @@ function assertInvoiceMatchesSO(
     throw new Error("Cannot invoice against a cancelled sales order");
   if (so.status === "draft" || so.status === "pending_review")
     throw new Error("Confirm the sales order before invoicing");
+  if (so.warehouseStatus !== "approved") {
+    throw new Error(
+      "Sales order must have warehouse sign-off (approved) before invoicing",
+    );
+  }
   if (debtorId && so.customerId && debtorId !== so.customerId) {
     throw new Error(
       "The invoice customer must match the linked sales order's customer",
@@ -2647,6 +2655,60 @@ router.get("/goods-purchase-orders", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+router.get(
+  "/goods-purchase-orders/pending-invoices",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const clientId = req.user!.userId;
+      const { items } = await db.queryByGSI1(clientId, {
+        entityType: "GoodsPurchaseOrder",
+        limit: 500,
+        reverse: true,
+      });
+      const pendingInvoices = (items as any[]).filter(
+        (po) =>
+          (po.status ?? "").toString() === "approved" &&
+          (po.supplierApprovalStatus ?? null) === "approved",
+      );
+      res.json(pendingInvoices);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+router.get(
+  "/goods-purchase-orders/proforma-pending",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const clientId = req.user!.userId;
+      const { items } = await db.queryByGSI1(clientId, {
+        entityType: "GoodsPurchaseOrder",
+        limit: 500,
+        reverse: true,
+      });
+      const proformaPending = (
+        await Promise.all(
+          (items as any[]).map(async (po) => {
+            if (!po.supplierId) return null;
+            const vendor = await Vendor.get(po.supplierId);
+            if (!vendor) return null;
+            const hasAdvanceTerms =
+              (vendor.paymentTermsType ?? "credit") === "advance_full" ||
+              (vendor.paymentTermsType ?? "credit") === "advance_partial";
+            return hasAdvanceTerms && (po.supplierApprovalStatus ?? null) === "approved"
+              ? po
+              : null;
+          }),
+        )
+      ).filter(Boolean);
+      res.json(proformaPending);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
 router.post("/goods-purchase-orders", authMiddleware, async (req, res) => {
   try {
     const body = req.body || {};
@@ -3199,6 +3261,60 @@ router.get("/goods-sales-orders", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+router.get(
+  "/goods-sales-orders/pending-invoices",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const clientId = req.user!.userId;
+      const { items } = await db.queryByGSI1(clientId, {
+        entityType: "GoodsSalesOrder",
+        limit: 500,
+        reverse: true,
+      });
+      const pendingInvoices = (items as any[]).filter(
+        (so) =>
+          (so.status ?? "").toString() === "confirmed" &&
+          (so.warehouseStatus ?? null) === "approved",
+      );
+      res.json(pendingInvoices);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+router.get(
+  "/goods-sales-orders/proforma-pending",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const clientId = req.user!.userId;
+      const { items } = await db.queryByGSI1(clientId, {
+        entityType: "GoodsSalesOrder",
+        limit: 500,
+        reverse: true,
+      });
+      const proformaPending = (
+        await Promise.all(
+          (items as any[]).map(async (so) => {
+            if (!so.customerId) return null;
+            const debtor = await Debtor.get(so.customerId);
+            if (!debtor) return null;
+            const hasAdvanceTerms =
+              (debtor.paymentTermsType ?? "credit") === "advance_full" ||
+              (debtor.paymentTermsType ?? "credit") === "advance_partial";
+            return hasAdvanceTerms && (so.warehouseStatus ?? null) === "approved"
+              ? so
+              : null;
+          }),
+        )
+      ).filter(Boolean);
+      res.json(proformaPending);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
 router.post("/goods-sales-orders", authMiddleware, async (req, res) => {
   try {
     const body = req.body || {};
@@ -3225,6 +3341,10 @@ router.post("/goods-sales-orders", authMiddleware, async (req, res) => {
 router.put("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
   try {
     const body = req.body || {};
+    const roles = req.user?.roles ?? [];
+    if (roles.includes("checker") && !roles.includes("factor_admin") && !roles.includes("super_admin")) {
+      return res.status(403).json({ error: "Checker users may only approve or reject sales orders" });
+    }
     if (body.lines !== undefined) {
       let lines: any[];
       try {
@@ -3266,6 +3386,87 @@ router.delete("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+/** Warehouse approval: draft -> warehouse_pending -> warehouse_approved. */
+router.post(
+  "/goods-sales-orders/:id/warehouse-approve",
+  authMiddleware,
+  requireRole("operations", "factor_admin", "super_admin"),
+  async (req, res) => {
+    try {
+      const so = await GoodsSO.get(req.params.id);
+      if (!so) return res.status(404).json({ error: "Sales order not found" });
+      const action = String(req.body?.action || "approve");
+      const transitions: Record<string, { from: string; to: string }> = {
+        submit: { from: "draft", to: "warehouse_pending" },
+        approve: { from: "warehouse_pending", to: "warehouse_approved" },
+        reject: { from: "warehouse_pending", to: "draft" },
+      };
+      const transition = transitions[action];
+      if (!transition)
+        return res.status(400).json({ error: "action must be submit, approve or reject" });
+      if (so.status !== transition.from)
+        return res.status(409).json({ error: `Sales order must be ${transition.from}` });
+
+      const updated = await GoodsSO.update(so.id, {
+        status: transition.to as any,
+        manualStatus: transition.to as any,
+        warehouseStatus: action === "approve" ? "approved" : null,
+        warehouseApprovedBy: action === "approve" ? req.user!.userId : null,
+        warehouseApprovedAt: action === "approve" ? new Date().toISOString() : null,
+        warehouseNotes: req.body?.notes ? String(req.body.notes) : null,
+      });
+      trackAction(req, `sales_order.warehouse_${action}`, so.id, {
+        entityType: "sales_order", entityRef: so.soNumber,
+        previous: so.status, status: transition.to,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+/** Checker approval: warehouse_approved -> checker_pending -> confirmed. */
+router.post(
+  "/goods-sales-orders/:id/checker-approve",
+  authMiddleware,
+  requireRole("checker", "factor_admin", "super_admin"),
+  async (req, res) => {
+    try {
+      const so = await GoodsSO.get(req.params.id);
+      if (!so) return res.status(404).json({ error: "Sales order not found" });
+      const action = String(req.body?.action || "approve");
+      const transitions: Record<string, { from: string; to: string }> = {
+        submit: { from: "warehouse_approved", to: "checker_pending" },
+        approve: { from: "checker_pending", to: "confirmed" },
+        reject: { from: "checker_pending", to: "warehouse_pending" },
+      };
+      const transition = transitions[action];
+      if (!transition)
+        return res.status(400).json({ error: "action must be submit, approve or reject" });
+      if (so.status !== transition.from)
+        return res.status(409).json({ error: `Sales order must be ${transition.from}` });
+
+      const updated = await GoodsSO.update(so.id, {
+        status: transition.to as any,
+        manualStatus: transition.to as any,
+        reviewedBy: action === "approve" ? req.user!.userId : null,
+        reviewedAt: action === "approve" ? new Date().toISOString() : null,
+        ...(action === "reject"
+          ? { warehouseStatus: "pending", warehouseApprovedBy: null, warehouseApprovedAt: null }
+          : {}),
+      });
+      trackAction(req, `sales_order.checker_${action}`, so.id, {
+        entityType: "sales_order", entityRef: so.soNumber,
+        previous: so.status, status: transition.to,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
 
 /** POST /goods-sales-orders/:id/warehouse-signoff — warehouse accept/hold/reject.
  *  A hard gate: dispatch notes can only be created against warehouse-approved

@@ -34,6 +34,17 @@ export interface GoodsSalesOrderLine {
   notes: string | null;
 }
 
+export type GoodsSalesOrderStatus =
+  | "draft"
+  | "warehouse_pending"
+  | "warehouse_approved"
+  | "checker_pending"
+  | "pending_review"
+  | "confirmed"
+  | "partially_dispatched"
+  | "fully_dispatched"
+  | "cancelled";
+
 export interface GoodsSalesOrder {
   pk: string;
   sk: string;
@@ -65,14 +76,14 @@ export interface GoodsSalesOrder {
   expectedDeliveryDate: string | null;
   notes: string | null;
   documents: any[];
-  status: string;
+  status: GoodsSalesOrderStatus;
   /**
    * The last manually-set status (draft / pending_review / confirmed /
    * cancelled). Dispatch-driven statuses (partially/fully dispatched) are
    * derived and this field is the fallback when dispatch quantities are fully
    * revoked.
    */
-  manualStatus: string;
+  manualStatus: Exclude<GoodsSalesOrderStatus, "partially_dispatched" | "fully_dispatched">;
   /** Who reviewed this SO at the maker–checker step (checker/admin id). null = not yet reviewed. */
   reviewedBy: string | null;
   /** When the checker reviewed this SO. null = not yet reviewed. */
@@ -114,13 +125,24 @@ export interface GoodsSalesOrder {
 
 export const SO_STATUSES = [
   "draft",
+  "warehouse_pending",
+  "warehouse_approved",
+  "checker_pending",
   "pending_review",
   "confirmed",
   "partially_dispatched",
   "fully_dispatched",
   "cancelled",
 ] as const;
-const MANUAL_STATUSES = ["draft", "pending_review", "confirmed", "cancelled"];
+const MANUAL_STATUSES = [
+  "draft",
+  "warehouse_pending",
+  "warehouse_approved",
+  "checker_pending",
+  "pending_review",
+  "confirmed",
+  "cancelled",
+];
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -189,7 +211,7 @@ export function computeTotals(lines: GoodsSalesOrderLine[], freight: number) {
 
 export function recomputeStatus(
   so: Pick<GoodsSalesOrder, "status" | "manualStatus" | "lines">,
-): string {
+): GoodsSalesOrderStatus {
   const lines = so.lines ?? [];
   if (
     lines.length > 0 &&
@@ -267,7 +289,7 @@ export async function create(
     notes: data.notes || null,
     documents: data.documents || [],
     status,
-    manualStatus: status,
+    manualStatus: status as GoodsSalesOrder["manualStatus"],
     reviewedBy: data.reviewedBy || null,
     reviewedAt: data.reviewedAt || null,
     lines,

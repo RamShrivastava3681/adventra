@@ -115,7 +115,9 @@ type Customer = {
 
 const SO_STATUSES = [
   "draft",
-  "pending_review",
+  "warehouse_pending",
+  "warehouse_approved",
+  "checker_pending",
   "confirmed",
   "partially_dispatched",
   "fully_dispatched",
@@ -124,7 +126,9 @@ const SO_STATUSES = [
 
 const SO_STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
-  pending_review: "Awaiting checker",
+  warehouse_pending: "Awaiting warehouse",
+  warehouse_approved: "Warehouse approved",
+  checker_pending: "Awaiting checker",
   confirmed: "Confirmed",
   partially_dispatched: "Partially dispatched",
   fully_dispatched: "Fully dispatched",
@@ -133,7 +137,9 @@ const SO_STATUS_LABELS: Record<string, string> = {
 
 const SO_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
-  pending_review: "bg-warning/10 text-warning border-warning/30 dark:text-warning",
+  warehouse_pending: "bg-warning/10 text-warning border-warning/30 dark:text-warning",
+  warehouse_approved: "bg-blue-500/10 text-blue-600 border-blue-500/30",
+  checker_pending: "bg-warning/10 text-warning border-warning/30 dark:text-warning",
   confirmed:
     "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
   partially_dispatched: "bg-warning/10 text-warning border-warning/30",
@@ -183,7 +189,7 @@ function resolveTierPrice(
 }
 
 function SalesOrdersPage() {
-  const { user, isSalesRep, isAdmin, isChecker } = useAuth();
+  const { user, isSalesRep, isAdmin, isChecker, isOperations } = useAuth();
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -228,14 +234,24 @@ function SalesOrdersPage() {
         .sort((a, b) => a.name.localeCompare(b.name)) as Customer[];
     },
   });
-  // Row-level workflow: submit for checker review / cancel.
-  const submitReview = useMutation({
-    mutationFn: async (id: string) => {
-      await api.goodsSalesOrders.update(id, { status: "pending_review" });
+  const warehouseAction = useMutation({
+    mutationFn: async ({ id, action }: { id: string; action: "submit" | "approve" | "reject" }) => {
+      await api.goodsSalesOrders.warehouseApprove(id, action);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["goods-sos"] });
-      toast.success("Sales order submitted for review");
+      toast.success("Warehouse workflow updated");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const checkerSubmit = useMutation({
+    mutationFn: async (id: string) => {
+      await api.goodsSalesOrders.checkerApprove(id, "submit");
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["goods-sos"] });
+      toast.success("Sales order sent to checker");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -274,7 +290,7 @@ function SalesOrdersPage() {
 
   const stats = useMemo(() => {
     const sos = sosQ.data ?? [];
-    const open = sos.filter((s) => ["draft", "pending_review", "confirmed"].includes(s.status));
+    const open = sos.filter((s) => ["draft", "warehouse_pending", "warehouse_approved", "checker_pending", "confirmed"].includes(s.status));
     const orderBook = open.reduce((sum, s) => sum + Number(s.grand_total || 0), 0);
     let dispatchedValue = 0;
     for (const s of sos) {
@@ -462,14 +478,32 @@ function SalesOrdersPage() {
                                     <Pencil className="h-3 w-3" />
                                   </button>
                                 )}
-                                {canWrite && s.status === "draft" && (
+                                {isOperations && s.status === "draft" && (
                                   <button
-                                    onClick={() => submitReview.mutate(s.id)}
-                                    disabled={submitReview.isPending}
+                                    onClick={() => warehouseAction.mutate({ id: s.id, action: "submit" })}
+                                    disabled={warehouseAction.isPending}
                                     className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
-                                    title="Review the sales order and send it to the checker"
+                                    title="Send the sales order to the warehouse"
                                   >
-                                    <FileDown className="h-3 w-3" /> Review
+                                    <Send className="h-3 w-3" /> Send to warehouse
+                                  </button>
+                                )}
+                                {isOperations && s.status === "warehouse_pending" && (
+                                  <button
+                                    onClick={() => warehouseAction.mutate({ id: s.id, action: "approve" })}
+                                    disabled={warehouseAction.isPending}
+                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                                  >
+                                    <CheckCircle2 className="h-3 w-3" /> Warehouse approve
+                                  </button>
+                                )}
+                                {isChecker && s.status === "warehouse_approved" && (
+                                  <button
+                                    onClick={() => checkerSubmit.mutate(s.id)}
+                                    disabled={checkerSubmit.isPending}
+                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                                  >
+                                    <Send className="h-3 w-3" /> Send to checker
                                   </button>
                                 )}
                                 {canWrite && !["cancelled", "fully_dispatched"].includes(s.status) && (

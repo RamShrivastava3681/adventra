@@ -270,10 +270,10 @@ function WarehousePage() {
 
   // ── Order sign-off queue (hard gate: only approved SOs can be dispatched) ──
   const signoffOrders = orders.filter(
-    (o) => !["draft", "cancelled"].includes(o.status),
+    (o) => ["warehouse_pending", "warehouse_approved", "checker_pending", "confirmed"].includes(o.status),
   );
   const pendingSignoffs = signoffOrders.filter(
-    (o) => (o.warehouse_status ?? "pending") === "pending",
+    (o) => o.status === "warehouse_pending",
   );
 
   // ── Ready to dispatch: warehouse-approved SOs with pending quantity ──
@@ -394,22 +394,20 @@ function WarehousePage() {
   const signoff = useMutation({
     mutationFn: async ({
       id,
-      status,
+      action,
       notes,
     }: {
       id: string;
-      status: "approved" | "on_hold" | "rejected";
+      action: "approve" | "reject";
       notes?: string;
-    }) => api.goodsSalesOrders.warehouseSignoff(id, status, notes),
+    }) => api.goodsSalesOrders.warehouseApprove(id, action, notes),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["wh_sales_orders"] });
       qc.invalidateQueries({ queryKey: ["goods_sales_orders"] });
       toast.success(
-        vars.status === "approved"
+        vars.action === "approve"
           ? "Order approved — it can now be dispatched"
-          : vars.status === "on_hold"
-            ? "Order put on hold — dispatch is blocked"
-            : "Order rejected",
+          : "Order rejected — it was returned for correction",
       );
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Sign-off failed"),
@@ -580,7 +578,7 @@ function WarehousePage() {
               <Table head={["Order", "Buyer", "Ordered", "Expected", "Value", "Commercial", "Warehouse", ""]}>
                 {signoffOrders.map((o) => {
                   const wh = o.warehouse_status ?? "pending";
-                  const canDecide = canWrite && wh !== "approved" && !["fully_dispatched"].includes(o.status);
+                  const canDecide = canWrite && o.status === "warehouse_pending";
                   return (
                     <tr key={o.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-5 py-3">{o.so_number}</td>
@@ -610,18 +608,18 @@ function WarehousePage() {
                         {canDecide && (
                           <div className="inline-flex gap-2">
                             <button
-                              onClick={() => signoff.mutate({ id: o.id, status: "approved" })}
+                              onClick={() => signoff.mutate({ id: o.id, action: "approve" })}
                               disabled={signoff.isPending}
                               className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground disabled:opacity-60"
                             >
-                              <CheckCircle2 className="h-3 w-3" /> Accept
+                              <CheckCircle2 className="h-3 w-3" /> Approve
                             </button>
                             <button
-                              onClick={() => signoff.mutate({ id: o.id, status: "on_hold" })}
+                              onClick={() => signoff.mutate({ id: o.id, action: "reject" })}
                               disabled={signoff.isPending}
                               className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs disabled:opacity-60"
                             >
-                              <Ban className="h-3 w-3" /> Hold
+                              <Ban className="h-3 w-3" /> Reject
                             </button>
                           </div>
                         )}

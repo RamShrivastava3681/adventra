@@ -253,6 +253,10 @@ const api = {
     // Warehouse sign-off (hard gate): approve / hold / reject a confirmed SO.
     warehouseSignoff: (id: string, status: "approved" | "on_hold" | "rejected", notes?: string) =>
       api.post<any>(`/goods-sales-orders/${id}/warehouse-signoff`, { status, notes }),
+    warehouseApprove: (id: string, action: "submit" | "approve" | "reject", notes?: string) =>
+      api.post<any>(`/goods-sales-orders/${id}/warehouse-approve`, { action, notes }),
+    checkerApprove: (id: string, action: "submit" | "approve" | "reject") =>
+      api.post<any>(`/goods-sales-orders/${id}/checker-approve`, { action }),
   },
 
   // Debtor document approvals (public, token-authenticated — no login)

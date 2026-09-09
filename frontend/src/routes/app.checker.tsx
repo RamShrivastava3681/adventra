@@ -327,18 +327,13 @@ function CheckerPage() {
     queryKey: ["checker-sos"],
     queryFn: async () => {
       const data = await api.goodsSalesOrders.list();
-      return data.filter((s: any) => s.status === "pending_review");
+      return data.filter((s: any) => ["warehouse_approved", "checker_pending"].includes(s.status));
     },
   });
 
   const reviewSO = useMutation({
-    mutationFn: async ({ id, decision }: { id: string; decision: "confirmed" | "draft" }) => {
-      // Approve → Confirmed (can then be dispatched). Reject → back to draft.
-      await api.goodsSalesOrders.update(id, {
-        status: decision,
-        reviewed_by: user!.id,
-        reviewed_at: new Date().toISOString(),
-      });
+    mutationFn: async ({ id, action }: { id: string; action: "submit" | "approve" | "reject" }) => {
+      await api.goodsSalesOrders.checkerApprove(id, action);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["checker-sos"] });
@@ -929,18 +924,24 @@ function CheckerPage() {
                               <div className="inline-flex gap-1">
                                 <button
                                   onClick={() =>
-                                    reviewSO.mutate({ id: s.id, decision: "confirmed" })
+                                    reviewSO.mutate({
+                                      id: s.id,
+                                      action: s.status === "warehouse_approved" ? "submit" : "approve",
+                                    })
                                   }
                                   className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10"
                                 >
-                                  <Check className="h-3 w-3" /> Approve
+                                  <Check className="h-3 w-3" />
+                                  {s.status === "warehouse_approved" ? "Send to checker" : "Approve"}
                                 </button>
-                                <button
-                                  onClick={() => reviewSO.mutate({ id: s.id, decision: "draft" })}
-                                  className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
-                                >
-                                  <X className="h-3 w-3" /> Reject
-                                </button>
+                                {s.status === "checker_pending" && (
+                                  <button
+                                    onClick={() => reviewSO.mutate({ id: s.id, action: "reject" })}
+                                    className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
+                                  >
+                                    <X className="h-3 w-3" /> Reject
+                                  </button>
+                                )}
                               </div>
                             )
                           ) : (
