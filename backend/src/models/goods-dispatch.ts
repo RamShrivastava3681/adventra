@@ -28,6 +28,38 @@ export type GoodsDispatchStatus =
   | "cancelled"
   | "returned";
 
+/**
+ * Shipping pipeline — pure logistics, deliberately SEPARATE from the financial
+ * lifecycle above. Stock is debited once at confirm (flipToConfirmed) and is
+ * NEVER touched by shipping-status moves; delivered still flows through the
+ * existing markDelivered path so per-line delivered quantities stay accurate.
+ */
+export type ShippingStatus =
+  | "awaiting_pick"
+  | "picking"
+  | "packed"
+  | "dispatched"
+  | "in_transit"
+  | "delivered";
+
+export const SHIPPING_STATUSES: ShippingStatus[] = [
+  "awaiting_pick",
+  "picking",
+  "packed",
+  "dispatched",
+  "in_transit",
+  "delivered",
+];
+
+/** Forward-only transitions — a warehouse may skip steps (e.g. packed →
+ *  dispatched) but can never move backwards. */
+export function isValidShippingTransition(
+  from: ShippingStatus,
+  to: ShippingStatus,
+): boolean {
+  return SHIPPING_STATUSES.indexOf(to) > SHIPPING_STATUSES.indexOf(from);
+}
+
 /** Dispatch types — determines stock impact behavior. */
 export type DispatchType =
   | "customer_sale"
@@ -140,6 +172,16 @@ export interface GoodsDispatch {
   /** EWB lifecycle status: pending, generated, vehicle_updated, cancelled, failed. */
   ewayBillStatus: string | null;
   lines: GoodsDispatchLine[];
+
+  // ── Shipping pipeline (logistics only — never affects stock) ──
+  /** Awaiting pick → picking → packed → dispatched → in transit → delivered. */
+  shippingStatus: ShippingStatus | null;
+  /** ISO timestamp of the last shipping-status move. */
+  shippingStatusAt: string | null;
+  /** Email of the user who made the last shipping-status move. */
+  shippingStatusBy: string | null;
+  /** Free-text note for the last move (optional). */
+  shippingNotes: string | null;
 
   // ── Location-based inventory fields ──
   /** Dispatch type — determines stock impact behavior. */
@@ -256,6 +298,13 @@ export async function create(data: Partial<GoodsDispatch> & { clientId: string; 
     ewayBillNumber: data.ewayBillNumber || null,
     ewayBillStatus: data.ewayBillStatus || null,
     lines,
+    shippingStatus:
+      (SHIPPING_STATUSES as string[]).includes(data.shippingStatus as string)
+        ? (data.shippingStatus as ShippingStatus)
+        : "awaiting_pick",
+    shippingStatusAt: data.shippingStatusAt || null,
+    shippingStatusBy: data.shippingStatusBy || null,
+    shippingNotes: data.shippingNotes || null,
     // Location-based fields
     dispatchType: data.dispatchType || null,
     sourceLocationId: data.sourceLocationId || null,
@@ -281,6 +330,7 @@ export async function update(id: string, updates: Partial<GoodsDispatch>) {
     "debitedAt", "debitedBy", "cancelledAt", "cancelledBy",
     "ewayBillId", "ewayBillNumber", "ewayBillStatus",
     "lines",
+    "shippingStatus", "shippingStatusAt", "shippingStatusBy", "shippingNotes",
     // Location fields
     "dispatchType", "sourceLocationId", "destinationLocationId", "channel",
   ];

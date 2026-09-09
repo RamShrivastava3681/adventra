@@ -46,6 +46,7 @@ import { Route as AppStockAllocationRouteImport } from './routes/app.stock-alloc
 import { Route as AppSuppliersRouteImport } from './routes/app.suppliers'
 import { Route as AppTemplateRouteImport } from './routes/app.template'
 import { Route as AppVendorsRouteImport } from './routes/app.vendors'
+import { Route as AppWarehouseRouteImport } from './routes/app.warehouse'
 import { Route as AppWorkspaceRouteImport } from './routes/app.workspace'
 import { Route as ApproveTokenRouteImport } from './routes/approve.$token'
 import { Route as NoaTokenRouteImport } from './routes/noa.$token'
@@ -241,6 +242,11 @@ const AppVendorsRoute = AppVendorsRouteImport.update({
   path: '/vendors',
   getParentRoute: () => AppRoute,
 } as any)
+const AppWarehouseRoute = AppWarehouseRouteImport.update({
+  id: '/warehouse',
+  path: '/warehouse',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppWorkspaceRoute = AppWorkspaceRouteImport.update({
   id: '/workspace',
   path: '/workspace',
@@ -325,6 +331,7 @@ export interface FileRoutesByFullPath {
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/app/warehouse': typeof AppWarehouseRoute
   '/app/workspace': typeof AppWorkspaceRoute
   '/approve/$token': typeof ApproveTokenRoute
   '/noa/$token': typeof NoaTokenRoute
@@ -372,6 +379,7 @@ export interface FileRoutesByTo {
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/app/warehouse': typeof AppWarehouseRoute
   '/app/workspace': typeof AppWorkspaceRoute
   '/approve/$token': typeof ApproveTokenRoute
   '/noa/$token': typeof NoaTokenRoute
@@ -421,6 +429,7 @@ export interface FileRoutesById {
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
+  '/app/warehouse': typeof AppWarehouseRoute
   '/app/workspace': typeof AppWorkspaceRoute
   '/approve/$token': typeof ApproveTokenRoute
   '/noa/$token': typeof NoaTokenRoute
@@ -471,6 +480,7 @@ export interface FileRouteTypes {
     | '/app/suppliers'
     | '/app/template'
     | '/app/vendors'
+    | '/app/warehouse'
     | '/app/workspace'
     | '/approve/$token'
     | '/noa/$token'
@@ -518,6 +528,7 @@ export interface FileRouteTypes {
     | '/app/suppliers'
     | '/app/template'
     | '/app/vendors'
+    | '/app/warehouse'
     | '/app/workspace'
     | '/approve/$token'
     | '/noa/$token'
@@ -566,6 +577,7 @@ export interface FileRouteTypes {
     | '/app/suppliers'
     | '/app/template'
     | '/app/vendors'
+    | '/app/warehouse'
     | '/app/workspace'
     | '/approve/$token'
     | '/noa/$token'
@@ -846,6 +858,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppVendorsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/warehouse': {
+      id: '/app/warehouse'
+      path: '/warehouse'
+      fullPath: '/app/warehouse'
+      preLoaderRoute: typeof AppWarehouseRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/workspace': {
       id: '/app/workspace'
       path: '/workspace'
@@ -961,6 +980,7 @@ interface AppRouteChildren {
   AppSuppliersRoute: typeof AppSuppliersRoute
   AppTemplateRoute: typeof AppTemplateRoute
   AppVendorsRoute: typeof AppVendorsRoute
+  AppWarehouseRoute: typeof AppWarehouseRoute
   AppWorkspaceRoute: typeof AppWorkspaceRoute
   AppChallanDispatchIdRoute: typeof AppChallanDispatchIdRoute
   AppInvoicePreviewIdRoute: typeof AppInvoicePreviewIdRoute
@@ -1003,6 +1023,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSuppliersRoute: AppSuppliersRoute,
   AppTemplateRoute: AppTemplateRoute,
   AppVendorsRoute: AppVendorsRoute,
+  AppWarehouseRoute: AppWarehouseRoute,
   AppWorkspaceRoute: AppWorkspaceRoute,
   AppChallanDispatchIdRoute: AppChallanDispatchIdRoute,
   AppInvoicePreviewIdRoute: AppInvoicePreviewIdRoute,

@@ -3235,6 +3235,23 @@ router.put("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
     }
     if (body.customerName === undefined && body.customerId)
       body.customerName = await resolveCustomerName(body.customerId);
+    // Warehouse sign-off is controlled exclusively by the dedicated sign-off
+    // endpoint — strip it from generic edits so it can't be smuggled through.
+    delete body.warehouseStatus;
+    delete body.warehouseApprovedBy;
+    delete body.warehouseApprovedAt;
+    delete body.warehouseNotes;
+    // A re-confirmed SO re-enters the warehouse queue: clear the previous
+    // sign-off so the hard gate re-applies after a checker review cycle.
+    if (body.status === "confirmed") {
+      const current = await GoodsSO.get(req.params.id);
+      if (current && ["draft", "pending_review", "cancelled"].includes(current.status)) {
+        body.warehouseStatus = null;
+        body.warehouseApprovedBy = null;
+        body.warehouseApprovedAt = null;
+        body.warehouseNotes = null;
+      }
+    }
     res.json(await GoodsSO.update(req.params.id, body));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -3248,6 +3265,53 @@ router.delete("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+/** POST /goods-sales-orders/:id/warehouse-signoff — warehouse accept/hold/reject.
+ *  A hard gate: dispatch notes can only be created against warehouse-approved
+ *  SOs. Only operations/admin can sign off; the checker re-confirm flow clears
+ *  the sign-off so a re-confirmed order re-enters the warehouse queue. */
+const WAREHOUSE_SIGNOFF_ROLES = ["factor_admin", "super_admin", "operations"];
+router.post(
+  "/goods-sales-orders/:id/warehouse-signoff",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const user = req.user!;
+      if (!user.roles?.some((r) => WAREHOUSE_SIGNOFF_ROLES.includes(r))) {
+        return res
+          .status(403)
+          .json({ error: "Only operations or admin can sign off sales orders" });
+      }
+      const so = await GoodsSO.get(req.params.id);
+      if (!so) return res.status(404).json({ error: "Sales order not found" });
+      const status = String(req.body?.status || "");
+      if (!["approved", "on_hold", "rejected"].includes(status)) {
+        return res
+          .status(400)
+          .json({ error: "status must be approved, on_hold or rejected" });
+      }
+      const previous = so.warehouseStatus ?? null;
+      const updated = await GoodsSO.update(so.id, {
+        warehouseStatus: status as any,
+        warehouseApprovedBy: user.userId,
+        warehouseApprovedAt: new Date().toISOString(),
+        warehouseNotes:
+          req.body?.notes !== undefined
+            ? String(req.body.notes || "") || null
+            : so.warehouseNotes,
+      });
+      trackAction(req, "sales_order.warehouse_signoff", so.id, {
+        entityType: "sales_order",
+        entityRef: so.soNumber,
+        status,
+        previous,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
 
 // ===================== QUOTATIONS =====================
 // A quotation is an offer to a customer/prospect. It NEVER affects inventory
@@ -4028,6 +4092,14 @@ router.post(
         if (kind === "sales_order" || kind === "purchase_order") {
           patch.manualStatus = patch.status;
         }
+        // A sales order re-entering "confirmed" via the debtor-approval link
+        // re-enters the warehouse queue (clear any stale sign-off).
+        if (kind === "sales_order" && patch.status === "confirmed") {
+          patch.warehouseStatus = null;
+          patch.warehouseApprovedBy = null;
+          patch.warehouseApprovedAt = null;
+          patch.warehouseNotes = null;
+        }
       }
 
       // Atomic claim: the token must still match, so exactly one concurrent
@@ -4071,6 +4143,14 @@ function assertSODispatchable(so: any) {
     throw new Error("Confirm the sales order before dispatching goods");
   if (so.status === "fully_dispatched")
     throw new Error("Sales order is already fully dispatched");
+  // Warehouse sign-off hard gate — enforced again at confirm time (the moment
+  // stock is debited), not just at draft creation.
+  if ((so.warehouseStatus ?? null) !== "approved")
+    throw new Error(
+      `Warehouse sign-off required — this sales order is currently "${
+        so.warehouseStatus ?? "pending"
+      }". Approve it on the Warehouse Control page first.`,
+    );
 }
 
 /**
@@ -4294,6 +4374,15 @@ router.post("/goods-dispatches", authMiddleware, async (req, res) => {
         .json({
           error: "Cannot create a dispatch against a cancelled sales order",
         });
+    // Warehouse sign-off is a HARD GATE: a confirmed SO that the warehouse has
+    // not approved (or has put on hold / rejected) cannot be dispatched.
+    if ((so.warehouseStatus ?? null) !== "approved") {
+      return res.status(400).json({
+        error: `Warehouse sign-off required — this sales order is currently "${
+          so.warehouseStatus ?? "pending"
+        }". Approve it on the Warehouse Control page first.`,
+      });
+    }
     // A draft may be prepared against any open SO; the dispatchable/over-dispatch
     // checks run at CONFIRM time (the moment stock actually gets debited).
     let lines: any[];
@@ -4490,6 +4579,121 @@ router.post(
 );
 
 /** PUT /goods-dispatches/:id — edit a DRAFT only (no stock impact). */
+/** POST /goods-dispatches/:id/shipping-status — move the logistics pipeline
+ *  forward (awaiting_pick → picking → packed → dispatched → in_transit →
+ *  delivered). Pure shipping metadata: stock is NEVER touched here. Carrier
+ *  and tracking can be set/edited at any pipeline stage. */
+router.post(
+  "/goods-dispatches/:id/shipping-status",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const dispatch = await GoodsDispatch.get(req.params.id);
+      if (!dispatch)
+        return res.status(404).json({ error: "Dispatch note not found" });
+      if (dispatch.status === "cancelled")
+        return res
+          .status(400)
+          .json({ error: "Cannot move a cancelled dispatch through the pipeline" });
+      if (dispatch.status === "returned")
+        return res
+          .status(400)
+          .json({ error: "A returned dispatch has already closed the pipeline" });
+      if (dispatch.status === "draft")
+        return res.status(400).json({
+          error: "Confirm the dispatch note first — the pipeline starts on confirmed dispatches",
+        });
+      const to = String(req.body?.status || "");
+      if (to === "delivered") {
+        // Delegate to the existing deliver flow (validates quantities, records
+        // delivery date/user, derives partially/fully delivered status).
+        const deliveredLines = (dispatch.lines ?? [])
+          .filter((l) => (l.dispatchedQty ?? 0) > (l.deliveredQty ?? 0))
+          .map((l) => ({
+            productId: l.productId,
+            deliveredQty: (l.dispatchedQty ?? 0) - (l.deliveredQty ?? 0),
+          }));
+        if (deliveredLines.length === 0)
+          return res.status(400).json({ error: "Dispatch is already fully delivered" });
+        const updated = await GoodsDispatch.markDelivered(
+          dispatch.id,
+          deliveredLines,
+          req.body?.deliveryDate || null,
+          req.user!.email,
+        );
+        await GoodsDispatch.update(dispatch.id, {
+          shippingStatus: "delivered",
+          shippingStatusAt: new Date().toISOString(),
+          shippingStatusBy: req.user!.email,
+          ...(req.body?.notes !== undefined
+            ? { shippingNotes: String(req.body.notes || "") || null }
+            : {}),
+          ...(req.body?.carrier !== undefined ? { transporterName: req.body.carrier || null } : {}),
+          ...(req.body?.trackingNumber !== undefined
+            ? { trackingNumber: req.body.trackingNumber || null }
+            : {}),
+        });
+        trackAction(req, "dispatch.shipping_status", dispatch.id, {
+          entityType: "dispatch",
+          entityRef: dispatch.dispatchNumber,
+          shippingStatus: "delivered",
+        });
+        return res.json({ ...updated, shippingStatus: "delivered" });
+      }
+      if (!GoodsDispatch.SHIPPING_STATUSES.includes(to as any))
+        return res.status(400).json({
+          error: `status must be one of ${GoodsDispatch.SHIPPING_STATUSES.join(", ")} (or use the delivered flow)`,
+        });
+      const current =
+        dispatch.shippingStatus ?? "awaiting_pick";
+      if (to === current) {
+        // Metadata-only update: carrier / tracking / notes can be saved without
+        // moving the pipeline (PUT /goods-dispatches only edits drafts).
+        const hasMeta =
+          req.body?.carrier !== undefined ||
+          req.body?.trackingNumber !== undefined ||
+          req.body?.notes !== undefined;
+        if (!hasMeta)
+          return res.status(400).json({ error: `Dispatch is already "${current}"` });
+        const metaPatch: Record<string, any> = {};
+        if (req.body?.carrier !== undefined)
+          metaPatch.transporterName = req.body.carrier || null;
+        if (req.body?.trackingNumber !== undefined)
+          metaPatch.trackingNumber = req.body.trackingNumber || null;
+        if (req.body?.notes !== undefined)
+          metaPatch.shippingNotes = String(req.body.notes || "") || null;
+        const metaUpdated = await GoodsDispatch.update(dispatch.id, metaPatch);
+        return res.json(metaUpdated);
+      }
+      if (!GoodsDispatch.isValidShippingTransition(current, to as any))
+        return res.status(400).json({
+          error: `Invalid transition: ${current} → ${to} (forward only — a dispatch can never move backwards)`,
+        });
+      const patch: Record<string, any> = {
+        shippingStatus: to,
+        shippingStatusAt: new Date().toISOString(),
+        shippingStatusBy: req.user!.email,
+      };
+      if (req.body?.notes !== undefined)
+        patch.shippingNotes = String(req.body.notes || "") || null;
+      if (req.body?.carrier !== undefined)
+        patch.transporterName = req.body.carrier || null;
+      if (req.body?.trackingNumber !== undefined)
+        patch.trackingNumber = req.body.trackingNumber || null;
+      const updated = await GoodsDispatch.update(dispatch.id, patch);
+      trackAction(req, "dispatch.shipping_status", dispatch.id, {
+        entityType: "dispatch",
+        entityRef: dispatch.dispatchNumber,
+        shippingStatus: to,
+        previous: current,
+      });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
 router.put("/goods-dispatches/:id", authMiddleware, async (req, res) => {
   try {
     const dispatch = await GoodsDispatch.get(req.params.id);

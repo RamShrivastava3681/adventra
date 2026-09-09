@@ -44,6 +44,7 @@ import {
   MapPin,
   ArrowRightLeft,
   AlertTriangle,
+  Warehouse,
 } from "lucide-react";
 import { useTheme, type Theme } from "@/lib/theme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -221,6 +222,12 @@ function buildNavSections(roles: string[]): NavSection[] {
         }
       : null;
 
+  // Warehouse Control — standalone, visible to operations + admin
+  const warehouseSection: NavSection | null =
+    isOperations || isAdmin
+      ? { type: "single", label: "Warehouse", icon: Warehouse, to: "/app/warehouse" }
+      : null;
+
   // System — visible to reporting manager + admin
   const systemSection: NavSection | null =
     (isReportingManager || isAdmin)
@@ -256,6 +263,7 @@ function buildNavSections(roles: string[]): NavSection[] {
     procurementSection,
     salesOperatorSection,
     inventorySection,
+    warehouseSection,
     ...reportsSections,
     systemSection,
   ].filter((s: any): s is NavSection => s != null) as NavSection[];
@@ -384,6 +392,7 @@ function AppLayout() {
       "/app/products",
       "/app/stock-allocation",
       "/app/forecast",
+      "/app/warehouse",
     ];
 
     // Include all inventory routes for admin (they have full access)

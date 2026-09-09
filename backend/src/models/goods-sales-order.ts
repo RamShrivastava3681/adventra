@@ -86,6 +86,18 @@ export interface GoodsSalesOrder {
   debtorApprovalComments: string | null;
   /** The email address the PDF was sent to. */
   debtorApprovalEmail: string | null;
+  /**
+   * Warehouse sign-off (hard gate): a sales order that is pending/on_hold can
+   * NOT have dispatch notes created against it. Cleared to null by the checker
+   * flow so a re-confirmed SO re-enters the warehouse queue.
+   */
+  warehouseStatus: "pending" | "approved" | "on_hold" | null;
+  /** Warehouse user who signed off (id). null until first decision. */
+  warehouseApprovedBy: string | null;
+  /** When the warehouse signed off. */
+  warehouseApprovedAt: string | null;
+  /** Free-text note left by the warehouse (usually with a hold). */
+  warehouseNotes: string | null;
   lines: GoodsSalesOrderLine[];
   totalQty: number;
   subtotal: number;
@@ -242,6 +254,10 @@ export async function create(
     debtorApprovalRespondedAt: data.debtorApprovalRespondedAt || null,
     debtorApprovalComments: data.debtorApprovalComments || null,
     debtorApprovalEmail: data.debtorApprovalEmail || null,
+    warehouseStatus: (data.warehouseStatus as any) || null,
+    warehouseApprovedBy: data.warehouseApprovedBy || null,
+    warehouseApprovedAt: data.warehouseApprovedAt || null,
+    warehouseNotes: data.warehouseNotes || null,
     paymentTerms: data.paymentTerms || null,
     expectedDispatchDate: data.expectedDispatchDate || null,
     expectedDeliveryDate: data.expectedDeliveryDate || null,
@@ -296,6 +312,10 @@ export async function update(id: string, updates: Partial<GoodsSalesOrder>) {
     "debtorApprovalRespondedAt",
     "debtorApprovalComments",
     "debtorApprovalEmail",
+    "warehouseStatus",
+    "warehouseApprovedBy",
+    "warehouseApprovedAt",
+    "warehouseNotes",
   ];
   for (const k of allowed) {
     if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k];

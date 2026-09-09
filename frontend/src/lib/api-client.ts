@@ -261,6 +261,9 @@ const api = {
     update: (id: string, data: any) => api.put<any>(`/goods-sales-orders/${id}`, data),
     delete: (id: string) => api.delete(`/goods-sales-orders/${id}`),
     sendToDebtor: (id: string) => api.post<any>(`/goods-sales-orders/${id}/send-to-debtor`, {}),
+    // Warehouse sign-off (hard gate): approve / hold / reject a confirmed SO.
+    warehouseSignoff: (id: string, status: "approved" | "on_hold" | "rejected", notes?: string) =>
+      api.post<any>(`/goods-sales-orders/${id}/warehouse-signoff`, { status, notes }),
   },
 
   // Debtor document approvals (public, token-authenticated — no login)
@@ -282,6 +285,13 @@ const api = {
     cancel: (id: string) => api.post<any>(`/goods-dispatches/${id}/cancel`, {}),
     deliver: (id: string, data: any) => api.post<any>(`/goods-dispatches/${id}/deliver`, data),
     return: (id: string, data: any) => api.post<any>(`/goods-dispatches/${id}/return`, data),
+    // Move the logistics pipeline forward (stock is never touched). Sending
+    // the current status again saves carrier/tracking/notes without moving.
+    shippingStatus: (
+      id: string,
+      status: "awaiting_pick" | "picking" | "packed" | "dispatched" | "in_transit" | "delivered",
+      data?: { carrier?: string | null; trackingNumber?: string | null; notes?: string },
+    ) => api.post<any>(`/goods-dispatches/${id}/shipping-status`, { status, ...data }),
   },
 
   // Expenses
