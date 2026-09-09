@@ -42,6 +42,7 @@ function CheckerPage() {
   const qc = useQueryClient();
   const [side, setSide] = useState<"all" | "sale" | "purchase">("all");
   const [viewInv, setViewInv] = useState<{ kind: "sale" | "purchase"; raw: any } | null>(null);
+  const [approveFor, setApproveFor] = useState<{ row: Row; utr: string; amount: string } | null>(null);
   const [viewPf, setViewPf] = useState<any | null>(null);
   const [viewPo, setViewPo] = useState<any | null>(null);
   const [viewSo, setViewSo] = useState<any | null>(null);
@@ -65,8 +66,22 @@ function CheckerPage() {
   });
 
   const reviewSale = useMutation({
-    mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "rejected" }) => {
-      await api.invoices.update(id, { status: decision });
+    mutationFn: async ({
+      id,
+      decision,
+      utr_reference,
+      payment_amount,
+    }: {
+      id: string;
+      decision: "approved" | "rejected";
+      utr_reference?: string;
+      payment_amount?: number;
+    }) => {
+      await api.invoices.update(id, {
+        status: decision,
+        utr_reference: utr_reference || null,
+        payment_amount: payment_amount || null,
+      });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["checker-sales"] });
@@ -195,6 +210,116 @@ function CheckerPage() {
       toast.success("Purchase order decision recorded");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  // ── Past review history for the current checker ──
+  const historyQ = useQuery({
+    queryKey: ["checker-history", user?.id],
+    enabled: !!user?.id,
+    queryFn: async () => {
+      const [sales, purchases, proformas, pos, sos, notes] = await Promise.all([
+        api.invoices.list(),
+        api.purchaseInvoices.list(),
+        api.purchaseOrders.list(),
+        api.goodsPurchaseOrders.list(),
+        api.goodsSalesOrders.list(),
+        api.creditDebitNotes.list(),
+      ]);
+      const uid = user!.id;
+      const rows: Array<{
+        kind: string;
+        doc_number: string;
+        party: string;
+        action: string;
+        detail: string | null;
+        reviewed_at: string;
+        side: "sale" | "purchase" | "proforma" | "po" | "so" | "note";
+      }> = [];
+      for (const i of sales) {
+        const s = i as any;
+        if (s.reviewed_by === uid && s.reviewed_at) {
+          rows.push({
+            kind: "Invoice",
+            doc_number: s.invoice_number,
+            party: partyMap[s.debtor_id] ?? "—",
+            action: s.status === "approved" ? "Approved" : "Rejected",
+            detail: (s.utr_reference || s.payment_amount) ? `UTR: ${s.utr_reference || "—"}${s.payment_amount != null ? ` · ${fmtMoney(s.payment_amount)}` : ""}` : null,
+            reviewed_at: s.reviewed_at,
+            side: "sale",
+          });
+        }
+      }
+      for (const p of purchases) {
+        if ((p as any).reviewed_by === uid && (p as any).reviewed_at) {
+          rows.push({
+            kind: "Purchase Invoice",
+            doc_number: p.invoice_number,
+            party: p.supplier_name ?? "—",
+            action: (p as any).status === "approved_for_payment" ? "Approved" : "Disputed",
+            detail: null,
+            reviewed_at: (p as any).reviewed_at,
+            side: "purchase",
+          });
+        }
+      }
+      for (const pf of proformas) {
+        if ((pf as any).proforma_reviewed_by === uid && (pf as any).proforma_reviewed_at) {
+          rows.push({
+            kind: "Proforma",
+            doc_number: pf.proforma_number ?? "—",
+            party: pfParty(pf),
+            action: (pf as any).proforma_status === "approved" ? "Approved" : "Rejected",
+            detail: null,
+            reviewed_at: (pf as any).proforma_reviewed_at,
+            side: "proforma",
+          });
+        }
+      }
+      for (const po of pos) {
+        if ((po as any).reviewed_by === uid && (po as any).reviewed_at) {
+          rows.push({
+            kind: "Purchase Order",
+            doc_number: po.po_number,
+            party: po.supplier_name ?? "—",
+            action: (po as any).status === "approved" ? "Approved" : "Rejected",
+            detail: null,
+            reviewed_at: (po as any).reviewed_at,
+            side: "po",
+          });
+        }
+      }
+      for (const so of sos) {
+        if ((so as any).reviewed_by === uid && (so as any).reviewed_at) {
+          rows.push({
+            kind: "Sales Order",
+            doc_number: so.so_number,
+            party: so.customer_name ?? "—",
+            action: (so as any).status === "confirmed" ? "Approved" : "Rejected",
+            detail: null,
+            reviewed_at: (so as any).reviewed_at,
+            side: "so",
+          });
+        }
+      }
+      for (const n of notes) {
+        if ((n as any).reviewed_by === uid && (n as any).reviewed_at) {
+          rows.push({
+            kind: n.kind === "credit" ? "Credit Note" : "Debit Note",
+            doc_number: n.note_number,
+            party: n.counterparty ?? "—",
+            action: (n as any).status === "approved" ? "Approved" : "Rejected",
+            detail: null,
+            reviewed_at: (n as any).reviewed_at,
+            side: n.kind === "credit" ? "sale" : "purchase",
+          });
+        }
+      }
+      rows.sort(
+        (a, b) =>
+          new Date(b.reviewed_at).getTime() - new Date(a.reviewed_at).getTime(),
+      );
+      return rows;
+    },
   });
 
   // Goods sales orders awaiting the checker's approval.
@@ -505,10 +630,12 @@ function CheckerPage() {
                               <button
                                 onClick={() =>
                                   r.kind === "sale"
-                                    ? reviewSale.mutate({ id: r.id, decision: "approved" })
+                                    ? setApproveFor({ row: r, utr: "", amount: String(r.amount) })
                                     : reviewPurchase.mutate({ id: r.id, decision: "approved" })
                                 }
-                                className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10"
+                                disabled={r.kind === "sale"}
+                                className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10 disabled:opacity-60"
+                                title="Enter UTR and payment amount"
                               >
                                 <Check className="h-3 w-3" /> Approve
                               </button>
@@ -935,6 +1062,168 @@ function CheckerPage() {
             </div>
           )}
         </Card>
+
+        {approveFor && (
+          <ApproveSaleModal
+            row={approveFor.row}
+            onClose={() => setApproveFor(null)}
+            onSubmit={(vals) => {
+              reviewSale.mutate(
+                {
+                  id: approveFor.row.id,
+                  decision: "approved",
+                  utr_reference: vals.utr_reference,
+                  payment_amount: vals.payment_amount,
+                },
+                { onSuccess: () => setApproveFor(null) },
+              );
+            }}
+          />
+        )}
+
+        <Card title="Your review history">
+          {historyQ.isLoading ? (
+            <TableSkeleton rows={4} cols={6} />
+          ) : historyQ.data?.length === 0 ? (
+            <div className="py-6 text-center text-sm text-muted-foreground">
+              No past approvals yet.
+            </div>
+          ) : (
+            <div className="-mx-5 overflow-x-auto">
+              <table className="table-premium w-full text-sm">
+                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-5 py-2 text-left font-normal">Document</th>
+                    <th className="px-5 py-2 text-left font-normal">Type</th>
+                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
+                    <th className="px-5 py-2 text-left font-normal">Decision</th>
+                    <th className="px-5 py-2 text-left font-normal hidden md:table-cell">Details</th>
+                    <th className="px-5 py-2 text-left font-normal">Reviewed</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(historyQ.data ?? []).map((h: any, idx: number) => (
+                    <tr key={idx} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-5 py-3 font-mono text-xs">{h.doc_number}</td>
+                      <td className="px-5 py-3">
+                        <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                          {h.kind}
+                        </span>
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">{h.party}</td>
+                      <td className="px-5 py-3">
+                        <span
+                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                            h.action === "Approved" || h.action === "Confirmed" || h.action === "Mark received" || h.action === "Mark paid"
+                              ? "bg-success/15 text-success"
+                              : "bg-destructive/15 text-destructive"
+                          }`}
+                        >
+                          {h.action}
+                        </span>
+                      </td>
+                      {h.detail && (
+                        <td className="px-5 py-3 text-xs text-muted-foreground hidden md:table-cell">
+                          {h.detail}
+                        </td>
+                      )}
+                      <td className="px-5 py-3 text-sm text-muted-foreground">
+                        {fmtDate(h.reviewed_at)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function ApproveSaleModal({
+  row,
+  onClose,
+  onSubmit,
+}: {
+  row: Row;
+  onClose: () => void;
+  onSubmit: (v: { utr_reference: string; payment_amount?: number }) => void;
+}) {
+  const [utr, setUtr] = useState(row.raw?.utr_reference ?? "");
+  const [amount, setAmount] = useState(
+    String(row.raw?.payment_amount ?? row.amount),
+  );
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="mb-4 font-display text-lg">
+          Approve & record payment · {row.invoice_number}
+        </h3>
+        <div className="space-y-3 text-sm">
+          <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground space-y-1">
+            <div>Counterparty: <span className="text-foreground">{row.party}</span></div>
+            <div>Gross amount: <span className="num text-foreground">{fmtMoney(row.amount)}</span></div>
+            <div>Due date: <span className="text-muted-foreground">{fmtDate(row.due_date)}</span></div>
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+              UTR / payment reference (optional)
+            </span>
+            <input
+              maxLength={60}
+              value={utr}
+              onChange={(e) => setUtr(e.target.value)}
+              className="w-full rounded-md border border-border bg-background p-2"
+              placeholder="Bank transfer reference…"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+              Payment amount (optional)
+            </span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="w-full rounded-md border border-border bg-background p-2"
+              placeholder="Full or partial amount received…"
+            />
+          </label>
+          {amount && Number(amount) > 0 && (
+            <div className="text-[10px] text-muted-foreground">
+              {Number(amount) >= row.amount
+                ? "Full payment recorded"
+                : `Partial · ${fmtMoney(row.amount - Number(amount))} still outstanding`}
+            </div>
+          )}
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
+            Cancel
+          </button>
+          <button
+            onClick={() =>
+              onSubmit({
+                utr_reference: utr.trim() || undefined,
+                payment_amount: amount ? Number(amount) : undefined,
+              })
+            }
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+          >
+            <Check className="h-3.5 w-3.5" />
+            Approve & record
+          </button>
+        </div>
       </div>
     </div>
   );

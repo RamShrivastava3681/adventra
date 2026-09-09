@@ -90,6 +90,10 @@ type Inv = {
   linked_customer_proforma_id: string | null;
   linked_customer_proforma_number: string | null;
   advance_deducted: number;
+  /** UTR / payment reference captured by the checker at approval time. */
+  utr_reference: string | null;
+  /** Payment amount captured by the checker at approval time. */
+  payment_amount: number | null;
 };
 
 function round2(n: number): number {
@@ -116,6 +120,7 @@ function InvoicesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Inv | null>(null);
   const [viewing, setViewing] = useState<Inv | null>(null);
+  const [utrFor, setUtrFor] = useState<Inv | null>(null);
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", "list"],
@@ -161,6 +166,20 @@ function InvoicesPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["invoices"] });
       toast.success("Invoice cancelled");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const addUtr = useMutation({
+    mutationFn: async (vals: { id: string; utr_reference?: string; payment_amount?: number }) => {
+      await api.invoices.update(vals.id, {
+        utr_reference: vals.utr_reference || null,
+        payment_amount: vals.payment_amount || null,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      toast.success("UTR recorded");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -374,6 +393,15 @@ function InvoicesPage() {
                                       <Ban className="h-3 w-3" /> Cancel
                                     </button>
                                   )}
+                                {i.status === "approved" && (
+                                  <button
+                                    onClick={() => setUtrFor(i)}
+                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10"
+                                    title="Add or update UTR / payment amount"
+                                  >
+                                    <Send className="h-3 w-3" /> UTR
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -404,6 +432,18 @@ function InvoicesPage() {
         />
       )}
       {viewing && <InvoiceDetailModal invoice={viewing} onClose={() => setViewing(null)} />}
+      {utrFor && (
+        <UtrModal
+          invoice={utrFor}
+          onClose={() => setUtrFor(null)}
+          onSubmit={(vals) => {
+            addUtr.mutate(
+              { id: utrFor.id, utr_reference: vals.utr_reference, payment_amount: vals.payment_amount },
+              { onSuccess: () => setUtrFor(null) },
+            );
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -995,6 +1035,18 @@ function NewInvoiceModal({
                   onChange={(e) => setForm({ ...form, expected_dispatch_date: e.target.value })}
                 />
               </L>
+              {isEdit &&
+                invoice!.status === "draft" &&
+                (
+                  <L label="Expected dispatch date">
+                    <input
+                      type="date"
+                      className="inp"
+                      value={form.expected_dispatch_date}
+                      onChange={(e) => setForm({ ...form, expected_dispatch_date: e.target.value })}
+                    />
+                  </L>
+                )}
             </div>
             <div className="mt-3">
               <L label="Notes (shown on the printed invoice)">
@@ -1424,6 +1476,15 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
                 value={<span className="num">{fmtMoney(invoice.po_amount)}</span>}
               />
             )}
+            {invoice.utr_reference && (
+              <D label="UTR / ref" value={invoice.utr_reference} />
+            )}
+            {invoice.payment_amount != null && (
+              <D
+                label="Payment at approval"
+                value={<span className="num text-success">{fmtMoney(invoice.payment_amount)}</span>}
+              />
+            )}
             <D label="NOA" value={<NoaBadge status={invoice.noa_status} />} />
             {invoice.billing_address && (
               <D label="Billing address" value={invoice.billing_address} />
@@ -1593,6 +1654,86 @@ function D({ label, value }: { label: string; value: React.ReactNode }) {
     <div>
       <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
       <div className="mt-0.5">{value}</div>
+    </div>
+  );
+}
+
+function UtrModal({
+  invoice,
+  onClose,
+  onSubmit,
+}: {
+  invoice: Inv;
+  onClose: () => void;
+  onSubmit: (v: { utr_reference?: string; payment_amount?: number }) => void;
+}) {
+  const [utr, setUtr] = useState(invoice.utr_reference ?? "");
+  const [amount, setAmount] = useState(
+    invoice.payment_amount != null ? String(invoice.payment_amount) : "",
+  );
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="mb-4 font-display text-lg">
+          Add UTR · {invoice.invoice_number}
+        </h3>
+        <div className="space-y-3 text-sm">
+          <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground space-y-1">
+            <div>Debtor: <span className="text-foreground">{invoice.debtor?.name ?? "—"}</span></div>
+            <div>Grand total: <span className="num text-foreground">{fmtMoney(invoice.grand_total ?? invoice.amount)}</span></div>
+            <div>Status: <span className="text-foreground">{DOC_LABELS[invoice.status]}</span></div>
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+              UTR / payment reference
+            </span>
+            <input
+              maxLength={60}
+              value={utr}
+              onChange={(e) => setUtr(e.target.value)}
+              className="w-full rounded-md border border-border bg-background p-2"
+              placeholder="Bank transfer reference…"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+              Payment amount (optional)
+            </span>
+            <input
+              type="number"
+              step="0.01"
+              min="0"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className="w-full rounded-md border border-border bg-background p-2"
+              placeholder="Amount received at approval…"
+            />
+          </label>
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
+            Cancel
+          </button>
+          <button
+            onClick={() =>
+              onSubmit({
+                utr_reference: utr.trim() || undefined,
+                payment_amount: amount ? Number(amount) : undefined,
+              })
+            }
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+          >
+            <Send className="h-3.5 w-3.5" />
+            Save UTR
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

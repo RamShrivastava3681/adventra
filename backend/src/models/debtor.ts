@@ -9,6 +9,10 @@ export interface Debtor {
   billingAddress: string | null; shippingAddress: string | null; city: string | null; country: string | null;
   postalCode: string | null; phone: string | null; website: string | null;
   contactName: string | null; contactEmail: string | null; contactDesignation: string | null; contactPhone: string | null;
+  /** Assigned salesman for this debtor. */
+  salesmanName: string | null;
+  salesmanPhone: string | null;
+  salesmanEmail: string | null;
   paymentTermsDays: number;
   /** Structured payment terms: credit (Net N), advance_full (100% advance),
    *  advance_partial (X% advance + remainder on delivery) or on_delivery. */
@@ -41,6 +45,9 @@ export async function create(data: Partial<Debtor> & { name: string }) {
     postalCode: data.postalCode || null, phone: data.phone || null, website: data.website || null,
     contactName: data.contactName || null, contactEmail: data.contactEmail || null,
     contactDesignation: data.contactDesignation || null, contactPhone: data.contactPhone || null,
+    salesmanName: data.salesmanName || null,
+    salesmanPhone: data.salesmanPhone || null,
+    salesmanEmail: data.salesmanEmail || null,
     paymentTermsDays: data.paymentTermsDays || 30,
     paymentTermsType: normalizePaymentTermsType(data.paymentTermsType) || "credit",
     advancePct: normalizeAdvancePct(data.advancePct),
@@ -55,7 +62,7 @@ export async function create(data: Partial<Debtor> & { name: string }) {
 }
 
 export async function update(id: string, updates: Partial<Debtor>) {
-  const allowed = ["name","industry","billingAddress","shippingAddress","city","country","postalCode","phone","website","contactName","contactEmail","contactDesignation","contactPhone","paymentTermsDays","paymentTermsType","advancePct","gstin","panCardNo","stateCode","notes"];
+  const allowed = ["name","industry","billingAddress","shippingAddress","city","country","postalCode","phone","website","contactName","contactEmail","contactDesignation","contactPhone","salesmanName","salesmanPhone","salesmanEmail","paymentTermsDays","paymentTermsType","advancePct","gstin","panCardNo","stateCode","notes"];
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   return db.updateItem(`DEBTOR#${id}`, `DEBTOR#${id}`, patch);

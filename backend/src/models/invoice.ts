@@ -41,6 +41,10 @@ export interface Invoice {
   notes: string | null; documents: any[];
   noaStatus: string; noaToken: string | null; noaSentAt: string | null;
   noaRespondedAt: string | null; noaComments: string | null;
+  /** UTR / payment reference captured by the checker at approval time. */
+  utr_reference: string | null;
+  /** Payment amount captured by the checker at approval time (optional). */
+  payment_amount: number | null;
   source: string;
   /** Tracks the last date an overdue reminder email was sent (YYYY-MM-DD). Used by the daily reminder cron. */
   lastOverdueReminderDate: string | null;
@@ -211,6 +215,7 @@ export async function create(data: Partial<Invoice> & { clientId: string; debtor
     debtorReminderToken: uuid(),
     noaStatus: "not_sent", noaToken: uuid(), noaSentAt: null,
     noaRespondedAt: null, noaComments: null,
+    utr_reference: null, payment_amount: null,
     source: data.source || "manual",
     customerContact: data.customerContact || null,
     billingAddress: data.billingAddress || null,
@@ -233,7 +238,7 @@ export async function create(data: Partial<Invoice> & { clientId: string; debtor
 
 export async function update(id: string, updates: Partial<Invoice>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
-  const allowed = ["amount","status","paidDate","amountReceived","receiptDate","shortPayment","lateDays","advanceRate","feeRate","poNumber","poDate","poAmount","purchaseInvoiceId","purchaseOrderId","supplierId","lineItems","subtotal","taxRate","taxAmount","notes","documents","noaStatus","noaSentAt","noaRespondedAt","noaComments","issueDate","dueDate","expectedDate","invoiceNumber","debtorId",      "lastOverdueReminderDate","debtorReminderToken","customerContact","billingAddress","deliveryAddress","goodsSalesOrderId","goodsSalesOrderNumber","paymentTerms","paymentTermsType","advancePct","lines","subtotalGoods","totalDiscount","gstTotal","freight","grandTotal","linkedCustomerProformaId","linkedCustomerProformaNumber","advanceDeducted","expectedDispatchDate"];
+  const allowed = ["amount","status","paidDate","amountReceived","receiptDate","shortPayment","lateDays","advanceRate","feeRate","poNumber","poDate","poAmount","purchaseInvoiceId","purchaseOrderId","supplierId","lineItems","subtotal","taxRate","taxAmount","notes","documents","noaStatus","noaSentAt","noaRespondedAt","noaComments","issueDate","dueDate","expectedDate","invoiceNumber","debtorId",      "lastOverdueReminderDate","debtorReminderToken","customerContact","billingAddress","deliveryAddress","goodsSalesOrderId","goodsSalesOrderNumber","paymentTerms","paymentTermsType","advancePct","lines","subtotalGoods","totalDiscount","gstTotal","freight","grandTotal","linkedCustomerProformaId","linkedCustomerProformaNumber","advanceDeducted","expectedDispatchDate","utr_reference","payment_amount"];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   // Recompute line totals + document totals whenever lines/freight/advance change.
   if (

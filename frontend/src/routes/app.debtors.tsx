@@ -87,6 +87,7 @@ function DebtorsPage() {
               <table className="table-premium w-full text-sm">                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-5 py-2 text-left font-normal">Name</th>
+                    <th className="px-5 py-2 text-left font-normal">Salesman</th>
                     <th className="px-5 py-2 text-left font-normal">Industry</th>
                     <th className="px-5 py-2 text-left font-normal">PAN</th>
                     <th className="px-5 py-2 text-left font-normal">GSTIN</th>
@@ -100,6 +101,19 @@ function DebtorsPage() {
                     return (
                       <tr key={d.id} className="border-b border-border/60">
                         <td className="px-5 py-3 font-medium">{d.name}</td>
+                        <td className="px-5 py-3 text-muted-foreground">
+                          {(d.salesman_name || d.salesman_phone || d.salesman_email) ? (
+                            <div className="text-xs">
+                              {d.salesman_name && <div>{d.salesman_name}</div>}
+                              {(d.salesman_phone || d.salesman_email) && (
+                                <div className="text-muted-foreground">
+                                  {d.salesman_phone && <span>{d.salesman_phone} </span>}
+                                  {d.salesman_email && <span>{d.salesman_email}</span>}
+                                </div>
+                              )}
+                            </div>
+                          ) : ("\u2014")}
+                        </td>
                         <td className="px-5 py-3 text-muted-foreground">{d.industry ?? "—"}</td>
                         <td className="px-5 py-3 text-xs font-mono text-muted-foreground">{d.panCardNo ?? d.pan_card_no ?? "—"}</td>
                         <td className="px-5 py-3 text-xs font-mono text-muted-foreground">{d.gstin ?? "—"}</td>
@@ -189,6 +203,9 @@ function DebtorModal({
     contact_email: debtor?.contact_email ?? "",
     contact_designation: debtor?.contact_designation ?? "",
     contact_phone: debtor?.contact_phone ?? "",
+    salesman_name: debtor?.salesman_name ?? "",
+    salesman_phone: debtor?.salesman_phone ?? "",
+    salesman_email: debtor?.salesman_email ?? "",
   });
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [k]: e.target.value });
@@ -215,6 +232,9 @@ function DebtorModal({
         contactEmail: form.contact_email || null,
         contactDesignation: form.contact_designation || null,
         contactPhone: form.contact_phone || null,
+        salesmanName: form.salesman_name || null,
+        salesmanPhone: form.salesman_phone || null,
+        salesmanEmail: form.salesman_email || null,
       };
       if (isEdit && debtor) {
         await api.debtors.update(debtor.id, payload);
@@ -396,6 +416,36 @@ function DebtorModal({
             </div>
           </Section>
 
+          <Section title="Assigned salesman">
+            <div className="grid gap-3 md:grid-cols-2">
+              <L label="Salesman name">
+                <input
+                  maxLength={120}
+                  className="inp"
+                  value={form.salesman_name}
+                  onChange={set("salesman_name")}
+                />
+              </L>
+              <L label="Salesman phone">
+                <input
+                  maxLength={40}
+                  className="inp"
+                  value={form.salesman_phone}
+                  onChange={set("salesman_phone")}
+                />
+              </L>
+              <L label="Salesman email">
+                <input
+                  type="email"
+                  maxLength={255}
+                  className="inp"
+                  value={form.salesman_email}
+                  onChange={set("salesman_email")}
+                />
+              </L>
+            </div>
+          </Section>
+
           <Section title="Payment terms">
             <div className="grid gap-3 md:grid-cols-2">
               <L label="Terms type" full>
@@ -500,6 +550,13 @@ function DebtorDetailModal({
             <D label="Contact email" value={debtor.contact_email ?? "—"} />
             <D label="Contact phone" value={debtor.contact_phone ?? "—"} />
           </div>
+          {(debtor.salesman_name || debtor.salesman_phone || debtor.salesman_email) && (
+            <div className="grid grid-cols-2 gap-3">
+              <D label="Salesman name" value={debtor.salesman_name ?? "—"} />
+              <D label="Salesman phone" value={debtor.salesman_phone ?? "—"} />
+              <D label="Salesman email" value={debtor.salesman_email ?? "—"} />
+            </div>
+          )}
           <div className="flex justify-end border-t border-border pt-3">
             <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
               Close
