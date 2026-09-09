@@ -41,6 +41,7 @@ import { Route as AppReportingRouteImport } from './routes/app.reporting'
 import { Route as AppReportsRouteImport } from './routes/app.reports'
 import { Route as AppRequestsRouteImport } from './routes/app.requests'
 import { Route as AppSalesOrdersRouteImport } from './routes/app.sales-orders'
+import { Route as AppSampleDistributionRouteImport } from './routes/app.sample-distribution'
 import { Route as AppSettingsRouteImport } from './routes/app.settings'
 import { Route as AppStockAllocationRouteImport } from './routes/app.stock-allocation'
 import { Route as AppSuppliersRouteImport } from './routes/app.suppliers'
@@ -216,6 +217,11 @@ const AppSalesOrdersRoute = AppSalesOrdersRouteImport.update({
   path: '/sales-orders',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSampleDistributionRoute = AppSampleDistributionRouteImport.update({
+  id: '/sample-distribution',
+  path: '/sample-distribution',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -320,6 +326,7 @@ export interface FileRoutesByFullPath {
   '/app/reports': typeof AppReportsRoute
   '/app/requests': typeof AppRequestsRoute
   '/app/sales-orders': typeof AppSalesOrdersRoute
+  '/app/sample-distribution': typeof AppSampleDistributionRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
@@ -367,6 +374,7 @@ export interface FileRoutesByTo {
   '/app/reports': typeof AppReportsRoute
   '/app/requests': typeof AppRequestsRoute
   '/app/sales-orders': typeof AppSalesOrdersRoute
+  '/app/sample-distribution': typeof AppSampleDistributionRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
@@ -416,6 +424,7 @@ export interface FileRoutesById {
   '/app/reports': typeof AppReportsRoute
   '/app/requests': typeof AppRequestsRoute
   '/app/sales-orders': typeof AppSalesOrdersRoute
+  '/app/sample-distribution': typeof AppSampleDistributionRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
@@ -466,6 +475,7 @@ export interface FileRouteTypes {
     | '/app/reports'
     | '/app/requests'
     | '/app/sales-orders'
+    | '/app/sample-distribution'
     | '/app/settings'
     | '/app/stock-allocation'
     | '/app/suppliers'
@@ -513,6 +523,7 @@ export interface FileRouteTypes {
     | '/app/reports'
     | '/app/requests'
     | '/app/sales-orders'
+    | '/app/sample-distribution'
     | '/app/settings'
     | '/app/stock-allocation'
     | '/app/suppliers'
@@ -561,6 +572,7 @@ export interface FileRouteTypes {
     | '/app/reports'
     | '/app/requests'
     | '/app/sales-orders'
+    | '/app/sample-distribution'
     | '/app/settings'
     | '/app/stock-allocation'
     | '/app/suppliers'
@@ -811,6 +823,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSalesOrdersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/sample-distribution': {
+      id: '/app/sample-distribution'
+      path: '/sample-distribution'
+      fullPath: '/app/sample-distribution'
+      preLoaderRoute: typeof AppSampleDistributionRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/settings': {
       id: '/app/settings'
       path: '/settings'
@@ -956,6 +975,7 @@ interface AppRouteChildren {
   AppReportsRoute: typeof AppReportsRoute
   AppRequestsRoute: typeof AppRequestsRoute
   AppSalesOrdersRoute: typeof AppSalesOrdersRoute
+  AppSampleDistributionRoute: typeof AppSampleDistributionRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppStockAllocationRoute: typeof AppStockAllocationRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
@@ -998,6 +1018,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppReportsRoute: AppReportsRoute,
   AppRequestsRoute: AppRequestsRoute,
   AppSalesOrdersRoute: AppSalesOrdersRoute,
+  AppSampleDistributionRoute: AppSampleDistributionRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppStockAllocationRoute: AppStockAllocationRoute,
   AppSuppliersRoute: AppSuppliersRoute,

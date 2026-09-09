@@ -16,7 +16,6 @@ import {
   ShoppingCart,
   Banknote,
   ClipboardCheck,
-  Boxes,
   Wallet,
   FileSignature,
   FileMinus,
@@ -44,6 +43,7 @@ import {
   ArrowRightLeft,
   AlertTriangle,
   Warehouse,
+  Gift,
 } from "lucide-react";
 import { useTheme, type Theme } from "@/lib/theme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -123,14 +123,15 @@ const DEBTORS_ITEMS: NavItem[] = [
   { to: "/app/debtors", label: "Debtors", icon: Building2 },
 ];
 
-// ─── Inventory items ──
-const INVENTORY_ITEMS: NavItem[] = [
+// ─── Warehouse Control items ──
+const WAREHOUSE_CONTROL_ITEMS: NavItem[] = [
+  { to: "/app/warehouse", label: "Warehouse", icon: Warehouse },
+  { to: "/app/products", label: "Product Catalogue", icon: Package },
+  { to: "/app/forecast", label: "Forecast", icon: TrendingUp },
   { to: "/app/grn", label: "GRN", icon: PackageCheck },
   { to: "/app/dispatches", label: "Dispatch", icon: Truck },
-  { to: "/app/inventory", label: "Inventory", icon: Boxes },
-  { to: "/app/products", label: "Product Catalogue", icon: Package },
   { to: "/app/stock-allocation", label: "Stock Allocation", icon: MapPin },
-  { to: "/app/forecast", label: "Forecast", icon: TrendingUp },
+  { to: "/app/sample-distribution", label: "Sample Distribution", icon: Gift },
 ];
 
 // ─── Build navigation sections per role ──────────────────────
@@ -209,21 +210,15 @@ function buildNavSections(roles: string[]): NavSection[] {
       : []),
   ];
 
-  // Inventory — visible to operations + admin
-  const inventorySection: NavSection | null =
+  // Warehouse Control — visible to operations + admin
+  const warehouseControlSection: NavSection | null =
     (isOperations || isAdmin)
       ? {
           type: "group",
-          label: "Inventory",
-          icon: Boxes,
-          items: INVENTORY_ITEMS,
+          label: "Warehouse Control",
+          icon: Warehouse,
+          items: WAREHOUSE_CONTROL_ITEMS,
         }
-      : null;
-
-  // Warehouse Control — standalone, visible to operations + admin
-  const warehouseSection: NavSection | null =
-    isOperations || isAdmin
-      ? { type: "single", label: "Warehouse", icon: Warehouse, to: "/app/warehouse" }
       : null;
 
   // System — visible to reporting manager + admin
@@ -252,7 +247,7 @@ function buildNavSections(roles: string[]): NavSection[] {
       : null;
 
   // Assemble in the desired order: Dashboard, Checker, Finance, Procurement,
-  // Sales Operator, Inventory, Reports, System
+  // Sales Operator, Warehouse Control, Reports, System
   const sections = [
     dashboardSection,
     workspaceSection,
@@ -260,8 +255,7 @@ function buildNavSections(roles: string[]): NavSection[] {
     financeSection,
     procurementSection,
     salesOperatorSection,
-    inventorySection,
-    warehouseSection,
+    warehouseControlSection,
     ...reportsSections,
     systemSection,
   ].filter((s: any): s is NavSection => s != null) as NavSection[];
@@ -340,6 +334,13 @@ function AppLayout() {
   useEffect(() => {
     if (loading || !user) return;
 
+    // Hidden for now: Inventory Movements page is out of nav.
+    // Redirect old bookmarks / deep links to Warehouse until it returns.
+    if (pathname === "/app/inventory" || pathname.startsWith("/app/inventory/")) {
+      navigate({ to: "/app/warehouse", replace: true });
+      return;
+    }
+
     // In view-as mode the manager is browsing the team member's workspace —
     // the sidebar is already built from the team member's roles, so skip the wall.
     if (viewAsUserId) return;
@@ -379,19 +380,19 @@ function AppLayout() {
     const naughtyListRoutes: string[] = [
       "/app/naughty-list",
     ];
-    // Inventory routes
-    const inventoryRoutes: string[] = [
+    // Warehouse Control routes (hidden: /app/inventory kept out of nav for now)
+    const warehouseControlRoutes: string[] = [
+      "/app/warehouse",
+      "/app/products",
+      "/app/forecast",
       "/app/grn",
       "/app/dispatches",
       "/app/challan",
-      "/app/inventory",
-      "/app/products",
       "/app/stock-allocation",
-      "/app/forecast",
-      "/app/warehouse",
+      "/app/sample-distribution",
     ];
 
-    // Include all inventory routes for admin (they have full access)
+    // Include all warehouse-control routes for admin (they have full access)
     const adminAllowedRoutes = [
       "/app/dashboard",
       "/app/reporting",
@@ -407,7 +408,7 @@ function AppLayout() {
       ...supplierListRoutes,
       ...salesOperatorRoutes,
       ...naughtyListRoutes,
-      ...inventoryRoutes,
+      ...warehouseControlRoutes,
     ];
 
     const operationsAllowed: string[] = [
@@ -420,7 +421,7 @@ function AppLayout() {
       ...supplierListRoutes,
       ...salesOperatorRoutes,
       ...naughtyListRoutes,
-      ...inventoryRoutes,
+      ...warehouseControlRoutes,
     ];
 
     // Quick admin allowed routes (for admin quick items)
