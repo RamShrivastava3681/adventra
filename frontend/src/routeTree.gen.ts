@@ -35,7 +35,6 @@ import { Route as AppProformasRouteImport } from './routes/app.proformas'
 import { Route as AppPurchaseOrdersRouteImport } from './routes/app.purchase-orders'
 import { Route as AppPurchasesRouteImport } from './routes/app.purchases'
 import { Route as AppQueueRouteImport } from './routes/app.queue'
-import { Route as AppQuotationsRouteImport } from './routes/app.quotations'
 import { Route as AppRemindersRouteImport } from './routes/app.reminders'
 import { Route as AppReportingRouteImport } from './routes/app.reporting'
 import { Route as AppReportsRouteImport } from './routes/app.reports'
@@ -53,7 +52,6 @@ import { Route as NoaTokenRouteImport } from './routes/noa.$token'
 import { Route as AppChallanDispatchIdRouteImport } from './routes/app.challan.$dispatchId'
 import { Route as AppInvoicePreviewIdRouteImport } from './routes/app.invoice-preview.$id'
 import { Route as AppNotePreviewIdRouteImport } from './routes/app.note-preview.$id'
-import { Route as AppQuotationQuotationIdRouteImport } from './routes/app.quotation.$quotationId'
 import { Route as AppReportingIndexRouteImport } from './routes/app.reporting.index'
 import { Route as AppReportingReportRouteImport } from './routes/app.reporting.$report'
 
@@ -187,11 +185,6 @@ const AppQueueRoute = AppQueueRouteImport.update({
   path: '/queue',
   getParentRoute: () => AppRoute,
 } as any)
-const AppQuotationsRoute = AppQuotationsRouteImport.update({
-  id: '/quotations',
-  path: '/quotations',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppRemindersRoute = AppRemindersRouteImport.update({
   id: '/reminders',
   path: '/reminders',
@@ -277,11 +270,6 @@ const AppNotePreviewIdRoute = AppNotePreviewIdRouteImport.update({
   path: '/note-preview/$id',
   getParentRoute: () => AppRoute,
 } as any)
-const AppQuotationQuotationIdRoute = AppQuotationQuotationIdRouteImport.update({
-  id: '/quotation/$quotationId',
-  path: '/quotation/$quotationId',
-  getParentRoute: () => AppRoute,
-} as any)
 const AppReportingIndexRoute = AppReportingIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -320,7 +308,6 @@ export interface FileRoutesByFullPath {
   '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
-  '/app/quotations': typeof AppQuotationsRoute
   '/app/reminders': typeof AppRemindersRoute
   '/app/reporting': typeof AppReportingRouteWithChildren
   '/app/reports': typeof AppReportsRoute
@@ -338,7 +325,6 @@ export interface FileRoutesByFullPath {
   '/app/challan/$dispatchId': typeof AppChallanDispatchIdRoute
   '/app/invoice-preview/$id': typeof AppInvoicePreviewIdRoute
   '/app/note-preview/$id': typeof AppNotePreviewIdRoute
-  '/app/quotation/$quotationId': typeof AppQuotationQuotationIdRoute
   '/app/reporting/$report': typeof AppReportingReportRoute
   '/app/reporting/': typeof AppReportingIndexRoute
 }
@@ -369,7 +355,6 @@ export interface FileRoutesByTo {
   '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
-  '/app/quotations': typeof AppQuotationsRoute
   '/app/reminders': typeof AppRemindersRoute
   '/app/reports': typeof AppReportsRoute
   '/app/requests': typeof AppRequestsRoute
@@ -386,7 +371,6 @@ export interface FileRoutesByTo {
   '/app/challan/$dispatchId': typeof AppChallanDispatchIdRoute
   '/app/invoice-preview/$id': typeof AppInvoicePreviewIdRoute
   '/app/note-preview/$id': typeof AppNotePreviewIdRoute
-  '/app/quotation/$quotationId': typeof AppQuotationQuotationIdRoute
   '/app/reporting/$report': typeof AppReportingReportRoute
   '/app/reporting': typeof AppReportingIndexRoute
 }
@@ -418,7 +402,6 @@ export interface FileRoutesById {
   '/app/purchase-orders': typeof AppPurchaseOrdersRoute
   '/app/purchases': typeof AppPurchasesRoute
   '/app/queue': typeof AppQueueRoute
-  '/app/quotations': typeof AppQuotationsRoute
   '/app/reminders': typeof AppRemindersRoute
   '/app/reporting': typeof AppReportingRouteWithChildren
   '/app/reports': typeof AppReportsRoute
@@ -436,7 +419,6 @@ export interface FileRoutesById {
   '/app/challan/$dispatchId': typeof AppChallanDispatchIdRoute
   '/app/invoice-preview/$id': typeof AppInvoicePreviewIdRoute
   '/app/note-preview/$id': typeof AppNotePreviewIdRoute
-  '/app/quotation/$quotationId': typeof AppQuotationQuotationIdRoute
   '/app/reporting/$report': typeof AppReportingReportRoute
   '/app/reporting/': typeof AppReportingIndexRoute
 }
@@ -469,7 +451,6 @@ export interface FileRouteTypes {
     | '/app/purchase-orders'
     | '/app/purchases'
     | '/app/queue'
-    | '/app/quotations'
     | '/app/reminders'
     | '/app/reporting'
     | '/app/reports'
@@ -487,7 +468,6 @@ export interface FileRouteTypes {
     | '/app/challan/$dispatchId'
     | '/app/invoice-preview/$id'
     | '/app/note-preview/$id'
-    | '/app/quotation/$quotationId'
     | '/app/reporting/$report'
     | '/app/reporting/'
   fileRoutesByTo: FileRoutesByTo
@@ -518,7 +498,6 @@ export interface FileRouteTypes {
     | '/app/purchase-orders'
     | '/app/purchases'
     | '/app/queue'
-    | '/app/quotations'
     | '/app/reminders'
     | '/app/reports'
     | '/app/requests'
@@ -535,7 +514,6 @@ export interface FileRouteTypes {
     | '/app/challan/$dispatchId'
     | '/app/invoice-preview/$id'
     | '/app/note-preview/$id'
-    | '/app/quotation/$quotationId'
     | '/app/reporting/$report'
     | '/app/reporting'
   id:
@@ -566,7 +544,6 @@ export interface FileRouteTypes {
     | '/app/purchase-orders'
     | '/app/purchases'
     | '/app/queue'
-    | '/app/quotations'
     | '/app/reminders'
     | '/app/reporting'
     | '/app/reports'
@@ -584,7 +561,6 @@ export interface FileRouteTypes {
     | '/app/challan/$dispatchId'
     | '/app/invoice-preview/$id'
     | '/app/note-preview/$id'
-    | '/app/quotation/$quotationId'
     | '/app/reporting/$report'
     | '/app/reporting/'
   fileRoutesById: FileRoutesById
@@ -781,13 +757,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppQueueRouteImport
       parentRoute: typeof AppRoute
     }
-    '/app/quotations': {
-      id: '/app/quotations'
-      path: '/quotations'
-      fullPath: '/app/quotations'
-      preLoaderRoute: typeof AppQuotationsRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/app/reminders': {
       id: '/app/reminders'
       path: '/reminders'
@@ -907,13 +876,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppNotePreviewIdRouteImport
       parentRoute: typeof AppRoute
     }
-    '/app/quotation/$quotationId': {
-      id: '/app/quotation/$quotationId'
-      path: '/quotation/$quotationId'
-      fullPath: '/app/quotation/$quotationId'
-      preLoaderRoute: typeof AppQuotationQuotationIdRouteImport
-      parentRoute: typeof AppRoute
-    }
     '/app/reporting/': {
       id: '/app/reporting/'
       path: '/'
@@ -969,7 +931,6 @@ interface AppRouteChildren {
   AppPurchaseOrdersRoute: typeof AppPurchaseOrdersRoute
   AppPurchasesRoute: typeof AppPurchasesRoute
   AppQueueRoute: typeof AppQueueRoute
-  AppQuotationsRoute: typeof AppQuotationsRoute
   AppRemindersRoute: typeof AppRemindersRoute
   AppReportingRoute: typeof AppReportingRouteWithChildren
   AppReportsRoute: typeof AppReportsRoute
@@ -985,7 +946,6 @@ interface AppRouteChildren {
   AppChallanDispatchIdRoute: typeof AppChallanDispatchIdRoute
   AppInvoicePreviewIdRoute: typeof AppInvoicePreviewIdRoute
   AppNotePreviewIdRoute: typeof AppNotePreviewIdRoute
-  AppQuotationQuotationIdRoute: typeof AppQuotationQuotationIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
@@ -1012,7 +972,6 @@ const AppRouteChildren: AppRouteChildren = {
   AppPurchaseOrdersRoute: AppPurchaseOrdersRoute,
   AppPurchasesRoute: AppPurchasesRoute,
   AppQueueRoute: AppQueueRoute,
-  AppQuotationsRoute: AppQuotationsRoute,
   AppRemindersRoute: AppRemindersRoute,
   AppReportingRoute: AppReportingRouteWithChildren,
   AppReportsRoute: AppReportsRoute,
@@ -1028,7 +987,6 @@ const AppRouteChildren: AppRouteChildren = {
   AppChallanDispatchIdRoute: AppChallanDispatchIdRoute,
   AppInvoicePreviewIdRoute: AppInvoicePreviewIdRoute,
   AppNotePreviewIdRoute: AppNotePreviewIdRoute,
-  AppQuotationQuotationIdRoute: AppQuotationQuotationIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)

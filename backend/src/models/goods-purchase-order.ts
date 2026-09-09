@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
+import { PaymentTermsType, normalizePaymentTermsType, normalizeAdvancePct } from "../lib/payment-terms.js";
 
 /**
  * Goods Purchase Order (PO) — a purchase request/commitment against the
@@ -47,6 +48,11 @@ export interface GoodsPurchaseOrder {
   expectedDate: string | null;
   dueDate: string | null;
   paymentTerms: string | null;
+  /** Structured payment terms: credit (Net N), advance_full (100% advance),
+   *  advance_partial (X% advance + remainder on delivery) or on_delivery. */
+  paymentTermsType: PaymentTermsType | null;
+  /** Advance percentage for advance_partial terms (1–99). */
+  advancePct: number | null;
   buyerId: string | null;
   buyerName: string | null;
   notes: string | null;
@@ -195,6 +201,8 @@ export async function create(
     expectedDate: data.expectedDate || data.dueDate || data.expectedDeliveryDate || data.poDate || null,
     dueDate: data.dueDate || null,
     paymentTerms: data.paymentTerms || null,
+    paymentTermsType: normalizePaymentTermsType(data.paymentTermsType),
+    advancePct: normalizeAdvancePct(data.advancePct),
     buyerId: data.buyerId || null,
     buyerName: data.buyerName || null,
     notes: data.notes || null,
@@ -230,6 +238,8 @@ export async function update(id: string, updates: Partial<GoodsPurchaseOrder>) {
     "expectedDate",
     "dueDate",
     "paymentTerms",
+    "paymentTermsType",
+    "advancePct",
     "buyerId",
     "buyerName",
     "notes",

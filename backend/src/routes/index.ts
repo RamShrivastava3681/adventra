@@ -108,7 +108,6 @@ import * as GoodsPO from "../models/goods-purchase-order.js";
 import * as GoodsReceipt from "../models/goods-receipt.js";
 import * as GoodsSO from "../models/goods-sales-order.js";
 import * as GoodsDispatch from "../models/goods-dispatch.js";
-import * as Quotation from "../models/quotation.js";
 import * as Expense from "../models/expense.js";
 import * as Advance from "../models/advance.js";
 import * as Alert from "../models/alert.js";
@@ -392,7 +391,7 @@ router.delete("/products/:id", authMiddleware, async (req, res) => {
     // Variant cascade: deleting a parent also deletes every child SKU. Each
     // one removes its catalogue record AND everything that hangs off it —
     // inventory movements and forecast snapshots. Documents (invoices,
-    // orders, GRNs, dispatches, quotations) keep their snapshot copies.
+    // orders, GRNs, dispatches) keep their snapshot copies.
     const siblings = (await Product.list(ownerId)) as any[];
     const childIds = siblings
       .filter((p) => p.parentId === product.id)
@@ -2595,6 +2594,8 @@ router.post(
         customerName,
         contactPerson: pf.debtorContact || null,
         paymentTerms: pf.paymentTerms || null,
+        paymentTermsType: (pf as any).paymentTermsType ?? null,
+        advancePct: (pf as any).advancePct ?? null,
         expectedDispatchDate: null,
         expectedDeliveryDate: pf.expectedDeliveryDate || null,
         notes: pf.notes || null,
@@ -3313,327 +3314,10 @@ router.post(
   },
 );
 
-// ===================== QUOTATIONS =====================
-// A quotation is an offer to a customer/prospect. It NEVER affects inventory
-// or accounting — stock is only affected after a confirmed dispatch. An
-// accepted quotation converts into a GoodsSalesOrder (linked by id + number).
-
-/** Shape + catalogue checks for quotation lines. SKUs must come from the product catalogue. */
-async function validateQuotationLines(clientId: string | undefined, rawLines: any[]) {
-  const lines = Array.isArray(rawLines) ? rawLines : [];
-  if (lines.length === 0) throw new Error("Add at least one product line");
-  const products = await Product.list(clientId);
-  const productById = new Map(products.map((p: any) => [p.id, p]));
-  for (const l of lines) {
-    if (!l.productId)
-      throw new Error("Every line must select a product from the catalogue");
-    if (!productById.has(l.productId))
-      throw new Error("Every SKU must come from the product catalogue");
-    if (!(Number(l.quantity) > 0))
-      throw new Error("Quantity must be greater than zero");
-    if (Number(l.unitPrice) < 0)
-      throw new Error(
-        "Unit selling price must be greater than or equal to zero",
-      );
-    if (
-      l.updatedUnitPrice !== undefined &&
-      l.updatedUnitPrice !== null &&
-      l.updatedUnitPrice !== "" &&
-      (!Number.isFinite(Number(l.updatedUnitPrice)) ||
-        Number(l.updatedUnitPrice) < 0)
-    ) {
-      throw new Error(
-        "Updated unit price must be a number greater than or equal to zero",
-      );
-    }
-    // An empty-string "updated price" means no revision — normalize to null so
-    // the model (typed number | null) never sees a string.
-    if (l.updatedUnitPrice === "") l.updatedUnitPrice = null;
-    if (
-      l.discountType !== undefined &&
-      l.discountType !== null &&
-      !["pct", "amount"].includes(l.discountType)
-    ) {
-      throw new Error("Discount type must be 'pct' or 'amount'");
-    }
-    if (
-      l.discountType === "pct" &&
-      (Number(l.discountValue) < 0 || Number(l.discountValue) > 100)
-    ) {
-      throw new Error("Percentage discount must be between 0 and 100");
-    }
-    if (l.discountType === "amount" && Number(l.discountValue) < 0) {
-      throw new Error("Discount amount must be greater than or equal to zero");
-    }
-    applyVariantSnapshot(l, productById.get(l.productId));
-  }
-  return lines;
-}
-
-router.get("/quotations", authMiddleware, async (req, res) => {
-  try {
-    res.json(await Quotation.list(effectiveListScope(req)));
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-router.get("/quotations/:id", authMiddleware, async (req, res) => {
-  try {
-    const item = await Quotation.get(req.params.id);
-    if (!item) return res.status(404).json({ error: "Quotation not found" });
-    res.json(item);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-router.post("/quotations", authMiddleware, async (req, res) => {
-  try {
-    const body = req.body || {};
-    let lines: any[];
-    try {
-      lines = await validateQuotationLines(effectiveListScope(req), body.lines);
-    } catch (e: any) {
-      return res.status(400).json({ error: e.message });
-    }
-    if (!body.customerName && body.customerId)
-      body.customerName = await resolveCustomerName(body.customerId);
-    const item = await Quotation.create({
-      ...body,
-      lines,
-      clientId: req.user!.userId,
-      salespersonId: req.user!.userId,
-      salespersonName: req.user!.email,
-    });
-    res.status(201).json(item);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-router.put("/quotations/:id", authMiddleware, async (req, res) => {
-  try {
-    const body = req.body || {};
-    const current = await Quotation.get(req.params.id);
-    if (!current) return res.status(404).json({ error: "Quotation not found" });
-
-    // ── Maker–checker price approval ──
-    if (body.approvalStatus !== undefined) {
-      if (
-        body.approvalStatus === "approved" ||
-        body.approvalStatus === "rejected"
-      ) {
-        // Only the checker (or admin) may decide, and never on their own quote.
-        const roles: string[] = req.user!.roles || [];
-        const isAdmin = roles.includes("factor_admin");
-        const isChecker = roles.includes("checker");
-        if (!isAdmin && !isChecker) {
-          return res
-            .status(403)
-            .json({
-              error:
-                "Only the checker (or admin) can approve or reject quotations",
-            });
-        }
-        if (!isAdmin && current.clientId === req.user!.userId) {
-          return res
-            .status(403)
-            .json({
-              error:
-                "You cannot review a quotation you created (segregation of duties)",
-            });
-        }
-        if (current.status === "converted_to_so") {
-          return res
-            .status(400)
-            .json({
-              error: "This quotation is already converted to a sales order",
-            });
-        }
-        body.approvalReviewedBy = req.user!.userId;
-        body.approvalReviewedAt = db.nowISO();
-      } else if (body.approvalStatus === "pending_review") {
-        // Maker submits for approval. Content must be settled first.
-        if (current.approvalStatus === "approved") {
-          return res
-            .status(400)
-            .json({ error: "This quotation is already approved" });
-        }
-        if (current.status === "converted_to_so") {
-          return res
-            .status(400)
-            .json({
-              error: "This quotation is already converted to a sales order",
-            });
-        }
-        body.status = body.status ?? "sent";
-        body.approvalRequestedAt = db.nowISO();
-      } else {
-        return res
-          .status(400)
-          .json({
-            error:
-              "approvalStatus must be pending_review, approved or rejected",
-          });
-      }
-    }
-
-    // Lines are frozen once an approval is in flight (or after approval) — not
-    // even a checker's decision may smuggle line edits through. After a
-    // rejection the maker can edit again and resubmit.
-    const underReview = ["pending_review", "approved"].includes(
-      current.approvalStatus ?? "",
-    );
-    if (underReview && body.lines !== undefined) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Quotation is under review — lines cannot be edited until the checker decides",
-        });
-    }
-
-    if (body.lines !== undefined) {
-      let lines: any[];
-      try {
-        lines = await validateQuotationLines(effectiveListScope(req), body.lines);
-      } catch (e: any) {
-        return res.status(400).json({ error: e.message });
-      }
-      body.lines = lines;
-    }
-    if (body.customerName === undefined && body.customerId)
-      body.customerName = await resolveCustomerName(body.customerId);
-    const updated = await Quotation.update(req.params.id, body);
-    // Audit trail — record maker submission / checker approval decisions.
-    if (
-      body.approvalStatus !== undefined &&
-      body.approvalStatus !== current.approvalStatus
-    ) {
-      const s = String(body.approvalStatus);
-      const actionByStatus = {
-        pending_review: "quotation.submitted",
-        approved: "quotation.approved",
-        rejected: "quotation.rejected",
-      } as Record<string, string>;
-      if (actionByStatus[s]) {
-        trackAction(req, actionByStatus[s], current.id, {
-          entityType: "quotation",
-          entityRef: current.quotationNumber,
-          status: s,
-          prevStatus: current.approvalStatus ?? null,
-          amount: current.grandTotal,
-        });
-      }
-    }
-    res.json(updated);
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-router.delete("/quotations/:id", authMiddleware, async (req, res) => {
-  try {
-    const q = await Quotation.get(req.params.id);
-    if (!q) return res.status(404).json({ error: "Quotation not found" });
-    if (!["draft"].includes(q.status)) {
-      return res
-        .status(400)
-        .json({ error: "Only draft quotations can be deleted" });
-    }
-    await Quotation.remove(q.id);
-    res.json({ success: true });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-/** POST /quotations/:id/convert — turn a sent/accepted quotation into a sales order. */
-router.post("/quotations/:id/convert", authMiddleware, async (req, res) => {
-  try {
-    const clientId = req.user!.userId;
-    const q = await Quotation.get(req.params.id);
-    if (!q) return res.status(404).json({ error: "Quotation not found" });
-    if (q.status === "converted_to_so")
-      return res
-        .status(400)
-        .json({ error: "Quotation is already converted to a sales order" });
-    if (!["sent", "accepted"].includes(q.status)) {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Only sent or accepted quotations can be converted to a sales order",
-        });
-    }
-    // Maker–checker gate: the updated prices must be approved before the quote
-    // can become a sales order.
-    if (q.approvalStatus !== "approved") {
-      return res
-        .status(400)
-        .json({
-          error:
-            "Quotation must be approved by the checker before converting to a sales order",
-        });
-    }
-    const lines: any[] = (q.lines ?? []).map((l: any) => {
-      // The approved effective price — the maker's updated price when set,
-      // otherwise the original quoted price.
-      const unitPrice = Number(l.updatedUnitPrice ?? l.unitPrice) || 0;
-      let discountPct: number | null = null;
-      if (l.discountType === "pct") discountPct = Number(l.discountValue) || 0;
-      else if (l.discountType === "amount") {
-        const gross = (Number(l.quantity) || 0) * unitPrice;
-        if (gross > 0)
-          discountPct =
-            Math.round(((Number(l.discountValue) || 0) / gross) * 100 * 100) /
-            100;
-      }
-      return {
-        productId: l.productId,
-        sku: l.sku,
-        name: l.name,
-        unit: l.unit || "unit",
-        orderedQty: Number(l.quantity) || 0,
-        unitPrice,
-        discountPct,
-        gstRate: l.gstRate ?? null,
-        notes: l.notes || null,
-      };
-    });
-    const so = await GoodsSO.create({
-      clientId,
-      orderDate: db.todayDate(),
-      customerId: q.customerId,
-      customerName: q.customerName,
-      contactPerson: q.contactPerson,
-      billingAddress: q.billingAddress,
-      deliveryAddress: q.deliveryAddress,
-      salespersonId: q.salespersonId,
-      salespersonName: q.salespersonName,
-      paymentTerms: q.paymentTerms,
-      expectedDeliveryDate: q.expectedDeliveryDate,
-      freight: q.freight,
-      linkedQuotationId: q.id,
-      linkedQuotationNumber: q.quotationNumber,
-      notes: q.notes
-        ? `Converted from quotation ${q.quotationNumber}. ${q.notes}`
-        : `Converted from quotation ${q.quotationNumber}`,
-      documents: q.documents || [],
-      status: "draft",
-      lines,
-    });
-    const updated = await Quotation.update(q.id, {
-      status: "converted_to_so",
-      linkedGoodsSoId: so.id,
-    });
-    res.status(201).json({ quotation: updated, salesOrder: so });
-  } catch (err: any) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
 // ===================== DEBTOR PDF APPROVALS =====================
-// Send a quotation / sales order PDF to the debtor by email with an
+// Send a sales order PDF to the debtor by email with an
 // Approve/Reject link. The debtor's decision is recorded on the document and
-// reflected in the Quotations / Sales Orders tabs (accepted / confirmed).
+// reflected in the Sales Orders tab (accepted / confirmed).
 // The public /approvals/:token endpoints are token-authenticated (rate-limited,
 // no login) and one-time: the token is cleared once the debtor responds.
 
@@ -3641,16 +3325,13 @@ router.post("/quotations/:id/convert", authMiddleware, async (req, res) => {
 async function findApprovalDoc(
   token: string,
 ): Promise<{
-  kind: "quotation" | "sales_order" | "purchase_order";
+  kind: "sales_order" | "purchase_order";
   doc: any;
 } | null> {
-  const [quotations, sos, pos] = await Promise.all([
-    db.scanByType("Quotation"),
+  const [sos, pos] = await Promise.all([
     db.scanByType("GoodsSalesOrder"),
     db.scanByType("GoodsPurchaseOrder"),
   ]);
-  const q = (quotations as any[]).find((x) => x.debtorApprovalToken === token);
-  if (q) return { kind: "quotation", doc: q };
   const so = (sos as any[]).find((x) => x.debtorApprovalToken === token);
   if (so) return { kind: "sales_order", doc: so };
   const po = (pos as any[]).find((x) => x.supplierApprovalToken === token);
@@ -3679,7 +3360,7 @@ async function resolveCompanyName(
 
 /** Shared send-to-debtor logic: build PDF, email it, return the fresh token. */
 async function sendDocumentToDebtor(
-  kind: "quotation" | "sales_order",
+  kind: "sales_order",
   doc: any,
   clientId: string,
 ): Promise<{ token: string; email: string; filename: string }> {
@@ -3698,12 +3379,9 @@ async function sendDocumentToDebtor(
   }
 
   const company = await resolveCompanyName(clientId);
-  const { quotationToPdfData, salesOrderToPdfData, buildDocumentPdf } =
+  const { salesOrderToPdfData, buildDocumentPdf } =
     await import("../lib/document-pdf.js");
-  const data =
-    kind === "quotation"
-      ? quotationToPdfData(doc, company.name, company.contact)
-      : salesOrderToPdfData(doc, company.name, company.contact);
+  const data = salesOrderToPdfData(doc, company.name, company.contact);
   const pdf = await buildDocumentPdf(data);
 
   const token = uuid();
@@ -3833,38 +3511,6 @@ router.post(
   },
 );
 
-/** POST /quotations/:id/send-to-debtor — email the quotation PDF for approval. */
-router.post(
-  "/quotations/:id/send-to-debtor",
-  authMiddleware,
-  async (req, res) => {
-    try {
-      const q = await Quotation.get(req.params.id);
-      if (!q) return res.status(404).json({ error: "Quotation not found" });
-      if (!["draft", "sent", "accepted", "rejected"].includes(q.status)) {
-        return res.status(400).json({
-          error:
-            q.status === "converted_to_so"
-              ? "This quotation is already converted to a sales order"
-              : "Only draft, sent or accepted quotations can be sent to the debtor",
-        });
-      }
-      const sent = await sendDocumentToDebtor("quotation", q, req.user!.userId);
-      const updated = await Quotation.update(q.id, {
-        debtorApprovalStatus: "pending",
-        debtorApprovalToken: sent.token,
-        debtorApprovalSentAt: db.nowISO(),
-        debtorApprovalRespondedAt: null,
-        debtorApprovalComments: null,
-        debtorApprovalEmail: sent.email,
-      });
-      res.json({ success: true, sentTo: sent.email, document: updated });
-    } catch (err: any) {
-      res.status(400).json({ error: err.message });
-    }
-  },
-);
-
 /** POST /goods-sales-orders/:id/send-to-debtor — email the SO PDF for approval. */
 router.post(
   "/goods-sales-orders/:id/send-to-debtor",
@@ -3904,7 +3550,7 @@ router.post(
  * internal fields (clientId, salespersonId, approval reviewers, tokens…).
  */
 function publicApprovalSummary(
-  kind: "quotation" | "sales_order" | "purchase_order",
+  kind: "sales_order" | "purchase_order",
   doc: any,
 ) {
   const base = {
@@ -3947,14 +3593,6 @@ function publicApprovalSummary(
         ? (doc.supplierApprovalComments ?? null)
         : (doc.debtorApprovalComments ?? null),
   };
-  if (kind === "quotation") {
-    return {
-      ...base,
-      quotationNumber: doc.quotationNumber,
-      quotationDate: doc.quotationDate,
-      validUntil: doc.validUntil,
-    };
-  }
   if (kind === "purchase_order") {
     return {
       ...base,
@@ -4049,33 +3687,25 @@ router.post(
       // lifecycle status stays untouched), which approval fields to write, and
       // what status to set on approval/rejection.
       const cfg =
-        kind === "quotation"
+        kind === "sales_order"
           ? {
-              locked: ["converted_to_so", "expired"],
+              locked: [
+                "partially_dispatched",
+                "fully_dispatched",
+                "cancelled",
+              ],
               field: "debtorApproval",
-              pk: `QUOTATION#${doc.id}`,
-              onApprove: "accepted",
-              onReject: "rejected",
+              pk: `GOODS_SO#${doc.id}`,
+              onApprove: "confirmed",
+              onReject: "draft",
             }
-          : kind === "sales_order"
-            ? {
-                locked: [
-                  "partially_dispatched",
-                  "fully_dispatched",
-                  "cancelled",
-                ],
-                field: "debtorApproval",
-                pk: `GOODS_SO#${doc.id}`,
-                onApprove: "confirmed",
-                onReject: "draft",
-              }
-            : {
-                locked: ["partially_received", "fully_received", "cancelled"],
-                field: "supplierApproval",
-                pk: `GOODS_PO#${doc.id}`,
-                onApprove: "sent",
-                onReject: "draft",
-              };
+          : {
+              locked: ["partially_received", "fully_received", "cancelled"],
+              field: "supplierApproval",
+              pk: `GOODS_PO#${doc.id}`,
+              onApprove: "sent",
+              onReject: "draft",
+            };
 
       const locked = cfg.locked.includes(doc.status);
       const f = cfg.field;

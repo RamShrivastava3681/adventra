@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
+import { PaymentTermsType, normalizePaymentTermsType, normalizeAdvancePct } from "../lib/payment-terms.js";
 
 /**
  * Line on a purchase invoice — snapshotted from the linked goods PO, with
@@ -51,6 +52,11 @@ export interface PurchaseInvoice {
   /** Invoice received date — when the invoice arrived at the business. */
   receivedDate: string | null;
   dueDate: string | null; expectedDate?: string | null;
+  /** Structured payment terms: credit (Net N), advance_full (100% advance),
+   *  advance_partial (X% advance + remainder on delivery) or on_delivery. */
+  paymentTermsType: PaymentTermsType | null;
+  /** Advance percentage for advance_partial terms (1–99). */
+  advancePct: number | null;
   agreedPaymentDate?: string | null;
   paidDate: string | null;
   status: string; notes: string | null;
@@ -192,6 +198,8 @@ export async function create(data: Partial<PurchaseInvoice> & { clientId: string
     poNumber: data.poNumber || null, poDate: data.poDate || null, poAmount: data.poAmount || null,
     issueDate: data.issueDate || db.todayDate(), receivedDate: data.receivedDate || null,
     dueDate: data.dueDate || null, expectedDate: data.expectedDate || data.dueDate || null, paidDate: null,
+    paymentTermsType: normalizePaymentTermsType(data.paymentTermsType),
+    advancePct: normalizeAdvancePct(data.advancePct),
     status: data.status && PI_STATUSES.includes(data.status as any) ? data.status : "draft",
     notes: data.notes || null,
     goodsPurchaseOrderId: data.goodsPurchaseOrderId || null,
@@ -222,7 +230,7 @@ export async function update(id: string, updates: Partial<PurchaseInvoice>) {
     "invoiceNumber", "vendorId", "supplierName", "poNumber", "poDate", "poAmount",
     "notes", "advanceRate", "advancePaidDate", "fundedDate", "purchaseOrderId",
     "documents", "lastOverdueReminderDate",
-    "goodsPurchaseOrderId", "goodsPoNumber",
+    "goodsPurchaseOrderId", "goodsPoNumber", "paymentTermsType", "advancePct",
     "linkedGoodsReceiptId", "linkedGoodsReceiptNumber",
     "lines", "subtotal", "gstTotal", "freight", "grandTotal",
     "amountPaid", "balanceDue", "differenceNotes",

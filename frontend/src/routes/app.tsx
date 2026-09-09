@@ -35,7 +35,6 @@ import {
   ClipboardList,
   PackageCheck,
   ShoppingBag,
-  ScrollText,
   Sun,
   Moon,
   Monitor,
@@ -86,7 +85,6 @@ const FINANCE_ITEMS: NavItem[] = [
 // ─── Sales Operator items ──
 const SALES_OPERATOR_ITEMS: NavItem[] = [
   { to: "/app/debtors", label: "Debtors", icon: Building2 },
-  { to: "/app/quotations", label: "Quotations", icon: ScrollText },
   { to: "/app/suppliers", label: "Suppliers", icon: Truck },
   { to: "/app/sales-orders", label: "Sales orders", icon: ShoppingBag },
   { to: "/app/invoices", label: "Sales invoices", icon: FileText },
@@ -187,7 +185,6 @@ function buildNavSections(roles: string[]): NavSection[] {
     isSalesRep
       ? [
           { to: "/app/crm", label: "Leads", icon: Users },
-          { to: "/app/quotations", label: "Quotations", icon: ScrollText },
           { to: "/app/debtors", label: "Debtors", icon: Building2 },
           { to: "/app/suppliers", label: "Suppliers", icon: Truck },
           { to: "/app/naughty-list", label: "Naughty List", icon: AlertTriangle },
@@ -353,8 +350,6 @@ function AppLayout() {
     // Sales Operator routes
     const salesOperatorRoutes: string[] = [
       "/app/debtors",
-      "/app/quotations",
-      "/app/quotation",
       "/app/sales-orders",
       "/app/invoices",
       "/app/proformas",
@@ -435,8 +430,6 @@ function AppLayout() {
     const salesmanAllowed: string[] = [
       "/app/dashboard",
       "/app/crm",
-      "/app/quotations",
-      "/app/quotation",
       "/app/debtors",
       "/app/suppliers",
       "/app/naughty-list",
@@ -444,8 +437,6 @@ function AppLayout() {
 
     // Seller allowed routes (for view-as)
     const sellerAllowed: string[] = [
-      "/app/quotations",
-      "/app/quotation",
       "/app/sales-orders",
       "/app/invoices",
       "/app/proformas",
@@ -548,7 +539,6 @@ function AppLayout() {
   const currentPage = (() => {
     // Detail / preview routes that don't share a nav-item prefix.
     const DETAIL_LABELS: [string, string][] = [
-      ["/app/quotation/", "Quotation"],
       ["/app/challan/", "Dispatch"],
       ["/app/invoice-preview/", "Invoice"],
       ["/app/note-preview/", "Credit / Debit note"],

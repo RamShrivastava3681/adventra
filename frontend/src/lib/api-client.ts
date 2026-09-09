@@ -243,17 +243,6 @@ const api = {
     cancel: (id: string) => api.post<any>(`/goods-receipts/${id}/cancel`, {}),
   },
 
-  // Quotations (offers to customers — never touch stock or accounting)
-  quotations: {
-    list: () => api.get<any[]>("/quotations"),
-    get: (id: string) => api.get<any>(`/quotations/${id}`),
-    create: (data: any) => api.post<any>("/quotations", data),
-    update: (id: string, data: any) => api.put<any>(`/quotations/${id}`, data),
-    delete: (id: string) => api.delete(`/quotations/${id}`),
-    convert: (id: string) => api.post<any>(`/quotations/${id}/convert`, {}),
-    sendToDebtor: (id: string) => api.post<any>(`/quotations/${id}/send-to-debtor`, {}),
-  },
-
   // Goods Sales Orders (catalogue-backed customer orders — never touch stock)
   goodsSalesOrders: {
     list: () => api.get<any[]>("/goods-sales-orders"),

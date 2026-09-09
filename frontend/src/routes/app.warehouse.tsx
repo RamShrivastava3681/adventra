@@ -17,6 +17,7 @@ import {
   Truck,
   PackageCheck,
   ClipboardCheck,
+  ClipboardList,
   Boxes,
   BarChart3,
   CheckCircle2,
@@ -26,6 +27,7 @@ import {
   Loader2,
   ArrowDownToLine,
   ArrowUpFromLine,
+  FileText,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -97,6 +99,43 @@ type SO = {
   lines: SOLine[];
 };
 
+type GoodsPO = {
+  id: string;
+  po_number: string;
+  po_date: string;
+  supplier_name: string | null;
+  expected_delivery_date: string | null;
+  status: string;
+  warehouse: string | null;
+  grand_total: number;
+  lines: Array<{
+    product_id: string;
+    name: string;
+    ordered_qty: number;
+    received_qty: number;
+    unit_price: number;
+  }>;
+};
+
+type WarehouseGRN = {
+  id: string;
+  receipt_number: string;
+  goods_purchase_order_id: string;
+  po_number: string | null;
+  supplier_name: string | null;
+  received_date: string;
+  status: string;
+  warehouse: string | null;
+  lines: Array<{
+    product_id: string;
+    name: string;
+    ordered_qty: number;
+    received_qty: number;
+    accepted_qty: number;
+    unit_cost: number;
+  }>;
+};
+
 type DispatchLine = {
   product_id: string;
   name: string;
@@ -163,6 +202,18 @@ function WarehousePage() {
     queryKey: ["wh_dispatches"],
     queryFn: () => api.goodsDispatches.list(),
   });
+  const invoicesQ = useQuery({
+    queryKey: ["wh_invoices"],
+    queryFn: () => api.invoices.list(),
+  });
+  const posQ = useQuery({
+    queryKey: ["wh_pos"],
+    queryFn: () => api.goodsPurchaseOrders.list(),
+  });
+  const grnsQ = useQuery({
+    queryKey: ["wh_grns"],
+    queryFn: () => api.goodsReceipts.list(),
+  });
   const movementsQ = useQuery({
     queryKey: ["wh_movements"],
     queryFn: () => api.stockMovements.list(),
@@ -174,8 +225,22 @@ function WarehousePage() {
 
   const orders = (ordersQ.data ?? []) as SO[];
   const dispatches = (dispatchesQ.data ?? []) as Dispatch[];
+  const invoices = (invoicesQ.data ?? []) as any[];
+  const pos = (posQ.data ?? []) as GoodsPO[];
+  const grns = (grnsQ.data ?? []) as WarehouseGRN[];
   const movements = (movementsQ.data ?? []) as Movement[];
-  const receipts = (receiptsQ.data ?? []) as GoodsReceipt[];
+  const receipts = (receiptsQ.data ?? []) as any[];
+
+  // Get all dispatch IDs that are linked to invoices
+  const dispatchedInvoiceIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const d of dispatches) {
+      if (d.linked_sales_invoice_id) {
+        ids.add(d.linked_sales_invoice_id);
+      }
+    }
+    return ids;
+  }, [dispatches]);
 
   // ── Stock on hand + valuation (confirmed movements only) ──
   const stock = useMemo(() => {
@@ -231,9 +296,54 @@ function WarehousePage() {
       .filter((o) => o.pendingQty > 0);
   }, [signoffOrders]);
 
+  // ── Ready to dispatch from invoices: approved invoices with expected dispatch date ──
+  const readyInvoices = useMemo(() => {
+    return invoices
+      .filter((inv: any) => {
+        if (!inv.expected_dispatch_date) return false;
+        if (inv.status === 'paid' || inv.status === 'cancelled' || inv.status === 'rejected') return false;
+        // Skip invoices that already have a dispatch linked
+        if (inv.linked_sales_invoice_id && dispatchedInvoiceIds.has(inv.linked_sales_invoice_id)) return false;
+        return true;
+      })
+      .sort((a: any, b: any) => (a.expected_dispatch_date ?? '').localeCompare(b.expected_dispatch_date ?? ''));
+  }, [invoices, dispatchedInvoiceIds]);
+
+  // ── Ready POs: approved POs with pending receipt quantity ──
+  const readyPOs = useMemo(() => {
+    return pos
+      .filter((po) => {
+        if (po.status === 'cancelled' || po.status === 'draft') return false;
+        if (po.status === 'fully_received') return false;
+        // Check if any lines have pending quantity (ordered but not fully received)
+        const hasPending = (po.lines ?? []).some(
+          (l) => l.ordered_qty > (l.received_qty ?? 0)
+        );
+        if (!hasPending) return false;
+        // Skip POs that already have a GRN linked
+        const hasGrn = grns.some((g) => g.goods_purchase_order_id === po.id);
+        if (hasGrn) return false;
+        return true;
+      })
+      .sort((a, b) => (a.expected_delivery_date ?? '').localeCompare(b.expected_delivery_date ?? ''));
+  }, [pos, grns]);
+
+  // ── Pending GRNs: draft GRNs awaiting confirmation (stock credit) ──
+  const pendingGrns = useMemo(() => {
+    return grns
+      .filter((grn) => {
+        // Show draft GRNs that haven't been confirmed yet
+        if (grn.status === 'confirmed' || grn.status === 'cancelled') return false;
+        return true;
+      })
+      .sort((a, b) => (a.received_date ?? '').localeCompare(b.received_date ?? ''));
+  }, [grns]);
+
   const openDispatches = dispatches.filter(
     (d) => !["delivered", "cancelled", "returned"].includes(d.status),
   );
+
+  
 
   // ── In / out report grouped by supplier (in) and buyer (out) ──
   const receiptById = useMemo(
@@ -532,41 +642,200 @@ function WarehousePage() {
         )}
 
         {tab === "ready" && (
-          <Card title="Warehouse-approved orders ready for dispatch">
-            {ordersQ.isLoading ? (
-              <TableSkeleton rows={3} />
-            ) : readyOrders.length === 0 ? (
-              <EmptyState
-                icon={<PackageCheck className="h-5 w-5" />}
-                title="Nothing waiting"
-                description="Approve sales orders in the sign-off tab — approved orders with pending quantity appear here."
-              />
-            ) : (
-              <Table head={["Order", "Buyer", "Expected", "Pending qty", "Pending value", ""]}>
-                {readyOrders.map((o) => (
-                  <tr key={o.id} className="border-b border-border/60 hover:bg-muted/30">
-                    <td className="px-5 py-3">{o.so_number}</td>
-                    <td className="px-5 py-3">{o.customer_name ?? "—"}</td>
-                    <td className="px-5 py-3 text-muted-foreground">{fmtDate(o.expected_dispatch_date)}</td>
-                    <td className="num px-5 py-3 text-right">{o.pendingQty.toLocaleString()}</td>
-                    <td className="num px-5 py-3 text-right">{fmtMoney(o.pendingValue)}</td>
-                    <td className="px-5 py-3 text-right">
-                      <a
-                        href="/app/dispatches"
-                        className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground"
-                      >
-                        <Truck className="h-3 w-3" /> Create dispatch
-                      </a>
-                    </td>
-                  </tr>
-                ))}
-              </Table>
-            )}
-            <p className="mt-4 text-xs text-muted-foreground">
-              Dispatch notes are created from the Dispatch page against these orders; the pending quantity clears as
-              dispatches are confirmed.
-            </p>
-          </Card>
+          <div className="space-y-6">
+            {/* Orders ready for dispatch */}
+            <Card title="Warehouse-approved orders ready for dispatch">
+              {ordersQ.isLoading ? (
+                <TableSkeleton rows={3} />
+              ) : readyOrders.length === 0 ? (
+                <EmptyState
+                  icon={<PackageCheck className="h-5 w-5" />}
+                  title="No orders waiting"
+                  description="Approve sales orders in the sign-off tab — approved orders with pending quantity appear here."
+                />
+              ) : (
+                <Table head={["Order", "Buyer", "Expected", "Pending qty", "Pending value", ""]}>
+                  {readyOrders.map((o) => (
+                    <tr key={o.id} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-5 py-3">{o.so_number}</td>
+                      <td className="px-5 py-3">{o.customer_name ?? "—"}</td>
+                      <td className="px-5 py-3 text-muted-foreground">{fmtDate(o.expected_dispatch_date)}</td>
+                      <td className="num px-5 py-3 text-right">{o.pendingQty.toLocaleString()}</td>
+                      <td className="num px-5 py-3 text-right">{fmtMoney(o.pendingValue)}</td>
+                      <td className="px-5 py-3 text-right">
+                        <a
+                          href="/app/dispatches"
+                          className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground"
+                        >
+                          <Truck className="h-3 w-3" /> Create dispatch
+                        </a>
+                      </td>
+                    </tr>
+                  ))}
+                </Table>
+              )}
+            </Card>
+
+            {/* Invoices ready for dispatch */}
+            <Card title="Approved invoices awaiting dispatch">
+              {invoicesQ.isLoading ? (
+                <TableSkeleton rows={3} />
+              ) : readyInvoices.length === 0 ? (
+                <EmptyState
+                  icon={<FileText className="h-5 w-5" />}
+                  title="No invoices waiting"
+                  description="Approved invoices with an expected dispatch date appear here. Create a dispatch to ship the goods."
+                />
+              ) : (
+                <Table head={["Invoice", "Customer", "Amount", "Expected dispatch", "Days left", ""]}>
+                  {readyInvoices.map((inv: any) => {
+                    const daysLeft = inv.expected_dispatch_date
+                      ? Math.max(0, Math.round((new Date(inv.expected_dispatch_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))
+                      : 0;
+                    return (
+                      <tr key={inv.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3">
+                          <div className="font-mono text-xs">{inv.invoice_number}</div>
+                          {inv.goods_sales_order_number && (
+                            <div className="text-[10px] text-muted-foreground">SO {inv.goods_sales_order_number}</div>
+                          )}
+                        </td>
+                        <td className="px-5 py-3">{inv.debtor?.name ?? "—"}</td>
+                        <td className="num px-5 py-3 text-right">{fmtMoney(inv.grand_total ?? inv.amount)}</td>
+                        <td className="px-5 py-3 text-muted-foreground">{fmtDate(inv.expected_dispatch_date)}</td>
+                        <td className="px-5 py-3 text-center">
+                          {daysLeft === 0 ? (
+                            <span className="inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] text-destructive">
+                              Due today
+                            </span>
+                          ) : daysLeft <= 3 ? (
+                            <span className="inline-flex items-center rounded-full bg-warning/10 px-2 py-0.5 text-[10px] text-warning">
+                              {daysLeft}d left
+                            </span>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">{daysLeft}d</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          <button
+                            onClick={() => (window.location.href = `/app/dispatches?createFromInvoice=${inv.id}`)}
+                            className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground"
+                          >
+                            <Truck className="h-3 w-3" /> Create dispatch
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </Table>
+              )}
+              <p className="mt-4 text-xs text-muted-foreground">
+                Every dispatch can be linked to an invoice — the invoice reference is stored on the dispatch record and
+                appears in the movement report. Create a dispatch from here to auto-link the invoice.
+              </p>
+            </Card>
+
+            {/* Purchase Orders ready for goods receipt */}
+            <Card title="Purchase orders awaiting goods receipt">
+              {posQ.isLoading ? (
+                <TableSkeleton rows={3} />
+              ) : readyPOs.length === 0 ? (
+                <EmptyState
+                  icon={<ClipboardList className="h-5 w-5" />}
+                  title="No POs waiting"
+                  description="Approved purchase orders with pending quantity appear here. Create a GRN to receive the goods."
+                />
+              ) : (
+                <Table head={["PO", "Supplier", "Expected delivery", "Pending qty", "Value", ""]}>
+                  {readyPOs.map((po) => {
+                    const pendingQty = (po.lines ?? []).reduce(
+                      (s, l) => s + Math.max(0, l.ordered_qty - (l.received_qty ?? 0)),
+                      0
+                    );
+                    const pendingValue = (po.lines ?? []).reduce(
+                      (s, l) => s + Math.max(0, l.ordered_qty - (l.received_qty ?? 0)) * (l.unit_price || 0),
+                      0
+                    );
+                    return (
+                      <tr key={po.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3">
+                          <div className="font-mono text-xs">{po.po_number}</div>
+                        </td>
+                        <td className="px-5 py-3">{po.supplier_name ?? "—"}</td>
+                        <td className="px-5 py-3 text-muted-foreground">{fmtDate(po.expected_delivery_date)}</td>
+                        <td className="num px-5 py-3 text-right">{pendingQty.toLocaleString()}</td>
+                        <td className="num px-5 py-3 text-right">{fmtMoney(pendingValue)}</td>
+                        <td className="px-5 py-3 text-right">
+                          <a
+                            href="/app/grn?createFromPO=${encodeURIComponent(po.id)}"
+                            className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground"
+                          >
+                            <PackageCheck className="h-3 w-3" /> Create GRN
+                          </a>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </Table>
+              )}
+              <p className="mt-4 text-xs text-muted-foreground">
+                Goods Receipt Notes (GRNs) credit inventory when goods arrive. Create a GRN from here to auto-link the
+                purchase order and record the received quantities.
+              </p>
+            </Card>
+
+            {/* GRNs pending confirmation */}
+            <Card title="Goods receipts pending confirmation">
+              {grnsQ.isLoading ? (
+                <TableSkeleton rows={3} />
+              ) : pendingGrns.length === 0 ? (
+                <EmptyState
+                  icon={<ClipboardCheck className="h-5 w-5" />}
+                  title="No GRNs pending"
+                  description="Draft goods receipts awaiting confirmation appear here. Confirm to credit stock."
+                />
+              ) : (
+                <Table head={["GRN", "PO", "Supplier", "Received", "Value", ""]}>
+                  {pendingGrns.map((grn) => {
+                    const totalReceived = (grn.lines ?? []).reduce(
+                      (s, l) => s + (l.accepted_qty ?? l.received_qty ?? 0),
+                      0
+                    );
+                    const totalValue = (grn.lines ?? []).reduce(
+                      (s, l) => s + (l.accepted_qty ?? l.received_qty ?? 0) * (l.unit_cost || 0),
+                      0
+                    );
+                    return (
+                      <tr key={grn.id} className="border-b border-border/60 hover:bg-muted/30">
+                        <td className="px-5 py-3">
+                          <div className="font-mono text-xs">{grn.receipt_number}</div>
+                        </td>
+                        <td className="px-5 py-3">{grn.po_number ?? "—"}</td>
+                        <td className="px-5 py-3">{grn.supplier_name ?? "—"}</td>
+                        <td className="num px-5 py-3 text-right">{totalReceived.toLocaleString()}</td>
+                        <td className="num px-5 py-3 text-right">{fmtMoney(totalValue)}</td>
+                        <td className="px-5 py-3 text-right">
+                          <button
+                            onClick={() => {
+                              // Navigate to GRN page for confirmation
+                              window.location.href = `/app/grn?id=${grn.id}`;
+                            }}
+                            className="inline-flex items-center gap-1 rounded-md bg-success/10 px-2.5 py-1 text-xs text-success"
+                          >
+                            <CheckCircle2 className="h-3 w-3" /> Confirm
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </Table>
+              )}
+              <p className="mt-4 text-xs text-muted-foreground">
+                Confirming a GRN credits stock-in movements and updates the purchase order's received quantities.
+                Draft GRNs can be edited before confirmation.
+              </p>
+            </Card>
+          </div>
         )}
 
         {tab === "dispatches" && (

@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
+import { PaymentTermsType, normalizePaymentTermsType, normalizeAdvancePct } from "../lib/payment-terms.js";
 
 /**
  * Goods Sales Order (SO) — a customer's confirmed order against the product
@@ -54,10 +55,12 @@ export interface GoodsSalesOrder {
   /** Salesperson / owner who owns the order. */
   salespersonId: string | null;
   salespersonName: string | null;
-  /** Linked quotation — optional. (Quotation flow to be defined; stored by number for now.) */
-  linkedQuotationId: string | null;
-  linkedQuotationNumber: string | null;
   paymentTerms: string | null;
+  /** Structured payment terms: credit (Net N), advance_full (100% advance),
+   *  advance_partial (X% advance + remainder on delivery) or on_delivery. */
+  paymentTermsType: PaymentTermsType | null;
+  /** Advance percentage for advance_partial terms (1–99). */
+  advancePct: number | null;
   expectedDispatchDate: string | null;
   expectedDeliveryDate: string | null;
   notes: string | null;
@@ -246,8 +249,6 @@ export async function create(
     deliveryAddress: data.deliveryAddress || null,
     salespersonId: data.salespersonId || null,
     salespersonName: data.salespersonName || null,
-    linkedQuotationId: data.linkedQuotationId || null,
-    linkedQuotationNumber: data.linkedQuotationNumber || null,
     debtorApprovalStatus: (data.debtorApprovalStatus as any) || null,
     debtorApprovalToken: data.debtorApprovalToken || null,
     debtorApprovalSentAt: data.debtorApprovalSentAt || null,
@@ -259,6 +260,8 @@ export async function create(
     warehouseApprovedAt: data.warehouseApprovedAt || null,
     warehouseNotes: data.warehouseNotes || null,
     paymentTerms: data.paymentTerms || null,
+    paymentTermsType: normalizePaymentTermsType(data.paymentTermsType),
+    advancePct: normalizeAdvancePct(data.advancePct),
     expectedDispatchDate: data.expectedDispatchDate || null,
     expectedDeliveryDate: data.expectedDeliveryDate || null,
     notes: data.notes || null,
@@ -288,9 +291,9 @@ export async function update(id: string, updates: Partial<GoodsSalesOrder>) {
     "deliveryAddress",
     "salespersonId",
     "salespersonName",
-    "linkedQuotationId",
-    "linkedQuotationNumber",
     "paymentTerms",
+    "paymentTermsType",
+    "advancePct",
     "expectedDispatchDate",
     "expectedDeliveryDate",
     "notes",

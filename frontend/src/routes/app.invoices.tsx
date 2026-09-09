@@ -15,6 +15,12 @@ import { Plus, X, Loader2, Send, Eye, Mail, FileCheck, FileText, Ban, Trash2 } f
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import {
+  PaymentTermsFields,
+  formatPaymentTerms,
+  toFormFields as toTermsFormFields,
+  toPayload as toTermsPayload,
+} from "@/components/payment-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductVariantPicker } from "@/components/product-variant-picker";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
@@ -110,7 +116,6 @@ function InvoicesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Inv | null>(null);
   const [viewing, setViewing] = useState<Inv | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", "list"],
@@ -128,6 +133,9 @@ function InvoicesPage() {
         id: d.id,
         name: d.name,
         payment_terms_days: d.paymentTermsDays ?? d.payment_terms_days,
+        paymentTermsType: d.paymentTermsType ?? d.payment_terms_type ?? null,
+        advancePct: d.advancePct ?? d.advance_pct ?? null,
+        paymentTerms: d.paymentTerms ?? d.payment_terms ?? null,
         billing_address: d.billing_address ?? d.address_line ?? null,
         shipping_address: d.shipping_address ?? null,
       }));
@@ -138,31 +146,6 @@ function InvoicesPage() {
   // from the debtor master so the Debtor column always shows the actual name.
   const debtorName = (id?: string | null) =>
     (debtorsQ.data ?? []).find((d) => d.id === id)?.name ?? null;
-
-  const sendNoa = useMutation({
-    mutationFn: async (id: string) => {
-      return api.invoices.sendNoa(id);
-    },
-    onSuccess: (data, id) => {
-      qc.invalidateQueries({ queryKey: ["invoices"] });
-      qc.invalidateQueries({ queryKey: ["checker-sales"] });
-      qc.invalidateQueries({ queryKey: ["queue-sales"] });
-      qc.invalidateQueries({ queryKey: ["reminder-logs"] });
-      toast.success(`NOA emailed to ${data.sent_to || data.sentTo || "the buyer"}`);
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  const sendReminder = useMutation({
-    mutationFn: async (invoiceId: string) => {
-      return api.reminders.send(invoiceId);
-    },
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ["reminder-logs"] });
-      toast.success(data.message || "Reminder sent successfully");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to send reminder"),
-  });
 
   const review = useMutation({
     mutationFn: async (id: string) => api.invoices.issue(id),
@@ -180,25 +163,6 @@ function InvoicesPage() {
       toast.success("Invoice cancelled");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  const del = useMutation({
-    mutationFn: async (id: string) => api.invoices.delete(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["invoices"] });
-      toast.success("Draft removed");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  const deleteSelected = useMutation({
-    mutationFn: async () => Promise.all([...selectedIds].map((id) => api.invoices.delete(id))),
-    onSuccess: () => {
-      setSelectedIds(new Set());
-      qc.invalidateQueries({ queryKey: ["invoices"] });
-      toast.success("Selected draft invoices deleted");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete selected invoices"),
   });
 
   const invConfig: TxFiltersConfig<Inv> = {
@@ -262,14 +226,6 @@ function InvoicesPage() {
         <TransactionFilters data={invoicesQ.data ?? []} config={invConfig}>
           {(filtered) => (
             <Card>
-              {canCreate && selectedIds.size > 0 && (
-                <div className="mb-3 flex items-center justify-between rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
-                  <span>{selectedIds.size} invoice(s) selected</span>
-                  <button onClick={() => deleteSelected.mutate()} disabled={deleteSelected.isPending} className="inline-flex items-center gap-1 text-destructive hover:underline">
-                    <Trash2 className="h-3.5 w-3.5" /> Delete selected
-                  </button>
-                </div>
-              )}
               {invoicesQ.isLoading ? (
                 <TableSkeleton rows={7} cols={9} />
               ) : filtered.length === 0 ? (
@@ -279,7 +235,6 @@ function InvoicesPage() {
                   <table className="table-premium w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
-                        <th className="px-5 py-2 text-left font-normal"><input type="checkbox" aria-label="Select all invoices" checked={filtered.length > 0 && filtered.every((i: any) => selectedIds.has(i.id))} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((i: any) => i.id)) : new Set())} /></th>
                         <th className="px-5 py-2 text-left font-normal">Invoice</th>
                         <th className="px-5 py-2 text-left font-normal">Debtor</th>
                         <th className="px-5 py-2 text-right font-normal">Grand total</th>
@@ -308,7 +263,6 @@ function InvoicesPage() {
                             : Math.max(0, dpd);
                         return (
                           <tr key={i.id} className="border-b border-border/60 hover:bg-muted/30">
-                            <td className="px-5 py-3"><input type="checkbox" aria-label={`Select invoice ${i.invoice_number}`} checked={selectedIds.has(i.id)} onChange={(e) => setSelectedIds((current) => { const next = new Set(current); if (e.target.checked) next.add(i.id); else next.delete(i.id); return next; })} /></td>
                             <td className="px-5 py-3">
                               <div className="font-mono text-xs">{i.invoice_number}</div>
                               {i.goods_sales_order_number && (
@@ -400,7 +354,7 @@ function InvoicesPage() {
                                       Edit
                                     </button>
                                   )}
-                                {canCreate && (
+                                {canCreate && i.status === "draft" && (
                                   <button
                                     onClick={() => review.mutate(i.id)}
                                     disabled={review.isPending}
@@ -408,28 +362,6 @@ function InvoicesPage() {
                                     title="Review the invoice and send it to the checker"
                                   >
                                     <FileCheck className="h-3 w-3" /> Review
-                                  </button>
-                                )}
-                                {isAdmin &&
-                                  i.status !== "paid" &&
-                                  i.status !== "rejected" &&
-                                  i.status !== "cancelled" &&
-                                  i.due_date && (
-                                    <button
-                                      onClick={() => sendReminder.mutate(i.id)}
-                                      disabled={sendReminder.isPending}
-                                      className="inline-flex items-center gap-1 rounded-md border border-warning/40 px-2 py-1 text-[10px] text-warning hover:bg-warning/10 disabled:opacity-50"
-                                      title="Send reminder email for this invoice"
-                                    >
-                                      <Mail className="h-3 w-3" /> Remind
-                                    </button>
-                                  )}
-                                {i.noa_status === "not_sent" && (
-                                  <button
-                                    onClick={() => sendNoa.mutate(i.id)}
-                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10"
-                                  >
-                                    <Send className="h-3 w-3" /> Send NOA
                                   </button>
                                 )}
                                 {canCreate &&
@@ -442,15 +374,6 @@ function InvoicesPage() {
                                       <Ban className="h-3 w-3" /> Cancel
                                     </button>
                                   )}
-                                {canCreate && (
-                                  <button
-                                    onClick={() => del.mutate(i.id)}
-                                    className="text-muted-foreground hover:text-destructive"
-                                    title="Delete invoice"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
                               </div>
                             </td>
                           </tr>
@@ -541,7 +464,7 @@ function NewInvoiceModal({
     billing_address: invoice?.billing_address ?? "",
     delivery_address: invoice?.delivery_address ?? "",
     goods_sales_order_id: invoice?.goods_sales_order_id ?? "",
-    payment_terms: invoice?.payment_terms ?? "",
+    ...toTermsFormFields(invoice),
     po_number: invoice?.po_number ?? "",
     po_date: (invoice?.po_date ?? "")?.slice(0, 10) ?? "",
     po_amount: invoice?.po_amount != null ? String(invoice.po_amount) : "",
@@ -818,7 +741,8 @@ function NewInvoiceModal({
         billing_address: form.billing_address.trim() || null,
         delivery_address: form.delivery_address.trim() || null,
         goods_sales_order_id: soId,
-        payment_terms: form.payment_terms.trim() || null,
+        ...toTermsPayload(form),
+        payment_terms: form.payment_terms_type ? formatPaymentTerms({ paymentTermsType: form.payment_terms_type as any, advancePct: Number(form.payment_terms_advance_pct) || null, paymentTermsDays: Number(form.payment_terms_days) || null }) : form.payment_terms || null,
         po_number: form.po_number || null,
         po_date: form.po_date || null,
         po_amount: form.po_amount ? Number(form.po_amount) : null,
@@ -965,7 +889,12 @@ function NewInvoiceModal({
               <L label="Debtor *">
                 <SearchableSelect
                   value={form.debtor_id}
-                  onChange={(v) => setForm({ ...form, debtor_id: v })}
+                  onChange={(v) => {
+                    setForm({ ...form, debtor_id: v });
+                    // Pre-fill payment terms from the debtor master (editable).
+                    const d = debtors.find((x: any) => x.id === v);
+                    if (d) setForm((prev) => ({ ...prev, ...toTermsFormFields(d) }));
+                  }}
                   placeholder="Select debtor"
                   options={debtors.map((d: any) => ({ value: d.id, label: d.name }))}
                 />
@@ -1033,11 +962,13 @@ function NewInvoiceModal({
                 )}
               </L>
               <L label="Payment terms">
-                <input
-                  className="inp"
-                  value={form.payment_terms}
-                  onChange={(e) => setForm({ ...form, payment_terms: e.target.value })}
-                  placeholder="Net 30"
+                <PaymentTermsFields
+                  type={form.payment_terms_type}
+                  advancePct={form.payment_terms_advance_pct}
+                  paymentTermsDays={form.payment_terms_days}
+                  freeText={form.payment_terms}
+                  daysLabel="Net days"
+                  onChange={(patch) => setForm({ ...form, ...patch })}
                 />
               </L>
               <L label={`Due date${selectedDebtor ? ` (auto: ${termsDays}d net)` : ""}`}>
@@ -1470,7 +1401,22 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
             {invoice.customer_contact && (
               <D label="Customer contact" value={invoice.customer_contact} />
             )}
-            {invoice.payment_terms && <D label="Payment terms" value={invoice.payment_terms} />}
+            {formatPaymentTerms({
+              paymentTermsType: invoice.paymentTermsType ?? invoice.payment_terms_type,
+              advancePct: invoice.advancePct ?? invoice.advance_pct,
+              paymentTermsDays: invoice.payment_terms_days ?? invoice.paymentTermsDays,
+              paymentTerms: invoice.payment_terms ?? invoice.paymentTerms,
+            }) !== "—" && (
+              <D
+                label="Payment terms"
+                value={formatPaymentTerms({
+                  paymentTermsType: invoice.paymentTermsType ?? invoice.payment_terms_type,
+                  advancePct: invoice.advancePct ?? invoice.advance_pct,
+                  paymentTermsDays: invoice.payment_terms_days ?? invoice.paymentTermsDays,
+                  paymentTerms: invoice.payment_terms ?? invoice.paymentTerms,
+                })}
+              />
+            )}
             {invoice.po_number && <D label="PO number" value={invoice.po_number} />}
             {invoice.po_amount != null && invoice.po_amount > 0 && (
               <D

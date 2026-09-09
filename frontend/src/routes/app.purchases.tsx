@@ -16,15 +16,19 @@ import {
   X,
   Loader2,
   Link2,
-  Mail,
   AlertTriangle,
   CheckCircle2,
-  Trash2,
   ShoppingCart,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import {
+  PaymentTermsFields,
+  formatPaymentTerms,
+  toFormFields as toTermsFormFields,
+  toPayload as toTermsPayload,
+} from "@/components/payment-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
@@ -111,7 +115,6 @@ function PurchasesPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const piQ = useQuery({
     queryKey: ["purchase_invoices"],
@@ -133,11 +136,17 @@ function PurchasesPage() {
           id: s.id,
           name: s.company_name ?? s.companyName ?? s.name,
           payment_terms_days: s.paymentTermsDays ?? s.payment_terms_days ?? 30,
+          paymentTermsType: s.paymentTermsType ?? s.payment_terms_type ?? null,
+          advancePct: s.advancePct ?? s.advance_pct ?? null,
+          paymentTerms: s.paymentTerms ?? s.payment_terms ?? null,
         })),
         ...vendors.map((v: any) => ({
           id: v.id,
           name: v.name,
           payment_terms_days: v.paymentTermsDays ?? v.payment_terms_days ?? 30,
+          paymentTermsType: v.paymentTermsType ?? v.payment_terms_type ?? null,
+          advancePct: v.advancePct ?? v.advance_pct ?? null,
+          paymentTerms: v.paymentTerms ?? v.payment_terms ?? null,
         })),
       ].sort((a: any, b: any) => a.name?.localeCompare(b.name ?? "") ?? 0);
     },
@@ -182,28 +191,6 @@ function PurchasesPage() {
       toast.success("Updated");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  const deleteSelected = useMutation({
-    mutationFn: async () => Promise.all([...selectedIds].map((id) => api.purchaseInvoices.delete(id))),
-    onSuccess: () => {
-      setSelectedIds(new Set());
-      qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
-      toast.success("Selected draft purchase invoices deleted");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete selected invoices"),
-  });
-
-  // Send reminder mutation for purchase invoices
-  const sendReminder = useMutation({
-    mutationFn: async (invoiceId: string) => {
-      return api.reminders.sendPurchase(invoiceId);
-    },
-    onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ["reminder-logs"] });
-      toast.success(data.message || "Reminder sent successfully");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to send reminder"),
   });
 
   const piConfig: TxFiltersConfig<any> = {
@@ -296,14 +283,6 @@ function PurchasesPage() {
         <TransactionFilters data={piQ.data ?? []} config={piConfig}>
           {(filtered) => (
             <Card>
-              {canCreate && selectedIds.size > 0 && (
-                <div className="mb-3 flex items-center justify-between rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
-                  <span>{selectedIds.size} purchase invoice(s) selected</span>
-                  <button onClick={() => deleteSelected.mutate()} disabled={deleteSelected.isPending} className="inline-flex items-center gap-1 text-destructive hover:underline">
-                    <Trash2 className="h-3.5 w-3.5" /> Delete selected
-                  </button>
-                </div>
-              )}
               {piQ.isLoading ? (
                 <TableSkeleton rows={6} cols={9} />
               ) : filtered.length === 0 ? (
@@ -315,7 +294,6 @@ function PurchasesPage() {
                   <table className="table-premium w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
-                        <th className="px-5 py-2 text-left font-normal"><input type="checkbox" aria-label="Select all purchase invoices" checked={filtered.length > 0 && filtered.every((p: any) => selectedIds.has(p.id))} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((p: any) => p.id)) : new Set())} /></th>
                         <th className="px-5 py-2 text-left font-normal">Invoice</th>
                         <th className="px-5 py-2 text-left font-normal">Supplier</th>
                         <th className="px-5 py-2 text-left font-normal">PO</th>
@@ -344,7 +322,6 @@ function PurchasesPage() {
                         const grn = grnById.get(p.linked_goods_receipt_id ?? "");
                         return (
                           <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
-                            <td className="px-5 py-3"><input type="checkbox" aria-label={`Select purchase invoice ${p.invoice_number}`} checked={selectedIds.has(p.id)} onChange={(e) => setSelectedIds((current) => { const next = new Set(current); if (e.target.checked) next.add(p.id); else next.delete(p.id); return next; })} /></td>
                             <td className="px-5 py-3">
                               <div className="font-mono text-xs">{p.invoice_number}</div>
                               {Number(p.advance_deducted ?? 0) > 0 && (
@@ -437,7 +414,7 @@ function PurchasesPage() {
                                     Edit
                                   </button>
                                 )}
-                                {canCreate && (
+                                {canCreate && p.status === "draft" && (
                                   <button
                                     onClick={() =>
                                       setStatus.mutate({ id: p.id, status: "verified" })
@@ -447,16 +424,6 @@ function PurchasesPage() {
                                     title="Review the invoice and send it to the checker"
                                   >
                                     <CheckCircle2 className="h-3 w-3" /> Review
-                                  </button>
-                                )}
-                                {canCreate && p.status === "verified" && (
-                                  <button
-                                    onClick={() => setStatus.mutate({ id: p.id, status: "draft" })}
-                                    disabled={setStatus.isPending}
-                                    className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                                    title="Send back to draft"
-                                  >
-                                    Reopen
                                   </button>
                                 )}
                                 {(canCreate || isAdmin) &&
@@ -469,18 +436,6 @@ function PurchasesPage() {
                                       className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
                                     >
                                       Cancel
-                                    </button>
-                                  )}
-                                {isAdmin &&
-                                  !["paid", "rejected", "cancelled"].includes(p.status) &&
-                                  p.due_date && (
-                                    <button
-                                      onClick={() => sendReminder.mutate(p.id)}
-                                      disabled={sendReminder.isPending}
-                                      className="inline-flex items-center gap-1 rounded-md border border-warning/40 px-2 py-1 text-[10px] text-warning hover:bg-warning/10 disabled:opacity-50"
-                                      title="Send reminder email for this purchase invoice"
-                                    >
-                                      <Mail className="h-3 w-3" /> Remind
                                     </button>
                                   )}
                               </div>
@@ -560,6 +515,7 @@ function NewPurchaseModal({
   const [form, setForm] = useState({
     vendor_id: invoice?.vendor_id ?? "",
     invoice_number: invoice?.invoice_number ?? "",
+    ...toTermsFormFields(invoice),
     issue_date:
       (invoice?.issue_date ?? new Date().toISOString().slice(0, 10))?.slice(0, 10) ??
       new Date().toISOString().slice(0, 10),
@@ -840,6 +796,7 @@ function NewPurchaseModal({
         due_date: effectiveDue || null,
         goods_purchase_order_id: form.goods_po_id || null,
         goods_po_number: form.goods_po_number || null,
+        ...toTermsPayload(form),
         po_number: form.po_number || null,
         linked_supplier_proforma_id: form.linked_supplier_proforma_id || null,
         linked_supplier_proforma_number: form.linked_supplier_proforma_number || null,
@@ -925,6 +882,9 @@ function NewPurchaseModal({
                     } else {
                       setForm((f) => ({ ...f, vendor_id: v }));
                     }
+                    // Pre-fill payment terms from the supplier master (editable).
+                    const s = vendors.find((x: any) => x.id === v);
+                    if (s) setForm((f) => ({ ...f, ...toTermsFormFields(s) }));
                   }}
                   placeholder="Select supplier"
                   options={vendors.map((v: any) => ({ value: v.id, label: v.name }))}
@@ -938,6 +898,16 @@ function NewPurchaseModal({
                   value={form.invoice_number}
                   onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
                   placeholder="INV-2026-0142"
+                />
+              </L>
+              <L label="Payment terms">
+                <PaymentTermsFields
+                  type={form.payment_terms_type}
+                  advancePct={form.payment_terms_advance_pct}
+                  paymentTermsDays={form.payment_terms_days}
+                  freeText={form.payment_terms}
+                  daysLabel="Net days"
+                  onChange={(patch) => setForm({ ...form, ...patch })}
                 />
               </L>
               <L label="Payment due date">
@@ -1168,7 +1138,7 @@ function NewPurchaseModal({
                     )}
                     {linkedPf.supplier_contact && <div>Contact · {linkedPf.supplier_contact}</div>}
                     {linkedPf.supplier_gstin && <div>GSTIN · {linkedPf.supplier_gstin}</div>}
-                    {linkedPf.payment_terms && <div>Terms · {linkedPf.payment_terms}</div>}
+                    {linkedPf.payment_terms && <div>Terms · {formatPaymentTerms({ paymentTermsType: linkedPf.paymentTermsType ?? linkedPf.payment_terms_type, advancePct: linkedPf.advancePct ?? linkedPf.advance_pct, paymentTerms: linkedPf.payment_terms })}</div>}
                     {linkedPf.valid_until && (
                       <div>Valid until · {fmtDate(linkedPf.valid_until)}</div>
                     )}

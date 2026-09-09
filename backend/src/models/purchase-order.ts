@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
+import { PaymentTermsType, normalizePaymentTermsType, normalizeAdvancePct } from "../lib/payment-terms.js";
 
 export interface ProformaLine {
   productId: string;
@@ -44,10 +45,14 @@ export interface PurchaseOrder {
   /** Quotation valid until. */
   validUntil: string | null;
   paymentTerms: string | null;
+  /** Structured payment terms: credit (Net N), advance_full (100% advance),
+   *  advance_partial (X% advance + remainder on delivery) or on_delivery. */
+  paymentTermsType: PaymentTermsType | null;
   /** Expected delivery date. */
   expectedDeliveryDate: string | null;
   /** Advance amount as a % of the proforma total (purchase side) — used to
-   *  calculate the advance paid when treasury funds the proforma. */
+   *  calculate the advance paid when treasury funds the proforma. Doubles as
+   *  the advance % for advance_partial payment terms. */
   advancePct: number | null;
   /** Attached supplier quotation / proforma (PDF/image). */
   documents: any[];
@@ -123,8 +128,9 @@ export async function create(data: Partial<PurchaseOrder> & { clientId: string; 
     supplierGstin: data.supplierGstin || null,
     validUntil: data.validUntil || null,
     paymentTerms: data.paymentTerms || null,
+    paymentTermsType: normalizePaymentTermsType(data.paymentTermsType),
     expectedDeliveryDate: data.expectedDeliveryDate || null,
-    advancePct: data.advancePct ?? null,
+    advancePct: normalizeAdvancePct(data.advancePct),
     documents: data.documents || [],
     lines,
     ...totals,
@@ -142,7 +148,7 @@ export async function update(id: string, updates: Partial<PurchaseOrder>) {
     "amount","poAmount","status","side","poNumber","debtorId","vendorId","issueDate","expectedDate","currency",
     "proformaNumber","proformaStatus","proformaDate","proformaFundedAmount","proformaFundedAt","proformaFundedBy",
     "proformaFundingReference","proformaReviewedAt","proformaReviewedBy","proformaReviewComments","notes",
-    "supplierContact","supplierGstin","debtorContact","debtorGstin","validUntil","paymentTerms","expectedDeliveryDate","advancePct","documents",
+    "supplierContact","supplierGstin","debtorContact","debtorGstin","validUntil","paymentTerms","paymentTermsType","advancePct","expectedDeliveryDate","advancePct","documents",
     "lines","subtotal","gstTotal","freight","grandTotal","linkedGoodsPoId","linkedGoodsSoId",
   ];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }

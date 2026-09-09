@@ -4,6 +4,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney } from "@/components/ledger-ui";
+import {
+  PaymentTermsFields,
+  formatPaymentTerms,
+  toFormFields as toTermsFormFields,
+  toPayload as toTermsPayload,
+} from "@/components/payment-terms";
 import { Plus, Loader2, Save, Trash2, X, Truck } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -41,6 +47,7 @@ const emptyForm = {
   country: "",
   postal_code: "",
   status: "prospect" as SupplierStatus,
+  ...toTermsFormFields(null),
   notes: "",
 };
 
@@ -92,6 +99,7 @@ function SuppliersPage() {
         country: form.country || null,
         postal_code: form.postal_code || null,
         status: form.status,
+        ...toTermsPayload(form),
         notes: form.notes || null,
       };
       if (editing) {
@@ -140,6 +148,7 @@ function SuppliersPage() {
       country: s.country ?? "",
       postal_code: s.postal_code ?? "",
       status: s.status,
+      ...toTermsFormFields(s),
       notes: s.notes ?? "",
     });
     setOpen(true);
@@ -377,6 +386,16 @@ function SuppliersPage() {
                   <option value="offboarded">Offboarded</option>
                 </select>
               </F>
+              <F label="Payment terms">
+                <PaymentTermsFields
+                  type={form.payment_terms_type}
+                  advancePct={form.payment_terms_advance_pct}
+                  paymentTermsDays={form.payment_terms_days}
+                  freeText={form.payment_terms}
+                  daysLabel="Net days"
+                  onChange={(patch) => setForm({ ...form, ...patch })}
+                />
+              </F>
               <F label="Notes" full>
                 <textarea
                   rows={3}
@@ -469,6 +488,15 @@ function SupplierDetailModal({
           <div className="grid grid-cols-2 gap-3">
             <Detail label="Industry" value={supplier.industry ?? "—"} />
             <Detail label="Status" value={<StatusPill status={supplier.status} />} />
+            <Detail
+              label="Payment terms"
+              value={formatPaymentTerms({
+                paymentTermsType: (supplier as any).paymentTermsType ?? (supplier as any).payment_terms_type,
+                advancePct: (supplier as any).advancePct ?? (supplier as any).advance_pct,
+                paymentTermsDays: (supplier as any).paymentTermsDays ?? (supplier as any).payment_terms_days,
+                paymentTerms: (supplier as any).paymentTerms ?? (supplier as any).payment_terms,
+              })}
+            />
             <Detail label="Contact name" value={supplier.contact_name ?? "—"} />
             <Detail label="Contact email" value={supplier.contact_email ?? "—"} />
             <Detail label="Contact phone" value={supplier.contact_phone ?? "—"} />

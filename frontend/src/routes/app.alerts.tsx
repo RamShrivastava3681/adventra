@@ -9,7 +9,6 @@ import {
   BellRing,
   Check,
   Clock,
-  FileCheck2,
   FileSpreadsheet,
   FileText,
   Landmark,
@@ -75,7 +74,6 @@ const DOC_TYPE_OPTIONS = [
   { value: "invoice", label: "Invoices" },
   { value: "purchase_invoice", label: "Purchase invoices" },
   { value: "proforma", label: "Proformas" },
-  { value: "quotation", label: "Quotations" },
   { value: "grn", label: "GRNs" },
   { value: "dispatch", label: "Dispatches" },
   { value: "stock", label: "Stock movements" },
@@ -105,7 +103,6 @@ function docType(e: AuditEntry): string {
   if (a.startsWith("invoice.")) return "invoice";
   if (a.startsWith("purchase_invoice.")) return "purchase_invoice";
   if (a.startsWith("proforma.")) return "proforma";
-  if (a.startsWith("quotation.")) return "quotation";
   if (a.startsWith("grn.")) return "grn";
   if (a.startsWith("dispatch.")) return "dispatch";
   if (a.startsWith("stock.")) return "stock";
@@ -212,9 +209,6 @@ function activityMessage(e: AuditEntry): string {
     case "proforma.approved": return `Proforma ${ref} was approved`;
     case "proforma.rejected": return `Proforma ${ref} was rejected`;
     case "proforma.funded": return `Proforma ${ref} was funded`;
-    case "quotation.submitted": return `Quotation ${ref} was submitted for approval`;
-    case "quotation.approved": return `Quotation ${ref} was approved`;
-    case "quotation.rejected": return `Quotation ${ref} was rejected`;
     case "grn.confirmed": return `GRN ${ref} was confirmed — stock credited`;
     case "grn.cancelled": return `GRN ${ref} was cancelled`;
     case "dispatch.confirmed": return `Dispatch ${ref} was confirmed — stock debited`;
@@ -240,15 +234,14 @@ function activityMeta(e: AuditEntry): { icon: LucideIcon; chip: string } {
   const a = e.action;
   if (["invoice.payment", "purchase_invoice.paid", "purchase_invoice.partially_paid", "purchase_invoice.payment", "proforma.funded"].includes(a))
     return { icon: Landmark, chip: "bg-primary/15 text-primary" };
-  if (["invoice.approved", "purchase_invoice.approved", "proforma.approved", "quotation.approved"].includes(a))
+  if (["invoice.approved", "purchase_invoice.approved", "proforma.approved"].includes(a))
     return { icon: ShieldCheck, chip: "bg-primary-soft text-[#0a4a8a] dark:text-[#63baff]" };
-  if (["invoice.rejected", "proforma.rejected", "quotation.rejected"].includes(a))
+  if (["invoice.rejected", "proforma.rejected"].includes(a))
     return { icon: ShieldX, chip: "bg-destructive/15 text-destructive" };
   if (a === "invoice.disputed") return { icon: ShieldAlert, chip: "bg-warning/15 text-warning" };
   if (a.startsWith("invoice.")) return { icon: Receipt, chip: "bg-primary/15 text-primary" };
   if (a.startsWith("purchase_invoice.")) return { icon: FileSpreadsheet, chip: "bg-primary/15 text-primary" };
   if (a.startsWith("proforma.")) return { icon: FileText, chip: "bg-primary/15 text-primary" };
-  if (a.startsWith("quotation.")) return { icon: FileCheck2, chip: "bg-primary/15 text-primary" };
   if (a.startsWith("grn.")) return { icon: PackageCheck, chip: "bg-primary/15 text-primary" };
   if (a.startsWith("dispatch.")) return { icon: Truck, chip: "bg-warning/15 text-warning" };
   if (a.startsWith("stock.")) return { icon: Package, chip: "bg-primary/15 text-primary" };

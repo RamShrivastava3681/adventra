@@ -19,6 +19,12 @@ import {
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import {
+  PaymentTermsFields,
+  formatPaymentTerms,
+  toFormFields as toTermsFormFields,
+  toPayload as toTermsPayload,
+} from "@/components/payment-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductVariantPicker } from "@/components/product-variant-picker";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
@@ -117,15 +123,6 @@ const FUNDING_TONES: Record<string, string> = {
 const DOC_CLOSED = ["cancelled", "expired", "converted_to_po", "converted_to_so"];
 
 const CURRENCIES = ["INR", "USD", "EUR", "GBP", "AED"];
-const PAYMENT_TERMS = [
-  "",
-  "Net 15",
-  "Net 30",
-  "Net 60",
-  "Advance payment",
-  "Cash on delivery",
-  "Letter of credit",
-];
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -157,8 +154,6 @@ function ProformasPage() {
   const [open, setOpen] = useState<null | "sales" | "purchase">(null);
   const [tab, setTab] = useState<"all" | "sales" | "purchase">("all");
   const [reviewFor, setReviewFor] = useState<PF | null>(null);
-  const [fundFor, setFundFor] = useState<PF | null>(null);
-  const [convertFor, setConvertFor] = useState<PF | null>(null);
   const [editingPf, setEditingPf] = useState<PF | null>(null);
   const [viewingPf, setViewingPf] = useState<PF | null>(null);
 
@@ -224,13 +219,6 @@ function ProformasPage() {
     },
   });
 
-  // Goods POs available to link when converting a proforma.
-  const goodsPosQ = useQuery({
-    queryKey: ["goods-pos-for-convert"],
-    queryFn: async () => api.goodsPurchaseOrders.list(),
-    enabled: !!convertFor,
-  });
-
   const rows = ((listQ.data ?? []) as PF[]).filter((p) => tab === "all" || p.side === tab);
 
   const pfConfig: TxFiltersConfig<PF> = {
@@ -266,52 +254,6 @@ function ProformasPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["proformas"] });
       toast.success("Cancelled");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  // After a checker rejection the maker can fix the proforma and send it back
-  // into the approval pipeline (backend allows pending_review from rejected).
-  const resubmit = useMutation({
-    mutationFn: async (id: string) => {
-      await api.purchaseOrders.update(id, { proforma_status: "pending_review" });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["proformas"] });
-      toast.success("Submitted for checker approval again");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  const setDocStatus = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: string }) => {
-      await api.purchaseOrders.update(id, { status });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["proformas"] });
-      toast.success("Status updated");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  const del = useMutation({
-    mutationFn: async (id: string) => {
-      await api.purchaseOrders.delete(id);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["proformas"] });
-      toast.success("Removed");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  // Sales proforma → auto-create a DRAFT sales order and link it.
-  const convertSo = useMutation({
-    mutationFn: async (id: string) => api.purchaseOrders.convertToSO(id),
-    onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ["proformas"] });
-      qc.invalidateQueries({ queryKey: ["sales-orders"] });
-      toast.success(`Draft sales order ${(res as any)?.salesOrder?.soNumber ?? ""} created`);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -516,73 +458,6 @@ function ProformasPage() {
                                       Edit
                                     </button>
                                   )}
-                                {/* Conversion to a PO/SO only unlocks after the checker
-                                approves the proforma (enforced server-side too). */}
-                                {canCreate &&
-                                  p.side === "purchase" &&
-                                  ["received", "reviewed"].includes(p.status) &&
-                                  p.proforma_status === "approved" && (
-                                    <button
-                                      onClick={() => setConvertFor(p)}
-                                      className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10"
-                                    >
-                                      <PackageOpen className="h-3 w-3" /> Convert to PO
-                                    </button>
-                                  )}
-                                {canCreate &&
-                                  p.side === "purchase" &&
-                                  ["received", "reviewed"].includes(p.status) &&
-                                  p.proforma_status === "pending_review" && (
-                                    <span
-                                      className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground"
-                                      title="Conversion unlocks after the checker approves this proforma"
-                                    >
-                                      Awaiting approval
-                                    </span>
-                                  )}
-                                {canCreate &&
-                                  p.side === "sales" &&
-                                  ["received", "reviewed"].includes(p.status) &&
-                                  p.proforma_status === "approved" && (
-                                    <button
-                                      onClick={() => convertSo.mutate(p.id)}
-                                      disabled={convertSo.isPending}
-                                      className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
-                                    >
-                                      <PackageOpen className="h-3 w-3" /> Convert to SO
-                                    </button>
-                                  )}
-                                {canCreate &&
-                                  p.side === "sales" &&
-                                  ["received", "reviewed"].includes(p.status) &&
-                                  p.proforma_status === "pending_review" && (
-                                    <span
-                                      className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground"
-                                      title="Conversion unlocks after the checker approves this proforma"
-                                    >
-                                      Awaiting approval
-                                    </span>
-                                  )}
-                                {canCreate && p.status === "received" && (
-                                  <button
-                                    onClick={() =>
-                                      setDocStatus.mutate({ id: p.id, status: "reviewed" })
-                                    }
-                                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary"
-                                  >
-                                    <CheckCircle2 className="h-3 w-3" /> Reviewed
-                                  </button>
-                                )}
-                                {canCreate && ["received", "reviewed"].includes(p.status) && (
-                                  <button
-                                    onClick={() =>
-                                      setDocStatus.mutate({ id: p.id, status: "expired" })
-                                    }
-                                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:border-warning hover:text-warning"
-                                  >
-                                    <Ban className="h-3 w-3" /> Expire
-                                  </button>
-                                )}
                                 {(isChecker || isAdmin) &&
                                   !docClosed &&
                                   p.proforma_status === "pending_review" &&
@@ -594,25 +469,6 @@ function ProformasPage() {
                                       Review
                                     </button>
                                   )}
-                                {canCreate && !docClosed && p.proforma_status === "rejected" && (
-                                  <button
-                                    onClick={() => resubmit.mutate(p.id)}
-                                    disabled={resubmit.isPending}
-                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
-                                  >
-                                    <Send className="h-3 w-3" /> Resubmit for approval
-                                  </button>
-                                )}
-                                {(isTreasury || isAdmin) &&
-                                  !docClosed &&
-                                  p.proforma_status === "approved" && (
-                                    <button
-                                      onClick={() => setFundFor(p)}
-                                      className="rounded-md border border-success/50 px-2 py-0.5 text-[10px] text-success hover:bg-success/10"
-                                    >
-                                      {p.side === "sales" ? "Mark received" : "Mark paid"}
-                                    </button>
-                                  )}
                                 {canCreate &&
                                   p.status !== "invoiced" &&
                                   p.status !== "cancelled" &&
@@ -622,17 +478,6 @@ function ProformasPage() {
                                       className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted"
                                     >
                                       Cancel
-                                    </button>
-                                  )}
-                                {canCreate &&
-                                  (p.status === "cancelled" ||
-                                    p.status === "expired" ||
-                                    p.proforma_status === "rejected") && (
-                                    <button
-                                      onClick={() => del.mutate(p.id)}
-                                      className="text-muted-foreground hover:text-destructive"
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
                                     </button>
                                   )}
                               </div>
@@ -709,21 +554,6 @@ function ProformasPage() {
       {reviewFor && user && (
         <ReviewModal pf={reviewFor} userId={user.id} onClose={() => setReviewFor(null)} />
       )}
-      {fundFor && user && (
-        <FundModal pf={fundFor} userId={user.id} onClose={() => setFundFor(null)} />
-      )}
-      {convertFor && (
-        <ConvertModal
-          pf={convertFor}
-          goodsPos={goodsPosQ.data ?? []}
-          loading={goodsPosQ.isLoading}
-          onClose={() => setConvertFor(null)}
-          onConverted={() => {
-            qc.invalidateQueries({ queryKey: ["proformas"] });
-            setConvertFor(null);
-          }}
-        />
-      )}
       {viewingPf && <ProformaDetailModal pf={viewingPf} onClose={() => setViewingPf(null)} />}
     </div>
   );
@@ -769,7 +599,7 @@ function SalesProformaModal({
     debtor_gstin: pf?.debtor_gstin ?? "",
     valid_until: (pf?.valid_until ?? "")?.slice(0, 10) ?? "",
     currency: pf?.currency ?? "INR",
-    payment_terms: pf?.payment_terms ?? "",
+    ...toTermsFormFields(pf),
     expected_delivery_date: (pf?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
     notes: pf?.notes ?? "",
     linked_so_id: pf?.linked_goods_so_id ?? "",
@@ -848,10 +678,14 @@ function SalesProformaModal({
             contact_name?: string;
             contact_email?: string;
             contact_phone?: string;
-          }) => ({
+          } & Record<string, any>) => ({
             id: d.id,
             name: d.name ?? d.id,
             contact: [d.contact_name, d.contact_email, d.contact_phone].filter(Boolean).join(" · "),
+            paymentTermsType: d.paymentTermsType ?? d.payment_terms_type ?? null,
+            advancePct: d.advancePct ?? d.advance_pct ?? null,
+            paymentTermsDays: d.paymentTermsDays ?? d.payment_terms_days ?? null,
+            paymentTerms: d.paymentTerms ?? d.payment_terms ?? null,
           }),
         )
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -894,7 +728,8 @@ function SalesProformaModal({
         debtorGstin: f.debtor_gstin.trim() || null,
         validUntil: f.valid_until || null,
         currency: f.currency,
-        paymentTerms: f.payment_terms || null,
+        ...toTermsPayload(f),
+        paymentTerms: f.payment_terms_type ? formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }) : f.payment_terms || null,
         expectedDeliveryDate: f.expected_delivery_date || null,
         notes: f.notes.trim() || null,
         linkedGoodsSoId: f.linked_so_id || null,
@@ -963,11 +798,13 @@ function SalesProformaModal({
                 value={f.party_id}
                 onChange={(v) => {
                   const d = (partiesQ.data ?? []).find((x) => x.id === v);
-                  setF({
-                    ...f,
+                  setF((prev) => ({
+                    ...prev,
                     party_id: v,
-                    debtor_contact: d?.contact ?? f.debtor_contact,
-                  });
+                    debtor_contact: d?.contact ?? prev.debtor_contact,
+                    // Pre-fill payment terms from the debtor master (editable).
+                    ...(d ? toTermsFormFields(d) : {}),
+                  }));
                 }}
                 placeholder="Select debtor…"
                 options={(partiesQ.data ?? []).map((p) => ({ value: p.id, label: p.name }))}
@@ -1011,18 +848,14 @@ function SalesProformaModal({
               </select>
             </L>
             <L label="Payment terms">
-              <input
-                list="pf-sales-payment-terms"
-                className="inp"
-                value={f.payment_terms}
-                onChange={(e) => setF({ ...f, payment_terms: e.target.value })}
-                placeholder="Net 30"
+              <PaymentTermsFields
+                type={f.payment_terms_type}
+                advancePct={f.payment_terms_advance_pct}
+                paymentTermsDays={f.payment_terms_days}
+                freeText={f.payment_terms}
+                daysLabel="Net days"
+                onChange={(patch) => setF({ ...f, ...patch })}
               />
-              <datalist id="pf-sales-payment-terms">
-                {PAYMENT_TERMS.filter(Boolean).map((t) => (
-                  <option key={t} value={t} />
-                ))}
-              </datalist>
             </L>
             <L label="Expected delivery date">
               <input
@@ -1297,7 +1130,7 @@ function PurchaseProformaModal({
     supplier_gstin: pf?.supplier_gstin ?? "",
     valid_until: (pf?.valid_until ?? "")?.slice(0, 10) ?? "",
     currency: pf?.currency ?? "INR",
-    payment_terms: pf?.payment_terms ?? "",
+    ...toTermsFormFields(pf),
     expected_delivery_date: (pf?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
     notes: pf?.notes ?? "",
     po_number: pf?.po_number ?? "",
@@ -1389,7 +1222,8 @@ function PurchaseProformaModal({
         supplierGstin: f.supplier_gstin.trim() || null,
         validUntil: f.valid_until || null,
         currency: f.currency,
-        paymentTerms: f.payment_terms || null,
+        ...toTermsPayload(f),
+        paymentTerms: f.payment_terms_type ? formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }) : f.payment_terms || null,
         expectedDeliveryDate: f.expected_delivery_date || null,
         notes: f.notes.trim() || null,
         poNumber: (() => {
@@ -1510,18 +1344,14 @@ function PurchaseProformaModal({
               </select>
             </L>
             <L label="Payment terms">
-              <input
-                list="pf-payment-terms"
-                className="inp"
-                value={f.payment_terms}
-                onChange={(e) => setF({ ...f, payment_terms: e.target.value })}
-                placeholder="Net 30"
+              <PaymentTermsFields
+                type={f.payment_terms_type}
+                advancePct={f.payment_terms_advance_pct}
+                paymentTermsDays={f.payment_terms_days}
+                freeText={f.payment_terms}
+                daysLabel="Net days"
+                onChange={(patch) => setF({ ...f, ...patch })}
               />
-              <datalist id="pf-payment-terms">
-                {PAYMENT_TERMS.filter(Boolean).map((t) => (
-                  <option key={t} value={t} />
-                ))}
-              </datalist>
             </L>
             <L label="Expected delivery date">
               <input
@@ -1745,170 +1575,7 @@ function PurchaseProformaModal({
   );
 }
 
-// ─── Convert to PO modal ──────────────────────────────────────────────────
-function ConvertModal({
-  pf,
-  goodsPos,
-  loading,
-  onClose,
-  onConverted,
-}: {
-  pf: PF;
-  goodsPos: GoodsPOForConvert[];
-  loading: boolean;
-  onClose: () => void;
-  onConverted: () => void;
-}) {
-  const convert = useMutation({
-    mutationFn: async (linkedId: string | null) => {
-      await api.purchaseOrders.update(pf.id, {
-        status: "converted_to_po",
-        linked_goods_po_id: linkedId,
-      });
-    },
-    onSuccess: () => {
-      toast.success("Proforma converted to PO");
-      onConverted();
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  return (
-    <Modal
-      title={`Convert ${pf.proforma_number ?? "proforma"} to a Purchase order`}
-      onClose={onClose}
-    >
-      <div className="space-y-3 p-5 text-sm">
-        <p className="text-xs text-muted-foreground">
-          Link this proforma to an existing Purchase order, or convert without a link (you'll create
-          the PO later).
-        </p>
-        {loading ? (
-          <div className="py-4 text-center text-xs text-muted-foreground">
-            Loading purchase orders…
-          </div>
-        ) : (
-          <div className="max-h-72 space-y-1 overflow-y-auto">
-            {goodsPos.length === 0 && (
-              <div className="rounded-md border border-dashed border-border p-3 text-center text-xs text-muted-foreground">
-                No purchase orders yet — convert without a link, then create one in the Purchase
-                orders tab.
-              </div>
-            )}
-            {goodsPos.map((po) => {
-              const mismatch =
-                !!pf.vendor?.name?.trim() &&
-                !!po.supplier_name?.trim() &&
-                pf.vendor.name.trim().toLowerCase() !== po.supplier_name.trim().toLowerCase();
-              return (
-                <button
-                  key={po.id}
-                  onClick={() => convert.mutate(po.id)}
-                  disabled={convert.isPending}
-                  className="flex w-full items-center justify-between gap-2 rounded-md border border-border px-3 py-2 text-left hover:border-primary hover:bg-primary/5 disabled:opacity-50"
-                >
-                  <div>
-                    <div className="font-mono text-xs font-medium">{po.po_number}</div>
-                    <div className="text-[10px] text-muted-foreground">
-                      {po.supplier_name ?? "—"}
-                    </div>
-                    {mismatch && (
-                      <div className="mt-0.5 text-[9px] text-warning">
-                        Different supplier — this PO is from {po.supplier_name}
-                      </div>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    <div className="num text-xs">{fmtMoney(po.grand_total)}</div>
-                    <div className="text-[9px] uppercase tracking-widest text-muted-foreground">
-                      {po.status?.replace("_", " ")}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        )}
-        <div className="flex justify-end gap-2 border-t border-border pt-3">
-          <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
-            Cancel
-          </button>
-          <button
-            onClick={() => convert.mutate(null)}
-            disabled={convert.isPending}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
-          >
-            {convert.isPending ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Link2 className="h-4 w-4" />
-            )}
-            Convert without link
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// ─── Review / Fund (checker & treasury — unchanged) ──────────────────────
 function ReviewModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [comments, setComments] = useState("");
-  const decide = useMutation({
-    mutationFn: async (decision: "approved" | "rejected") => {
-      if (decision === "rejected" && !comments.trim())
-        throw new Error("Comments required to reject");
-      await api.purchaseOrders.update(pf.id, {
-        proforma_status: decision,
-        proforma_reviewed_by: userId,
-        proforma_reviewed_at: new Date().toISOString(),
-        proforma_review_comments: comments.trim() || null,
-      });
-    },
-    onSuccess: (_d, decision) => {
-      qc.invalidateQueries({ queryKey: ["proformas"] });
-      toast.success(decision === "approved" ? "Approved — sent to treasury" : "Rejected");
-      onClose();
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  return (
-    <Modal title={`Review · ${pf.proforma_number ?? pf.po_number}`} onClose={onClose}>
-      <div className="space-y-3 p-5 text-sm">
-        <Summary pf={pf} />
-        <L label="Comments (required to reject)">
-          <textarea
-            rows={3}
-            className="inp"
-            value={comments}
-            onChange={(e) => setComments(e.target.value)}
-          />
-        </L>
-        <div className="flex justify-end gap-2 pt-2">
-          <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
-            Cancel
-          </button>
-          <button
-            disabled={decide.isPending}
-            onClick={() => decide.mutate("rejected")}
-            className="rounded-md border border-destructive/50 px-4 py-2 text-sm text-destructive hover:bg-destructive/10"
-          >
-            Reject
-          </button>
-          <button
-            disabled={decide.isPending}
-            onClick={() => decide.mutate("approved")}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
-          >
-            {decide.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Approve
-          </button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
 
 /**
  * Advance amount for a proforma that carries an advance % (purchase side):
@@ -2039,7 +1706,9 @@ function ProformaDetailModal({ pf, onClose }: { pf: PF; onClose: () => void }) {
           <D label="Side" value={pf.side} />
           <D label="Proforma date" value={pf.proforma_date ? fmtDate(pf.proforma_date) : "—"} />
           <D label="Document status" value={docLabel} />
-          {pf.payment_terms && <D label="Payment terms" value={pf.payment_terms} />}
+          {formatPaymentTerms(pf) !== "—" && (
+            <D label="Payment terms" value={formatPaymentTerms(pf)} />
+          )}
           {pf.side === "purchase" && pf.supplier_gstin && (
             <D label="GSTIN" value={pf.supplier_gstin} />
           )}
@@ -2252,4 +1921,18 @@ function L({ label, children }: { label: string; children: React.ReactNode }) {
       {children}
     </label>
   );
+}
+
+// Stat card helper
+function StatCard({ label, value, icon: Icon }: { label: string; value: string | number; icon: any }) {
+  return (
+    <div className="rounded-lg border border-border bg-card p-4">
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">{label}</div>
+        {Icon && <Icon className="h-4 w-4 text-muted-foreground/60" />}
+      </div>
+      <div className="mt-1 font-display text-2xl">{value}</div>
+    </div>
+  );
+}
 }

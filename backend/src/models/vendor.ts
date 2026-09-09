@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
+import { PaymentTermsType, normalizePaymentTermsType, normalizeAdvancePct } from "../lib/payment-terms.js";
 
 export interface Vendor {
   pk: string; sk: string; gsi1pk: string; gsi1sk: string;
@@ -9,6 +10,11 @@ export interface Vendor {
   country: string | null; postalCode: string | null; phone: string | null; website: string | null;
   contactName: string | null; contactEmail: string | null; contactDesignation: string | null; contactPhone: string | null;
   paymentTermsDays: number; notes: string | null; vendorCode: string;
+  /** Structured payment terms: credit (Net N), advance_full (100% advance),
+   *  advance_partial (X% advance + remainder on delivery) or on_delivery. */
+  paymentTermsType: PaymentTermsType | null;
+  /** Advance percentage for advance_partial terms (1–99). */
+  advancePct: number | null;
   createdAt: string; updatedAt: string;
 }
 
@@ -36,6 +42,8 @@ export async function create(data: Partial<Vendor> & { clientId: string; name: s
     contactName: data.contactName || null, contactEmail: data.contactEmail || null,
     contactDesignation: data.contactDesignation || null, contactPhone: data.contactPhone || null,
     paymentTermsDays: data.paymentTermsDays || 30,
+    paymentTermsType: normalizePaymentTermsType(data.paymentTermsType) || "credit",
+    advancePct: normalizeAdvancePct(data.advancePct),
     notes: data.notes || null, vendorCode: code,
     createdAt: now, updatedAt: now,
   };
@@ -44,7 +52,7 @@ export async function create(data: Partial<Vendor> & { clientId: string; name: s
 }
 
 export async function update(id: string, updates: Partial<Vendor>) {
-  const allowed = ["name","industry","addressLine","city","country","postalCode","phone","website","contactName","contactEmail","contactDesignation","contactPhone","paymentTermsDays","notes"];
+  const allowed = ["name","industry","addressLine","city","country","postalCode","phone","website","contactName","contactEmail","contactDesignation","contactPhone","paymentTermsDays","paymentTermsType","advancePct","notes"];
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   return db.updateItem(`VENDOR#${id}`, `VENDOR#${id}`, patch);

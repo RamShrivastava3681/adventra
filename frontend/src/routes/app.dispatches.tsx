@@ -30,9 +30,10 @@ import { TransactionFilters, type TxFiltersConfig } from "@/components/transacti
 
 export const Route = createFileRoute("/app/dispatches")({
   component: DispatchesPage,
-  validateSearch: (search: Record<string, unknown>): { soId?: string; soFilter?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { soId?: string; soFilter?: string; createFromInvoice?: string } => ({
     soId: typeof search.soId === "string" ? search.soId : undefined,
     soFilter: typeof search.soFilter === "string" ? search.soFilter : undefined,
+    createFromInvoice: typeof search.createFromInvoice === "string" ? search.createFromInvoice : undefined,
   }),
 });
 
@@ -158,10 +159,11 @@ function DispatchesPage() {
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const { soId, soFilter } = Route.useSearch();
+  const { soId, soFilter, createFromInvoice } = Route.useSearch();
   const [soFilterSel, setSoFilterSel] = useState<string>(soFilter ?? "");
   const [createOpen, setCreateOpen] = useState(false);
   const [preselectSoId, setPreselectSoId] = useState<string | null>(null);
+  const [preselectInvoiceId, setPreselectInvoiceId] = useState<string | null>(null);
   const [view, setView] = useState<Dispatch | null>(null);
 
   // Coming from a Sales Order row ("Dispatch" button) — open the create modal
@@ -173,6 +175,15 @@ function DispatchesPage() {
       navigate({ to: "/app/dispatches", search: {}, replace: true });
     }
   }, [soId, navigate]);
+
+  // Coming from an invoice ("Create dispatch" button in warehouse) — open with invoice preselected
+  useEffect(() => {
+    if (createFromInvoice) {
+      setPreselectInvoiceId(createFromInvoice);
+      setCreateOpen(true);
+      navigate({ to: "/app/dispatches", search: {}, replace: true });
+    }
+  }, [createFromInvoice, navigate]);
 
   const dispatchQ = useQuery({
     queryKey: ["goods-dispatches"],
@@ -582,7 +593,7 @@ function DispatchesPage() {
   );
 }
 
-// ─── Create dispatch modal (from a sales order) ──────────────────────────
+// ─── Create dispatch modal (from a sales order or invoice) ───────────────
 type DispatchLineDraft = {
   product_id: string;
   sku: string | null;
@@ -593,9 +604,23 @@ type DispatchLineDraft = {
   unit_price: string;
 };
 
+type InvoiceData = {
+  id: string;
+  invoice_number: string;
+  debtor_id: string | null;
+  debtor?: { name?: string; contact_email?: string; address_line?: string; city?: string; country?: string } | null;
+  goods_sales_order_id: string | null;
+  goods_sales_order_number: string | null;
+  expected_dispatch_date: string | null;
+  delivery_address: string | null;
+  lines: any[];
+  grand_total: number;
+};
+
 function DispatchCreateModal({
   userId,
   preselectSoId,
+  preselectInvoiceId,
   sos,
   products,
   stockBalance,
@@ -607,6 +632,7 @@ function DispatchCreateModal({
 }: {
   userId: string;
   preselectSoId: string | null;
+  preselectInvoiceId: string | null;
   sos: SO[];
   products: CatalogueProduct[];
   stockBalance: Map<string, number>;
@@ -620,10 +646,17 @@ function DispatchCreateModal({
     queryKey: ["debtors-for-dispatch"],
     queryFn: async () => api.debtors.list(),
   });
+  const invoicesQ = useQuery({
+    queryKey: ["invoices-for-dispatch-modal"],
+    queryFn: async () => api.invoices.list(),
+  });
   const debtors = debtorsQ.data ?? [];
+  const allInvoices = (invoicesQ.data ?? []) as InvoiceData[];
   
   const qc = useQueryClient();
   const [soId, setSoId] = useState<string>(preselectSoId ?? "");
+  const [invoiceId, setInvoiceId] = useState<string>(preselectInvoiceId ?? "");
+  const [createFromInvoice, setCreateFromInvoice] = useState(!!preselectInvoiceId);
   const [f, setF] = useState({
     dispatch_date: new Date().toISOString().slice(0, 10),
     warehouse: "",
@@ -631,7 +664,7 @@ function DispatchCreateModal({
     tracking_number: "",
     delivery_challan_number: "",
     linked_customer_proforma_id: "",
-    linked_sales_invoice_id: "",
+    linked_sales_invoice_id: preselectInvoiceId ?? "",
     notes: "",
     delivery_address: "",
     dispatch_type: "customer_sale",
@@ -642,14 +675,21 @@ function DispatchCreateModal({
   const [lines, setLines] = useState<DispatchLineDraft[]>([]);
   const [scan, setScan] = useState("");
   const so = sos.find((s) => s.id === soId) ?? null;
+  const selectedInvoice = useMemo(() => {
+    return allInvoices.find((inv) => inv.id === invoiceId) ?? null;
+  }, [invoiceId, allInvoices]);
   const selectedDebtor = useMemo(() => {
+    if (createFromInvoice && selectedInvoice?.debtor_id) {
+      return debtors.find((d) => d.id === selectedInvoice.debtor_id) ?? null;
+    }
     if (!so?.customer_id) return null;
     return debtors.find((d) => d.id === so.customer_id) ?? null;
-  }, [so, debtors]);
+  }, [so, selectedInvoice, debtors, createFromInvoice]);
 
   // When the SO is picked, preload all lines with pending quantity.
   const pickSo = (id: string) => {
     setSoId(id);
+    setCreateFromInvoice(false);
     const s = sos.find((x) => x.id === id);
     setLines(
       (s?.lines ?? [])
@@ -666,10 +706,43 @@ function DispatchCreateModal({
     );
   };
 
+  // When the invoice is picked, load lines from the invoice and set SO reference
+  const pickInvoice = (id: string) => {
+    setInvoiceId(id);
+    setCreateFromInvoice(true);
+    const inv = allInvoices.find((x) => x.id === id);
+    if (inv) {
+      setF((prev) => ({
+        ...prev,
+        linked_sales_invoice_id: inv.id,
+        delivery_address: inv.delivery_address ?? prev.delivery_address,
+      }));
+      setLines(
+        (inv.lines ?? [])
+          .filter((l: any) => Number(l.quantity) > 0)
+          .map((l: any) => ({
+            product_id: l.product_id,
+            sku: l.sku,
+            name: l.name,
+            unit: l.unit,
+            ordered_qty: Number(l.quantity),
+            dispatched_qty: "",
+            unit_price: String(l.unit_price),
+          })),
+      );
+    }
+  };
+
   // Preload lines when arriving pre-selected from a sales order row.
   useEffect(() => {
     if (preselectSoId) pickSo(preselectSoId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Preload when arriving pre-selected from an invoice
+  useEffect(() => {
+    if (preselectInvoiceId) {
+      pickInvoice(preselectInvoiceId);
+    }
   }, []);
 
   const setLine = (i: number, patch: Partial<DispatchLineDraft>) =>
@@ -722,7 +795,9 @@ function DispatchCreateModal({
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!soId) throw new Error("Select a sales order to dispatch against");
+      const sourceId = createFromInvoice ? invoiceId : soId;
+      if (!sourceId) throw new Error(createFromInvoice ? "Select an invoice to dispatch against" : "Select a sales order to dispatch against");
+      
       const payloadLines = lines
         .filter((l) => (Number(l.dispatched_qty) || 0) > 0)
         .map((l) => ({
@@ -732,22 +807,32 @@ function DispatchCreateModal({
         }));
       if (payloadLines.length === 0)
         throw new Error("Enter a dispatched quantity for at least one line");
-      for (const l of payloadLines) {
-        const soLine = so?.lines?.find((x) => x.product_id === l.product_id);
-        const pending = Math.max(0, (soLine?.ordered_qty ?? 0) - (soLine?.dispatched_qty ?? 0));
-        if (l.dispatched_qty > pending) {
-          throw new Error(`Dispatch cannot exceed pending (${pending}) for ${soLine?.name}`);
+      
+      // Validate against SO if creating from SO
+      if (!createFromInvoice) {
+        for (const l of payloadLines) {
+          const soLine = so?.lines?.find((x) => x.product_id === l.product_id);
+          const pending = Math.max(0, (soLine?.ordered_qty ?? 0) - (soLine?.dispatched_qty ?? 0));
+          if (l.dispatched_qty > pending) {
+            throw new Error(`Dispatch cannot exceed pending (${pending}) for ${soLine?.name}`);
+          }
         }
       }
+      
+      // Resolve the SO ID: from invoice's linked SO, or from selected SO
+      const soIdForDispatch = createFromInvoice 
+        ? (selectedInvoice?.goods_sales_order_id ?? null)
+        : soId;
+      
       await api.goodsDispatches.create({
-        goods_sales_order_id: soId,
+        goods_sales_order_id: soIdForDispatch || undefined,
         dispatch_date: f.dispatch_date,
         warehouse: f.warehouse.trim() || null,
         transporter_name: f.transporter_name.trim() || null,
         tracking_number: f.tracking_number.trim() || null,
         delivery_challan_number: f.delivery_challan_number.trim() || null,
         linked_customer_proforma_id: f.linked_customer_proforma_id || null,
-        linked_sales_invoice_id: f.linked_sales_invoice_id || null,
+        linked_sales_invoice_id: createFromInvoice ? invoiceId : (f.linked_sales_invoice_id || null),
         notes: f.notes.trim() || null,
         lines: payloadLines,
         dispatch_type: f.dispatch_type || null,
@@ -800,25 +885,74 @@ function DispatchCreateModal({
           {/* Header */}
           <fieldset className="rounded-lg border border-border/60 p-4">
             <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              Dispatch header
+              Dispatch from
             </legend>
+            <div className="flex gap-2 mb-3">
+              <button
+                type="button"
+                onClick={() => { setCreateFromInvoice(false); setInvoiceId(""); setSoId(preselectSoId ?? ""); }}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  !createFromInvoice
+                    ? "bg-primary text-primary-foreground"
+                    : "border border-border text-muted-foreground hover:border-primary hover:text-primary"
+                }`}
+              >
+                Sales Order
+              </button>
+              <button
+                type="button"
+                onClick={() => { setCreateFromInvoice(true); setSoId(""); setInvoiceId(preselectInvoiceId ?? ""); }}
+                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                  createFromInvoice
+                    ? "bg-primary text-primary-foreground"
+                    : "border border-border text-muted-foreground hover:border-primary hover:text-primary"
+                }`}
+              >
+                Invoice
+              </button>
+            </div>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              <L label="Linked sales order">
-                <SearchableSelect
-                  value={soId}
-                  onChange={pickSo}
-                  placeholder="Select sales order…"
-                  disabled={!!preselectSoId}
-                  options={[
-                    { value: "", label: "Select sales order…" },
-                    ...sos.map((s) => ({
-                      value: s.id,
-                      label: s.so_number,
-                      hint: s.customer_name ?? undefined,
-                    })),
-                  ]}
-                />
-              </L>
+              {createFromInvoice ? (
+                <L label="Linked invoice *">
+                  <SearchableSelect
+                    value={invoiceId}
+                    onChange={pickInvoice}
+                    placeholder="Select approved invoice…"
+                    disabled={!!preselectInvoiceId}
+                    options={[
+                      { value: "", label: "Select invoice…" },
+                      ...allInvoices
+                        .filter((inv: any) =>
+                          inv.expected_dispatch_date &&
+                          !["paid", "cancelled", "rejected"].includes(inv.status) &&
+                          !dispatchedInvoiceIds.has(inv.linked_sales_invoice_id)
+                        )
+                        .map((inv: any) => ({
+                          value: inv.id,
+                          label: inv.invoice_number,
+                          hint: `${inv.debtor?.name ?? "—"} · Expected: ${fmtDate(inv.expected_dispatch_date)}`,
+                        })),
+                    ]}
+                  />
+                </L>
+              ) : (
+                <L label="Linked sales order">
+                  <SearchableSelect
+                    value={soId}
+                    onChange={pickSo}
+                    placeholder="Select sales order…"
+                    disabled={!!preselectSoId}
+                    options={[
+                      { value: "", label: "Select sales order…" },
+                      ...sos.map((s) => ({
+                        value: s.id,
+                        label: s.so_number,
+                        hint: s.customer_name ?? undefined,
+                      })),
+                    ]}
+                  />
+                </L>
+              )}
               <L label="Dispatch date">
                 <input
                   type="date"
@@ -945,7 +1079,7 @@ function DispatchCreateModal({
               </L>
               <div className="col-span-2 md:col-span-1">
                 <L label="Customer">
-                  <input className="inp" value={so?.customer_name ?? ""} disabled />
+                  <input className="inp" value={createFromInvoice ? (selectedInvoice?.debtor?.name ?? "") : (so?.customer_name ?? "")} disabled />
                 </L>
               </div>
             </div>
@@ -970,9 +1104,20 @@ function DispatchCreateModal({
                   className="inp resize-y"
                   value={f.delivery_address}
                   onChange={(e) => setF({ ...f, delivery_address: e.target.value })}
-                  placeholder="Auto-filled from sales order"
+                  placeholder={createFromInvoice ? "Auto-filled from invoice" : "Auto-filled from sales order"}
                 />
-                {so && (
+                {createFromInvoice && selectedInvoice?.delivery_address && (
+                  <div className="mt-1 flex flex-wrap gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setF({ ...f, delivery_address: selectedInvoice.delivery_address ?? "" })}
+                      className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
+                    >
+                      Use invoice delivery address
+                    </button>
+                  </div>
+                )}
+                {!createFromInvoice && so && (
                   <div className="mt-1 flex flex-wrap gap-1">
                     <button
                       type="button"

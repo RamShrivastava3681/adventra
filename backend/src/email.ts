@@ -478,11 +478,11 @@ export async function sendDebtorReminder(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Quotation / Sales Order PDF approval email (sent to the debtor)
+// Sales Order PDF approval email (sent to the debtor)
 // ---------------------------------------------------------------------------
 
 /**
- * Email a quotation or sales order PDF to the debtor with Approve / Reject
+ * Email a sales order PDF to the debtor with Approve / Reject
  * buttons. The debtor's decision is recorded via the public approval page
  * (linked by a one-time token) and reflected back in the app tabs.
  */
@@ -595,7 +595,7 @@ export async function sendInvoiceNoaEmail(params: {
 }
 
 export async function sendDocumentApprovalEmail(params: {
-  kind: "quotation" | "sales_order" | "purchase_order";
+  kind: "sales_order" | "purchase_order";
   number: string;
   grandTotal: number;
   validUntil: string | null;
@@ -612,17 +612,13 @@ export async function sendDocumentApprovalEmail(params: {
   }
 
   const kindLabel =
-    params.kind === "quotation"
-      ? "Quotation"
-      : params.kind === "purchase_order"
-        ? "Purchase Order"
-        : "Sales Order";
+    params.kind === "purchase_order" ? "Purchase Order" : "Sales Order";
   const subject = `${kindLabel} ${params.number} from ${params.companyName} — please review and approve`;
   const total = params.grandTotal.toLocaleString(undefined, {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
-  const validLabel = params.kind === "quotation" ? "Valid until" : "Expected delivery";
+  const validLabel = "Expected delivery";
   const recipientLabel = params.kind === "purchase_order" ? "Supplier" : "Customer";
   const safe = {
     number: esc(params.number),

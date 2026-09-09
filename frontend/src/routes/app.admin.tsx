@@ -13,7 +13,6 @@ import {
   EyeOff,
   Users,
   Trash2,
-  ScrollText,
   Building2,
   Truck,
   ShoppingBag,
@@ -69,11 +68,10 @@ const ROLE_LABELS: Record<string, string> = {
 };
 
 // ── Sales sub-tab config ──────────────────────────────────────────
-type SalesTab = "sales-overview" | "quotations" | "crm" | "sales-orders" | "debtors" | "suppliers";
+type SalesTab = "sales-overview" | "crm" | "sales-orders" | "debtors" | "suppliers";
 
 const SALES_TABS: { id: SalesTab; label: string; icon: any }[] = [
   { id: "sales-overview", label: "Overview", icon: LayoutDashboard },
-  { id: "quotations", label: "Quotations", icon: ScrollText },
   { id: "crm", label: "CRM", icon: UsersIcon },
   { id: "sales-orders", label: "Sales Orders", icon: ShoppingBag },
   { id: "debtors", label: "Debtors", icon: Building2 },
@@ -125,15 +123,6 @@ function AdminPage() {
 
   // ── Sales data queries ──────────────────────────────────────────
   const [salesTab, setSalesTab] = useState<SalesTab>("sales-overview");
-
-  const quotationsQ = useQuery({
-    queryKey: ["quotations-admin"],
-    queryFn: async () => {
-      const data = await api.quotations.list();
-      return data.sort((a: any, b: any) => (b.quotation_date || "").localeCompare(a.quotation_date || ""));
-    },
-    enabled: isAdmin || isSuperAdmin,
-  });
 
   const opportunitiesQ = useQuery({
     queryKey: ["crm-opportunities-admin"],
@@ -405,7 +394,7 @@ function AdminPage() {
         <Card
           title="Sales console"
         >
-          <div className="text-[11px] text-muted-foreground mb-3">Quotations, CRM pipeline, sales orders, debtors and suppliers — full portfolio view.</div>
+          <div className="text-[11px] text-muted-foreground mb-3">CRM pipeline, sales orders, debtors and suppliers — full portfolio view.</div>
           {/* Sales sub-tab nav */}
           <div className="flex flex-wrap gap-1 border-b border-border pb-3 mb-4">
             {SALES_TABS.map((t) => (
@@ -428,41 +417,9 @@ function AdminPage() {
           {salesTab === "sales-overview" && (
             <div>
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mb-6">
-                <StatTileSmall label="Quotations" value={quotationsQ.data?.length ?? 0} sub={(quotationsQ.data ?? []).filter((q: any) => q.status === "draft").length + " drafts"} />
                 <StatTileSmall label="Open pipeline" value={fmtMoney((opportunitiesQ.data ?? []).filter((o: any) => o.stage !== "closed_won" && o.stage !== "closed_lost").reduce((s: number, o: any) => s + Number(o.amount), 0))} sub={(opportunitiesQ.data ?? []).filter((o: any) => o.stage !== "closed_won" && o.stage !== "closed_lost").length + " deals"} />
                 <StatTileSmall label="Sales orders" value={(salesOrdersQ.data ?? []).length} sub={fmtMoney((salesOrdersQ.data ?? []).reduce((s: number, sO: any) => s + Number(sO.grand_total || 0), 0))} />
                 <StatTileSmall label="Debtors" value={debtorsQ.data?.length ?? 0} sub={fmtMoney((debtorsQ.data ?? []).reduce((s: number, d: any) => s + exposureForDebtor(d.id), 0))} />
-              </div>
-
-              {/* Recent quotations */}
-              <div className="mb-6">
-                <div className="mb-2 flex items-center justify-between">
-                  <h3 className="text-xs font-semibold uppercase tracking-[0.1em] text-muted-foreground">Recent quotations</h3>
-                  <Link to="/app/quotations" className="text-[10px] font-medium text-primary hover:underline">View all</Link>
-                </div>
-                {quotationsQ.isLoading ? (
-                  <TableSkeleton rows={4} cols={6} />
-                ) : (quotationsQ.data ?? []).length === 0 ? (
-                  <p className="py-4 text-center text-xs text-muted-foreground">No quotations yet.</p>
-                ) : (
-                  <div className="-mx-5 overflow-x-auto">
-                    <table className="table-premium w-full text-xs">
-                      <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                        <tr><th>Quotation</th><th>Customer</th><th className="text-right">Grand total</th><th>Status</th></tr>
-                      </thead>
-                      <tbody>
-                        {(quotationsQ.data ?? []).slice(0, 5).map((q: any) => (
-                          <tr key={q.id} className="border-b border-border/60">
-                            <td className="font-mono">{q.quotation_number}</td>
-                            <td>{q.customer_name ?? "—"}</td>
-                            <td className="text-right num">{fmtMoney(q.grand_total)}</td>
-                            <td><StatusPill status={q.status} /></td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
               </div>
 
               {/* Recent pipeline */}
@@ -527,40 +484,6 @@ function AdminPage() {
                   </div>
                 )}
               </div>
-            </div>
-          )}
-
-          {/* ── Quotations ── */}
-          {salesTab === "quotations" && (
-            <div>
-              <div className="mb-4 flex items-center gap-2">
-                <Link to="/app/quotations" className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary">Open full page ↗</Link>
-              </div>
-              {quotationsQ.isLoading ? (
-                <TableSkeleton rows={6} cols={7} />
-              ) : (quotationsQ.data ?? []).length === 0 ? (
-                <div className="py-10 text-center text-sm text-muted-foreground"><ScrollText className="mx-auto mb-2 h-8 w-8 opacity-40" />No quotations yet.</div>
-              ) : (
-                <div className="-mx-5 overflow-x-auto">
-                  <table className="table-premium w-full text-sm">
-                    <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                      <tr><th>Quotation</th><th>Customer / prospect</th><th className="text-right">Grand total</th><th>Status</th><th>Created</th><th></th></tr>
-                    </thead>
-                    <tbody>
-                      {(quotationsQ.data ?? []).map((q: any) => (
-                        <tr key={q.id} className="border-b border-border/60 hover:bg-muted/30">
-                          <td className="font-mono text-xs">{q.quotation_number}</td>
-                          <td>{q.customer_name ?? "—"}{q.contact_person ? <div className="text-[10px] text-muted-foreground">{q.contact_person}</div> : null}</td>
-                          <td className="text-right num font-medium">{fmtMoney(q.grand_total)}</td>
-                          <td><StatusPill status={q.status} />{q.approval_status && <div className="mt-1"><StatusPill status={q.approval_status} /></div>}</td>
-                          <td className="text-muted-foreground">{fmtDate(q.quotation_date)}</td>
-                          <td className="text-right"><Link to="/app/quotation/$quotationId" params={{ quotationId: q.id }} className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary">View</Link></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
             </div>
           )}
 

@@ -1,10 +1,11 @@
 import PDFDocument from "pdfkit";
+import { formatPaymentTerms } from "./payment-terms.js";
 
 /**
  * document-pdf.ts
  * ─────────────────────────────────────────────────────────────────────────────
  * Clean, professional A4 PDF generator for customer-facing documents
- * (Quotations and Sales Orders).
+ * (Sales Orders).
  *
  * Pricing rule: the ONLY price column shown is "Unit Price", which uses the
  * EFFECTIVE unit price — the maker's updated price when set, otherwise the
@@ -12,7 +13,7 @@ import PDFDocument from "pdfkit";
  * never appear. Grand total is computed from those effective prices.
  */
 
-export type PdfDocKind = "quotation" | "sales_order" | "purchase_order";
+export type PdfDocKind = "sales_order" | "purchase_order";
 
 export interface DocumentPdfLine {
   sku: string | null;
@@ -132,11 +133,7 @@ function drawHeaderBand(doc: PDFKit.PDFDocument, data: DocumentPdfData) {
 
   // Document type (right)
   const kindLabel =
-    data.kind === "quotation"
-      ? "QUOTATION"
-      : data.kind === "purchase_order"
-        ? "PURCHASE ORDER"
-        : "SALES ORDER";
+    data.kind === "purchase_order" ? "PURCHASE ORDER" : "SALES ORDER";
   doc
     .font("Helvetica-Bold")
     .fontSize(22)
@@ -175,12 +172,8 @@ function drawMetaRow(doc: PDFKit.PDFDocument, data: DocumentPdfData, startY: num
 
   doc.font("Helvetica").fontSize(9).fillColor(INK.slate600);
   doc.text(
-    `${
-      data.kind === "quotation"
-        ? "Quotation date"
-        : data.kind === "purchase_order"
-          ? "PO date"
-          : "Order date"
+    `    ${
+      data.kind === "purchase_order" ? "PO date" : "Order date"
     }: ${fmtDate(data.date)}`,
     rightX,
     y,
@@ -527,50 +520,8 @@ function variantLabel(l: { color?: string | null; size?: string | null }): strin
 
 /** Human label for a document kind (used for PDF titles/metadata). */
 function docTypeLabel(kind: PdfDocKind): string {
-  if (kind === "quotation") return "Quotation";
   if (kind === "purchase_order") return "Purchase Order";
   return "Sales Order";
-}
-
-export function quotationToPdfData(q: any, companyName: string, companyContact?: string | null): DocumentPdfData {
-  const lines: DocumentPdfLine[] = (q.lines ?? []).map((l: any) => {
-    const unitPrice = effectiveUnitPrice(l);
-    const quantity = Number(l.quantity) || 0;
-    return {
-      sku: l.sku ?? null,
-      name: l.name || "Item",
-      unit: l.unit || "unit",
-      color: l.color ?? l.colour ?? null,
-      size: l.size ?? null,
-      quantity,
-      unitPrice,
-      discountLabel: discountLabel(l),
-      gstRate: l.gstRate ?? l.gst_rate ?? null,
-      amount: Number(l.lineTotal ?? l.line_total) || 0,
-    };
-  });
-  return {
-    kind: "quotation",
-    number: q.quotationNumber || q.quotation_number || "—",
-    date: q.quotationDate || q.quotation_date || "",
-    validUntil: q.validUntil ?? q.valid_until ?? null,
-    customerName: q.customerName ?? q.customer_name ?? null,
-    contactPerson: q.contactPerson ?? q.contact_person ?? null,
-    billingAddress: q.billingAddress ?? q.billing_address ?? null,
-    deliveryAddress: q.deliveryAddress ?? q.delivery_address ?? null,
-    paymentTerms: q.paymentTerms ?? q.payment_terms ?? null,
-    expectedDeliveryDate: q.expectedDeliveryDate ?? q.expected_delivery_date ?? null,
-    salespersonName: q.salespersonName ?? q.salesperson_name ?? null,
-    notes: q.notes ?? null,
-    lines,
-    subtotal: Number(q.subtotal) || 0,
-    totalDiscount: Number(q.totalDiscount) || 0,
-    gstTotal: Number(q.gstTotal) || 0,
-    freight: Number(q.freight) || 0,
-    grandTotal: Number(q.grandTotal) || 0,
-    companyName,
-    companyContact,
-  };
 }
 
 export function purchaseOrderToPdfData(
@@ -599,7 +550,7 @@ export function purchaseOrderToPdfData(
     contactPerson: null,
     billingAddress: null,
     deliveryAddress: po.warehouse ?? null,
-    paymentTerms: po.paymentTerms ?? po.payment_terms ?? null,
+    paymentTerms: formatPaymentTerms(po) || po.paymentTerms ?? po.payment_terms ?? null,
     expectedDeliveryDate: po.expectedDeliveryDate ?? po.expected_delivery_date ?? null,
     salespersonName: po.buyerName ?? po.buyer_name ?? null,
     notes: po.notes ?? null,
@@ -642,7 +593,7 @@ export function salesOrderToPdfData(so: any, companyName: string, companyContact
     contactPerson: so.contactPerson ?? so.contact_person ?? null,
     billingAddress: so.billingAddress ?? so.billing_address ?? null,
     deliveryAddress: so.deliveryAddress ?? so.delivery_address ?? null,
-    paymentTerms: so.paymentTerms ?? so.payment_terms ?? null,
+    paymentTerms: formatPaymentTerms(so) || so.paymentTerms ?? so.payment_terms ?? null,
     expectedDeliveryDate: so.expectedDeliveryDate ?? so.expected_delivery_date ?? null,
     salespersonName: so.salespersonName ?? so.salesperson_name ?? null,
     notes: so.notes ?? null,

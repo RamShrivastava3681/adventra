@@ -44,7 +44,7 @@ function ApprovePage() {
     queryFn: async () => {
       const data = await api.approvals.get(token);
       return data as {
-        kind: "quotation" | "sales_order" | "purchase_order";
+        kind: "sales_order" | "purchase_order";
         document: any;
         debtor: { name?: string; contact_email?: string | null } | null;
       };
@@ -90,24 +90,11 @@ function ApprovePage() {
       </div>
     );
 
-  const isQuotation = data.kind === "quotation";
   const isPurchaseOrder = data.kind === "purchase_order";
-  const docLabel = isQuotation
-    ? "quotation"
-    : isPurchaseOrder
-      ? "purchase order"
-      : "sales order";
-  const number = isQuotation
-    ? doc.quotation_number
-    : isPurchaseOrder
-      ? doc.po_number
-      : doc.so_number;
-  const dateField = isQuotation
-    ? doc.quotation_date
-    : isPurchaseOrder
-      ? doc.po_date
-      : doc.order_date;
-  const validUntil = isQuotation ? doc.valid_until : doc.expected_delivery_date;
+  const docLabel = isPurchaseOrder ? "purchase order" : "sales order";
+  const number = isPurchaseOrder ? doc.po_number : doc.so_number;
+  const dateField = isPurchaseOrder ? doc.po_date : doc.order_date;
+  const validUntil = doc.expected_delivery_date;
   const lines: ApproveLine[] = doc.lines ?? [];
   const responded = doc.debtor_approval_status === "approved" || doc.debtor_approval_status === "rejected";
   const statusLabel =
@@ -130,8 +117,7 @@ function ApprovePage() {
             <FileCheck2 className="h-6 w-6 text-primary" />
             <div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                {isQuotation ? "Quotation" : isPurchaseOrder ? "Purchase Order" : "Sales Order"}{" "}
-                approval
+                {isPurchaseOrder ? "Purchase Order" : "Sales Order"} approval
               </div>
               <div className="font-display text-lg leading-tight">{number}</div>
             </div>
@@ -172,7 +158,7 @@ function ApprovePage() {
             <dl className="mt-6 grid grid-cols-2 gap-4 text-sm md:grid-cols-3">
               <div>
                 <dt className="text-xs uppercase tracking-widest text-muted-foreground">
-                  {isQuotation ? "Quotation #" : isPurchaseOrder ? "PO #" : "SO #"}
+                  {isPurchaseOrder ? "PO #" : "SO #"}
                 </dt>
                 <dd className="font-mono">{number}</dd>
               </div>
@@ -188,13 +174,13 @@ function ApprovePage() {
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-widest text-muted-foreground">
-                  {isQuotation ? "Date" : isPurchaseOrder ? "PO date" : "Order date"}
+                  {isPurchaseOrder ? "PO date" : "Order date"}
                 </dt>
                 <dd>{fmtDate(dateField)}</dd>
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-widest text-muted-foreground">
-                  {isQuotation ? "Valid until" : "Expected delivery"}
+                  Expected delivery
                 </dt>
                 <dd>{fmtDate(validUntil)}</dd>
               </div>

@@ -1,4 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
+import {
+  PaymentTermsFields,
+  formatPaymentTerms,
+  toFormFields as toTermsFormFields,
+  toPayload as toTermsPayload,
+} from "@/components/payment-terms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import api from "@/lib/api-client";
@@ -99,7 +105,12 @@ function DebtorsPage() {
                         <td className="px-5 py-3 text-xs font-mono text-muted-foreground">{d.gstin ?? "—"}</td>
                         <td className="px-5 py-3 text-right num">{fmtMoney(exposure)}</td>
                         <td className="px-5 py-3 text-right text-muted-foreground">
-                          Net {d.payment_terms_days}
+                          {formatPaymentTerms({
+                            paymentTermsType: d.paymentTermsType ?? d.payment_terms_type,
+                            advancePct: d.advancePct ?? d.advance_pct,
+                            paymentTermsDays: d.payment_terms_days ?? d.paymentTermsDays,
+                            paymentTerms: d.payment_terms ?? d.paymentTerms,
+                          })}
                         </td>
                         <td className="px-5 py-3 text-right whitespace-nowrap">
                           <button
@@ -164,7 +175,7 @@ function DebtorModal({
   const [form, setForm] = useState({
     name: debtor?.name ?? "",
     industry: debtor?.industry ?? "",
-    payment_terms_days: String(debtor?.payment_terms_days ?? debtor?.paymentTermsDays ?? "30"),
+    ...toTermsFormFields(debtor),
     gstin: debtor?.gstin ?? "",
     panCardNo: debtor?.panCardNo ?? debtor?.pan_card_no ?? "",
     billing_address: debtor?.billing_address ?? debtor?.address_line ?? "",
@@ -190,7 +201,7 @@ function DebtorModal({
       const payload = {
         name: form.name.trim(),
         industry: form.industry || null,
-        payment_terms_days: Number(form.payment_terms_days),
+        ...toTermsPayload(form),
         gstin: form.gstin || null,
         panCardNo: form.panCardNo || null,
         billingAddress: form.billing_address || null,
@@ -386,15 +397,15 @@ function DebtorModal({
           </Section>
 
           <Section title="Payment terms">
-            <div className="grid gap-3 md:grid-cols-3">
-              <L label="Payment terms (days)">
-                <input
-                  required
-                  type="number"
-                  min="0"
-                  className="inp"
-                  value={form.payment_terms_days}
-                  onChange={set("payment_terms_days")}
+            <div className="grid gap-3 md:grid-cols-2">
+              <L label="Terms type" full>
+                <PaymentTermsFields
+                  type={form.payment_terms_type}
+                  advancePct={form.payment_terms_advance_pct}
+                  paymentTermsDays={form.payment_terms_days}
+                  freeText={form.payment_terms}
+                  daysLabel="Net days"
+                  onChange={(patch) => setForm({ ...form, ...patch })}
                 />
               </L>
             </div>
@@ -460,7 +471,12 @@ function DebtorDetailModal({
             <D label="Industry" value={debtor.industry ?? "—"} />
             <D
               label="Payment terms"
-              value={`Net ${debtor.payment_terms_days ?? debtor.paymentTermsDays ?? "—"}`}
+              value={formatPaymentTerms({
+                paymentTermsType: debtor.paymentTermsType ?? debtor.payment_terms_type,
+                advancePct: debtor.advancePct ?? debtor.advance_pct,
+                paymentTermsDays: debtor.payment_terms_days ?? debtor.paymentTermsDays,
+                paymentTerms: debtor.payment_terms ?? debtor.paymentTerms,
+              })}
             />
             <D label="Open exposure" value={<span className="num">{fmtMoney(exposure)}</span>} />
             <D label="PAN" value={debtor.panCardNo ?? debtor.pan_card_no ?? "—"} />

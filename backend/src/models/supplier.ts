@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
+import { PaymentTermsType, normalizePaymentTermsType, normalizeAdvancePct } from "../lib/payment-terms.js";
 
 export interface Supplier {
   pk: string; sk: string; entityType: "Supplier";
@@ -8,6 +9,13 @@ export interface Supplier {
   industry: string | null;
   addressLine: string | null; city: string | null; country: string | null; postalCode: string | null;
   status: string; notes: string | null; supplierCode: string;
+  /** Credit period in days (Net N) when paymentTermsType is "credit". */
+  paymentTermsDays: number;
+  /** Structured payment terms: credit (Net N), advance_full (100% advance),
+   *  advance_partial (X% advance + remainder on delivery) or on_delivery. */
+  paymentTermsType: PaymentTermsType | null;
+  /** Advance percentage for advance_partial terms (1–99). */
+  advancePct: number | null;
   createdAt: string; updatedAt: string;
 }
 
@@ -24,6 +32,9 @@ export async function create(data: Partial<Supplier> & { companyName: string }) 
     industry: data.industry || null,
     addressLine: data.addressLine || null, city: data.city || null, country: data.country || null, postalCode: data.postalCode || null,
     status: data.status || "prospect", notes: data.notes || null,
+    paymentTermsDays: data.paymentTermsDays || 30,
+    paymentTermsType: normalizePaymentTermsType(data.paymentTermsType) || "credit",
+    advancePct: normalizeAdvancePct(data.advancePct),
     supplierCode: code, createdAt: now, updatedAt: now,
   };
   await db.putItem(item);
@@ -32,7 +43,7 @@ export async function create(data: Partial<Supplier> & { companyName: string }) 
 
 export async function update(id: string, updates: Partial<Supplier>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
-  const allowed = ["companyName","contactName","contactEmail","contactPhone","industry","addressLine","city","country","postalCode","status","notes"];
+  const allowed = ["companyName","contactName","contactEmail","contactPhone","industry","addressLine","city","country","postalCode","status","notes","paymentTermsDays","paymentTermsType","advancePct"];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   return db.updateItem(`SUPPLIER#${id}`, `SUPPLIER#${id}`, patch);
 }

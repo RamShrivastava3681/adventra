@@ -14,7 +14,6 @@ import {
   Ban,
   Trash2,
   Pencil,
-  Truck,
   FileDown,
   Mail,
   Send,
@@ -25,6 +24,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import {
+  PaymentTermsFields,
+  formatPaymentTerms,
+  toFormFields as toTermsFormFields,
+  toPayload as toTermsPayload,
+} from "@/components/payment-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductVariantPicker } from "@/components/product-variant-picker";
 import { TableSkeleton } from "@/components/skeletons";
@@ -61,8 +66,6 @@ type SO = {
   delivery_address: string | null;
   salesperson_id: string | null;
   salesperson_name: string | null;
-  linked_quotation_id: string | null;
-  linked_quotation_number: string | null;
   payment_terms: string | null;
   expected_dispatch_date: string | null;
   expected_delivery_date: string | null;
@@ -110,36 +113,6 @@ type Customer = {
   postal_code: string | null;
 };
 
-type QuotationLine = {
-  product_id: string;
-  sku: string | null;
-  name: string;
-  unit: string;
-  quantity: number;
-  unit_price: number;
-  updated_unit_price: number | null;
-  discount_type: "pct" | "amount" | null;
-  discount_value: number | null;
-  gst_rate: number | null;
-  line_total: number;
-  notes: string | null;
-};
-
-type Quotation = {
-  id: string;
-  status: string;
-  quotation_number: string;
-  customer_id: string | null;
-  customer_name: string | null;
-  contact_person: string | null;
-  billing_address: string | null;
-  delivery_address: string | null;
-  payment_terms: string | null;
-  expected_delivery_date: string | null;
-  freight: number;
-  lines: QuotationLine[];
-};
-
 const SO_STATUSES = [
   "draft",
   "pending_review",
@@ -181,16 +154,6 @@ const SO_DEBTOR_TONES: Record<string, string> = {
   rejected: "bg-destructive/10 text-destructive border-destructive/30",
 };
 
-const PAYMENT_TERMS = [
-  "",
-  "Net 15",
-  "Net 30",
-  "Net 60",
-  "Advance payment",
-  "Cash on delivery",
-  "Letter of credit",
-];
-
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
@@ -226,7 +189,6 @@ function SalesOrdersPage() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<SO | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const sosQ = useQuery({
     queryKey: ["goods-sos"],
@@ -258,60 +220,44 @@ function SalesOrdersPage() {
           city: d.city ?? null,
           country: d.country ?? null,
           postal_code: d.postal_code ?? null,
+          paymentTermsType: d.paymentTermsType ?? d.payment_terms_type ?? null,
+          advancePct: d.advancePct ?? d.advance_pct ?? null,
+          paymentTermsDays: d.paymentTermsDays ?? d.payment_terms_days ?? null,
+          paymentTerms: d.paymentTerms ?? d.payment_terms ?? null,
         }))
         .sort((a, b) => a.name.localeCompare(b.name)) as Customer[];
     },
   });
-  const quotationsQ = useQuery({
-    queryKey: ["quotations-for-so"],
-    queryFn: async () => {
-      const data = (await api.quotations.list()) as Quotation[];
-      return data.filter((q) => ["draft", "sent", "accepted"].includes(q.status));
-    },
-  });
-
-  const del = useMutation({
+  // Row-level workflow: submit for checker review / cancel.
+  const submitReview = useMutation({
     mutationFn: async (id: string) => {
-      await api.goodsSalesOrders.delete(id);
+      await api.goodsSalesOrders.update(id, { status: "pending_review" });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["goods-sos"] });
-      toast.success("Sales order deleted");
+      toast.success("Sales order submitted for review");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const deleteSelected = useMutation({
-    mutationFn: async () => Promise.all([...selectedIds].map((id) => api.goodsSalesOrders.delete(id))),
-    onSuccess: () => {
-      setSelectedIds(new Set());
-      qc.invalidateQueries({ queryKey: ["goods-sos"] });
-      toast.success("Selected sales orders deleted");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete selected orders"),
-  });
-
-  // Email the sales order PDF to the debtor for their approval.
-  const sendToDebtor = useMutation({
+  const cancel = useMutation({
     mutationFn: async (id: string) => {
-      const res = (await api.goodsSalesOrders.sendToDebtor(id)) as any;
-      return res?.sentTo ?? "the debtor";
+      await api.goodsSalesOrders.update(id, { status: "cancelled" });
     },
-    onSuccess: (sentTo) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["goods-sos"] });
-      toast.success(`Sales order PDF sent to ${sentTo}`);
+      toast.success("Sales order cancelled");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
   const soConfig: TxFiltersConfig<SO> = {
-    searchPlaceholder: "Search by SO number, customer, quotation…",
+    searchPlaceholder: "Search by SO number, customer…",
     search: (s) => [
       s.so_number,
       s.customer_name,
       s.salesperson_name,
       s.contact_person,
-      s.linked_quotation_number,
     ],
     statusField: (s) => s.status,
     statusLabel: SO_STATUS_LABELS,
@@ -391,14 +337,6 @@ function SalesOrdersPage() {
         <TransactionFilters data={sosQ.data ?? []} config={soConfig}>
           {(filtered) => (
             <Card>
-              {canWrite && selectedIds.size > 0 && (
-                <div className="mb-3 flex items-center justify-between rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
-                  <span>{selectedIds.size} sales order(s) selected</span>
-                  <button onClick={() => deleteSelected.mutate()} disabled={deleteSelected.isPending} className="inline-flex items-center gap-1 text-destructive hover:underline">
-                    <Trash2 className="h-3.5 w-3.5" /> Delete selected
-                  </button>
-                </div>
-              )}
               {sosQ.isLoading ? (
                 <TableSkeleton rows={6} cols={8} />
               ) : filtered.length === 0 ? (
@@ -411,7 +349,6 @@ function SalesOrdersPage() {
                   <table className="table-premium w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
-                        <th className="px-5 py-2 text-left font-normal"><input type="checkbox" aria-label="Select all sales orders" checked={filtered.length > 0 && filtered.every((s: SO) => selectedIds.has(s.id))} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((s: SO) => s.id)) : new Set())} /></th>
                         <th className="px-5 py-2 text-left font-normal">SO</th>
                         <th className="px-5 py-2 text-left font-normal">Customer</th>
                         <th className="px-5 py-2 text-left font-normal">Dispatch</th>
@@ -435,7 +372,7 @@ function SalesOrdersPage() {
                             : 0;
                         return (
                           <tr key={s.id} className="border-b border-border/60 hover:bg-muted/30">
-                            <td className="px-5 py-3"><input type="checkbox" aria-label={`Select sales order ${s.so_number}`} checked={selectedIds.has(s.id)} onChange={(e) => setSelectedIds((current) => { const next = new Set(current); if (e.target.checked) next.add(s.id); else next.delete(s.id); return next; })} /></td>
+
                             <td className="px-5 py-3 font-mono text-xs">
                               {s.so_number}
                               <div className="text-[10px] text-muted-foreground">
@@ -525,53 +462,24 @@ function SalesOrdersPage() {
                                     <Pencil className="h-3 w-3" />
                                   </button>
                                 )}
-                                {canWrite &&
-                                  ["confirmed", "partially_dispatched"].includes(s.status) && (
-                                    <button
-                                      onClick={() =>
-                                        navigate({ to: "/app/dispatches", search: { soId: s.id } })
-                                      }
-                                      className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2 py-1 text-[10px] text-success hover:bg-success/10"
-                                    >
-                                      <Truck className="h-3 w-3" /> Dispatch
-                                    </button>
-                                  )}
-                                {(s.lines ?? []).some((l) => l.dispatched_qty > 0) && (
+                                {canWrite && s.status === "draft" && (
                                   <button
-                                    onClick={() =>
-                                      navigate({
-                                        to: "/app/dispatches",
-                                        search: { soFilter: s.id },
-                                      })
-                                    }
-                                    className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                                    title="View dispatches"
+                                    onClick={() => submitReview.mutate(s.id)}
+                                    disabled={submitReview.isPending}
+                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                                    title="Review the sales order and send it to the checker"
                                   >
-                                    <FileDown className="h-3 w-3" />
+                                    <FileDown className="h-3 w-3" /> Review
                                   </button>
                                 )}
-                                {canWrite && (
+                                {canWrite && !["cancelled", "fully_dispatched"].includes(s.status) && (
                                   <button
-                                    onClick={() => del.mutate(s.id)}
+                                    onClick={() => cancel.mutate(s.id)}
+                                    disabled={cancel.isPending}
                                     className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
-                                    title="Delete"
+                                    title="Cancel"
                                   >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                                {canWrite && s.status === "confirmed" && (
-                                  <button
-                                    onClick={() => sendToDebtor.mutate(s.id)}
-                                    disabled={sendToDebtor.isPending}
-                                    className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
-                                    title="Email the sales order PDF to the debtor for approval"
-                                  >
-                                    {sendToDebtor.isPending ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      <Mail className="h-3 w-3" />
-                                    )}
-                                    Send to debtor
+                                    Cancel
                                   </button>
                                 )}
                               </div>
@@ -594,7 +502,6 @@ function SalesOrdersPage() {
           so={editing}
           products={productsQ.data ?? []}
           customers={customersQ.data ?? []}
-          quotations={quotationsQ.data ?? []}
           canWrite={canWrite}
           canApprove={isAdmin || isChecker}
           onClose={() => setOpen(false)}
@@ -627,7 +534,6 @@ function SOModal({
   so,
   products,
   customers,
-  quotations,
   canWrite,
   canApprove,
   onClose,
@@ -637,7 +543,6 @@ function SOModal({
   so: SO | null;
   products: CatalogueProduct[];
   customers: Customer[];
-  quotations: Quotation[];
   canWrite: boolean;
   canApprove: boolean;
   onClose: () => void;
@@ -656,9 +561,7 @@ function SOModal({
     contact_person: so?.contact_person ?? "",
     billing_address: so?.billing_address ?? "",
     delivery_address: so?.delivery_address ?? "",
-    linked_quotation_id: so?.linked_quotation_id ?? "",
-    linked_quotation_number: so?.linked_quotation_number ?? "",
-    payment_terms: so?.payment_terms ?? "",
+    ...toTermsFormFields(so),
     expected_dispatch_date: (so?.expected_dispatch_date ?? "")?.slice(0, 10) ?? "",
     expected_delivery_date: (so?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
     notes: so?.notes ?? "",
@@ -702,6 +605,10 @@ function SOModal({
       contact_person: c?.contact_name ?? prev.contact_person,
       billing_address: c?.billing_address ?? prev.billing_address,
       delivery_address: c?.shipping_address ?? c?.billing_address ?? prev.delivery_address,
+      // Pre-fill payment terms from the debtor master (still editable).
+      ...(id
+        ? toTermsFormFields(c)
+        : { payment_terms_type: "" as const, payment_terms_advance_pct: "", payment_terms: "" }),
     }));
   };
 
@@ -819,9 +726,8 @@ function SOModal({
         contact_person: f.contact_person.trim() || null,
         billing_address: f.billing_address.trim() || null,
         delivery_address: f.delivery_address.trim() || null,
-        linked_quotation_id: f.linked_quotation_id || null,
-        linked_quotation_number: f.linked_quotation_number || null,
-        payment_terms: f.payment_terms || null,
+        ...toTermsPayload(f),
+        payment_terms: f.payment_terms_type ? formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }) : f.payment_terms || null,
         expected_dispatch_date: f.expected_dispatch_date || null,
         expected_delivery_date: f.expected_delivery_date || null,
         notes: f.notes.trim() || null,
@@ -996,97 +902,16 @@ function SOModal({
               <L label="Salesperson / owner">
                 <input className="inp" value={so?.salesperson_name ?? "You"} disabled />
               </L>
-              <L label="Linked quotation">
-                <SearchableSelect
-                  value={f.linked_quotation_id}
-                  onChange={(id) => {
-                    const qt = quotations.find((x) => x.id === id);
-                    if (!qt) {
-                      setF({ ...f, linked_quotation_id: id, linked_quotation_number: "" });
-                      return;
-                    }
-                    // Fetch the quotation's details into the sales order: the
-                    // header (customer, addresses, payment terms, freight) and
-                    // the line items with the maker's revised price — the
-                    // updated unit price wins when the checker approved one.
-                    setF((prev) => ({
-                      ...prev,
-                      linked_quotation_id: id,
-                      linked_quotation_number: qt.quotation_number,
-                      customer_id: qt.customer_id ?? prev.customer_id,
-                      contact_person: qt.contact_person ?? prev.contact_person,
-                      billing_address: qt.billing_address ?? prev.billing_address,
-                      delivery_address: qt.delivery_address ?? prev.delivery_address,
-                      payment_terms: qt.payment_terms ?? prev.payment_terms,
-                      expected_delivery_date:
-                        qt.expected_delivery_date?.slice(0, 10) ?? prev.expected_delivery_date,
-                      freight: qt.freight != null ? String(qt.freight) : prev.freight,
-                    }));
-                    setLines((existing) =>
-                      (qt.lines ?? []).map((l) => {
-                        const unitPrice =
-                          l.updated_unit_price != null ? l.updated_unit_price : l.unit_price;
-                        // SO lines only carry a percentage discount — convert a
-                        // flat quotation discount the same way convert does.
-                        let discountPct = "";
-                        if (l.discount_type === "pct" && l.discount_value != null) {
-                          discountPct = String(l.discount_value);
-                        } else if (l.discount_type === "amount" && l.discount_value != null) {
-                          const gross = (Number(l.quantity) || 0) * unitPrice;
-                          if (gross > 0) {
-                            discountPct = String(
-                              Math.round((l.discount_value / gross) * 100 * 100) / 100,
-                            );
-                          }
-                        }
-                        return {
-                          product_id: l.product_id,
-                          sku: l.sku,
-                          name: l.name,
-                          unit: l.unit || "piece",
-                          ordered_qty: String(l.quantity),
-                          unit_price: String(unitPrice),
-                          discount_pct: discountPct,
-                          gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
-                          notes: l.notes ?? "",
-                          // Keep any quantities already dispatched on this line.
-                          dispatched_qty:
-                            existing.find((x) => x.product_id === l.product_id)?.dispatched_qty ??
-                            0,
-                          price_tier: "",
-                        };
-                      }),
-                    );
-                    toast.info(
-                      `Copied ${(qt.lines ?? []).length} item${(qt.lines ?? []).length === 1 ? "" : "s"} from ${qt.quotation_number} — prices use the approved quotation price`,
-                    );
-                  }}
-                  placeholder="None"
-                  disabled={!editable}
-                  options={[
-                    { value: "", label: "None" },
-                    ...quotations.map((qt) => ({
-                      value: qt.id,
-                      label: qt.quotation_number,
-                      hint: qt.customer_name ?? undefined,
-                    })),
-                  ]}
-                />
-              </L>
               <L label="Payment terms">
-                <input
-                  list="payment-terms"
-                  className="inp"
-                  value={f.payment_terms}
-                  onChange={(e) => setF({ ...f, payment_terms: e.target.value })}
-                  placeholder="Net 30"
+                <PaymentTermsFields
+                  type={f.payment_terms_type}
+                  advancePct={f.payment_terms_advance_pct}
+                  paymentTermsDays={f.payment_terms_days}
+                  freeText={f.payment_terms}
+                  daysLabel="Net days"
                   disabled={!editable}
+                  onChange={(patch) => setF({ ...f, ...patch })}
                 />
-                <datalist id="payment-terms">
-                  {PAYMENT_TERMS.filter(Boolean).map((t) => (
-                    <option key={t} value={t} />
-                  ))}
-                </datalist>
               </L>
               <L label="Expected dispatch date">
                 <input
@@ -1125,7 +950,7 @@ function SOModal({
                 scope="sales_orders"
                 docs={docs}
                 onChange={setDocs}
-                hint="Attach the customer purchase order or quotation."
+                hint="Attach the customer purchase order."
               />
             </div>
           </fieldset>

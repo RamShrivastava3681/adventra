@@ -24,6 +24,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import {
+  PaymentTermsFields,
+  formatPaymentTerms,
+  toFormFields as toTermsFormFields,
+  toPayload as toTermsPayload,
+} from "@/components/payment-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductVariantPicker } from "@/components/product-variant-picker";
 import {
@@ -174,16 +180,6 @@ const PO_SUPPLIER_TONES: Record<string, string> = {
   rejected: "bg-destructive/10 text-destructive border-destructive/30",
 };
 
-const PAYMENT_TERMS = [
-  "",
-  "Net 15",
-  "Net 30",
-  "Net 60",
-  "Advance payment",
-  "Cash on delivery",
-  "Letter of credit",
-];
-
 const PF_CURRENCIES = ["INR", "USD", "EUR", "GBP", "AED"];
 
 function round2(n: number): number {
@@ -222,7 +218,6 @@ function PurchaseOrdersPage() {
   const [editing, setEditing] = useState<PO | null>(null);
   const [receiving, setReceiving] = useState<PO | null>(null);
   const [grnView, setGrnView] = useState<PO | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const posQ = useQuery({
     queryKey: ["goods-pos"],
@@ -250,12 +245,23 @@ function PurchaseOrdersPage() {
       const [suppliers, vendors] = await Promise.all([api.suppliers.list(), api.vendors.list()]);
       const merged = [
         ...suppliers.map(
-          (s: { id: string; company_name?: string; companyName?: string; name?: string }) => ({
+          (s: { id: string; company_name?: string; companyName?: string; name?: string } & Record<string, any>) => ({
             id: s.id,
             name: s.company_name ?? s.companyName ?? s.name ?? s.id,
+            paymentTermsType: s.paymentTermsType ?? s.payment_terms_type ?? null,
+            advancePct: s.advancePct ?? s.advance_pct ?? null,
+            paymentTermsDays: s.paymentTermsDays ?? s.payment_terms_days ?? null,
+            paymentTerms: s.paymentTerms ?? s.payment_terms ?? null,
           }),
         ),
-        ...vendors.map((v: { id: string; name?: string }) => ({ id: v.id, name: v.name ?? v.id })),
+        ...vendors.map((v: { id: string; name?: string } & Record<string, any>) => ({
+          id: v.id,
+          name: v.name ?? v.id,
+          paymentTermsType: v.paymentTermsType ?? v.payment_terms_type ?? null,
+          advancePct: v.advancePct ?? v.advance_pct ?? null,
+          paymentTermsDays: v.paymentTermsDays ?? v.payment_terms_days ?? null,
+          paymentTerms: v.paymentTerms ?? v.payment_terms ?? null,
+        })),
       ];
       return merged.sort((a, b) => a.name.localeCompare(b.name));
     },
@@ -283,36 +289,25 @@ function PurchaseOrdersPage() {
     return map;
   }, [posQ.data, grnsQ.data]);
 
-  const del = useMutation({
+  // Row-level workflow: submit for checker review / cancel.
+  const submitReview = useMutation({
     mutationFn: async (id: string) => {
-      await api.goodsPurchaseOrders.delete(id);
+      await api.goodsPurchaseOrders.update(id, { status: "pending_review" });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["goods-pos"] });
-      toast.success("Purchase order deleted");
+      toast.success("Purchase order submitted for review");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const deleteSelected = useMutation({
-    mutationFn: async () => Promise.all([...selectedIds].map((id) => api.goodsPurchaseOrders.delete(id))),
-    onSuccess: () => {
-      setSelectedIds(new Set());
-      qc.invalidateQueries({ queryKey: ["goods-pos"] });
-      toast.success("Selected purchase orders deleted");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to delete selected orders"),
-  });
-
-  // Email the purchase order PDF to the supplier for their approval.
-  const sendToSupplier = useMutation({
+  const cancel = useMutation({
     mutationFn: async (id: string) => {
-      const res = (await api.goodsPurchaseOrders.sendToSupplier(id)) as any;
-      return res?.sentTo ?? "the supplier";
+      await api.goodsPurchaseOrders.update(id, { status: "cancelled" });
     },
-    onSuccess: (sentTo) => {
+    onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["goods-pos"] });
-      toast.success(`Purchase order PDF sent to ${sentTo} for approval`);
+      toast.success("Purchase order cancelled");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -400,14 +395,6 @@ function PurchaseOrdersPage() {
         <TransactionFilters data={posQ.data ?? []} config={poConfig}>
           {(filtered) => (
             <Card>
-              {canWrite && selectedIds.size > 0 && (
-                <div className="mb-3 flex items-center justify-between rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs">
-                  <span>{selectedIds.size} purchase order(s) selected</span>
-                  <button onClick={() => deleteSelected.mutate()} disabled={deleteSelected.isPending} className="inline-flex items-center gap-1 text-destructive hover:underline">
-                    <Trash2 className="h-3.5 w-3.5" /> Delete selected
-                  </button>
-                </div>
-              )}
               {posQ.isLoading ? (
                 <TableSkeleton rows={6} cols={8} />
               ) : filtered.length === 0 ? (
@@ -420,7 +407,6 @@ function PurchaseOrdersPage() {
                   <table className="table-premium w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
-                        <th className="px-5 py-2 text-left font-normal"><input type="checkbox" aria-label="Select all purchase orders" checked={filtered.length > 0 && filtered.every((p: PO) => selectedIds.has(p.id))} onChange={(e) => setSelectedIds(e.target.checked ? new Set(filtered.map((p: PO) => p.id)) : new Set())} /></th>
                         <th className="px-5 py-2 text-left font-normal">PO</th>
                         <th className="px-5 py-2 text-left font-normal">Supplier</th>
                         <th className="px-5 py-2 text-left font-normal">Delivery</th>
@@ -442,7 +428,6 @@ function PurchaseOrdersPage() {
                           totalQty > 0 ? Math.min(100, Math.round((recQty / totalQty) * 100)) : 0;
                         return (
                           <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
-                            <td className="px-5 py-3"><input type="checkbox" aria-label={`Select purchase order ${p.po_number}`} checked={selectedIds.has(p.id)} onChange={(e) => setSelectedIds((current) => { const next = new Set(current); if (e.target.checked) next.add(p.id); else next.delete(p.id); return next; })} /></td>
                             <td className="px-5 py-3 font-mono text-xs">
                               {p.po_number}
                               <div className="text-[10px] text-muted-foreground">
@@ -521,46 +506,24 @@ function PurchaseOrdersPage() {
                                     <Pencil className="h-3 w-3" />
                                   </button>
                                 )}
-                                {canWrite &&
-                                  ["approved", "sent", "partially_received"].includes(p.status) && (
-                                    <button
-                                      onClick={() => setReceiving(p)}
-                                      className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2 py-1 text-[10px] text-success hover:bg-success/10"
-                                    >
-                                      <Truck className="h-3 w-3" /> Receive
-                                    </button>
-                                  )}
-                                {(p.lines ?? []).some((l) => l.received_qty > 0) && (
+                                {canWrite && p.status === "draft" && (
                                   <button
-                                    onClick={() => setGrnView(p)}
-                                    className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                                    title="View GRNs"
+                                    onClick={() => submitReview.mutate(p.id)}
+                                    disabled={submitReview.isPending}
+                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
+                                    title="Review the purchase order and send it to the checker"
                                   >
-                                    <FileDown className="h-3 w-3" />
+                                    <FileDown className="h-3 w-3" /> Review
                                   </button>
                                 )}
-                                {canWrite && (
+                                {canWrite && !["cancelled", "fully_received"].includes(p.status) && (
                                   <button
-                                    onClick={() => del.mutate(p.id)}
+                                    onClick={() => cancel.mutate(p.id)}
+                                    disabled={cancel.isPending}
                                     className="rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-destructive hover:text-destructive"
-                                    title="Delete"
+                                    title="Cancel"
                                   >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                  </button>
-                                )}
-                                {canWrite && p.status === "approved" && (
-                                  <button
-                                    onClick={() => sendToSupplier.mutate(p.id)}
-                                    disabled={sendToSupplier.isPending}
-                                    className="inline-flex items-center gap-1 rounded-md border border-primary/40 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
-                                    title="Email the purchase order PDF to the supplier for approval"
-                                  >
-                                    {sendToSupplier.isPending ? (
-                                      <Loader2 className="h-3 w-3 animate-spin" />
-                                    ) : (
-                                      <Send className="h-3 w-3" />
-                                    )}
-                                    Send to supplier
+                                    Cancel
                                   </button>
                                 )}
                               </div>
@@ -686,7 +649,7 @@ function POModal({
     expected_delivery_date: (po?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
     expected_date: (po?.expected_date ?? po?.due_date ?? po?.expected_delivery_date ?? po?.po_date ?? "")?.slice(0, 10) ?? "",
     due_date: (po?.due_date ?? "")?.slice(0, 10) ?? "",
-    payment_terms: po?.payment_terms ?? "",
+    ...toTermsFormFields(po),
     // Free-text "Buyer / created by" — new POs default to the signed-in
     // user's email (what the backend used to store); the user can type anything.
     buyer_name: po ? (po.buyer_name ?? "") : email,
@@ -728,7 +691,7 @@ function POModal({
     supplier_gstin: "",
     valid_until: "",
     currency: "INR",
-    payment_terms: po?.payment_terms ?? "",
+    ...toTermsFormFields(po),
     expected_delivery_date: po?.expected_delivery_date ?? "",
     advance_pct: "",
   });
@@ -954,7 +917,8 @@ function POModal({
         expected_delivery_date: f.expected_delivery_date || null,
         expected_date: f.expected_date || f.due_date || f.expected_delivery_date || f.po_date,
         due_date: f.due_date || null,
-        payment_terms: f.payment_terms || null,
+        ...toTermsPayload(f),
+        payment_terms: f.payment_terms_type ? formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }) : f.payment_terms || null,
         buyer_name: f.buyer_name.trim() || null,
         notes: f.notes.trim() || null,
         freight: Number(f.freight) || 0,
@@ -990,7 +954,8 @@ function POModal({
             supplierGstin: pfForm.supplier_gstin.trim() || null,
             validUntil: pfForm.valid_until || null,
             currency: pfForm.currency,
-            paymentTerms: pfForm.payment_terms.trim() || null,
+            ...toTermsPayload(pfForm),
+            paymentTerms: pfForm.payment_terms_type ? formatPaymentTerms({ paymentTermsType: pfForm.payment_terms_type as any, advancePct: Number(pfForm.payment_terms_advance_pct) || null, paymentTermsDays: Number(pfForm.payment_terms_days) || null }) : pfForm.payment_terms || null,
             expectedDeliveryDate: pfForm.expected_delivery_date || null,
             poNumber: savedPo?.po_number ?? null,
             amount: totals.grandTotal,
@@ -1162,6 +1127,9 @@ function POModal({
                     setF({ ...f, supplier_id: v });
                     // Keep the proforma supplier in sync with the PO supplier.
                     if (docChoice === "proforma") setPfForm((p) => ({ ...p, supplier_id: v }));
+                    // Pre-fill payment terms from the supplier master (editable).
+                    const s = suppliers.find((x) => x.id === v);
+                    if (s) setF((prev) => ({ ...prev, ...toTermsFormFields(s) }));
                   }}
                   placeholder="Select supplier…"
                   disabled={!editable}
@@ -1205,19 +1173,15 @@ function POModal({
                 />
               </L>
               <L label="Payment terms">
-                <input
-                  list="payment-terms"
-                  className="inp"
-                  value={f.payment_terms}
-                  onChange={(e) => setF({ ...f, payment_terms: e.target.value })}
-                  placeholder="Net 30"
+                <PaymentTermsFields
+                  type={f.payment_terms_type}
+                  advancePct={f.payment_terms_advance_pct}
+                  paymentTermsDays={f.payment_terms_days}
+                  freeText={f.payment_terms}
+                  daysLabel="Net days"
                   disabled={!editable}
+                  onChange={(patch) => setF({ ...f, ...patch })}
                 />
-                <datalist id="payment-terms">
-                  {PAYMENT_TERMS.filter(Boolean).map((t) => (
-                    <option key={t} value={t} />
-                  ))}
-                </datalist>
               </L>
               <L label="Buyer / created by">
                 <input
@@ -1575,7 +1539,12 @@ function POModal({
                   <L label="Supplier *">
                     <SearchableSelect
                       value={pfForm.supplier_id}
-                      onChange={(v) => setPfForm({ ...pfForm, supplier_id: v })}
+                      onChange={(v) => {
+                        setPfForm({ ...pfForm, supplier_id: v });
+                        // Pre-fill proforma payment terms from the supplier master.
+                        const s = suppliers.find((x) => x.id === v);
+                        if (s) setPfForm((prev) => ({ ...prev, ...toTermsFormFields(s) }));
+                      }}
                       placeholder="Select supplier…"
                       disabled={!editable}
                       options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
@@ -1623,12 +1592,14 @@ function POModal({
                     </select>
                   </L>
                   <L label="Payment terms">
-                    <input
-                      className="inp"
-                      value={pfForm.payment_terms}
-                      onChange={(e) => setPfForm({ ...pfForm, payment_terms: e.target.value })}
-                      placeholder="Net 30"
+                    <PaymentTermsFields
+                      type={pfForm.payment_terms_type}
+                      advancePct={pfForm.payment_terms_advance_pct}
+                      paymentTermsDays={pfForm.payment_terms_days}
+                      freeText={pfForm.payment_terms}
+                      daysLabel="Net days"
                       disabled={!editable}
+                      onChange={(patch) => setPfForm({ ...pfForm, ...patch })}
                     />
                   </L>
                   <L label="Expected delivery date">

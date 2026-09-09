@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
+import { PaymentTermsType, normalizePaymentTermsType, normalizeAdvancePct } from "../lib/payment-terms.js";
 
 /** A catalogue-backed line on a sales invoice (mirrors the SO line shape). */
 export interface InvoiceLine {
@@ -54,6 +55,11 @@ export interface Invoice {
   goodsSalesOrderId: string | null;
   goodsSalesOrderNumber: string | null;
   paymentTerms: string | null;
+  /** Structured payment terms: credit (Net N), advance_full (100% advance),
+   *  advance_partial (X% advance + remainder on delivery) or on_delivery. */
+  paymentTermsType: PaymentTermsType | null;
+  /** Advance percentage for advance_partial terms (1–99). */
+  advancePct: number | null;
   /** Catalogue product lines (SKUs must come from the catalogue). */
   lines: InvoiceLine[];
   /** System-calculated: sum of discounted line totals. */
@@ -212,6 +218,8 @@ export async function create(data: Partial<Invoice> & { clientId: string; debtor
     goodsSalesOrderId: data.goodsSalesOrderId || null,
     goodsSalesOrderNumber: data.goodsSalesOrderNumber || null,
     paymentTerms: data.paymentTerms || null,
+    paymentTermsType: normalizePaymentTermsType(data.paymentTermsType),
+    advancePct: normalizeAdvancePct(data.advancePct),
     linkedCustomerProformaId: data.linkedCustomerProformaId || null,
     linkedCustomerProformaNumber: data.linkedCustomerProformaNumber || null,
     lines,
@@ -225,7 +233,7 @@ export async function create(data: Partial<Invoice> & { clientId: string; debtor
 
 export async function update(id: string, updates: Partial<Invoice>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
-  const allowed = ["amount","status","paidDate","amountReceived","receiptDate","shortPayment","lateDays","advanceRate","feeRate","poNumber","poDate","poAmount","purchaseInvoiceId","purchaseOrderId","supplierId","lineItems","subtotal","taxRate","taxAmount","notes","documents","noaStatus","noaSentAt","noaRespondedAt","noaComments","issueDate","dueDate","expectedDate","invoiceNumber","debtorId",      "lastOverdueReminderDate","debtorReminderToken","customerContact","billingAddress","deliveryAddress","goodsSalesOrderId","goodsSalesOrderNumber","paymentTerms","lines","subtotalGoods","totalDiscount","gstTotal","freight","grandTotal","linkedCustomerProformaId","linkedCustomerProformaNumber","advanceDeducted","expectedDispatchDate"];
+  const allowed = ["amount","status","paidDate","amountReceived","receiptDate","shortPayment","lateDays","advanceRate","feeRate","poNumber","poDate","poAmount","purchaseInvoiceId","purchaseOrderId","supplierId","lineItems","subtotal","taxRate","taxAmount","notes","documents","noaStatus","noaSentAt","noaRespondedAt","noaComments","issueDate","dueDate","expectedDate","invoiceNumber","debtorId",      "lastOverdueReminderDate","debtorReminderToken","customerContact","billingAddress","deliveryAddress","goodsSalesOrderId","goodsSalesOrderNumber","paymentTerms","paymentTermsType","advancePct","lines","subtotalGoods","totalDiscount","gstTotal","freight","grandTotal","linkedCustomerProformaId","linkedCustomerProformaNumber","advanceDeducted","expectedDispatchDate"];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   // Recompute line totals + document totals whenever lines/freight/advance change.
   if (
