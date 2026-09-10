@@ -108,7 +108,7 @@ type GRNFragment = {
   }>;
 };
 
-function PurchasesPage() {
+export function PurchasesPage() {
   const { user, isAdmin, isChecker, isClient, isTreasury } = useAuth();
   const canCreate = isAdmin || (isClient && !isChecker && !isTreasury);
   const qc = useQueryClient();

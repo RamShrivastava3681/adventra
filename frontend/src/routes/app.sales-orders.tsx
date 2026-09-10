@@ -272,7 +272,7 @@ function resolveTierPrice(
   }
 }
 
-function SalesOrdersPage() {
+export function SalesOrdersPage() {
   const { user, isSalesRep, isAdmin, isReportingManager } = useAuth();
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();

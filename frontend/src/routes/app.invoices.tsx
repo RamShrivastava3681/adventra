@@ -135,7 +135,7 @@ const DOC_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-function InvoicesPage() {
+export function InvoicesPage() {
   const { isAdmin, isChecker, isClient, isTreasury, user } = useAuth();
   const canCreate = isAdmin || (isClient && !isChecker && !isTreasury);
   const canRecordIrn = isAdmin || isChecker || isTreasury;

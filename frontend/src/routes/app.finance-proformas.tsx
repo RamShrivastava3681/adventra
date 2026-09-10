@@ -1,6 +1,6 @@
-import { Route as ProformasRoute } from "./app.proformas";
+import { createFileRoute } from "@tanstack/react-router";
+import { ProformasPage } from "./app.proformas";
 
-export const Route = ProformasRoute.update({
-  id: "/finance-proformas",
-  path: "/finance-proformas",
-} as any);
+export const Route = createFileRoute("/app/finance-proformas")({
+  component: ProformasPage,
+});

@@ -1,6 +1,6 @@
-import { Route as InvoicesRoute } from "./app.invoices";
+import { createFileRoute } from "@tanstack/react-router";
+import { InvoicesPage } from "./app.invoices";
 
-export const Route = InvoicesRoute.update({
-  id: "/finance-invoices",
-  path: "/finance-invoices",
-} as any);
+export const Route = createFileRoute("/app/finance-invoices")({
+  component: InvoicesPage,
+});

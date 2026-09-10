@@ -158,7 +158,7 @@ type GoodsPOForConvert = {
   status?: string;
 };
 
-function ProformasPage() {
+export function ProformasPage() {
   const { user, isAdmin, isClient, isChecker, isTreasury } = useAuth();
   const canCreate = isAdmin || (isClient && !isChecker && !isTreasury);
   const qc = useQueryClient();
