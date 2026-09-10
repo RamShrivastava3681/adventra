@@ -1668,12 +1668,11 @@ function DispatchDetailModal({
                   <Undo2 className="h-3.5 w-3.5" /> Record return
                 </button>
               )}
-              <Link
-                to="/app/challan/$dispatchId"
+              <Link                              to={`/app/invoice-preview/${d.linked_sales_invoice_id ?? d.id}`}
                 params={{ dispatchId: d.id }}
                 className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:border-primary hover:text-primary"
               >
-                <Printer className="h-3.5 w-3.5" /> Print delivery challan
+                <Printer className="h-3.5 w-3.5" /> Print invoice
               </Link>
               {canWrite &&
                 ["draft", "details_submitted", "ready_for_dispatch", "confirmed", "partially_delivered", "delivered"].includes(d.status) && (
