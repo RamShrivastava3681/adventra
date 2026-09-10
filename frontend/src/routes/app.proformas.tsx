@@ -106,15 +106,15 @@ const PF_DOC_LABELS: Record<string, string> = {
 const PF_DOC_TONES: Record<string, string> = {
   received: "bg-sky-500/10 text-sky-600 border-sky-500/30",
   reviewed:
-    "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
+    "bg-sem-info/10 text-sem-info border-sem-info/30",
   converted_to_po: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   expired: "bg-muted/60 text-muted-foreground border-border",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
 };
 const FUNDING_TONES: Record<string, string> = {
-  pending_review: "border-warning/50 text-warning",
+  pending_review: "border-sem-attention/50 text-sem-attention",
   approved: "border-primary/50 text-primary",
-  funded: "border-success/50 text-success",
+  funded: "border-sem-success/50 text-sem-success",
   rejected: "border-destructive/50 text-destructive",
 };
 
@@ -378,7 +378,7 @@ function ProformasPage() {
                               )}
                               {p.proforma_review_comments && (
                                 <div
-                                  className="text-[10px] text-warning mt-0.5"
+                                  className="text-[10px] text-sem-attention mt-0.5"
                                   title={p.proforma_review_comments}
                                 >
                                   “{p.proforma_review_comments}”
@@ -401,7 +401,7 @@ function ProformasPage() {
                             <td className="px-5 py-3 text-right num">
                               <div>{fmtMoney(pfAdvance)}</div>
                               {p.proforma_funded_amount != null && p.proforma_funded_amount > 0 && (
-                                <div className="text-[10px] text-success">
+                                <div className="text-[10px] text-sem-success">
                                   Paid {fmtMoney(p.proforma_funded_amount)}
                                 </div>
                               )}
@@ -464,7 +464,7 @@ function ProformasPage() {
                                   (isAdmin || p.client_id !== user?.id) && (
                                     <button
                                       onClick={() => setReviewFor(p)}
-                                      className="rounded-md border border-warning/50 px-2 py-0.5 text-[10px] text-warning hover:bg-warning/10"
+                                      className="rounded-md border border-sem-attention/50 px-2 py-0.5 text-[10px] text-sem-attention hover:bg-sem-attention/10"
                                     >
                                       Review
                                     </button>
@@ -561,7 +561,7 @@ function ProformasPage() {
 
 // ─── Status pill ──────────────────────────────────────────────────────────
 function StatusPill({ label, tone }: { label: string; tone?: string }) {
-  const cls = tone ?? "border-warning/50 text-warning";
+  const cls = tone ?? "border-sem-attention/50 text-sem-attention";
   return (
     <span
       className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${cls}`}
@@ -909,7 +909,7 @@ function SalesProformaModal({
             Product lines
           </legend>
           {products.length === 0 ? (
-            <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+            <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
               No active products in the catalogue yet — add products in the Product catalogue tab
               first.
             </div>
@@ -1390,7 +1390,7 @@ function PurchaseProformaModal({
             Product lines
           </legend>
           {products.length === 0 ? (
-            <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+            <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
               No active products in the catalogue yet — add products in the Product catalogue tab
               first.
             </div>

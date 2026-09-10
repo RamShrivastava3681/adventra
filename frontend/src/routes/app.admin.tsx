@@ -374,7 +374,7 @@ function AdminPage() {
           <div className="mt-1 text-xs text-muted-foreground">{fmtMoney(tot(["approved"]))}</div>
         </Card>
         <Card title="Funded">
-          <div className="num text-3xl text-success">
+          <div className="num text-3xl text-sem-success">
             {invoices.filter((i) => i.status === "advanced").length}
           </div>
           <div className="mt-1 text-xs text-muted-foreground">{fmtMoney(tot(["advanced"]))}</div>
@@ -1121,8 +1121,8 @@ interface StatTileSmallProps {
 function StatTileSmall({ label, value, sub, tone = "neutral" }: StatTileSmallProps) {
   const toneClasses: Record<string, string> = {
     neutral: "",
-    success: "text-success",
-    warning: "text-warning",
+    success: "text-sem-success",
+    warning: "text-sem-attention",
     destructive: "text-destructive",
     primary: "text-primary",
   };

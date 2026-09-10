@@ -139,13 +139,13 @@ const SO_STATUS_LABELS: Record<string, string> = {
 
 const SO_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
-  pending_review: "bg-warning/10 text-warning border-warning/30 dark:text-warning",
-  warehouse_pending: "bg-warning/10 text-warning border-warning/30 dark:text-warning",
-  warehouse_approved: "bg-blue-500/10 text-blue-600 border-blue-500/30",
-  checker_pending: "bg-warning/10 text-warning border-warning/30 dark:text-warning",
+  pending_review: "bg-sem-attention/10 text-sem-attention border-sem-attention/30 dark:text-sem-attention",
+  warehouse_pending: "bg-sem-attention/10 text-sem-attention border-sem-attention/30 dark:text-sem-attention",
+  warehouse_approved: "bg-sem-info/10 text-sem-info border-sem-info/30",
+  checker_pending: "bg-sem-attention/10 text-sem-attention border-sem-attention/30 dark:text-sem-attention",
   confirmed:
-    "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
-  partially_dispatched: "bg-warning/10 text-warning border-warning/30",
+    "bg-sem-info/10 text-sem-info border-sem-info/30",
+  partially_dispatched: "bg-sem-attention/10 text-sem-attention border-sem-attention/30",
   fully_dispatched: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
 };
@@ -408,7 +408,7 @@ function SalesOrdersPage() {
                               <div className="flex items-center gap-2">
                                 <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
                                   <div
-                                    className={`h-full rounded-full ${pct >= 100 ? "bg-success" : "bg-primary"}`}
+                                    className={`h-full rounded-full ${pct >= 100 ? "bg-sem-success" : "bg-primary"}`}
                                     style={{ width: `${pct}%` }}
                                   />
                                 </div>
@@ -949,7 +949,7 @@ function SOModal({
               Sales order item lines
             </legend>
             {products.length === 0 ? (
-              <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+              <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
                 No active products in the catalogue yet — add products in the Product catalogue tab
                 first.
               </div>
@@ -1003,14 +1003,14 @@ function SOModal({
                               type="number"
                               min="1"
                               step="0.001"
-                              className={`inp ${overDispatched ? "!border-warning" : ""}`}
+                              className={`inp ${overDispatched ? "!border-sem-attention" : ""}`}
                               value={l.ordered_qty}
                               onChange={(e) => setLine(i, { ordered_qty: e.target.value })}
                               disabled={!editable}
                             />
                           </L>
                           {overDispatched && (
-                            <div className="mt-0.5 text-[9px] text-warning">
+                            <div className="mt-0.5 text-[9px] text-sem-attention">
                               Cannot go below dispatched ({l.dispatched_qty})
                             </div>
                           )}
@@ -1086,7 +1086,7 @@ function SOModal({
                         <div className="flex items-end justify-end gap-1 pb-1">
                           {l.dispatched_qty > 0 && (
                             <>
-                              <span className="rounded bg-success/10 px-1.5 py-0.5 text-[9px] text-success">
+                              <span className="rounded bg-sem-success/10 px-1.5 py-0.5 text-[9px] text-sem-success">
                                 dispatched {l.dispatched_qty}
                               </span>
                               <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
@@ -1183,7 +1183,7 @@ function SOModal({
                   <button
                     type="button"
                     onClick={() => changeStatus("warehouse_pending")}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-success/50 px-3 py-1.5 text-xs font-medium text-success hover:bg-success/10"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10"
                   >
                     <CheckCircle2 className="h-3.5 w-3.5" /> Approve and send to Warehouse
                   </button>

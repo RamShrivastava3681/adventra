@@ -141,7 +141,7 @@ export function ProductVariantPicker({
             }))}
           />
           {!activeChildId && !disabled && (
-            <p className="text-[10px] text-warning">
+            <p className="text-[10px] text-sem-attention">
               Select a colour / size variant to add this product.
             </p>
           )}

@@ -92,8 +92,8 @@ function invalidateStock(qc: ReturnType<typeof useQueryClient>) {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
-    draft: { label: "Draft", cls: "border-warning/40 bg-warning/10 text-warning" },
-    confirmed: { label: "Confirmed", cls: "border-success/40 bg-success/10 text-success" },
+    draft: { label: "Draft", cls: "border-sem-attention/40 bg-sem-attention/10 text-sem-attention" },
+    confirmed: { label: "Confirmed", cls: "border-sem-success/40 bg-sem-success/10 text-sem-success" },
     cancelled: { label: "Cancelled", cls: "border-border bg-muted/40 text-muted-foreground" },
   };
   const s = map[status] ?? { label: status, cls: "border-border text-muted-foreground" };
@@ -108,11 +108,11 @@ function StatusBadge({ status }: { status: string }) {
 
 function DirBadge({ direction }: { direction: "in" | "out" }) {
   return direction === "in" ? (
-    <span className="inline-flex items-center gap-1 text-success">
+    <span className="inline-flex items-center gap-1 text-sem-success">
       <ArrowDownToLine className="h-3.5 w-3.5" /> Credit
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1 text-warning">
+    <span className="inline-flex items-center gap-1 text-sem-attention">
       <ArrowUpFromLine className="h-3.5 w-3.5" /> Debit
     </span>
   );
@@ -624,7 +624,7 @@ function InventoryPage() {
                                     <button
                                       onClick={() => confirmMut.mutate(m.id)}
                                       title="Confirm movement"
-                                      className="rounded-md p-1.5 text-muted-foreground transition hover:bg-success/10 hover:text-success"
+                                      className="rounded-md p-1.5 text-muted-foreground transition hover:bg-sem-success/10 hover:text-sem-success"
                                     >
                                       <Check className="h-3.5 w-3.5" />
                                     </button>
@@ -635,7 +635,7 @@ function InventoryPage() {
                                         setPendingAction({ kind: "cancel", movement: m })
                                       }
                                       title="Cancel movement"
-                                      className="rounded-md p-1.5 text-muted-foreground transition hover:bg-warning/10 hover:text-warning"
+                                      className="rounded-md p-1.5 text-muted-foreground transition hover:bg-sem-attention/10 hover:text-sem-attention"
                                     >
                                       <Ban className="h-3.5 w-3.5" />
                                     </button>
@@ -723,7 +723,7 @@ function ConfirmAction({
           <button
             onClick={() => onSubmit(action.kind)}
             disabled={pending}
-            className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white transition disabled:opacity-60 ${action.kind === "cancel" ? "bg-warning hover:bg-warning/90" : "bg-destructive hover:bg-destructive/90"}`}
+            className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white transition disabled:opacity-60 ${action.kind === "cancel" ? "bg-sem-attention hover:bg-sem-attention/90" : "bg-destructive hover:bg-destructive/90"}`}
           >
             {pending && <Loader2 className="h-4 w-4 animate-spin" />}
             {action.kind === "cancel" ? "Cancel movement" : "Delete"}
@@ -995,7 +995,7 @@ function MovementModal({
                         f.direction !== "in" && selected ? autoValue(selected, "in") : f.unitCost,
                     }))
                   }
-                  className={`rounded-md border px-3 py-2 text-sm transition ${form.direction === "in" ? "border-success bg-success/10 text-success" : "border-border text-muted-foreground hover:text-foreground"}`}
+                  className={`rounded-md border px-3 py-2 text-sm transition ${form.direction === "in" ? "border-sem-success bg-sem-success/10 text-sem-success" : "border-border text-muted-foreground hover:text-foreground"}`}
                 >
                   <ArrowDownToLine className="mr-2 inline h-4 w-4" /> Credit{" "}
                   <span className="text-[10px] opacity-70">stock in</span>
@@ -1010,7 +1010,7 @@ function MovementModal({
                         f.direction !== "out" && selected ? autoValue(selected, "out") : f.unitCost,
                     }))
                   }
-                  className={`rounded-md border px-3 py-2 text-sm transition ${form.direction === "out" ? "border-warning bg-warning/10 text-warning" : "border-border text-muted-foreground hover:text-foreground"}`}
+                  className={`rounded-md border px-3 py-2 text-sm transition ${form.direction === "out" ? "border-sem-attention bg-sem-attention/10 text-sem-attention" : "border-border text-muted-foreground hover:text-foreground"}`}
                 >
                   <ArrowUpFromLine className="mr-2 inline h-4 w-4" /> Debit{" "}
                   <span className="text-[10px] opacity-70">stock out</span>
@@ -1145,14 +1145,14 @@ function MovementModal({
                       <div
                         className={`flex h-[38px] items-center rounded-md border px-3 text-xs font-medium ${
                           movement.status === "confirmed"
-                            ? "border-success/40 bg-success/10 text-success"
-                            : "border-warning/40 bg-warning/10 text-warning"
+                            ? "border-sem-success/40 bg-sem-success/10 text-sem-success"
+                            : "border-sem-attention/40 bg-sem-attention/10 text-sem-attention"
                         }`}
                       >
                         {movement.status === "confirmed" ? "Confirmed" : "Draft"}
                       </div>
                     ) : (
-                      <div className="flex h-[38px] items-center rounded-md border border-warning/40 bg-warning/10 px-3 text-xs font-medium text-warning">
+                      <div className="flex h-[38px] items-center rounded-md border border-sem-attention/40 bg-sem-attention/10 px-3 text-xs font-medium text-sem-attention">
                         Draft on save
                       </div>
                     )}
@@ -1658,11 +1658,11 @@ function BulkImportModal({
                         <td className="px-2 py-1.5">{r.date}</td>
                         <td className="px-2 py-1.5">
                           {r.direction === "in" && r.stockOut < 0 ? (
-                            <span className="text-success">Return (Credit)</span>
+                            <span className="text-sem-success">Return (Credit)</span>
                           ) : r.direction === "in" ? (
-                            <span className="text-success">Credit (In)</span>
+                            <span className="text-sem-success">Credit (In)</span>
                           ) : r.direction === "out" ? (
-                            <span className="text-warning">Debit (Out)</span>
+                            <span className="text-sem-attention">Debit (Out)</span>
                           ) : (
                             <span className="text-destructive">—</span>
                           )}
@@ -1674,7 +1674,7 @@ function BulkImportModal({
                           {r.error ? (
                             <span className="text-destructive">{r.error}</span>
                           ) : (
-                            <span className="text-success flex items-center gap-1">
+                            <span className="text-sem-success flex items-center gap-1">
                               <Check className="h-3 w-3" /> OK
                             </span>
                           )}
@@ -1692,9 +1692,9 @@ function BulkImportModal({
                       Month-wise summary
                     </h5>
                     <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-                      <span>Total stock in: <span className="font-medium text-success">{monthlySummary.reduce((sum, row) => sum + row.stockIn, 0).toLocaleString()}</span></span>
-                      <span>Total stock out: <span className="font-medium text-warning">{monthlySummary.reduce((sum, row) => sum + row.stockOut, 0).toLocaleString()}</span></span>
-                      <span>Returns: <span className="font-medium text-success">{monthlySummary.reduce((sum, row) => sum + row.returns, 0).toLocaleString()}</span></span>
+                      <span>Total stock in: <span className="font-medium text-sem-success">{monthlySummary.reduce((sum, row) => sum + row.stockIn, 0).toLocaleString()}</span></span>
+                      <span>Total stock out: <span className="font-medium text-sem-attention">{monthlySummary.reduce((sum, row) => sum + row.stockOut, 0).toLocaleString()}</span></span>
+                      <span>Returns: <span className="font-medium text-sem-success">{monthlySummary.reduce((sum, row) => sum + row.returns, 0).toLocaleString()}</span></span>
                       <span>Sales: <span className="font-medium text-foreground">{monthlySummary.reduce((sum, row) => sum + row.sales, 0).toLocaleString()}</span></span>
                     </div>
                   </div>
@@ -1714,10 +1714,10 @@ function BulkImportModal({
                         {monthlySummary.map((row) => (
                           <tr key={row.month} className="border-b border-border/40">
                             <td className="px-2 py-1.5 font-medium">{new Date(`${row.month}-01T00:00:00`).toLocaleDateString("en-US", { month: "short", year: "numeric" })}</td>
-                            <td className="px-2 py-1.5 text-right num text-success">{row.stockIn.toLocaleString()}</td>
-                            <td className="px-2 py-1.5 text-right num text-warning">{row.stockOut.toLocaleString()}</td>
-                            <td className="px-2 py-1.5 text-right num text-success">{row.returns.toLocaleString()}</td>
-                            <td className={`px-2 py-1.5 text-right num ${row.sales >= 0 ? "text-foreground" : "text-warning"}`}>
+                            <td className="px-2 py-1.5 text-right num text-sem-success">{row.stockIn.toLocaleString()}</td>
+                            <td className="px-2 py-1.5 text-right num text-sem-attention">{row.stockOut.toLocaleString()}</td>
+                            <td className="px-2 py-1.5 text-right num text-sem-success">{row.returns.toLocaleString()}</td>
+                            <td className={`px-2 py-1.5 text-right num ${row.sales >= 0 ? "text-foreground" : "text-sem-attention"}`}>
                               {row.sales.toLocaleString()}
                             </td>
                           </tr>

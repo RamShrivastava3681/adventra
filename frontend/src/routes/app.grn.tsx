@@ -375,7 +375,7 @@ function GrnPage() {
                                         })
                                       }
                                       disabled={confirm.isPending}
-                                      className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2 py-1 text-[10px] text-success hover:bg-success/10 disabled:opacity-60"
+                                      className="inline-flex items-center gap-1 rounded-md border border-sem-success/50 px-2 py-1 text-[10px] text-sem-success hover:bg-sem-success/10 disabled:opacity-60"
                                     >
                                       <CheckCircle2 className="h-3 w-3" /> Confirm
                                     </button>
@@ -904,12 +904,12 @@ function GrnModal({
               GRN item lines
             </legend>
             {!f.po_id ? (
-              <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+              <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
                 Pick a linked purchase order first — product lines, units and unit costs are
                 auto-filled from the PO.
               </div>
             ) : lines.length === 0 ? (
-              <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+              <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
                 This PO has no lines.
               </div>
             ) : (
@@ -970,7 +970,7 @@ function GrnModal({
                             type="number"
                             min="0"
                             step="0.001"
-                            className={`inp ${overAccepted ? "!border-warning" : ""}`}
+                            className={`inp ${overAccepted ? "!border-sem-attention" : ""}`}
                             value={l.received_qty}
                             onChange={(e) => setReceived(i, e.target.value)}
                           />
@@ -988,7 +988,7 @@ function GrnModal({
                           />
                         </L>
                         {overAccepted && (
-                          <div className="mt-0.5 text-[9px] text-warning">
+                          <div className="mt-0.5 text-[9px] text-sem-attention">
                             Above ordered — needs approval
                           </div>
                         )}
@@ -1188,10 +1188,10 @@ function GrnDetailModal({ grn, onClose }: { grn: GRN; onClose: () => void }) {
                     <td className="px-3 py-2 text-right num">
                       {(l.received_qty || 0).toLocaleString()}
                     </td>
-                    <td className="px-3 py-2 text-right num text-success">
+                    <td className="px-3 py-2 text-right num text-sem-success">
                       {(l.accepted_qty ?? l.received_qty ?? 0).toLocaleString()}
                     </td>
-                    <td className="px-3 py-2 text-right num text-warning">
+                    <td className="px-3 py-2 text-right num text-sem-attention">
                       {(l.rejected_qty || 0).toLocaleString()}
                     </td>
                     <td className="px-3 py-2 text-right num text-muted-foreground">

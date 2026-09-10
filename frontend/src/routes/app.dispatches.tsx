@@ -149,8 +149,8 @@ const DISPATCH_STATUS_LABELS: Record<string, string> = {
 const DISPATCH_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
   confirmed:
-    "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
-  partially_delivered: "bg-warning/10 text-warning border-warning/30",
+    "bg-sem-info/10 text-sem-info border-sem-info/30",
+  partially_delivered: "bg-sem-attention/10 text-sem-attention border-sem-attention/30",
   delivered: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
   returned: "bg-destructive/10 text-destructive border-destructive/30",
@@ -429,8 +429,8 @@ function DispatchesPage() {
                               inv.daysRemaining === 0
                                 ? "bg-destructive/10 text-destructive border border-destructive/30"
                                 : inv.daysRemaining <= 1
-                                  ? "bg-warning/10 text-warning border border-warning/30"
-                                  : "bg-warning/10 text-warning border border-warning/30"
+                                  ? "bg-sem-attention/10 text-sem-attention border border-sem-attention/30"
+                                  : "bg-sem-attention/10 text-sem-attention border border-sem-attention/30"
                             }`}
                           >
                             {inv.daysRemaining === 0
@@ -534,7 +534,7 @@ function DispatchesPage() {
                               <div className="flex items-center gap-2">
                                 <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
                                   <div
-                                    className={`h-full rounded-full ${pct >= 100 ? "bg-success" : "bg-primary"}`}
+                                    className={`h-full rounded-full ${pct >= 100 ? "bg-sem-success" : "bg-primary"}`}
                                     style={{ width: `${pct}%` }}
                                   />
                                 </div>
@@ -1201,7 +1201,7 @@ function DispatchCreateModal({
               Dispatch item lines
             </legend>
             {!so ? (
-              <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+              <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
                 Select a sales order to load its item lines.
               </div>
             ) : lines.length === 0 ? (
@@ -1248,7 +1248,7 @@ function DispatchCreateModal({
                       <div className="md:col-span-2">
                         <L label="Available">
                           <div
-                            className={`inp bg-muted/40 text-right ${short ? "!border-warning" : ""}`}
+                            className={`inp bg-muted/40 text-right ${short ? "!border-sem-attention" : ""}`}
                           >
                             {available.toLocaleString()}
                           </div>
@@ -1285,7 +1285,7 @@ function DispatchCreateModal({
                   );
                 })}
                 {shortLinesCount(lines, stockBalance) > 0 && (
-                  <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+                  <div className="flex items-start gap-2 rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span>
                       Some lines dispatch more than what is currently in stock. You can still
@@ -1533,10 +1533,10 @@ function DispatchDetailModal({
 
             <div className="flex flex-wrap gap-3 text-[10px] uppercase tracking-widest text-muted-foreground">
               <span className="rounded bg-muted px-2 py-1">Qty {qty.toLocaleString()}</span>
-              <span className="rounded bg-success/10 px-2 py-1 text-success">
+              <span className="rounded bg-sem-success/10 px-2 py-1 text-sem-success">
                 Delivered {delivered.toLocaleString()}
               </span>
-              <span className="rounded bg-warning/10 px-2 py-1 text-warning">
+              <span className="rounded bg-sem-attention/10 px-2 py-1 text-sem-attention">
                 Returned {returned.toLocaleString()}
               </span>
             </div>
@@ -1558,7 +1558,7 @@ function DispatchDetailModal({
                 <button
                   onClick={() => run("confirm")}
                   disabled={!!busy}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-success/50 px-3 py-1.5 text-xs font-medium text-success hover:bg-success/10 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10 disabled:opacity-50"
                 >
                   {busy === "confirm" ? (
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1581,7 +1581,7 @@ function DispatchDetailModal({
                 <button
                   onClick={() => setReturnOpen(true)}
                   disabled={!!busy}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-warning/40 px-3 py-1.5 text-xs font-medium text-warning hover:bg-warning/10 disabled:opacity-50"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-sem-attention/40 px-3 py-1.5 text-xs font-medium text-sem-attention hover:bg-sem-attention/10 disabled:opacity-50"
                 >
                   <Undo2 className="h-3.5 w-3.5" /> Record return
                 </button>
@@ -1629,7 +1629,7 @@ function DispatchDetailModal({
                 (l) =>
                   (stockBalance.get(l.product_id) ?? 0) < l.dispatched_qty && d.status !== "draft",
               ) && (
-                <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+                <div className="flex items-start gap-2 rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
                   <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                   <span>
                     Some dispatched lines exceed current available stock — review inventory before
@@ -1867,7 +1867,7 @@ function ReturnModal({
           }}
           className="space-y-4 p-5"
         >
-          <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/5 p-3 text-xs text-warning">
+          <div className="flex items-start gap-2 rounded-md border border-sem-attention/30 bg-sem-attention/5 p-3 text-xs text-sem-attention">
             <Undo2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
             <span>
               Returned quantities are credited back into inventory and removed from the sales
@@ -2061,12 +2061,12 @@ function EwbSection({
 
   const EWB_STATUS_TONES: Record<string, string> = {
     pending: "bg-yellow-500/10 text-yellow-600 border-yellow-500/30",
-    generated: "bg-green-500/10 text-green-600 border-green-500/30",
-    vehicle_updated: "bg-blue-500/10 text-blue-600 border-blue-500/30",
-    extended: "bg-blue-500/10 text-blue-600 border-blue-500/30",
-    cancelled: "bg-red-500/10 text-red-600 border-red-500/30",
-    expired: "bg-orange-500/10 text-orange-600 border-orange-500/30",
-    failed: "bg-red-500/10 text-red-600 border-red-500/30",
+    generated: "bg-sem-success/10 text-sem-success border-sem-success/30",
+    vehicle_updated: "bg-sem-info/10 text-sem-info border-sem-info/30",
+    extended: "bg-sem-info/10 text-sem-info border-sem-info/30",
+    cancelled: "bg-sem-critical/10 text-sem-critical border-sem-critical/30",
+    expired: "bg-sem-caution/10 text-sem-caution border-sem-caution/30",
+    failed: "bg-sem-critical/10 text-sem-critical border-sem-critical/30",
   };
 
   return (

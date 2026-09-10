@@ -44,6 +44,13 @@
   --color-warning-foreground: var(--warning-foreground);
   --color-success: var(--success);
   --color-success-foreground: var(--success-foreground);
+  /* Semantic data tones — business meaning, not brand. */
+  --color-sem-success: var(--sem-success);
+  --color-sem-info: var(--sem-info);
+  --color-sem-attention: var(--sem-attention);
+  --color-sem-caution: var(--sem-caution);
+  --color-sem-critical: var(--sem-critical);
+  --color-sem-neutral: var(--sem-neutral);
   --color-border: var(--border);
   --color-border-strong: var(--border-strong);
   --color-input: var(--input);
@@ -106,6 +113,16 @@
   --success: #006fcf;
   --success-foreground: #ffffff;
 
+  /* ── Semantic data tones — Neutral UI + colourful data ──
+     Business meaning at a glance. Applied to numbers, dots, badges,
+     bars and trends only — card backgrounds stay neutral. */
+  --sem-success: #16a34a;   /* healthy / positive */
+  --sem-info: #2563eb;      /* funding, advances, open items */
+  --sem-attention: #d97706; /* upcoming, aging, pending */
+  --sem-caution: #ea580c;   /* collection risk, 31–60d */
+  --sem-critical: #dc2626;  /* 61+d overdue, defaults */
+  --sem-neutral: #64748b;   /* historical / inactive */
+
   /* Borders & inputs */
   --border: #dce5ee;
   --border-strong: #c5d2df;
@@ -164,6 +181,13 @@
   --warning-foreground: #0a2540;
   --success: #3aa8ff;
   --success-foreground: #06283a;
+
+  --sem-success: #4ade80;
+  --sem-info: #60a5fa;
+  --sem-attention: #fbbf24;
+  --sem-caution: #fb923c;
+  --sem-critical: #f87171;
+  --sem-neutral: #94a3b8;
 
   --border: #223140;
   --border-strong: #314355;
@@ -522,6 +546,54 @@ input[type="number"] {
     border-radius: 9999px;
     background: currentColor;
     opacity: 0.9;
+  }
+
+  /* ── Severity badges — CRITICAL red / ACTION orange / ATTENTION amber /
+     INFO blue. Always paired with an uppercase text label, never color alone. */
+  .sev-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    border-radius: 9999px;
+    padding: 0.1875rem 0.625rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border: 1px solid transparent;
+    white-space: nowrap;
+  }
+  .sev-badge::before {
+    content: "";
+    width: 0.375rem;
+    height: 0.375rem;
+    border-radius: 9999px;
+    background: currentColor;
+  }
+  .sev-critical {
+    background: color-mix(in srgb, var(--sem-critical) 12%, transparent);
+    color: var(--sem-critical);
+    border-color: color-mix(in srgb, var(--sem-critical) 30%, transparent);
+  }
+  .sev-action {
+    background: color-mix(in srgb, var(--sem-caution) 12%, transparent);
+    color: var(--sem-caution);
+    border-color: color-mix(in srgb, var(--sem-caution) 30%, transparent);
+  }
+  .sev-attention {
+    background: color-mix(in srgb, var(--sem-attention) 12%, transparent);
+    color: var(--sem-attention);
+    border-color: color-mix(in srgb, var(--sem-attention) 30%, transparent);
+  }
+  .sev-info {
+    background: color-mix(in srgb, var(--sem-info) 12%, transparent);
+    color: var(--sem-info);
+    border-color: color-mix(in srgb, var(--sem-info) 30%, transparent);
+  }
+  .sev-neutral {
+    background: color-mix(in srgb, var(--sem-neutral) 12%, transparent);
+    color: var(--sem-neutral);
+    border-color: color-mix(in srgb, var(--sem-neutral) 30%, transparent);
   }
 
   /* SPA fallback: full height layout */

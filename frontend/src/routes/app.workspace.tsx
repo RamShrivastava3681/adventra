@@ -50,9 +50,9 @@ const TABS = [
 type TabKey = (typeof TABS)[number]["key"];
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-warning/10 text-warning",
+  pending: "bg-sem-attention/10 text-sem-attention",
   approved: "bg-primary/10 text-primary",
-  rejected: "bg-red-100 text-red-700",
+  rejected: "bg-sem-critical/10 text-sem-critical",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -118,17 +118,17 @@ function StatCard({
   color?: string;
 }) {
   const colorMap: Record<string, string> = {
-    blue: "from-blue-500/10 to-blue-500/5 border-blue-200/50 text-blue-700 dark:border-blue-800/50 dark:text-blue-300",
+    blue: "from-sem-info/10 to-sem-info/5 border-sem-info/25 text-sem-info",
     purple: "from-primary/10 to-primary/5 border-primary/20 text-primary",
-    amber: "from-warning/10 to-warning/5 border-warning/20 text-warning",
+    amber: "from-sem-attention/10 to-sem-attention/5 border-sem-attention/25 text-sem-attention",
     emerald: "from-primary/15 to-primary/5 border-primary/20 text-primary",
     rose: "from-muted/70 to-muted/40 border-border text-muted-foreground",
     slate: "from-slate-500/10 to-slate-500/5 border-slate-200/50 text-slate-700 dark:border-slate-700/50 dark:text-slate-300",
   };
   const iconBgMap: Record<string, string> = {
-    blue: "bg-blue-100 text-blue-600 dark:bg-blue-950/40 dark:text-blue-400",
+    blue: "bg-sem-info/10 text-sem-info",
     purple: "bg-primary-soft text-[#0a4a8a] dark:text-[#63baff]",
-    amber: "bg-warning/10 text-warning",
+    amber: "bg-sem-attention/10 text-sem-attention",
     emerald: "bg-primary/10 text-primary",
     rose: "bg-muted text-muted-foreground",
     slate: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
@@ -207,16 +207,16 @@ function SectionCard({
   children: React.ReactNode;
 }) {
   const borderMap: Record<string, string> = {
-    blue: "border-blue-200/50 dark:border-blue-800/50",
+    blue: "border-sem-info/25",
     purple: "border-primary/20",
-    amber: "border-warning/25",
+    amber: "border-sem-attention/25",
     emerald: "border-primary/20",
     rose: "border-border",
   };
   const headerMap: Record<string, string> = {
-    blue: "text-blue-700 bg-blue-50/50 dark:text-blue-300 dark:bg-blue-950/30",
+    blue: "text-sem-info bg-sem-info/10",
     purple: "text-primary bg-primary-soft/60",
-    amber: "text-warning bg-warning/10",
+    amber: "text-sem-attention bg-sem-attention/10",
     emerald: "text-primary bg-primary/10",
     rose: "text-muted-foreground bg-muted/50",
   };
@@ -277,19 +277,19 @@ function UserProgressView({ onExit: _onExit }: { onExit?: () => void }) {
   const isTreasury = user.roles.includes("treasury");
 
   const statusColorMap: Record<string, string> = {
-    pending: "bg-warning/10 text-warning",
+pending: "bg-sem-attention/10 text-sem-attention",
     approved: "bg-primary/10 text-primary",
-    rejected: "bg-red-100 text-red-700",
-    new: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
+    rejected: "bg-sem-critical/10 text-sem-critical",
+    new: "bg-sem-info/10 text-sem-info",
     contacted: "bg-primary-soft text-[#0a4a8a] dark:text-[#63baff]",
     qualified: "bg-primary/10 text-primary",
     proposal: "bg-primary/10 text-primary",
-    negotiation: "bg-warning/10 text-warning",
+    negotiation: "bg-sem-attention/10 text-sem-attention",
     won: "bg-primary/10 text-primary",
-    lost: "bg-red-100 text-red-700",
+    lost: "bg-sem-critical/10 text-sem-critical",
     paid: "bg-primary/10 text-primary",
-    overdue: "bg-red-100 text-red-700",
-    advanced: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300",
+    overdue: "bg-sem-critical/10 text-sem-critical",
+    advanced: "bg-sem-info/10 text-sem-info",
   };
 
   return (

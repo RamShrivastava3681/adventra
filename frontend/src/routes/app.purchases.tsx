@@ -271,7 +271,7 @@ function PurchasesPage() {
             <div className="num text-3xl">{fmtMoney(totals.all)}</div>
           </Card>
           <Card title="Open payables">
-            <div className="num text-3xl text-warning">{fmtMoney(totals.open)}</div>
+            <div className="num text-3xl text-sem-attention">{fmtMoney(totals.open)}</div>
           </Card>
           <Card title="Suppliers used">
             <div className="num text-3xl">
@@ -356,7 +356,7 @@ function PurchasesPage() {
                                     {p.linked_goods_receipt_number}
                                   </div>
                                   {grn && grn.status === "confirmed" ? (
-                                    <div className="text-[10px] text-success">Stock credited</div>
+                                    <div className="text-[10px] text-sem-success">Stock credited</div>
                                   ) : (
                                     <div className="text-[10px] text-muted-foreground">
                                       {grn?.status ?? ""}
@@ -853,7 +853,7 @@ function NewPurchaseModal({
           className="space-y-5 p-5"
         >
           {vendors.length === 0 && (
-            <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+            <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
               Add a supplier first in the Suppliers tab.
             </div>
           )}
@@ -965,13 +965,13 @@ function NewPurchaseModal({
               supplier invoice.
             </p>
             {isEdit && invoice?.linked_goods_receipt_number && (
-              <div className="mt-2 rounded-md border border-success/30 bg-success/5 p-2 text-xs text-success">
+              <div className="mt-2 rounded-md border border-sem-success/30 bg-sem-success/5 p-2 text-xs text-sem-success">
                 Linked GRN {invoice.linked_goods_receipt_number} — GRN received quantities are shown
                 per line below.
               </div>
             )}{" "}
             {lines.length === 0 ? (
-              <div className="mt-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+              <div className="mt-3 rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
                 Select a linked purchase order above — its product lines are required and
                 auto-filled here.
               </div>
@@ -1013,12 +1013,12 @@ function NewPurchaseModal({
                         {(qtyDiff || priceDiff) && (
                           <div className="mt-1 flex flex-wrap gap-1">
                             {qtyDiff && (
-                              <span className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[9px] text-warning">
+                              <span className="inline-flex items-center gap-1 rounded-full border border-sem-attention/40 bg-sem-attention/10 px-1.5 py-0.5 text-[9px] text-sem-attention">
                                 <AlertTriangle className="h-2.5 w-2.5" /> qty vs GRN
                               </span>
                             )}
                             {priceDiff && (
-                              <span className="inline-flex items-center gap-1 rounded-full border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[9px] text-warning">
+                              <span className="inline-flex items-center gap-1 rounded-full border border-sem-attention/40 bg-sem-attention/10 px-1.5 py-0.5 text-[9px] text-sem-attention">
                                 <AlertTriangle className="h-2.5 w-2.5" /> price vs PO
                               </span>
                             )}
@@ -1239,14 +1239,14 @@ function NewPurchaseModal({
                 <span className="text-xs uppercase tracking-widest text-muted-foreground">
                   Amount paid
                 </span>
-                <span className="num text-success">{fmtMoney(amountPaid)}</span>
+                <span className="num text-sem-success">{fmtMoney(amountPaid)}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs uppercase tracking-widest text-muted-foreground">
                   Balance due
                 </span>
                 <span
-                  className={`num font-medium ${balanceDue > 0 ? "text-warning" : "text-success"}`}
+                  className={`num font-medium ${balanceDue > 0 ? "text-sem-attention" : "text-sem-success"}`}
                 >
                   {fmtMoney(balanceDue)}
                 </span>
@@ -1275,8 +1275,8 @@ function NewPurchaseModal({
 
           {/* ── Difference checks ── */}
           {differences.length > 0 && (
-            <div className="rounded-lg border border-warning/40 bg-warning/5 p-4">
-              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-warning">
+            <div className="rounded-lg border border-sem-attention/40 bg-sem-attention/5 p-4">
+              <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-widest text-sem-attention">
                 <AlertTriangle className="h-4 w-4" /> {differences.length} difference
                 {differences.length === 1 ? "" : "s"} vs PO / GRN
               </div>
@@ -1291,13 +1291,13 @@ function NewPurchaseModal({
                       {d.type === "qty" ? (
                         <>
                           Invoice qty <b className="num text-foreground">{d.invoiceValue}</b> vs GRN
-                          received <b className="num text-warning">{d.referenceValue}</b>
+                          received <b className="num text-sem-attention">{d.referenceValue}</b>
                         </>
                       ) : (
                         <>
                           Invoice price{" "}
                           <b className="num text-foreground">{fmtMoney(d.invoiceValue)}</b> vs PO
-                          price <b className="num text-warning">{fmtMoney(d.referenceValue)}</b>
+                          price <b className="num text-sem-attention">{fmtMoney(d.referenceValue)}</b>
                         </>
                       )}
                     </span>
@@ -1488,12 +1488,12 @@ function PurchaseDetailModal({
                           {(qtyDiff || priceDiff) && (
                             <div className="mt-0.5 flex gap-1">
                               {qtyDiff && (
-                                <span className="text-[9px] font-medium text-warning">
+                                <span className="text-[9px] font-medium text-sem-attention">
                                   qty ≠ GRN
                                 </span>
                               )}
                               {priceDiff && (
-                                <span className="text-[9px] font-medium text-warning">
+                                <span className="text-[9px] font-medium text-sem-attention">
                                   price ≠ PO
                                 </span>
                               )}
@@ -1544,14 +1544,14 @@ function PurchaseDetailModal({
               <span className="text-xs uppercase tracking-widest text-muted-foreground">
                 Amount paid
               </span>
-              <span className="num text-success">{fmtMoney(amountPaid)}</span>
+              <span className="num text-sem-success">{fmtMoney(amountPaid)}</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-xs uppercase tracking-widest text-muted-foreground">
                 Balance due
               </span>
               <span
-                className={`num font-medium ${balanceDue > 0 ? "text-warning" : "text-success"}`}
+                className={`num font-medium ${balanceDue > 0 ? "text-sem-attention" : "text-sem-success"}`}
               >
                 {fmtMoney(balanceDue)}
               </span>
@@ -1559,14 +1559,14 @@ function PurchaseDetailModal({
           </div>
 
           {invoice.difference_notes && (
-            <div className="rounded-md border border-warning/40 bg-warning/5 p-3 text-xs text-warning">
+            <div className="rounded-md border border-sem-attention/40 bg-sem-attention/5 p-3 text-xs text-sem-attention">
               <span className="font-medium uppercase tracking-widest">Difference note: </span>
               {invoice.difference_notes}
             </div>
           )}
 
           {grn && (
-            <div className="rounded-md border border-success/30 bg-success/5 p-3 text-xs text-success">
+            <div className="rounded-md border border-sem-success/30 bg-sem-success/5 p-3 text-xs text-sem-success">
               Linked GRN {grn.receipt_number} ·{" "}
               {grn.status === "confirmed" ? "stock credited" : grn.status}
             </div>

@@ -668,7 +668,7 @@ function SummaryCards({
       />
       <HeaderStat
         icon={<AlertTriangle className="h-4 w-4" />}
-        iconClass="bg-warning/10 text-warning"
+        iconClass="bg-sem-attention/10 text-sem-attention"
         value={needReorder}
         label="Need Reorder"
       />
@@ -1224,7 +1224,7 @@ function TableRow({
         {/* In stock (closing balance at end of target month) */}
         <td
           className={`px-4 py-4 text-right text-sm font-medium tabular-nums ${
-            closingStock <= 0 ? "text-red-600" : "text-foreground"
+            closingStock <= 0 ? "text-sem-critical" : "text-foreground"
           }`}
         >
           {closingStock.toLocaleString()}
@@ -1233,7 +1233,7 @@ function TableRow({
         {/* Days cover */}
         <td
           className={`hidden px-4 py-4 text-right text-sm tabular-nums md:table-cell ${
-            coverDanger ? "font-medium text-red-600" : "text-foreground"
+            coverDanger ? "font-medium text-sem-critical" : "text-foreground"
           }`}
         >
           {f.daysOfCover === Infinity ? "∞" : `${Math.round(f.daysOfCover)} days`}
@@ -1258,7 +1258,7 @@ function TableRow({
               className={`text-sm tabular-nums ${
                 stockoutDays !== null && stockoutDays <= 7
                   ? "font-medium text-destructive"
-                  : "text-warning"
+                  : "text-sem-attention"
               }`}
             >
               {fmtShortDate(f.estimatedStockoutDate)}
@@ -1413,7 +1413,7 @@ function MobileRowCard({
               f.estimatedStockoutDate
                 ? stockoutDays !== null && stockoutDays <= 7
                   ? "font-medium text-destructive"
-                  : "text-warning"
+                  : "text-sem-attention"
                 : "text-muted-foreground"
             }`}
           >
@@ -1457,7 +1457,7 @@ function MiniStat({ label, value, danger }: { label: string; value: string; dang
       <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
       <div
         className={`mt-0.5 text-sm font-semibold tabular-nums ${
-          danger ? "text-red-600" : "text-foreground"
+          danger ? "text-sem-critical" : "text-foreground"
         }`}
       >
         {value}
@@ -1679,7 +1679,7 @@ function velocityLabel(t: VelocityTag): string {
 function velocityColor(t: VelocityTag): string {
   if (t === "fast_mover") return "text-primary";
   if (t === "medium_mover") return "text-muted-foreground";
-  if (t === "slow_mover") return "text-warning";
+  if (t === "slow_mover") return "text-sem-attention";
   return "text-destructive";
 }
 
@@ -1697,7 +1697,7 @@ function momentumLabel(t: MomentumTag): string {
 function momentumColor(t: MomentumTag): string {
   if (t === "accelerating") return "text-primary";
   if (t === "stable") return "text-muted-foreground";
-  if (t === "declining") return "text-warning";
+  if (t === "declining") return "text-sem-attention";
   return "text-muted-foreground";
 }
 
@@ -1914,14 +1914,14 @@ function TrendAnalysisCard({ f }: { f: ForecastResult }) {
   const tone = up ? "emerald" : down ? "rose" : "neutral";
   const toneClasses = {
     emerald: {
-      icon: "bg-primary/15 text-primary",
-      bar: "bg-primary",
-      text: "text-primary",
+      icon: "bg-sem-success/15 text-sem-success",
+      bar: "bg-sem-success",
+      text: "text-sem-success",
     },
     rose: {
-      icon: "bg-destructive/15 text-destructive",
-      bar: "bg-destructive",
-      text: "text-destructive",
+      icon: "bg-sem-caution/15 text-sem-caution",
+      bar: "bg-sem-caution",
+      text: "text-sem-caution",
     },
     neutral: {
       icon: "bg-muted/40 text-muted-foreground",
@@ -2023,13 +2023,13 @@ function SeasonalityCard({ f }: { f: ForecastResult }) {
 
   const getFactorTone = (val: number) => {
     if (val > 1.1) return "text-primary";
-    if (val < 0.9) return "text-warning";
+    if (val < 0.9) return "text-sem-attention";
     return "text-muted-foreground";
   };
 
   const getFactorBg = (val: number) => {
     if (val > 1.1) return "bg-primary/10";
-    if (val < 0.9) return "bg-warning/10";
+    if (val < 0.9) return "bg-sem-attention/10";
     return "bg-muted/30";
   };
 
@@ -2500,7 +2500,7 @@ function ExpandedForecastDetail({
               const borderColor = isDanger
                 ? "border-destructive/40"
                 : isWarning
-                  ? "border-warning/40"
+                  ? "border-sem-attention/40"
                   : isPositive
                     ? "border-primary/40"
                     : "border-border/50";
@@ -2508,7 +2508,7 @@ function ExpandedForecastDetail({
               const badgeBg = isDanger
                 ? "bg-destructive/15 text-destructive border-destructive/40"
                 : isWarning
-                  ? "bg-warning/15 text-warning border-warning/40"
+                  ? "bg-sem-attention/15 text-sem-attention border-sem-attention/40"
                   : isPositive
                     ? "bg-primary/15 text-primary border-primary/40"
                     : "bg-muted/40 text-muted-foreground border-border/40";
@@ -2516,7 +2516,7 @@ function ExpandedForecastDetail({
               const accentBar = isDanger
                 ? "bg-destructive"
                 : isWarning
-                  ? "bg-warning"
+                  ? "bg-sem-attention"
                   : isPositive
                     ? "bg-primary"
                     : "bg-muted-foreground/30";
@@ -2755,7 +2755,7 @@ function ConditionChip({
     tone === "positive"
       ? "bg-primary/10 border-primary/20"
       : tone === "warning"
-        ? "bg-warning/10 border-warning/20"
+        ? "bg-sem-attention/10 border-sem-attention/20"
         : tone === "danger"
           ? "bg-destructive/10 border-destructive/20"
           : "bg-muted/30 border-border/30";
@@ -2763,7 +2763,7 @@ function ConditionChip({
     tone === "positive"
       ? "text-primary"
       : tone === "warning"
-        ? "text-warning"
+        ? "text-sem-attention"
         : tone === "danger"
           ? "text-destructive"
           : "text-muted-foreground";

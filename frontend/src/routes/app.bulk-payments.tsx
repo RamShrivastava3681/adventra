@@ -692,7 +692,7 @@ function BulkPaymentsPage() {
                 </label>
                 <div className={`flex h-11 items-center rounded-lg border px-4 text-lg font-semibold font-mono transition-colors ${
                   result && result.remaining > 0
-                    ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-500"
+                    ? "border-sem-success/30 bg-sem-success/5 text-sem-success"
                     : "border-border bg-background/40 text-muted-foreground"
                 }`}>
                   {result && result.remaining > 0 ? fmtMoney(result.remaining) : "—"}
@@ -701,9 +701,9 @@ function BulkPaymentsPage() {
             </div>
 
             {/* Previous remaining balance section */}
-            <div className="mt-4 rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+            <div className="mt-4 rounded-lg border border-sem-attention/20 bg-sem-attention/5 p-3">
               <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-400">
+                <div className="flex items-center gap-2 text-sm font-medium text-sem-attention">
                   <History className="h-4 w-4" />
                   Previous unapplied balance
                 </div>
@@ -712,7 +712,7 @@ function BulkPaymentsPage() {
                   <input
                     type="checkbox" checked={useBalance}
                     onChange={(e) => { setUseBalance(e.target.checked); setResult(null); }}
-                    className="h-5 w-5 rounded border-border accent-amber-500"
+                    className="h-5 w-5 rounded border-border accent-sem-attention"
                   />
                 </label>
               </div>
@@ -727,9 +727,9 @@ function BulkPaymentsPage() {
 
             {/* Credit notes section */}
             {creditNotes.length > 0 && (
-              <div className="mt-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+              <div className="mt-3 rounded-lg border border-sem-success/20 bg-sem-success/5 p-3">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400">
+                  <div className="flex items-center gap-2 text-sm font-medium text-sem-success">
                     <CreditCard className="h-4 w-4" />
                     Unapplied past credit
                   </div>
@@ -738,7 +738,7 @@ function BulkPaymentsPage() {
                     <input
                       type="checkbox" checked={applyCredit}
                       onChange={(e) => { setApplyCredit(e.target.checked); setResult(null); }}
-                      className="h-5 w-5 rounded border-border accent-emerald-500"
+                      className="h-5 w-5 rounded border-border accent-sem-success"
                     />
                   </label>
                 </div>
@@ -782,12 +782,12 @@ function BulkPaymentsPage() {
                   for <span className="font-semibold text-primary">{fmtMoney(fifoPreview.closed.reduce((s, c) => s + c.amount, 0))}</span>
                   {fifoPreview.skipped.length > 0 && (
                     <span className="ml-1">
-                      · <span className="font-semibold text-warning">{fifoPreview.skipped.length}</span> skipped (insufficient funds)
+                      · <span className="font-semibold text-sem-attention">{fifoPreview.skipped.length}</span> skipped (insufficient funds)
                     </span>
                   )}
                   {fifoPreview.remaining > 0 && (
                     <span className="ml-1">
-                      · Remaining: <span className="font-semibold text-warning">{fmtMoney(fifoPreview.remaining)}</span>
+                      · Remaining: <span className="font-semibold text-sem-attention">{fmtMoney(fifoPreview.remaining)}</span>
                     </span>
                   )}
                 </div>
@@ -803,7 +803,7 @@ function BulkPaymentsPage() {
             {mode === "manual" && manualPreview && (
               <div className="mb-4 rounded-md border border-primary/20 bg-primary/5 px-4 py-2.5 text-xs text-muted-foreground">
                 <span className="font-semibold text-primary">{manualPreview.closed.length}</span> will close{" "}
-                · <span className="font-semibold text-warning">{manualPreview.partiallyPaid.length}</span> partially paid
+                · <span className="font-semibold text-sem-attention">{manualPreview.partiallyPaid.length}</span> partially paid
                 · Remaining: <span className="font-semibold">{fmtMoney(manualPreview.remaining)}</span>
               </div>
             )}
@@ -849,7 +849,7 @@ function BulkPaymentsPage() {
                         const isSkipped = fifoPreview.skipped.find((s: any) => s.id === inv.id);
                         if (isClosed) {
                           resultLabel = isClosed.isFuture ? "Pre-close" : fmtMoney(isClosed.amount);
-                          resultCls = isClosed.isFuture ? "text-purple-500 bg-purple-500/15" : "text-success bg-success/15";
+                          resultCls = isClosed.isFuture ? "text-purple-500 bg-purple-500/15" : "text-sem-success bg-sem-success/15";
                         } else if (isSkipped) {
                           resultLabel = "Skip";
                           resultCls = "text-muted-foreground bg-muted/30";
@@ -861,10 +861,10 @@ function BulkPaymentsPage() {
                         const isPartial = manualPreview.partiallyPaid.find((p: any) => p.inv.id === inv.id);
                         if (isClosed) {
                           resultLabel = fmtMoney(isClosed.amount);
-                          resultCls = "text-success bg-success/15";
+                          resultCls = "text-sem-success bg-sem-success/15";
                         } else if (isPartial) {
                           resultLabel = `Partial ${fmtMoney(isPartial.amountPaid)}`;
-                          resultCls = "text-warning bg-warning/15";
+                          resultCls = "text-sem-attention bg-sem-attention/15";
                         }
                       }
 
@@ -875,9 +875,9 @@ function BulkPaymentsPage() {
                           key={inv.id}
                           className={`border-b border-border/60 transition-colors ${
                             resultLabel && resultCls.includes("success")
-                              ? "bg-success/5 hover:bg-success/10"
+                              ? "bg-sem-success/5 hover:bg-sem-success/10"
                               : resultLabel && resultCls.includes("warning")
-                              ? "bg-warning/5 hover:bg-warning/10"
+                              ? "bg-sem-attention/5 hover:bg-sem-attention/10"
                               : resultLabel === "Skip"
                               ? "opacity-50"
                               : overdue
@@ -917,9 +917,9 @@ function BulkPaymentsPage() {
                             <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
                               inv.status === "overdue" ? "bg-destructive/15 text-destructive"
                               : inv.status === "approved" ? "bg-primary/15 text-primary"
-                              : inv.status === "advanced" || inv.status === "funded" ? "bg-warning/15 text-warning"
+                              : inv.status === "advanced" || inv.status === "funded" ? "bg-sem-attention/15 text-sem-attention"
                               : inv.status === "draft" ? "bg-muted text-muted-foreground"
-                              : inv.status === "submitted" ? "bg-blue-500/15 text-blue-500"
+                              : inv.status === "submitted" ? "bg-sem-info/15 text-sem-info"
                               : "bg-muted text-muted-foreground"
                             }`}>{inv.status}</span>
                           </td>
@@ -967,7 +967,7 @@ function BulkPaymentsPage() {
                         <>
                           <span className="text-muted-foreground">·</span>
                           <span className="text-muted-foreground">Remaining</span>
-                          <span className="font-semibold text-warning">{fmtMoney(fifoPreview.remaining)}</span>
+                          <span className="font-semibold text-sem-attention">{fmtMoney(fifoPreview.remaining)}</span>
                         </>
                       )}
                     </div>
@@ -975,7 +975,7 @@ function BulkPaymentsPage() {
                   {mode === "manual" && (
                     <>
                       {selectedInvoiceIds.size === 0 && (
-                        <div className="text-xs text-warning">Select at least one invoice to pay.</div>
+                        <div className="text-xs text-sem-attention">Select at least one invoice to pay.</div>
                       )}
                       {manualPreview && (
                         <div className="flex items-center gap-2">
@@ -984,11 +984,11 @@ function BulkPaymentsPage() {
                           {manualPreview.partiallyPaid.length > 0 && (
                             <>
                               <span className="text-muted-foreground">· Partial</span>
-                              <span className="font-semibold text-warning">{manualPreview.partiallyPaid.length}</span>
+                              <span className="font-semibold text-sem-attention">{manualPreview.partiallyPaid.length}</span>
                             </>
                           )}
                           <span className="text-muted-foreground">· Remaining</span>
-                          <span className="font-semibold text-success">{fmtMoney(manualPreview.remaining)}</span>
+                          <span className="font-semibold text-sem-success">{fmtMoney(manualPreview.remaining)}</span>
                         </div>
                       )}
                     </>
@@ -997,7 +997,7 @@ function BulkPaymentsPage() {
                     <div className="text-xs text-muted-foreground">Enter a payment amount to calculate allocations.</div>
                   )}
                   {!canWrite && (
-                    <div className="flex items-center gap-1.5 text-xs text-warning">
+                    <div className="flex items-center gap-1.5 text-xs text-sem-attention">
                       <Lock className="h-3 w-3" /> Only treasury/admin can process payments.
                     </div>
                   )}
@@ -1023,7 +1023,7 @@ function BulkPaymentsPage() {
         {hasSelectedParty && !(isSupplier ? purchaseInvoicesQ.isLoading : invoicesQ.isLoading) && sortedInvoices.length === 0 && (
           <Card>
             <div className="flex flex-col items-center justify-center py-12 text-center">
-              <CheckCircle2 className="mb-3 h-10 w-10 text-success/60" />
+              <CheckCircle2 className="mb-3 h-10 w-10 text-sem-success/60" />
               <h3 className="text-lg font-medium">All caught up</h3>
               <p className="mt-1 text-sm text-muted-foreground">
                 {selectedPartyName ?? "This party"} has no open {isSupplier ? "purchase " : ""}invoices.
@@ -1053,22 +1053,22 @@ function BulkPaymentsPage() {
           <Card title={`Payment result${result.supplier_name ? ` — ${result.supplier_name}` : ""}`}>
             <div className="space-y-4">
               <div className="grid grid-cols-4 gap-4">
-                <div className="rounded-lg border border-success/30 bg-success/5 p-4 text-center">
-                  <div className="text-2xl font-display text-success">{result.closed.length}</div>
+                <div className="rounded-lg border border-sem-success/30 bg-sem-success/5 p-4 text-center">
+                  <div className="text-2xl font-display text-sem-success">{result.closed.length}</div>
                   <div className="text-xs text-muted-foreground mt-1">Closed</div>
                 </div>
                 <div className={`rounded-lg border p-4 text-center ${
-                  result.partially_paid.length > 0 ? "border-warning/30 bg-warning/5" : "border-border bg-background/40"
+                  result.partially_paid.length > 0 ? "border-sem-attention/30 bg-sem-attention/5" : "border-border bg-background/40"
                 }`}>
-                  <div className={`text-2xl font-display ${result.partially_paid.length > 0 ? "text-warning" : "text-muted-foreground"}`}>
+                  <div className={`text-2xl font-display ${result.partially_paid.length > 0 ? "text-sem-attention" : "text-muted-foreground"}`}>
                     {result.partially_paid.length}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">Partially paid</div>
                 </div>
                 <div className={`rounded-lg border p-4 text-center ${
-                  result.remaining > 0 ? "border-amber-500/30 bg-amber-500/5" : "border-border bg-background/40"
+                  result.remaining > 0 ? "border-sem-attention/30 bg-sem-attention/5" : "border-border bg-background/40"
                 }`}>
-                  <div className={`text-2xl font-display ${result.remaining > 0 ? "text-amber-500" : "text-muted-foreground"}`}>
+                  <div className={`text-2xl font-display ${result.remaining > 0 ? "text-sem-attention" : "text-muted-foreground"}`}>
                     {fmtMoney(result.remaining)}
                   </div>
                   <div className="text-xs text-muted-foreground mt-1">Remaining balance</div>
@@ -1085,7 +1085,7 @@ function BulkPaymentsPage() {
 
               {result.closed.length > 0 && (
                 <div className="rounded-md border border-border p-3">
-                  <p className="mb-2 text-xs font-medium text-success">Closed invoices:</p>
+                  <p className="mb-2 text-xs font-medium text-sem-success">Closed invoices:</p>
                   <div className="space-y-1">
                     {result.closed.map((c) => (
                       <div key={c.id} className="flex items-center justify-between text-xs text-muted-foreground">
@@ -1098,8 +1098,8 @@ function BulkPaymentsPage() {
               )}
 
               {result.partially_paid.length > 0 && (
-                <div className="rounded-md border border-warning/20 bg-warning/5 p-3">
-                  <p className="mb-2 text-xs font-medium text-warning">Partially paid:</p>
+                <div className="rounded-md border border-sem-attention/20 bg-sem-attention/5 p-3">
+                  <p className="mb-2 text-xs font-medium text-sem-attention">Partially paid:</p>
                   <div className="space-y-1">
                     {result.partially_paid.map((p) => (
                       <div key={p.id} className="flex items-center justify-between text-xs text-muted-foreground">
@@ -1160,7 +1160,7 @@ function BulkPaymentsPage() {
                 <div className="text-xs text-muted-foreground">
                   {historyQ.data?.totals.total_payments ?? 0} payment{(historyQ.data?.totals.total_payments ?? 0) !== 1 ? "s" : ""}
                   {historyQ.data && historyQ.data.totals.total_remaining > 0 && (
-                    <> · <span className="text-amber-500 font-medium">{fmtMoney(historyQ.data.totals.total_remaining)}</span> total carried forward</>
+                    <> · <span className="text-sem-attention font-medium">{fmtMoney(historyQ.data.totals.total_remaining)}</span> total carried forward</>
                   )}
                 </div>
               </div>
@@ -1262,14 +1262,14 @@ function HistoryRow({ payment, canWrite, onReversed }: { payment: PaymentHistory
           </div>
         </td>
         <td className="px-5 py-3 text-right font-mono text-xs">{fmtMoney(payment.amount)}</td>
-        <td className={`px-5 py-3 text-right font-mono text-xs ${payment.remaining > 0 ? "text-amber-500 font-medium" : "text-muted-foreground"}`}>
+        <td className={`px-5 py-3 text-right font-mono text-xs ${payment.remaining > 0 ? "text-sem-attention font-medium" : "text-muted-foreground"}`}>
           {payment.remaining > 0 ? fmtMoney(payment.remaining) : "—"}
         </td>
         <td className="px-5 py-3 text-center">
           <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
             payment.mode === "manual" ? "bg-primary/15 text-primary"
             : payment.mode === "two_pass_fifo" ? "bg-purple-500/15 text-purple-500"
-            : "bg-warning/15 text-warning"
+            : "bg-sem-attention/15 text-sem-attention"
           }`}>
             {payment.mode === "two_pass_fifo" ? "2-pass" : payment.mode}
           </span>

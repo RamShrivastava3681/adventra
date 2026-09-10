@@ -113,17 +113,17 @@ function Badge({
 }) {
   const styles: Record<string, string> = {
     sales:
-      "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/30 dark:text-blue-400 dark:border-blue-800/40",
+      "bg-sem-info/10 text-sem-info border-sem-info/30",
     purchase: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
     admin:
       "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700",
-    debtor: "bg-warning/10 text-warning border-warning/30",
+    debtor: "bg-sem-attention/10 text-sem-attention border-sem-attention/30",
     sent: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
     failed:
-      "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800/40",
+      "bg-sem-critical/10 text-sem-critical border-sem-critical/30",
     overdue:
-      "bg-red-50 text-red-700 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800/40",
-    upcoming: "bg-warning/10 text-warning border-warning/30",
+      "bg-sem-critical/10 text-sem-critical border-sem-critical/30",
+    upcoming: "bg-sem-attention/10 text-sem-attention border-sem-attention/30",
   };
   return (
     <span
@@ -473,7 +473,7 @@ function InvoiceReminderModal({ onClose }: { onClose: () => void }) {
                           Due: {fmtDate(inv.due_date)}
                         </span>
                         <span
-                          className={`text-xs font-medium ${isOverdue ? "text-destructive" : "text-warning"}`}
+                          className={`text-xs font-medium ${isOverdue ? "text-destructive" : "text-sem-attention"}`}
                         >
                           {isOverdue
                             ? `${Math.abs(dud)}d overdue`
@@ -647,25 +647,25 @@ function RemindersPage() {
             label="Failed"
             value={stats.failed}
             sub={stats.failed > 0 ? "Check SMTP config" : undefined}
-            color="bg-red-100 text-red-600 dark:bg-red-950/30 dark:text-red-400"
+            color="bg-sem-critical/10 text-sem-critical"
           />
           <StatCard
             icon={Send}
             label="To Debtors"
             value={stats.debtors}
-            color="bg-warning/10 text-warning"
+            color="bg-sem-attention/10 text-sem-attention"
           />
           <StatCard
             icon={TrendingUp}
             label="Overdue Alerts"
             value={stats.overdue}
-            color="bg-warning/10 text-warning"
+            color="bg-sem-attention/10 text-sem-attention"
           />
           <StatCard
             icon={Clock}
             label="Sent Today"
             value={stats.today}
-            color="bg-blue-100 text-blue-600 dark:bg-blue-950/30 dark:text-blue-400"
+            color="bg-sem-info/10 text-sem-info"
           />
         </div>
       </div>
@@ -822,12 +822,12 @@ function RemindersPage() {
                         <div className="flex items-center justify-center gap-1.5">
                           {log.isOverdue ? (
                             <>
-                              <TrendingUp className="h-3.5 w-3.5 text-red-500" />
+                              <TrendingUp className="h-3.5 w-3.5 text-sem-critical" />
                               <Badge variant="overdue">{Math.abs(log.daysUntilDue)}d overdue</Badge>
                             </>
                           ) : (
                             <>
-                              <TrendingDown className="h-3.5 w-3.5 text-warning" />
+                              <TrendingDown className="h-3.5 w-3.5 text-sem-attention" />
                               <Badge variant="upcoming">
                                 {log.daysUntilDue === 0 ? "Due today" : `${log.daysUntilDue}d left`}
                               </Badge>
@@ -868,7 +868,7 @@ function RemindersPage() {
               <span className="h-2 w-2 rounded-full bg-primary" /> Sent
             </span>
             <span className="inline-flex items-center gap-1">
-              <span className="h-2 w-2 rounded-full bg-red-500" /> Failed
+              <span className="h-2 w-2 rounded-full bg-sem-critical" /> Failed
             </span>
           </div>
         </div>

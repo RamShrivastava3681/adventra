@@ -512,7 +512,7 @@ function ProductsPage() {
                           {fmtMoney(p.unit_cost)}
                         </td>
                         <td
-                          className={`px-5 py-3 text-right num ${out ? "text-destructive" : low ? "text-warning" : ""}`}
+                          className={`px-5 py-3 text-right num ${out ? "text-destructive" : low ? "text-sem-attention" : ""}`}
                         >
                           {stock.toLocaleString()}
                         </td>
@@ -1642,7 +1642,7 @@ function PricingPreview({
         )}
         <span className="text-muted-foreground">Status</span>
         <span
-          className={`text-right font-medium ${warn ? "text-warning" : "text-primary"}`}
+          className={`text-right font-medium ${warn ? "text-sem-attention" : "text-primary"}`}
         >
           {!hasAnyPrice
             ? "No selling price set"
@@ -1654,7 +1654,7 @@ function PricingPreview({
         </span>
       </div>
       {belowFloor && (
-        <div className="mt-1 text-[10px] text-warning">
+        <div className="mt-1 text-[10px] text-sem-attention">
           One or more selling prices are below the minimum selling price of{" "}
           {fmtMoney(minSellingPrice)} — margin may be at risk.
         </div>
@@ -1685,9 +1685,9 @@ function StatTile({
 }) {
   const t =
     tone === "success"
-      ? "text-success"
+      ? "text-sem-success"
       : tone === "warning"
-        ? "text-warning"
+        ? "text-sem-attention"
         : tone === "destructive"
           ? "text-destructive"
           : "text-foreground";
@@ -1708,9 +1708,9 @@ function Pill({
 }) {
   const s =
     tone === "success"
-      ? "bg-success/10 text-success border-success/30"
+      ? "bg-sem-success/10 text-sem-success border-sem-success/30"
       : tone === "warning"
-        ? "bg-warning/10 text-warning border-warning/30"
+        ? "bg-sem-attention/10 text-sem-attention border-sem-attention/30"
         : "bg-destructive/10 text-destructive border-destructive/30";
   return (
     <span
@@ -1756,10 +1756,10 @@ function SkuMastersModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
     <div className="mt-4 flex flex-wrap items-center gap-2"><div className="relative min-w-[200px] flex-1"><Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or code…" className="w-full rounded-md border border-border bg-input py-2 pl-9 pr-3 text-sm" /></div><div className="flex gap-1.5">{(["all", "active", "inactive"] as const).map((s) => <button key={s} onClick={() => setStatusFilter(s)} className={`rounded-full border px-3 py-1 text-xs capitalize ${statusFilter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}>{s}</button>)}</div><span className="ml-auto text-xs text-muted-foreground">{filtered.length} shown</span></div>
     <div className="mt-3 max-h-80 overflow-y-auto rounded-lg border border-border"><table className="w-full text-sm"><thead className="sticky top-0 bg-muted/80 text-left text-xs backdrop-blur"><tr><th className="p-3">Name</th><th>Code</th>{type === "size" && <th>System</th>}<th className="text-right">Used by</th><th>Status</th><th className="text-right">Actions</th></tr></thead><tbody>{mastersQ.isLoading ? <tr><td colSpan={6} className="p-6 text-center text-sm text-muted-foreground">Loading…</td></tr> : filtered.length === 0 ? <tr><td colSpan={6} className="p-6 text-center text-sm text-muted-foreground">No masters match. Add one above.</td></tr> : filtered.map((m: any) => {
       const active = m.active ?? true; const used = usageCount(m); const isEditing = editingId === m.id;
-      return <tr key={m.id} className="border-t border-border">{isEditing ? (<><td className="p-2"><input className="inp !py-1.5" value={editName} onChange={(e) => setEditName(e.target.value)} /></td><td className="p-2"><input className="inp !py-1.5 font-mono uppercase" value={editCode} onChange={(e) => setEditCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} /></td>{type === "size" && <td className="p-2"><select className="inp !py-1.5" value={editSystem} onChange={(e) => setEditSystem(e.target.value)}>{["International", "EU", "UK", "US", "Custom"].map((x) => <option key={x}>{x}</option>)}</select></td>}<td className="p-2 text-right text-xs text-muted-foreground">{used}</td><td className="p-2"><span className={`rounded-full px-2 py-1 text-xs ${active ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{active ? "Active" : "Inactive"}</span></td><td className="p-2"><div className="flex justify-end gap-1"><button disabled={saveEdit.isPending} onClick={() => saveEdit.mutate()} className="rounded-md p-1.5 text-success hover:bg-success/10"><Check className="h-3.5 w-3.5" /></button><button onClick={() => setEditingId(null)} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"><X className="h-3.5 w-3.5" /></button></div></td></> ) : (<><td className="p-3 font-medium">{m.name}</td><td className="font-mono text-xs">{m.code}</td>{type === "size" && <td className="text-xs text-muted-foreground">{m.size_system ?? m.sizeSystem ?? "—"}</td>}<td className="p-3 text-right text-xs text-muted-foreground">{used ? `${used} product${used === 1 ? "" : "s"}` : "—"}</td><td><button title={used > 0 && active ? "Used by products — confirmation required" : "Toggle status"} onClick={() => { if (used > 0 && active) setConfirmTarget(m); else toggle.mutate(m); }} className={`rounded-full px-2 py-1 text-xs ${active ? "bg-success/10 text-success" : "bg-muted text-muted-foreground"}`}>{active ? "Active" : "Inactive"}</button></td><td className="p-3"><div className="flex justify-end gap-1"><button onClick={() => startEdit(m)} className="rounded-md p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary"><Pencil className="h-3.5 w-3.5" /></button></div></td></>)}
+      return <tr key={m.id} className="border-t border-border">{isEditing ? (<><td className="p-2"><input className="inp !py-1.5" value={editName} onChange={(e) => setEditName(e.target.value)} /></td><td className="p-2"><input className="inp !py-1.5 font-mono uppercase" value={editCode} onChange={(e) => setEditCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} /></td>{type === "size" && <td className="p-2"><select className="inp !py-1.5" value={editSystem} onChange={(e) => setEditSystem(e.target.value)}>{["International", "EU", "UK", "US", "Custom"].map((x) => <option key={x}>{x}</option>)}</select></td>}<td className="p-2 text-right text-xs text-muted-foreground">{used}</td><td className="p-2"><span className={`rounded-full px-2 py-1 text-xs ${active ? "bg-sem-success/10 text-sem-success" : "bg-muted text-muted-foreground"}`}>{active ? "Active" : "Inactive"}</span></td><td className="p-2"><div className="flex justify-end gap-1"><button disabled={saveEdit.isPending} onClick={() => saveEdit.mutate()} className="rounded-md p-1.5 text-sem-success hover:bg-sem-success/10"><Check className="h-3.5 w-3.5" /></button><button onClick={() => setEditingId(null)} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"><X className="h-3.5 w-3.5" /></button></div></td></> ) : (<><td className="p-3 font-medium">{m.name}</td><td className="font-mono text-xs">{m.code}</td>{type === "size" && <td className="text-xs text-muted-foreground">{m.size_system ?? m.sizeSystem ?? "—"}</td>}<td className="p-3 text-right text-xs text-muted-foreground">{used ? `${used} product${used === 1 ? "" : "s"}` : "—"}</td><td><button title={used > 0 && active ? "Used by products — confirmation required" : "Toggle status"} onClick={() => { if (used > 0 && active) setConfirmTarget(m); else toggle.mutate(m); }} className={`rounded-full px-2 py-1 text-xs ${active ? "bg-sem-success/10 text-sem-success" : "bg-muted text-muted-foreground"}`}>{active ? "Active" : "Inactive"}</button></td><td className="p-3"><div className="flex justify-end gap-1"><button onClick={() => startEdit(m)} className="rounded-md p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary"><Pencil className="h-3.5 w-3.5" /></button></div></td></>)}
       </tr>;
     })}</tbody></table></div>
-    {confirmTarget && <div className="mt-4 rounded-lg border border-warning/40 bg-warning/5 p-4 text-sm"><p className="font-medium">Deactivate “{(confirmTarget as any).name} ({(confirmTarget as any).code})”?</p><p className="mt-1 text-xs text-muted-foreground">This code is used by {usageCount(confirmTarget)} product(s). Existing SKUs keep their text, but new variants can no longer use it. History is preserved in the audit log.</p><div className="mt-3 flex justify-end gap-2"><button onClick={() => setConfirmTarget(null)} className="rounded-md border border-border px-3 py-1.5 text-xs">Keep active</button><button disabled={toggle.isPending} onClick={() => toggle.mutate(confirmTarget)} className="rounded-md bg-warning px-3 py-1.5 text-xs font-medium text-white">{toggle.isPending ? "Updating…" : "Deactivate anyway"}</button></div></div>}
+    {confirmTarget && <div className="mt-4 rounded-lg border border-sem-attention/40 bg-sem-attention/5 p-4 text-sm"><p className="font-medium">Deactivate “{(confirmTarget as any).name} ({(confirmTarget as any).code})”?</p><p className="mt-1 text-xs text-muted-foreground">This code is used by {usageCount(confirmTarget)} product(s). Existing SKUs keep their text, but new variants can no longer use it. History is preserved in the audit log.</p><div className="mt-3 flex justify-end gap-2"><button onClick={() => setConfirmTarget(null)} className="rounded-md border border-border px-3 py-1.5 text-xs">Keep active</button><button disabled={toggle.isPending} onClick={() => toggle.mutate(confirmTarget)} className="rounded-md bg-sem-attention px-3 py-1.5 text-xs font-medium text-white">{toggle.isPending ? "Updating…" : "Deactivate anyway"}</button></div></div>}
     <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
   </div></div>;
 }
@@ -1858,7 +1858,7 @@ function SkuBuilderModal({
       </div>
       <div className="flex flex-wrap gap-1.5 border-b border-border bg-muted/20 px-6 py-3">
         {WIZARD_STEPS.map((label, i) => (
-          <button key={label} disabled={i > step && !canStep(step)} onClick={() => { if (i <= step || canStep(step)) setStep(i); }} className={`rounded-full border px-3 py-1 text-xs transition ${i === step ? "border-primary bg-primary text-primary-foreground" : i < step ? "border-success/40 bg-success/10 text-success" : "border-border text-muted-foreground"}`}>
+          <button key={label} disabled={i > step && !canStep(step)} onClick={() => { if (i <= step || canStep(step)) setStep(i); }} className={`rounded-full border px-3 py-1 text-xs transition ${i === step ? "border-primary bg-primary text-primary-foreground" : i < step ? "border-sem-success/40 bg-sem-success/10 text-sem-success" : "border-border text-muted-foreground"}`}>
             {i + 1}. {label}{i < step ? " ✓" : ""}
           </button>
         ))}
@@ -1871,7 +1871,7 @@ function SkuBuilderModal({
             <L label="Category *"><SearchableSelect value={f.categoryMasterId} onChange={(v) => setF({ ...f, categoryMasterId: v })} placeholder="Select category…" options={categories.map((x) => ({ value: x.id, label: `${x.name} (${x.code})`, hint: x.code }))} /></L>
             <L label="Gender *"><SearchableSelect value={f.genderMasterId} onChange={(v) => setF({ ...f, genderMasterId: v })} placeholder="Select gender…" options={genders.map((x) => ({ value: x.id, label: `${x.name} (${x.code})`, hint: x.code }))} /></L>
           </div>
-          {parentSku ? <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-3"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Generated parent SKU</p><p className="mt-1 font-mono text-lg font-semibold text-primary">{parentSku}</p>{skuCheckQ.isFetching ? <p className="mt-1 text-xs text-muted-foreground">Checking uniqueness…</p> : skuTaken ? <p className="mt-1 text-xs font-medium text-destructive">SKU already exists: {parentSku} — change model / category / gender.</p> : <p className="mt-1 text-xs text-success">Available ✓</p>}</div> : <p className="mt-4 text-xs text-muted-foreground">Pick a category, gender and model number to generate <span className="font-mono">AD-U-TN-ET1100</span>.</p>}
+          {parentSku ? <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-3"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Generated parent SKU</p><p className="mt-1 font-mono text-lg font-semibold text-primary">{parentSku}</p>{skuCheckQ.isFetching ? <p className="mt-1 text-xs text-muted-foreground">Checking uniqueness…</p> : skuTaken ? <p className="mt-1 text-xs font-medium text-destructive">SKU already exists: {parentSku} — change model / category / gender.</p> : <p className="mt-1 text-xs text-sem-success">Available ✓</p>}</div> : <p className="mt-4 text-xs text-muted-foreground">Pick a category, gender and model number to generate <span className="font-mono">AD-U-TN-ET1100</span>.</p>}
           </Card>}
           {step === 1 && <Card title="Step 2 — Pricing (₹ INR)"><div className="grid gap-4 md:grid-cols-3">
             {[["Unit Price (cost)", "unitCost"], ["Selling Price", "unitPrice"], ["MRP", "mrp"], ["Retailer Price", "retailerPrice"], ["Distributor Price", "distributorPrice"], ["E-commerce Price", "ecommercePrice"]].map(([label, key]) => (
@@ -1906,7 +1906,7 @@ function SkuBuilderModal({
           <p className="mt-1 break-all font-mono text-base font-semibold text-primary">{previewFinalSku || "AD-…"}</p>
           <div className="mt-3 flex gap-2"><button disabled={!previewFinalSku} onClick={() => { navigator.clipboard.writeText(previewFinalSku); toast.success("SKU copied"); }} className="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-50"><Copy className="h-3 w-3" /> Copy SKU</button></div>
           <div className="mt-4 flex gap-2"><button disabled={step === 0} onClick={() => setStep((s) => s - 1)} className="flex-1 rounded-md border border-border px-3 py-2 text-sm disabled:opacity-40">Back</button>{step < WIZARD_STEPS.length - 1 ? <button disabled={!canStep(step)} onClick={() => setStep((s) => s + 1)} className="flex-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40">Continue</button> : <button disabled={save.isPending || !canStep(0) || !canStep(4)} onClick={() => save.mutate()} className="flex-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40">{save.isPending ? "Creating…" : `Create · ${enabledCombos.length} SKUs`}</button>}</div>
-          {!canStep(step) && step !== 5 && <p className="mt-2 text-[11px] text-warning">Complete this step to continue{step === 0 && skuTaken ? " — parent SKU is taken" : ""}.</p>}
+          {!canStep(step) && step !== 5 && <p className="mt-2 text-[11px] text-sem-attention">Complete this step to continue{step === 0 && skuTaken ? " — parent SKU is taken" : ""}.</p>}
         </aside>
       </div>
     </div>

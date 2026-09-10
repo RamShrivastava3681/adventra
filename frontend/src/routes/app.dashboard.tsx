@@ -6,6 +6,10 @@ import {
   Card,
   StatusPill,
   EmptyState,
+  Trend,
+  SevDot,
+  HealthMeter,
+  alertSeverity,
   fmtMoney,
   fmtDate,
   daysBetween,
@@ -18,8 +22,6 @@ import {
   FileText,
   Receipt,
   ArrowRight,
-  ArrowUpRight,
-  ArrowDownRight,
   CheckCircle2,
   ShieldCheck,
   CircleAlert,
@@ -355,11 +357,25 @@ function Dashboard() {
   // ── Portfolio health (rule-based on live data, never fabricated) ──
   const health = useMemo(() => {
     if (overdueCount === 0 && collectionRate >= 50)
-      return { label: "Healthy", cls: "text-emerald-600 dark:text-emerald-400", dot: "bg-emerald-500" };
+      return { label: "Healthy", meter: "healthy" as const };
     if (overdueCount <= 2)
-      return { label: "Needs attention", cls: "text-amber-600 dark:text-amber-400", dot: "bg-amber-500" };
-    return { label: "At risk", cls: "text-red-600 dark:text-red-400", dot: "bg-red-500" };
+      return { label: "Needs attention", meter: "watch" as const };
+    return { label: "At risk", meter: "at-risk" as const };
   }, [overdueCount, collectionRate]);
+
+  // Collection-rate momentum in percentage points (real monthly buckets).
+  const collectionMom = useMemo(() => {
+    const r = sparks.rateByMonth;
+    if (r.length < 2) return null;
+    return r[r.length - 1] - r[r.length - 2];
+  }, [sparks]);
+  // Outstanding-AR momentum (up = bad → inverted polarity downstream).
+  const outstandingMom = useMemo(() => {
+    const o = sparks.openByMonth;
+    if (o.length < 2) return null;
+    const prev = o[o.length - 2] || 1;
+    return ((o[o.length - 1] - o[o.length - 2]) / prev) * 100;
+  }, [sparks]);
 
   const avgCollectionDays = useMemo(() => {
     const settled = paidInvoices.filter(
@@ -425,11 +441,11 @@ function Dashboard() {
               <span
                 className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
                   portfolioHealthy
-                    ? "border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                    : "border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300"
+                    ? "border-sem-success/25 bg-sem-success/10 text-sem-success"
+                    : "border-sem-attention/30 bg-sem-attention/10 text-sem-attention"
                 }`}
               >
-                <span className={`h-1.5 w-1.5 rounded-full ${portfolioHealthy ? "bg-emerald-500" : "bg-amber-500"}`} />
+                <span className={`h-1.5 w-1.5 rounded-full ${portfolioHealthy ? "bg-sem-success" : "bg-sem-attention"}`} />
                 {portfolioHealthy ? "Portfolio healthy" : `${overdueCount} overdue need attention`}
               </span>
             </div>
@@ -462,6 +478,7 @@ function Dashboard() {
               label="Outstanding AR"
               value={fmtMoney(totalOutstanding)}
               context={`${openInvoices.length} open invoices`}
+              trend={outstandingMom != null ? { value: outstandingMom, caption: "vs last month", invert: true } : undefined}
               spark={sparks.openByMonth}
               sparkTone={overdueCount > 0 ? "amber" : "blue"}
             />
@@ -476,6 +493,7 @@ function Dashboard() {
               label="Collection Rate"
               value={`${collectionRate}%`}
               context="Lifetime, by count"
+              trend={collectionMom != null ? { value: collectionMom, caption: "vs previous period" } : undefined}
               spark={sparks.rateByMonth}
               sparkTone={collectionRate >= 90 ? "green" : "blue"}
               healthy={collectionRate >= 90}
@@ -498,7 +516,7 @@ function Dashboard() {
                       <span className="h-2 w-2 rounded-full bg-[var(--color-chart-1)]" /> Gross
                     </span>
                     <span className="inline-flex items-center gap-1.5">
-                      <span className="h-2 w-2 rounded-full bg-[var(--color-chart-2)]" /> Net
+                      <span className="h-2 w-2 rounded-full bg-sem-success" /> Net
                     </span>
                   </div>
                   <div className="inline-flex overflow-hidden rounded-lg border border-border text-[11px] font-semibold">
@@ -541,8 +559,8 @@ function Dashboard() {
                         <stop offset="100%" style={{ stopColor: "var(--color-chart-1)" }} stopOpacity={0} />
                       </linearGradient>
                       <linearGradient id="ng" x1="0" x2="0" y1="0" y2="1">
-                        <stop offset="0%" style={{ stopColor: "var(--color-chart-2)" }} stopOpacity={0.14} />
-                        <stop offset="100%" style={{ stopColor: "var(--color-chart-2)" }} stopOpacity={0} />
+                        <stop offset="0%" style={{ stopColor: "var(--sem-success)" }} stopOpacity={0.14} />
+                        <stop offset="100%" style={{ stopColor: "var(--sem-success)" }} stopOpacity={0} />
                       </linearGradient>
                     </defs>
                     <CartesianGrid stroke="var(--color-border)" strokeDasharray="3 3" vertical={false} />
@@ -595,7 +613,7 @@ function Dashboard() {
                       type="monotone"
                       dataKey="net"
                       name="Net"
-                      stroke="var(--color-chart-2)"
+                      stroke="var(--sem-success)"
                       strokeWidth={2.25}
                       fill="url(#ng)"
                       dot={false}
@@ -655,11 +673,11 @@ function Dashboard() {
             <Card title="Aging Waterfall" className="lg:col-span-2">
               <div className="space-y-4">
                 {[
-                  { label: "Current", val: aging.current, bar: "bg-emerald-500" },
-                  { label: "1–30 days", val: aging.b1, bar: "bg-[var(--color-chart-2)]" },
-                  { label: "31–60 days", val: aging.b2, bar: "bg-amber-400" },
-                  { label: "61–90 days", val: aging.b3, bar: "bg-orange-500" },
-                  { label: "90+ days", val: aging.b4, bar: "bg-red-500" },
+                  { label: "Current", val: aging.current, bar: "bg-sem-success" },
+                  { label: "1–30 days", val: aging.b1, bar: "bg-sem-info" },
+                  { label: "31–60 days", val: aging.b2, bar: "bg-sem-attention" },
+                  { label: "61–90 days", val: aging.b3, bar: "bg-sem-caution" },
+                  { label: "90+ days", val: aging.b4, bar: "bg-sem-critical" },
                 ].map((b) => {
                   const pct = (b.val / agingTotal) * 100;
                   return (
@@ -677,7 +695,7 @@ function Dashboard() {
                   );
                 })}
                 <div className="flex items-center gap-1.5 border-t border-border pt-3 text-xs">
-                  <CircleAlert className="h-3.5 w-3.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                  <CircleAlert className="h-3.5 w-3.5 shrink-0 text-sem-attention" />
                   {attentionTotal > 0 ? (
                     <span className="text-muted-foreground">
                       <span className="num font-semibold text-foreground">{fmtMoney(attentionTotal)}</span>{" "}
@@ -702,7 +720,7 @@ function Dashboard() {
             >
               {(alertsQ.data ?? []).length === 0 ? (
                 <div className="flex flex-col items-center px-6 py-10 text-center">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-full bg-sem-success/10 text-sem-success">
                     <CheckCircle2 className="h-5 w-5" />
                   </div>
                   <h3 className="mt-3 text-sm font-semibold text-foreground">You&apos;re all caught up</h3>
@@ -716,15 +734,7 @@ function Dashboard() {
                       className="group rounded-lg border border-border bg-background/40 px-3 py-2.5 transition-colors hover:border-border-strong"
                     >
                       <div className="flex items-start gap-2.5">
-                        <span
-                          className={`mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full ${
-                            a.severity === "critical"
-                              ? "bg-red-500"
-                              : a.severity === "warning"
-                                ? "bg-amber-500"
-                                : "bg-primary"
-                          }`}
-                        />
+                        <SevDot level={alertSeverity(a.severity)} className="mt-1.5 h-1.5 w-1.5" />
                         <div className="min-w-0 flex-1">
                           <div className="text-[13px] leading-snug text-foreground">{a.message}</div>
                           <div className="mt-0.5 text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -779,15 +789,15 @@ function Dashboard() {
                           <span
                             className={`inline-flex items-center gap-1.5 text-[13px] font-medium ${
                               r.tone === "bad"
-                                ? "text-red-600 dark:text-red-400"
+                                ? "text-sem-critical"
                                 : r.tone === "warn"
-                                  ? "text-amber-600 dark:text-amber-400"
+                                  ? "text-sem-attention"
                                   : "text-foreground"
                             }`}
                           >
                             <span
                               className={`h-1.5 w-1.5 rounded-full ${
-                                r.tone === "bad" ? "bg-red-500" : r.tone === "warn" ? "bg-amber-500" : "bg-primary"
+                                r.tone === "bad" ? "bg-sem-critical" : r.tone === "warn" ? "bg-sem-attention" : "bg-sem-info"
                               }`}
                             />
                             {r.issue}
@@ -815,9 +825,9 @@ function Dashboard() {
           {/* ── Portfolio health + Recent activity ── */}
           <div className="grid gap-6 lg:grid-cols-2">
             <Card title="Portfolio Health">
-              <div className="flex items-center gap-2.5">
-                <span className={`h-2.5 w-2.5 rounded-full ${health.dot}`} />
-                <span className={`text-lg font-semibold tracking-tight ${health.cls}`}>{health.label}</span>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <HealthMeter level={health.meter} />
+                <span className="text-xs text-muted-foreground">{health.label} · live portfolio</span>
               </div>
               <dl className="mt-4 space-y-3">
                 <HealthRow label="Collection Rate" value={`${collectionRate}%`} />
@@ -913,7 +923,7 @@ function Dashboard() {
                           {i.short_payment != null ? fmtMoney(Number(i.short_payment)) : "—"}
                         </td>
                         <td
-                          className={`num text-right ${Number(i.late_days) > 0 ? "text-warning" : "text-muted-foreground"}`}
+                          className={`num text-right ${Number(i.late_days) > 0 ? "text-sem-attention" : "text-muted-foreground"}`}
                         >
                           {i.late_days != null ? i.late_days : "—"}
                         </td>
@@ -1099,36 +1109,25 @@ function KpiCard({
   label: string;
   value: string;
   context?: string;
-  trend?: { value: number; caption: string };
+  trend?: { value: number; caption: string; invert?: boolean };
   spark?: number[];
   sparkTone?: "blue" | "green" | "amber";
   healthy?: boolean;
 }) {
-  const up = (trend?.value ?? 0) >= 0;
   return (
     <div className="group rounded-xl border border-border bg-card p-5 transition-all duration-150 hover:-translate-y-px hover:border-border-strong hover:shadow-card-hover">
       <div className="flex items-center justify-between gap-2">
         <div className="text-[11px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
           {label}
         </div>
-        {healthy && <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />}
+        {healthy && <ShieldCheck className="h-3.5 w-3.5 text-sem-success" />}
       </div>
       <div className="num mt-2 text-[28px] font-semibold leading-none tracking-tight text-foreground">
         {value}
       </div>
       <div className="mt-2 flex items-end justify-between gap-2">
         <div>
-          {trend && (
-            <div
-              className={`inline-flex items-center gap-1 text-xs font-semibold ${
-                up ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"
-              }`}
-            >
-              {up ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
-              {Math.abs(trend.value).toFixed(1)}%
-              <span className="font-normal text-muted-foreground">{trend.caption}</span>
-            </div>
-          )}
+          {trend && <Trend value={trend.value} caption={trend.caption} invert={trend.invert} />}
           {context && <div className="mt-1 text-xs text-muted-foreground">{context}</div>}
         </div>
         {spark && spark.length > 1 && <Sparkline data={spark} tone={sparkTone} />}
@@ -1147,7 +1146,7 @@ function Sparkline({ data, tone }: { data: number[]; tone: "blue" | "green" | "a
     .map((v, i) => `${((i / (data.length - 1)) * w).toFixed(1)},${(h - 3 - ((v - min) / span) * (h - 6)).toFixed(1)}`)
     .join(" ");
   const stroke =
-    tone === "green" ? "#10b981" : tone === "amber" ? "#f59e0b" : "var(--color-chart-1)";
+    tone === "green" ? "var(--sem-success)" : tone === "amber" ? "var(--sem-attention)" : "var(--color-chart-1)";
   return (
     <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="shrink-0 opacity-80" aria-hidden>
       <polyline points={pts} fill="none" stroke={stroke} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
@@ -1168,15 +1167,15 @@ function PerfCell({
 }) {
   const toneCls = {
     neutral: "text-foreground",
-    good: "text-emerald-600 dark:text-emerald-400",
-    warn: "text-amber-600 dark:text-amber-400",
-    bad: "text-red-600 dark:text-red-400",
+    good: "text-sem-success",
+    warn: "text-sem-attention",
+    bad: "text-sem-critical",
   }[tone];
   const barCls = {
     neutral: "bg-primary",
-    good: "bg-emerald-500",
-    warn: "bg-amber-500",
-    bad: "bg-red-500",
+    good: "bg-sem-success",
+    warn: "bg-sem-attention",
+    bad: "bg-sem-critical",
   }[tone];
   return (
     <div className="relative bg-card p-4">
@@ -1213,7 +1212,7 @@ function HealthRow({
       <dd className="text-right">
         <span
           className={`text-sm font-semibold ${mono ? "num" : ""} ${
-            alert ? "text-red-600 dark:text-red-400" : "text-foreground"
+            alert ? "text-sem-critical" : "text-foreground"
           }`}
         >
           {value}

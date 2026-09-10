@@ -33,7 +33,7 @@ function statusClass(s: Status) {
     return "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]";
   if (s === "rejected") return "bg-destructive/10 text-destructive border-destructive/30";
   if (s === "void") return "bg-muted text-muted-foreground border-border";
-  return "bg-warning/10 text-warning border-warning/30";
+  return "bg-sem-attention/10 text-sem-attention border-sem-attention/30";
 }
 
 function NotesPage() {
@@ -135,7 +135,7 @@ function NotesPage() {
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-3">
           <Card title="Pending checker">
-            <div className="num text-2xl text-warning">{pendingCount}</div>
+            <div className="num text-2xl text-sem-attention">{pendingCount}</div>
             <div className="mt-1 text-xs text-muted-foreground">
               Awaiting maker–checker approval
             </div>

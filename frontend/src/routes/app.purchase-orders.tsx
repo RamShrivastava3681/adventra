@@ -158,11 +158,11 @@ const PO_STATUS_LABELS: Record<string, string> = {
 
 const PO_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
-  pending_review: "bg-warning/10 text-warning border-warning/30 dark:text-warning",
+  pending_review: "bg-sem-attention/10 text-sem-attention border-sem-attention/30 dark:text-sem-attention",
   approved:
-    "bg-blue-500/10 text-blue-600 border-blue-500/30 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/40",
+    "bg-sem-info/10 text-sem-info border-sem-info/30",
   sent: "bg-primary/10 text-primary border-primary/30",
-  partially_received: "bg-warning/10 text-warning border-warning/30",
+  partially_received: "bg-sem-attention/10 text-sem-attention border-sem-attention/30",
   fully_received: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
 };
@@ -455,7 +455,7 @@ function PurchaseOrdersPage() {
                               <div className="flex items-center gap-2">
                                 <div className="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
                                   <div
-                                    className={`h-full rounded-full ${pct >= 100 ? "bg-success" : "bg-primary"}`}
+                                    className={`h-full rounded-full ${pct >= 100 ? "bg-sem-success" : "bg-primary"}`}
                                     style={{ width: `${pct}%` }}
                                   />
                                 </div>
@@ -1222,14 +1222,14 @@ function POModal({
               Purchase order item lines
             </legend>
             {products.length === 0 && lines.length === 0 ? (
-              <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+              <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
                 No active products in the catalogue yet — add products in the Product catalogue tab
                 first.
                 {editable && (
                   <button
                     type="button"
                     onClick={addLineWithNewItem}
-                    className="ml-2 inline-flex items-center gap-1 font-medium text-warning underline"
+                    className="ml-2 inline-flex items-center gap-1 font-medium text-sem-attention underline"
                   >
                     <Plus className="h-3 w-3" /> or create one here
                   </button>
@@ -1308,14 +1308,14 @@ function POModal({
                             type="number"
                             min="1"
                             step="0.001"
-                            className={`inp ${overReceived ? "!border-warning" : ""}`}
+                            className={`inp ${overReceived ? "!border-sem-attention" : ""}`}
                             value={l.ordered_qty}
                             onChange={(e) => setLine(i, { ordered_qty: e.target.value })}
                             disabled={!editable}
                           />
                         </L>
                         {overReceived && (
-                          <div className="mt-0.5 text-[9px] text-warning">
+                          <div className="mt-0.5 text-[9px] text-sem-attention">
                             Cannot go below received ({l.received_qty})
                           </div>
                         )}
@@ -1380,7 +1380,7 @@ function POModal({
                       <div className="flex items-end justify-end gap-1 pb-1">
                         {l.received_qty > 0 && (
                           <>
-                            <span className="rounded bg-success/10 px-1.5 py-0.5 text-[9px] text-success">
+                            <span className="rounded bg-sem-success/10 px-1.5 py-0.5 text-[9px] text-sem-success">
                               recv {l.received_qty}
                             </span>
                             <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
@@ -1658,7 +1658,7 @@ function POModal({
                   stock (only a confirmed GRN does).
                 </div>
                 {status === "draft" && (
-                  <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+                  <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
                     This PO is still a <b>draft</b> — an invoice can only be created once the PO is
                     approved &amp; sent. If it stays a draft, only the PO is saved and you can
                     create the invoice later from the Purchase invoices tab.
@@ -1870,7 +1870,7 @@ function POModal({
                   <button
                     type="button"
                     onClick={() => changeStatus("approved")}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-success/50 px-3 py-1.5 text-xs font-medium text-success hover:bg-success/10"
+                    className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10"
                   >
                     <CheckCircle2 className="h-3.5 w-3.5" /> Approve
                   </button>
@@ -2098,7 +2098,7 @@ function GRNModal({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone
                           }}
                         />
                         {qty > 0 && acc > qty && (
-                          <div className="mt-0.5 text-[9px] text-warning">
+                          <div className="mt-0.5 text-[9px] text-sem-attention">
                             Accepted exceeds received
                           </div>
                         )}
@@ -2144,7 +2144,7 @@ function GRNModal({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone
             <button
               disabled={save.isPending}
               className={`inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium text-white disabled:opacity-60 ${
-                confirming ? "bg-success" : "bg-primary"
+                confirming ? "bg-sem-success" : "bg-primary"
               }`}
             >
               {save.isPending ? (
@@ -2297,8 +2297,8 @@ function GRNsModal({
                             disabled={confirm.isPending}
                             className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[10px] ${
                               pending === "confirm"
-                                ? "border-success/50 bg-success/10 text-success"
-                                : "border-success/50 text-success hover:bg-success/10"
+                                ? "border-sem-success/50 bg-sem-success/10 text-sem-success"
+                                : "border-sem-success/50 text-sem-success hover:bg-sem-success/10"
                             }`}
                           >
                             <CheckCircle2 className="h-3 w-3" />
@@ -2385,7 +2385,7 @@ function GRNsModal({
                           <td className="py-1.5 text-right num">
                             {(l.received_qty ?? 0).toLocaleString()}
                           </td>
-                          <td className="py-1.5 text-right num text-success">
+                          <td className="py-1.5 text-right num text-sem-success">
                             {(l.accepted_qty ?? l.received_qty).toLocaleString()}
                           </td>
                           <td className="py-1.5 text-right num text-muted-foreground">

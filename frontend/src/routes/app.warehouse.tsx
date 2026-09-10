@@ -67,9 +67,9 @@ const SHIPPING_LABEL: Record<string, string> = {
 };
 
 function shippingTone(s: string) {
-  if (s === "delivered") return "bg-success/15 text-success";
+  if (s === "delivered") return "bg-sem-success/15 text-sem-success";
   if (s === "dispatched" || s === "in_transit") return "bg-primary/15 text-primary";
-  if (s === "packed") return "bg-warning/15 text-warning";
+  if (s === "packed") return "bg-sem-attention/15 text-sem-attention";
   return "bg-muted text-muted-foreground";
 }
 
@@ -594,11 +594,11 @@ function WarehousePage() {
                         <span
                           className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
                             wh === "approved"
-                              ? "bg-success/15 text-success"
+                              ? "bg-sem-success/15 text-sem-success"
                               : wh === "rejected"
                                 ? "bg-destructive/15 text-destructive"
                                 : wh === "on_hold"
-                                  ? "bg-warning/15 text-warning"
+                                  ? "bg-sem-attention/15 text-sem-attention"
                                   : "bg-muted text-muted-foreground"
                           }`}
                         >
@@ -709,7 +709,7 @@ function WarehousePage() {
                               Due today
                             </span>
                           ) : daysLeft <= 3 ? (
-                            <span className="inline-flex items-center rounded-full bg-warning/10 px-2 py-0.5 text-[10px] text-warning">
+                            <span className="inline-flex items-center rounded-full bg-sem-attention/10 px-2 py-0.5 text-[10px] text-sem-attention">
                               {daysLeft}d left
                             </span>
                           ) : (
@@ -810,10 +810,10 @@ function WarehousePage() {
                   );
                   const statusClass =
                     grn.status === "confirmed"
-                      ? "bg-success/15 text-success"
+                      ? "bg-sem-success/15 text-sem-success"
                       : grn.status === "cancelled"
                         ? "bg-destructive/15 text-destructive"
-                        : "bg-warning/15 text-warning";
+                        : "bg-sem-attention/15 text-sem-attention";
                   return (
                     <tr key={grn.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-5 py-3">
@@ -840,7 +840,7 @@ function WarehousePage() {
                               onClick={() => {
                                 window.location.href = `/app/grn?id=${grn.id}`;
                               }}
-                              className="inline-flex items-center gap-1 rounded-md bg-success/10 px-2.5 py-1 text-xs text-success"
+                              className="inline-flex items-center gap-1 rounded-md bg-sem-success/10 px-2.5 py-1 text-xs text-sem-success"
                             >
                               <CheckCircle2 className="h-3 w-3" /> Confirm
                             </button>
@@ -967,7 +967,7 @@ function WarehousePage() {
                     return (
                       <tr key={m.id} className="border-b border-border/60">
                         <td className="px-5 py-2.5 text-muted-foreground">{fmtDate(m.movement_date)}</td>
-                        <td className={`px-5 py-2.5 ${isIn ? "text-success" : "text-warning"}`}>
+                        <td className={`px-5 py-2.5 ${isIn ? "text-sem-success" : "text-sem-attention"}`}>
                           <span className="inline-flex items-center gap-1">
                             {isIn ? <ArrowDownToLine className="h-3.5 w-3.5" /> : <ArrowUpFromLine className="h-3.5 w-3.5" />}
                             {isIn ? "In" : "Out"}

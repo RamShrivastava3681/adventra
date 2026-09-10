@@ -120,10 +120,10 @@ function AdvancesPage() {
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-2">
           <Card title="Open sales advances (received)">
-            <div className="num text-3xl text-success">{fmtMoney(totals.sales)}</div>
+            <div className="num text-3xl text-sem-success">{fmtMoney(totals.sales)}</div>
           </Card>
           <Card title="Open purchase advances (paid)">
-            <div className="num text-3xl text-warning">{fmtMoney(totals.purchase)}</div>
+            <div className="num text-3xl text-sem-attention">{fmtMoney(totals.purchase)}</div>
           </Card>
         </div>
 
@@ -218,10 +218,10 @@ function AdvancesPage() {
                               <span
                                 className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${
                                   a.status === "applied"
-                                    ? "border-success/50 text-success"
+                                    ? "border-sem-success/50 text-sem-success"
                                     : a.status === "refunded"
                                       ? "border-muted text-muted-foreground"
-                                      : "border-warning/50 text-warning"
+                                      : "border-sem-attention/50 text-sem-attention"
                                 }`}
                               >
                                 {a.status}
@@ -234,7 +234,7 @@ function AdvancesPage() {
                                     onClick={() =>
                                       setStatus.mutate({ id: a.id, status: "applied" })
                                     }
-                                    className="rounded-md border border-success/50 px-2 py-0.5 text-[10px] text-success hover:bg-success/10"
+                                    className="rounded-md border border-sem-success/50 px-2 py-0.5 text-[10px] text-sem-success hover:bg-sem-success/10"
                                   >
                                     Mark applied
                                   </button>
@@ -405,7 +405,7 @@ function NewAdvanceModal({
                 }))}
               />
               {(ordersQ.data ?? []).length === 0 && (
-                <p className="mt-1 text-[10px] text-warning">
+                <p className="mt-1 text-[10px] text-sem-attention">
                   No open {side} proformas yet. Raise one in Proforma invoices first.
                 </p>
               )}

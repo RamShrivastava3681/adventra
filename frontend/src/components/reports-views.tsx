@@ -47,26 +47,26 @@ const METRIC_CARDS: Array<{ key: string; label: string; tone: string; bar: strin
   {
     key: "total_invoice_value",
     label: "Total invoice value",
-    tone: "text-emerald-600 dark:text-emerald-300",
-    bar: "bg-emerald-500",
+    tone: "text-sem-success",
+    bar: "bg-sem-success",
   },
   {
     key: "total_collections",
     label: "Total collections",
-    tone: "text-teal-600 dark:text-teal-300",
-    bar: "bg-teal-500",
+    tone: "text-sem-success",
+    bar: "bg-sem-success",
   },
   {
     key: "total_outstanding",
     label: "Total outstanding",
-    tone: "text-amber-600 dark:text-amber-300",
-    bar: "bg-amber-500",
+    tone: "text-sem-attention",
+    bar: "bg-sem-attention",
   },
   {
     key: "open_invoices",
     label: "Open invoices",
-    tone: "text-blue-600 dark:text-blue-300",
-    bar: "bg-blue-500",
+    tone: "text-sem-info",
+    bar: "bg-sem-info",
   },
   {
     key: "closed_invoices",
@@ -146,10 +146,10 @@ export function PortfolioSummaryTable({ rows }: { rows: any[] }) {
                 <td className="px-3 py-2.5 text-left font-medium">{r.buyer}</td>
                 <td className="px-3 py-2.5 text-right num">{r.invoices}</td>
                 <td className="px-3 py-2.5 text-right num">{fmtMoney(r.value)}</td>
-                <td className="px-3 py-2.5 text-right num text-success">
+                <td className="px-3 py-2.5 text-right num text-sem-success">
                   {fmtMoney(r.collections)}
                 </td>
-                <td className="px-3 py-2.5 text-right num text-warning">
+                <td className="px-3 py-2.5 text-right num text-sem-attention">
                   {fmtMoney(r.outstanding)}
                 </td>
               </tr>
@@ -299,7 +299,7 @@ export function BalanceSheetView({ data }: { data: any }) {
             </span>
           </div>
           {diff > 0.005 && (
-            <p className="text-xs text-warning">
+            <p className="text-xs text-sem-attention">
               Differs from total assets by {fmtAccountingText(diff)} — the retained-earnings
               balancing figure is included in equity.
             </p>
@@ -640,7 +640,7 @@ export function FxAdjust({
   const colors =
     tone === "rose"
       ? "border-rose-500/30 text-rose-600 hover:bg-rose-500/10 dark:text-rose-300"
-      : "border-emerald-500/30 text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-300";
+: "border-sem-success/30 text-sem-success hover:bg-sem-success/10";
   return (
     <div className="relative inline-flex">
       <button
@@ -799,7 +799,7 @@ export function ProfitLossView({
               Profit after tax
             </div>
             <div
-              className={`text-xl font-semibold ${pat < 0 ? "text-destructive" : "text-success"}`}
+              className={`text-xl font-semibold ${pat < 0 ? "text-destructive" : "text-sem-success"}`}
             >
               {acct(pat)}
             </div>
@@ -847,7 +847,7 @@ export function ProfitLossView({
                       r.fx
                         ? Number(r.amount) < 0
                           ? "text-rose-600 dark:text-rose-400"
-                          : "text-emerald-600 dark:text-emerald-400"
+                          : "text-sem-success"
                         : ""
                     }`}
                   >
@@ -898,7 +898,7 @@ export function ProfitLossView({
             Profit after tax
           </div>
           <div
-            className={`mt-1 font-display text-2xl font-semibold ${pat < 0 ? "text-destructive" : "text-success"}`}
+            className={`mt-1 font-display text-2xl font-semibold ${pat < 0 ? "text-destructive" : "text-sem-success"}`}
           >
             {rup(pat)}
           </div>

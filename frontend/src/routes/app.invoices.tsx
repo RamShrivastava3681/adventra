@@ -311,11 +311,11 @@ function InvoicesPage() {
                               {i.debtor?.name ?? debtorName(i.debtor_id) ?? "—"}
                             </td>
                             <td className="px-5 py-3 text-right num">{fmtMoney(grandTotal)}</td>
-                            <td className="px-5 py-3 text-right num text-success">
+                            <td className="px-5 py-3 text-right num text-sem-success">
                               {received > 0 ? fmtMoney(received) : "—"}
                             </td>
                             <td
-                              className={`px-5 py-3 text-right num ${balance > 0 ? "text-warning" : "text-muted-foreground"}`}
+                              className={`px-5 py-3 text-right num ${balance > 0 ? "text-sem-attention" : "text-muted-foreground"}`}
                             >
                               {fmtMoney(balance)}
                             </td>
@@ -451,8 +451,8 @@ function InvoicesPage() {
 function NoaBadge({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
     not_sent: { label: "Not sent", cls: "border-border text-muted-foreground" },
-    sent: { label: "Awaiting reply", cls: "border-warning/50 text-warning" },
-    accepted: { label: "Accepted", cls: "border-success/50 text-success" },
+    sent: { label: "Awaiting reply", cls: "border-sem-attention/50 text-sem-attention" },
+    accepted: { label: "Accepted", cls: "border-sem-success/50 text-sem-success" },
     rejected: { label: "Rejected", cls: "border-destructive/50 text-destructive" },
     commented: { label: "Commented", cls: "border-primary/50 text-primary" },
   };
@@ -871,7 +871,7 @@ function NewInvoiceModal({
           className="space-y-5 p-5"
         >
           {debtors.length === 0 && (
-            <div className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+            <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
               No debtors exist yet. Ask your factor admin to add one in the Debtors tab.
             </div>
           )}
@@ -1433,11 +1433,11 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
             <D label="Net amount" value={<span className="num">{fmtMoney(netAmount)}</span>} />
             <D
               label="Amount received"
-              value={<span className="num text-success">{fmtMoney(received)}</span>}
+              value={<span className="num text-sem-success">{fmtMoney(received)}</span>}
             />
             <D
               label="Balance outstanding"
-              value={<span className="num text-warning">{fmtMoney(balance)}</span>}
+              value={<span className="num text-sem-attention">{fmtMoney(balance)}</span>}
             />
             <D label="Issue date" value={invoice.issue_date ? fmtDate(invoice.issue_date) : "—"} />
             <D label="Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "—"} />
@@ -1482,7 +1482,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
             {invoice.payment_amount != null && (
               <D
                 label="Payment at approval"
-                value={<span className="num text-success">{fmtMoney(invoice.payment_amount)}</span>}
+                value={<span className="num text-sem-success">{fmtMoney(invoice.payment_amount)}</span>}
               />
             )}
             <D label="NOA" value={<NoaBadge status={invoice.noa_status} />} />
@@ -1593,7 +1593,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
                       <div className="flex items-center gap-1.5">
                         <span
                           className={`inline-flex h-1.5 w-1.5 rounded-full ${
-                            l.status === "sent" ? "bg-success" : "bg-destructive"
+                            l.status === "sent" ? "bg-sem-success" : "bg-destructive"
                           }`}
                         />
                         <span className="font-medium text-foreground">

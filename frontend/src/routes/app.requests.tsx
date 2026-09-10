@@ -12,16 +12,16 @@ export const Route = createFileRoute("/app/requests")({
 });
 
 const TYPE_CONFIG = {
-  visit: { icon: MapPin, label: "Visit", color: "bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-300" },
+  visit: { icon: MapPin, label: "Visit", color: "bg-sem-info/10 text-sem-info" },
   travel: { icon: Plane, label: "Travel", color: "bg-primary-soft text-[#0a4a8a] dark:text-[#63baff]" },
-  expense: { icon: Receipt, label: "Expense", color: "bg-warning/10 text-warning" },
+  expense: { icon: Receipt, label: "Expense", color: "bg-sem-attention/10 text-sem-attention" },
   leave: { icon: CalendarDays, label: "Leave", color: "bg-muted text-muted-foreground" },
 } as const;
 
 const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-warning/10 text-warning",
+  pending: "bg-sem-attention/10 text-sem-attention",
   approved: "bg-primary/10 text-primary",
-  rejected: "bg-red-100 text-red-700",
+  rejected: "bg-sem-critical/10 text-sem-critical",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -200,7 +200,7 @@ function RequestsPage() {
                         <button
                           onClick={() => updateStatus.mutate({ id: req.id, status: "rejected" })}
                           disabled={updateStatus.isPending}
-                          className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5 text-[10px] font-medium text-red-700 transition-colors hover:bg-red-100 disabled:opacity-50"
+                          className="inline-flex items-center gap-1 rounded-md border border-sem-critical/30 bg-sem-critical/10 px-2.5 py-1.5 text-[10px] font-medium text-sem-critical transition-colors hover:bg-sem-critical/15 disabled:opacity-50"
                         >
                           <XCircle className="h-3.5 w-3.5" /> Reject
                         </button>

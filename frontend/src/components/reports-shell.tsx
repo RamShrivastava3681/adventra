@@ -245,7 +245,7 @@ export function ReportHeader({
           <button
             onClick={onExcel}
             disabled={busy === "excel"}
-            className="inline-flex items-center gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-3.5 py-2 text-sm font-medium text-emerald-600 transition hover:bg-emerald-500/20 disabled:opacity-60 dark:text-emerald-300"
+className="inline-flex items-center gap-2 rounded-md border border-sem-success/40 bg-sem-success/10 px-3.5 py-2 text-sm font-medium text-sem-success transition hover:bg-sem-success/20 disabled:opacity-60"
           >
             <span className="text-base leading-none">▦</span> Excel
           </button>
@@ -572,7 +572,7 @@ function CellValue({ col, row }: { col: ReportColumn; row: any }) {
       return <span className="whitespace-nowrap">{fmtDate(raw)}</span>;
     case "bool":
       return raw ? (
-        <span className="text-success">Yes</span>
+        <span className="text-sem-success">Yes</span>
       ) : (
         <span className="text-muted-foreground/60">No</span>
       );

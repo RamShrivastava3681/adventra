@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeader, Card, fmtDate } from "@/components/ledger-ui";
+import { PageHeader, Card, fmtDate, SevBadge, SevDot, alertSeverity } from "@/components/ledger-ui";
 import {
   Activity,
   BellRing,
@@ -233,18 +233,18 @@ function activityMessage(e: AuditEntry): string {
 function activityMeta(e: AuditEntry): { icon: LucideIcon; chip: string } {
   const a = e.action;
   if (["invoice.payment", "purchase_invoice.paid", "purchase_invoice.partially_paid", "purchase_invoice.payment", "proforma.funded"].includes(a))
-    return { icon: Landmark, chip: "bg-primary/15 text-primary" };
+    return { icon: Landmark, chip: "bg-sem-success/15 text-sem-success" };
   if (["invoice.approved", "purchase_invoice.approved", "proforma.approved"].includes(a))
-    return { icon: ShieldCheck, chip: "bg-primary-soft text-[#0a4a8a] dark:text-[#63baff]" };
+    return { icon: ShieldCheck, chip: "bg-sem-success/15 text-sem-success" };
   if (["invoice.rejected", "proforma.rejected"].includes(a))
-    return { icon: ShieldX, chip: "bg-destructive/15 text-destructive" };
-  if (a === "invoice.disputed") return { icon: ShieldAlert, chip: "bg-warning/15 text-warning" };
-  if (a.startsWith("invoice.")) return { icon: Receipt, chip: "bg-primary/15 text-primary" };
-  if (a.startsWith("purchase_invoice.")) return { icon: FileSpreadsheet, chip: "bg-primary/15 text-primary" };
-  if (a.startsWith("proforma.")) return { icon: FileText, chip: "bg-primary/15 text-primary" };
-  if (a.startsWith("grn.")) return { icon: PackageCheck, chip: "bg-primary/15 text-primary" };
-  if (a.startsWith("dispatch.")) return { icon: Truck, chip: "bg-warning/15 text-warning" };
-  if (a.startsWith("stock.")) return { icon: Package, chip: "bg-primary/15 text-primary" };
+    return { icon: ShieldX, chip: "bg-sem-critical/15 text-sem-critical" };
+  if (a === "invoice.disputed") return { icon: ShieldAlert, chip: "bg-sem-caution/15 text-sem-caution" };
+  if (a.startsWith("invoice.")) return { icon: Receipt, chip: "bg-sem-info/15 text-sem-info" };
+  if (a.startsWith("purchase_invoice.")) return { icon: FileSpreadsheet, chip: "bg-sem-info/15 text-sem-info" };
+  if (a.startsWith("proforma.")) return { icon: FileText, chip: "bg-sem-info/15 text-sem-info" };
+  if (a.startsWith("grn.")) return { icon: PackageCheck, chip: "bg-sem-info/15 text-sem-info" };
+  if (a.startsWith("dispatch.")) return { icon: Truck, chip: "bg-sem-attention/15 text-sem-attention" };
+  if (a.startsWith("stock.")) return { icon: Package, chip: "bg-sem-info/15 text-sem-info" };
   if (a.startsWith("expense.")) return { icon: Wallet, chip: "bg-muted text-muted-foreground" };
   if (a.startsWith("admin.")) return { icon: Shield, chip: "bg-slate-500/15 text-slate-600 dark:text-slate-400" };
   return { icon: Activity, chip: "bg-muted text-muted-foreground" };
@@ -542,22 +542,14 @@ function AlertsPage() {
 function AlertRow({ alert, onMarkRead }: { alert: AlertItem; onMarkRead: (id: string) => void }) {
   return (
     <li className={`flex items-start gap-4 p-4 ${alert.is_read ? "opacity-60" : ""}`}>
-      <span
-        className={`mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full ${
-          alert.severity === "critical"
-            ? "bg-destructive"
-            : alert.severity === "warning"
-              ? "bg-warning"
-              : "bg-primary"
-        }`}
-      />
+      <SevDot level={alertSeverity(alert.severity)} />
       <div className="min-w-0 flex-1">
         <div className="text-sm">{alert.message}</div>
-        <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+        <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-widest text-muted-foreground">
           <BellRing className="h-3 w-3" />
           <span>{alert.type}</span>
           <span>·</span>
-          <span>{alert.severity}</span>
+          <SevBadge level={alertSeverity(alert.severity)} />
           <span>·</span>
           <span className="normal-case" title={fmtDate(alert.created_at)}>
             {relativeTime(alert.created_at)}

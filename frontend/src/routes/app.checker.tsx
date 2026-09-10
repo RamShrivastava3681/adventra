@@ -471,7 +471,7 @@ function CheckerPage() {
             </div>
           </Card>
           <Card title="Pending purchase invoices">
-            <div className="num text-3xl text-warning">{pendingPurchases}</div>
+            <div className="num text-3xl text-sem-attention">{pendingPurchases}</div>
             <div className="mt-1 text-xs text-muted-foreground">
               Awaiting approval to enter AP queue
             </div>
@@ -551,7 +551,7 @@ function CheckerPage() {
                           className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
                             r.kind === "sale"
                               ? "bg-primary/15 text-primary"
-                              : "bg-warning/15 text-warning"
+                              : "bg-sem-attention/15 text-sem-attention"
                           }`}
                         >
                           {r.kind === "sale" ? "Sale (AR)" : "Purchase (AP)"}
@@ -582,7 +582,7 @@ function CheckerPage() {
                         {r.advance > 0 ? `− ${fmtMoney(r.advance)}` : "—"}
                       </td>
                       <td
-                        className={`px-5 py-3 text-right num font-medium ${r.kind === "sale" ? "text-success" : "text-warning"}`}
+                        className={`px-5 py-3 text-right num font-medium ${r.kind === "sale" ? "text-sem-success" : "text-sem-attention"}`}
                       >
                         {fmtMoney(r.net)}
                       </td>
@@ -608,7 +608,7 @@ function CheckerPage() {
                       <td className="px-5 py-3 text-right">
                         {r.kind === "sale" &&
                           (r.noa_status === "rejected" || r.noa_status === "not_sent") && (
-                            <div className="mb-1 text-[10px] uppercase tracking-widest text-warning">
+                            <div className="mb-1 text-[10px] uppercase tracking-widest text-sem-attention">
                               {r.noa_status === "not_sent" ? "NOA not sent" : "NOA rejected"}
                             </div>
                           )}
@@ -629,7 +629,7 @@ function CheckerPage() {
                                     : reviewPurchase.mutate({ id: r.id, decision: "approved" })
                                 }
                                 disabled={r.kind === "sale"}
-                                className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10 disabled:opacity-60"
+                                className="inline-flex items-center gap-1 rounded-md border border-sem-success/50 px-2.5 py-1 text-xs text-sem-success hover:bg-sem-success/10 disabled:opacity-60"
                                 title="Enter UTR and payment amount"
                               >
                                 <Check className="h-3 w-3" /> Approve
@@ -722,7 +722,7 @@ function CheckerPage() {
                                   onClick={() =>
                                     reviewProforma.mutate({ id: p.id, decision: "approved" })
                                   }
-                                  className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10"
+                                  className="inline-flex items-center gap-1 rounded-md border border-sem-success/50 px-2.5 py-1 text-xs text-sem-success hover:bg-sem-success/10"
                                 >
                                   <Check className="h-3 w-3" /> Approve
                                 </button>
@@ -822,7 +822,7 @@ function CheckerPage() {
                                   onClick={() =>
                                     reviewPO.mutate({ id: p.id, decision: "approved" })
                                   }
-                                  className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10"
+                                  className="inline-flex items-center gap-1 rounded-md border border-sem-success/50 px-2.5 py-1 text-xs text-sem-success hover:bg-sem-success/10"
                                 >
                                   <Check className="h-3 w-3" /> Approve
                                 </button>
@@ -929,7 +929,7 @@ function CheckerPage() {
                                       action: "approve",
                                     })
                                   }
-                                  className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10"
+                                  className="inline-flex items-center gap-1 rounded-md border border-sem-success/50 px-2.5 py-1 text-xs text-sem-success hover:bg-sem-success/10"
                                 >
                                   <Check className="h-3 w-3" />
                                   Approve
@@ -1035,7 +1035,7 @@ function CheckerPage() {
                                   onClick={() =>
                                     reviewNote.mutate({ id: n.id, decision: "approved" })
                                   }
-                                  className="inline-flex items-center gap-1 rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10"
+                                  className="inline-flex items-center gap-1 rounded-md border border-sem-success/50 px-2.5 py-1 text-xs text-sem-success hover:bg-sem-success/10"
                                 >
                                   <Check className="h-3 w-3" /> Approve
                                 </button>
@@ -1116,7 +1116,7 @@ function CheckerPage() {
                         <span
                           className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
                             h.action === "Approved" || h.action === "Confirmed" || h.action === "Mark received" || h.action === "Mark paid"
-                              ? "bg-success/15 text-success"
+                              ? "bg-sem-success/15 text-sem-success"
                               : "bg-destructive/15 text-destructive"
                           }`}
                         >
@@ -1233,8 +1233,8 @@ function ApproveSaleModal({
 function NoaPill({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
     not_sent: { label: "Not sent", cls: "border-border text-muted-foreground" },
-    sent: { label: "Awaiting reply", cls: "border-warning/50 text-warning" },
-    accepted: { label: "Accepted", cls: "border-success/50 text-success" },
+    sent: { label: "Awaiting reply", cls: "border-sem-attention/50 text-sem-attention" },
+    accepted: { label: "Accepted", cls: "border-sem-success/50 text-sem-success" },
     rejected: { label: "Rejected", cls: "border-destructive/50 text-destructive" },
     commented: { label: "Commented", cls: "border-primary/50 text-primary" },
   };

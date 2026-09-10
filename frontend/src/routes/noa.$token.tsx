@@ -126,7 +126,7 @@ function NoaPage() {
           <div className="mt-6 grid gap-2 md:grid-cols-3">
             <button
               onClick={() => setMode("accept")}
-              className="inline-flex items-center justify-center gap-2 rounded-md border border-success/50 px-3 py-2 text-sm text-success hover:bg-success/10"
+              className="inline-flex items-center justify-center gap-2 rounded-md border border-sem-success/50 px-3 py-2 text-sm text-sem-success hover:bg-sem-success/10"
             >
               <Check className="h-4 w-4" /> Accept
             </button>

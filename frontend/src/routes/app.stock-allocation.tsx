@@ -374,7 +374,7 @@ function StockAllocationPage() {
                             <span
                               className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wider ${
                                 loc.status === "active"
-                                  ? "border-success/40 bg-success/10 text-success"
+                                  ? "border-sem-success/40 bg-sem-success/10 text-sem-success"
                                   : "border-border bg-muted/40 text-muted-foreground"
                               }`}
                             >

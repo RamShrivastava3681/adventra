@@ -258,7 +258,7 @@ function ApprovePage() {
               <div className="mt-8 flex flex-col gap-2 border-t border-border pt-6 sm:flex-row">
                 <button
                   onClick={() => setMode("approved")}
-                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-success px-4 py-3 text-sm font-semibold text-white transition hover:brightness-95"
+                  className="inline-flex flex-1 items-center justify-center gap-2 rounded-md bg-sem-success px-4 py-3 text-sm font-semibold text-white transition hover:brightness-95"
                 >
                   <Check className="h-4 w-4" /> Approve {docLabel}
                 </button>

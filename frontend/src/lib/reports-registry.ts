@@ -191,9 +191,9 @@ export const REPORTS: ReportDef[] = [
     description: "Every sales invoice across the portfolio — funding, ageing and payment detail.",
     icon: FileText,
     accent: {
-      chip: "bg-blue-500/10 text-blue-600 dark:text-blue-300",
-      bar: "bg-blue-500",
-      text: "text-blue-600 dark:text-blue-300",
+      chip: "bg-sem-info/10 text-sem-info",
+      bar: "bg-sem-info",
+      text: "text-sem-info",
     },
     category: "invoices",
     serverPaginated: true,
@@ -364,9 +364,9 @@ export const REPORTS: ReportDef[] = [
     description: "Buyer balances aged by how long they've been past due.",
     icon: Clock4,
     accent: {
-      chip: "bg-emerald-500/10 text-emerald-600 dark:text-emerald-300",
-      bar: "bg-emerald-500",
-      text: "text-emerald-600 dark:text-emerald-300",
+      chip: "bg-sem-success/10 text-sem-success",
+      bar: "bg-sem-success",
+      text: "text-sem-success",
     },
     category: "customers",
     serverPaginated: true,
@@ -402,9 +402,9 @@ export const REPORTS: ReportDef[] = [
     description: "Buyer master with invoicing, payment-speed and contact detail.",
     icon: Building2,
     accent: {
-      chip: "bg-green-500/10 text-green-600 dark:text-green-300",
-      bar: "bg-green-500",
-      text: "text-green-600 dark:text-green-300",
+      chip: "bg-sem-success/10 text-sem-success",
+      bar: "bg-sem-success",
+      text: "text-sem-success",
     },
     category: "customers",
     filters: {
@@ -446,9 +446,9 @@ export const REPORTS: ReportDef[] = [
     description: "Supplier master list with contacts and status.",
     icon: Truck,
     accent: {
-      chip: "bg-lime-500/10 text-lime-600 dark:text-lime-300",
-      bar: "bg-lime-500",
-      text: "text-lime-600 dark:text-lime-300",
+      chip: "bg-sem-neutral/10 text-sem-neutral",
+      bar: "bg-sem-neutral",
+      text: "text-sem-neutral",
     },
     category: "customers",
     filters: {
@@ -480,9 +480,9 @@ export const REPORTS: ReportDef[] = [
     description: "Advances paid and received against invoices and proformas.",
     icon: Wallet,
     accent: {
-      chip: "bg-amber-500/10 text-amber-600 dark:text-amber-300",
-      bar: "bg-amber-500",
-      text: "text-amber-600 dark:text-amber-300",
+      chip: "bg-sem-attention/10 text-sem-attention",
+      bar: "bg-sem-attention",
+      text: "text-sem-attention",
     },
     category: "other",
     filters: {
@@ -526,9 +526,9 @@ export const REPORTS: ReportDef[] = [
     description: "Recorded expenses by category with linked documents.",
     icon: Receipt,
     accent: {
-      chip: "bg-orange-500/10 text-orange-600 dark:text-orange-300",
-      bar: "bg-orange-500",
-      text: "text-orange-600 dark:text-orange-300",
+      chip: "bg-sem-caution/10 text-sem-caution",
+      bar: "bg-sem-caution",
+      text: "text-sem-caution",
     },
     category: "other",
     filters: {

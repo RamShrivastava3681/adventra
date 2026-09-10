@@ -466,13 +466,13 @@ function ActivitiesView({ readOnly = false }: { readOnly?: boolean }) {
               className={`flex items-start gap-3 rounded-lg border border-border p-3 ${a.completed ? "opacity-60" : ""}`}
             >
               {readOnly ? (
-                <div className={`mt-0.5 ${a.completed ? "text-success" : "text-muted-foreground"}`}>
+                <div className={`mt-0.5 ${a.completed ? "text-sem-success" : "text-muted-foreground"}`}>
                   <CheckCircle2 className="h-4 w-4" />
                 </div>
               ) : (
                 <button
                   onClick={() => toggle.mutate(a)}
-                  className={`mt-0.5 ${a.completed ? "text-success" : "text-muted-foreground hover:text-foreground"}`}
+                  className={`mt-0.5 ${a.completed ? "text-sem-success" : "text-muted-foreground hover:text-foreground"}`}
                 >
                   <CheckCircle2 className="h-4 w-4" />
                 </button>
@@ -931,9 +931,9 @@ function StatTile({
 }) {
   const t =
     tone === "success"
-      ? "text-success"
+      ? "text-sem-success"
       : tone === "warning"
-        ? "text-warning"
+        ? "text-sem-attention"
         : tone === "destructive"
           ? "text-destructive"
           : tone === "primary"
@@ -957,11 +957,11 @@ function StagePill({ stage }: { stage: string }) {
           : "warning";
   const s =
     tone === "success"
-      ? "bg-success/10 text-success border-success/30"
+      ? "bg-sem-success/10 text-sem-success border-sem-success/30"
       : tone === "primary"
         ? "bg-primary/10 text-primary border-primary/30"
         : tone === "warning"
-          ? "bg-warning/10 text-warning border-warning/30"
+          ? "bg-sem-attention/10 text-sem-attention border-sem-attention/30"
           : "bg-destructive/10 text-destructive border-destructive/30";
   return (
     <span

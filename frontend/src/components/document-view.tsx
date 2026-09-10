@@ -274,7 +274,7 @@ export function InvoiceDetailModal({
                   {NOA_LABELS[i.noa_status] ?? i.noa_status}
                   {i.noa_comments && (
                     <div
-                      className="mt-0.5 max-w-[200px] truncate text-[10px] text-warning"
+                      className="mt-0.5 max-w-[200px] truncate text-[10px] text-sem-attention"
                       title={i.noa_comments}
                     >
                       “{i.noa_comments}”

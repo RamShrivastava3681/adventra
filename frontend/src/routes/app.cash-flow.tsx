@@ -89,15 +89,15 @@ function fmtFull(n: number | undefined | null): string {
 }
 
 function statusColor(status: string): string {
-  if (status === "GREEN") return "text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800";
-  if (status === "AMBER") return "text-amber-600 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800";
-  return "text-red-600 bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-800";
+  if (status === "GREEN") return "text-sem-success bg-sem-success/10 border-sem-success/25";
+  if (status === "AMBER") return "text-sem-attention bg-sem-attention/10 border-sem-attention/25";
+  return "text-sem-critical bg-sem-critical/10 border-sem-critical/25";
 }
 
 function statusDot(status: string): string {
-  if (status === "GREEN") return "bg-emerald-500";
-  if (status === "AMBER") return "bg-amber-500";
-  return "bg-red-500";
+  if (status === "GREEN") return "bg-sem-success";
+  if (status === "AMBER") return "bg-sem-attention";
+  return "bg-sem-critical";
 }
 
 /** Compute the next occurrence date for a recurring expense from today. */
@@ -643,7 +643,7 @@ function CashFlowPage() {
                       Cash Health: {forecast.cashStatus === "GREEN" ? "Healthy (Above Buffer)" : forecast.cashStatus === "AMBER" ? "Attention Required" : "At Risk (Projected Shortfall)"}
                     </span>
                     {forecast.shortageRisk && (
-                      <span className="text-xs font-medium bg-red-100 dark:bg-red-900/60 text-red-800 dark:text-red-200 px-2 py-0.5 rounded-md">
+                      <span className="sev-badge sev-critical">
                         Deficit of {fmt(forecast.shortageAmount)} by {forecast.shortageDate}
                       </span>
                     )}
@@ -663,12 +663,12 @@ function CashFlowPage() {
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-56">
                       <DropdownMenuItem onClick={() => setShowAddAccount(true)}>
-                        <Landmark className="h-4 w-4 text-blue-600 mr-2" />
+                        <Landmark className="h-4 w-4 text-sem-info mr-2" />
                         Add Cash / Bank Account
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={() => setShowAddInflow(true)}>
-                        <TrendingUp className="h-4 w-4 text-emerald-600 mr-2" />
+                        <TrendingUp className="h-4 w-4 text-sem-success mr-2" />
                         Add Expected Inflow
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => setShowAddSettlement(true)}>
@@ -677,15 +677,15 @@ function CashFlowPage() {
                       </DropdownMenuItem>
                       <DropdownMenuSeparator />
                       <DropdownMenuItem onClick={() => setShowAddOutflow(true)}>
-                        <TrendingDown className="h-4 w-4 text-red-600 mr-2" />
+                        <TrendingDown className="h-4 w-4 text-sem-critical mr-2" />
                         Add Expected Outflow
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => setShowAddRecurring(true)}>
-                        <RefreshCw className="h-4 w-4 text-blue-600 mr-2" />
+                        <RefreshCw className="h-4 w-4 text-sem-info mr-2" />
                         Add Recurring Expense
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => setShowAddCommitment(true)}>
-                        <CreditCard className="h-4 w-4 text-amber-600 mr-2" />
+                        <CreditCard className="h-4 w-4 text-sem-attention mr-2" />
                         Add PO Commitment
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -698,21 +698,21 @@ function CashFlowPage() {
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-7">
               <SummaryCard
                 icon={<Landmark className="h-4 w-4" />}
-                iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                iconClass="bg-sem-info/10 text-sem-info"
                 value={fmt(totalAvailableCash)}
                 label="Available Cash"
                 sublabel={`${activeAccountsCount} active accounts`}
               />
               <SummaryCard
                 icon={<TrendingUp className="h-4 w-4" />}
-                iconClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                iconClass="bg-sem-success/10 text-sem-success"
                 value={fmt(summary?.expectedInflowsNext7Days ?? 0)}
                 label="Inflows (7d)"
                 sublabel="Direct + Marketplace"
               />
               <SummaryCard
                 icon={<TrendingDown className="h-4 w-4" />}
-                iconClass="bg-red-500/10 text-red-600 dark:text-red-400"
+                iconClass="bg-sem-critical/10 text-sem-critical"
                 value={fmt(summary?.expectedOutflowsNext7Days ?? 0)}
                 label="Outflows (7d)"
                 sublabel="Bills + POs + Recurring"
@@ -733,14 +733,14 @@ function CashFlowPage() {
               />
               <SummaryCard
                 icon={<Clock className="h-4 w-4" />}
-                iconClass="bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                iconClass="bg-sem-attention/10 text-sem-attention"
                 value={fmt(projected30d)}
                 label="Projected (30d)"
                 sublabel="Monthly closing runway"
               />
               <SummaryCard
                 icon={<AlertTriangle className="h-4 w-4" />}
-                iconClass={(summary?.lowestProjectedCash ?? totalAvailableCash) < (settingsQ.data?.minimumCashBuffer ?? 0) ? "bg-red-500/10 text-red-600" : "bg-emerald-500/10 text-emerald-600"}
+                iconClass={(summary?.lowestProjectedCash ?? totalAvailableCash) < (settingsQ.data?.minimumCashBuffer ?? 0) ? "bg-sem-critical/10 text-sem-critical" : "bg-sem-success/10 text-sem-success"}
                 value={fmt(summary?.lowestProjectedCash ?? totalAvailableCash)}
                 label={`Lowest (${summary?.lowestProjectedCashDate || "Horizon"})`}
                 sublabel={`Min buffer: ${fmt(settingsQ.data?.minimumCashBuffer ?? 0)}`}
@@ -748,14 +748,14 @@ function CashFlowPage() {
             </div>
 
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4 lg:grid-cols-7">
-              <SummaryCard icon={<AlertTriangle className="h-4 w-4" />} iconClass="bg-red-500/10 text-red-600" value={fmt(summary?.overdueCustomerReceipts)} label="Overdue Receipts" sublabel="Unpaid sales invoices" />
-              <SummaryCard icon={<CreditCard className="h-4 w-4" />} iconClass="bg-amber-500/10 text-amber-600" value={fmt(summary?.supplierPayables)} label="Supplier Payables" sublabel="Unpaid purchase invoices" />
-              <SummaryCard icon={<ShoppingCart className="h-4 w-4" />} iconClass="bg-orange-500/10 text-orange-600" value={fmt(summary?.poCommitments)} label="PO Commitments" sublabel="Planned purchase orders" />
+              <SummaryCard icon={<AlertTriangle className="h-4 w-4" />} iconClass="bg-sem-critical/10 text-sem-critical" value={fmt(summary?.overdueCustomerReceipts)} label="Overdue Receipts" sublabel="Unpaid sales invoices" />
+              <SummaryCard icon={<CreditCard className="h-4 w-4" />} iconClass="bg-sem-attention/10 text-sem-attention" value={fmt(summary?.supplierPayables)} label="Supplier Payables" sublabel="Unpaid purchase invoices" />
+              <SummaryCard icon={<ShoppingCart className="h-4 w-4" />} iconClass="bg-sem-caution/10 text-sem-caution" value={fmt(summary?.poCommitments)} label="PO Commitments" sublabel="Planned purchase orders" />
               <SummaryCard icon={<ClipboardList className="h-4 w-4" />} iconClass="bg-slate-500/10 text-slate-600" value={fmt(summary?.plannedPurchaseOrders)} label="Planned POs" sublabel="Awaiting checker approval" />
               <SummaryCard icon={<ShoppingCart className="h-4 w-4" />} iconClass="bg-violet-500/10 text-violet-600" value={fmt(summary?.marketplaceInflowsNext7Days)} label="Marketplace Inflows" sublabel="Expected in next 7 days" />
-              <SummaryCard icon={<TrendingUp className="h-4 w-4" />} iconClass="bg-emerald-500/10 text-emerald-600" value={fmt(summary?.salesInflowsNext7Days)} label="Sales Inflows" sublabel="Expected in next 7 days" />
-              <SummaryCard icon={<RefreshCw className="h-4 w-4" />} iconClass="bg-blue-500/10 text-blue-600" value={fmt(summary?.recurringOutflowsNext7Days)} label="Recurring Outflows" sublabel="Expected in next 7 days" />
-              <SummaryCard icon={<TrendingDown className="h-4 w-4" />} iconClass="bg-red-500/10 text-red-600" value={fmt(summary?.purchaseOutflowsNext7Days)} label="Purchase Outflows" sublabel="Expected in next 7 days" />
+              <SummaryCard icon={<TrendingUp className="h-4 w-4" />} iconClass="bg-sem-success/10 text-sem-success" value={fmt(summary?.salesInflowsNext7Days)} label="Sales Inflows" sublabel="Expected in next 7 days" />
+              <SummaryCard icon={<RefreshCw className="h-4 w-4" />} iconClass="bg-sem-info/10 text-sem-info" value={fmt(summary?.recurringOutflowsNext7Days)} label="Recurring Outflows" sublabel="Expected in next 7 days" />
+              <SummaryCard icon={<TrendingDown className="h-4 w-4" />} iconClass="bg-sem-critical/10 text-sem-critical" value={fmt(summary?.purchaseOutflowsNext7Days)} label="Purchase Outflows" sublabel="Expected in next 7 days" />
             </div>
 
             {/* ── Quick Stats Row ────────────────────────── */}
@@ -763,21 +763,21 @@ function CashFlowPage() {
               <QuickStat
                 label="Overdue Collections"
                 value={fmt(summary?.totalOverdueCollections ?? 0)}
-                color={(summary?.totalOverdueCollections ?? 0) > 0 ? "text-red-600 dark:text-red-400" : "text-emerald-600"}
+                color={(summary?.totalOverdueCollections ?? 0) > 0 ? "text-sem-critical" : "text-sem-success"}
                 icon={<AlertTriangle className="h-4 w-4" />}
                 description="Receivables requiring follow-up"
               />
               <QuickStat
                 label="Supplier Payments (7d)"
                 value={fmt(summary?.totalSupplierPaymentsDue ?? 0)}
-                color={(summary?.totalSupplierPaymentsDue ?? 0) > 0 ? "text-amber-600 dark:text-amber-400" : "text-emerald-600"}
+                color={(summary?.totalSupplierPaymentsDue ?? 0) > 0 ? "text-sem-attention" : "text-sem-success"}
                 icon={<CreditCard className="h-4 w-4" />}
                 description="Immediate vendor liabilities"
               />
               <QuickStat
                 label="Marketplace Balances"
                 value={fmt(totalMarketplaceBalance)}
-                color="text-blue-600 dark:text-blue-400"
+                color="text-sem-info"
                 icon={<Landmark className="h-4 w-4" />}
                 description="In Amazon / Flipkart wallets"
               />
@@ -898,11 +898,11 @@ function CashFlowPage() {
                                     <span>Opening Cash:</span>
                                     <span className="font-mono">{fmtFull(d.opening)}</span>
                                   </div>
-                                  <div className="text-emerald-600 flex justify-between gap-4 font-medium">
+                                  <div className="text-sem-success flex justify-between gap-4 font-medium">
                                     <span>Expected Inflows:</span>
                                     <span className="font-mono">+{fmtFull(d.inflows)}</span>
                                   </div>
-                                  <div className="text-red-600 flex justify-between gap-4 font-medium">
+                                  <div className="text-sem-critical flex justify-between gap-4 font-medium">
                                     <span>Expected Outflows:</span>
                                     <span className="font-mono">−{fmtFull(d.outflows)}</span>
                                   </div>
@@ -942,7 +942,7 @@ function CashFlowPage() {
                         <h3 className="text-sm font-semibold text-foreground">
                           {mode === "weekly" ? "13-Week Cash Forecast" : mode === "monthly" ? "6-Month Cash Plan" : "30-Day Daily Cash Forecast"}
                           {viewMode === "base" && (
-                            <span className="ml-2 rounded-full bg-blue-500/10 text-blue-600 px-2 py-0.5 text-[10px] font-bold">
+                            <span className="ml-2 rounded-full bg-sem-info/10 text-sem-info px-2 py-0.5 text-[10px] font-bold">
                               BASE (no PO commitments)
                             </span>
                           )}
@@ -991,10 +991,10 @@ function CashFlowPage() {
                 {/* Alerts */}
                 {forecast?.alerts && forecast.alerts.length > 0 && (
                   <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
-                    <div className="flex items-center gap-2 border-b border-border px-5 py-4 bg-amber-50/50 dark:bg-amber-950/20">
-                      <AlertTriangle className="h-4 w-4 text-amber-500" />
+                    <div className="flex items-center gap-2 border-b border-border px-5 py-4 bg-sem-attention/10">
+                      <AlertTriangle className="h-4 w-4 text-sem-attention" />
                       <h3 className="text-sm font-semibold text-foreground">Treasury & Liquidity Alerts</h3>
-                      <span className="ml-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600">
+                      <span className="ml-1 rounded-full bg-sem-attention/10 px-2 py-0.5 text-[10px] font-bold text-sem-attention">
                         {forecast.alerts.length}
                       </span>
                     </div>
@@ -1003,7 +1003,7 @@ function CashFlowPage() {
                         <div key={alert.id} className="flex items-start gap-3 px-5 py-3.5 hover:bg-muted/20 transition-colors">
                           <div
                             className={`mt-1 h-2 w-2 shrink-0 rounded-full ${
-                              alert.severity === "critical" ? "bg-red-500 ring-2 ring-red-300" : "bg-amber-500 ring-2 ring-amber-300"
+                              alert.severity === "critical" ? "bg-sem-critical ring-2 ring-sem-critical/40" : "bg-sem-attention ring-2 ring-sem-attention/40"
                             }`}
                           />
                           <div className="min-w-0 flex-1">
@@ -1103,14 +1103,14 @@ function CashFlowPage() {
                                 <td className="px-5 py-3.5 text-right font-mono text-muted-foreground">
                                   {fmtFull(restricted)}
                                 </td>
-                                <td className="px-5 py-3.5 text-right font-mono text-emerald-600 font-bold">
+                                <td className="px-5 py-3.5 text-right font-mono text-sem-success font-bold">
                                   {fmtFull(avail)}
                                 </td>
                                 <td className="px-5 py-3.5 text-center">
                                   <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                                     (!acc.status || acc.status.toLowerCase() === "active")
-                                      ? "bg-emerald-500/10 text-emerald-600"
-                                      : "bg-red-500/10 text-red-600"
+                                      ? "bg-sem-success/10 text-sem-success"
+                                      : "bg-sem-critical/10 text-sem-critical"
                                   }`}>
                                     {acc.status || "active"}
                                   </span>
@@ -1121,7 +1121,7 @@ function CashFlowPage() {
                                       <Button
                                         variant="outline"
                                         size="sm"
-                                        className="h-7 text-xs text-blue-600 border-blue-300 hover:bg-blue-50"
+                                        className="h-7 text-xs text-sem-info border-sem-info/40 hover:bg-sem-info/10"
                                         onClick={() => setReconcilingAccount(acc)}
                                       >
                                         <RefreshCw className="h-3 w-3 mr-1" />
@@ -1138,7 +1138,7 @@ function CashFlowPage() {
                                       <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                                        className="h-7 w-7 text-sem-critical hover:text-sem-critical hover:bg-sem-critical/10 dark:hover:bg-sem-critical/20"
                                         onClick={() => setDeletingAccount(acc)}
                                       >
                                         <Trash2 className="h-3.5 w-3.5" />
@@ -1212,10 +1212,10 @@ function CashFlowPage() {
                                 <td className="px-5 py-3.5 text-right font-mono font-medium text-foreground">
                                   {fmtFull(s.gross_sales ?? s.grossSales)}
                                 </td>
-                                <td className="px-5 py-3.5 text-right font-mono text-red-500">
+                                <td className="px-5 py-3.5 text-right font-mono text-sem-critical">
                                   −{fmtFull(totalFees)}
                                 </td>
-                                <td className="px-5 py-3.5 text-right font-mono font-bold text-emerald-600">
+                                <td className="px-5 py-3.5 text-right font-mono font-bold text-sem-success">
                                   +{fmtFull(s.net_settlement_expected ?? s.netSettlementExpected)}
                                 </td>
                                 <td className="px-5 py-3.5 text-xs font-mono text-muted-foreground">
@@ -1224,12 +1224,12 @@ function CashFlowPage() {
                                 <td className="px-5 py-3.5 text-center">
                                   <span className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold ${
                                     s.status === "RECEIVED"
-                                      ? "bg-emerald-500/10 text-emerald-600"
+                                      ? "bg-sem-success/10 text-sem-success"
                                       : s.status === "DELAYED"
-                                        ? "bg-amber-500/10 text-amber-600"
+                                        ? "bg-sem-attention/10 text-sem-attention"
                                         : s.status === "DISPUTED"
-                                          ? "bg-red-500/10 text-red-600"
-                                          : "bg-blue-500/10 text-blue-600"
+                                          ? "bg-sem-critical/10 text-sem-critical"
+                                          : "bg-sem-info/10 text-sem-info"
                                   }`}>
                                     {s.status}
                                   </span>
@@ -1241,7 +1241,7 @@ function CashFlowPage() {
                                         <Button
                                           variant="outline"
                                           size="sm"
-                                          className="h-7 text-xs text-emerald-600 border-emerald-300 hover:bg-emerald-50"
+                                          className="h-7 text-xs text-sem-success border-sem-success/40 hover:bg-sem-success/10"
                                           onClick={async () => {
                                             try {
                                               await api.cashFlow.settlements.update(s.id, {
@@ -1270,7 +1270,7 @@ function CashFlowPage() {
                                       <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                                        className="h-7 w-7 text-sem-critical hover:text-sem-critical hover:bg-sem-critical/10 dark:hover:bg-sem-critical/20"
                                         onClick={() => setDeletingSettlement(s)}
                                       >
                                         <Trash2 className="h-3.5 w-3.5" />
@@ -1333,7 +1333,7 @@ function CashFlowPage() {
                             <tr key={r.id} className="hover:bg-muted/20 transition-colors">
                               <td className="px-5 py-3.5 font-medium text-foreground">
                                 <div className="flex items-center gap-2">
-                                  <RefreshCw className="h-4 w-4 text-blue-600" />
+                                  <RefreshCw className="h-4 w-4 text-sem-info" />
                                   {r.category}
                                 </div>
                               </td>
@@ -1358,7 +1358,7 @@ function CashFlowPage() {
                                   );
                                 })()}
                               </td>
-                              <td className="px-5 py-3.5 text-right font-mono font-bold text-red-600">
+                              <td className="px-5 py-3.5 text-right font-mono font-bold text-sem-critical">
                                 −{fmtFull(r.amount)}
                               </td>
                               <td className="px-5 py-3.5 text-right font-mono text-xs">
@@ -1366,7 +1366,7 @@ function CashFlowPage() {
                                   const occCount = occurrencesInNext7Days(r);
                                   const projected = occCount * (Number(r.amount) || 0);
                                   return occCount > 0 ? (
-                                    <span className="text-amber-600 dark:text-amber-400 font-medium">−{fmtFull(projected)} <span className="text-muted-foreground font-normal">({occCount}×)</span></span>
+                                    <span className="text-sem-attention font-medium">−{fmtFull(projected)} <span className="text-muted-foreground font-normal">({occCount}×)</span></span>
                                   ) : (
                                     <span className="text-muted-foreground">—</span>
                                   );
@@ -1379,8 +1379,8 @@ function CashFlowPage() {
                                         const next = nextOccurrenceDate(r);
                                         const todayStr = new Date().toISOString().slice(0, 10);
                                         return next && next <= todayStr
-                                          ? "bg-red-500/10 text-red-600 ring-1 ring-red-300"
-                                          : "bg-emerald-500/10 text-emerald-600";
+                                          ? "bg-sem-critical/10 text-sem-critical ring-1 ring-sem-critical/40"
+                                          : "bg-sem-success/10 text-sem-success";
                                       })()
                                     : "bg-muted text-muted-foreground"
                                 }`}>
@@ -1420,7 +1420,7 @@ function CashFlowPage() {
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                                      className="h-7 w-7 text-sem-critical hover:text-sem-critical hover:bg-sem-critical/10 dark:hover:bg-sem-critical/20"
                                       onClick={() => setDeletingRecurring(r)}
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
@@ -1458,8 +1458,8 @@ function CashFlowPage() {
                             <td className="px-5 py-3.5 font-mono text-xs">{po.poNumber || "—"}</td>
                             <td className="px-5 py-3.5">{po.supplierName || "—"}</td>
                             <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{po.poDate || "—"}</td>
-                            <td className="px-5 py-3.5 text-right font-mono font-bold text-amber-600">{fmtFull(po.grandTotal)}</td>
-                            <td className="px-5 py-3.5 text-center"><span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold text-amber-700">{po.status || "planned"}</span></td>
+                            <td className="px-5 py-3.5 text-right font-mono font-bold text-sem-attention">{fmtFull(po.grandTotal)}</td>
+                            <td className="px-5 py-3.5 text-center"><span className="rounded-full bg-sem-attention/10 px-2 py-0.5 text-[11px] font-semibold text-sem-attention">{po.status || "planned"}</span></td>
                           </tr>
                         ))}
                       </tbody>
@@ -1511,7 +1511,7 @@ function CashFlowPage() {
                             <tr key={c.id} className="hover:bg-muted/20 transition-colors">
                               <td className="px-5 py-3.5 font-medium text-foreground">
                                 <div className="flex items-center gap-2">
-                                  <Building2 className="h-4 w-4 text-amber-600" />
+                                  <Building2 className="h-4 w-4 text-sem-attention" />
                                   {c.supplierName || "Supplier"}
                                 </div>
                               </td>
@@ -1523,14 +1523,14 @@ function CashFlowPage() {
                               </td>
                               <td className="px-5 py-3.5 text-center">
                                 {c.criticalStockDependency ? (
-                                  <span className="rounded-full bg-red-500/10 text-red-600 px-2 py-0.5 text-[10px] font-bold">
+                                  <span className="rounded-full bg-sem-critical/10 text-sem-critical px-2 py-0.5 text-[10px] font-bold">
                                     CRITICAL
                                   </span>
                                 ) : (
                                   <span className="text-xs text-muted-foreground">Standard</span>
                                 )}
                               </td>
-                              <td className="px-5 py-3.5 text-right font-mono font-bold text-red-600">
+                              <td className="px-5 py-3.5 text-right font-mono font-bold text-sem-critical">
                                 −{fmtFull(c.expectedPaymentAmount)}
                               </td>
                               <td className="px-5 py-3.5 text-center">
@@ -1552,7 +1552,7 @@ function CashFlowPage() {
                                     <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                                      className="h-7 w-7 text-sem-critical hover:text-sem-critical hover:bg-sem-critical/10 dark:hover:bg-sem-critical/20"
                                       onClick={() => setDeletingCommitment(c)}
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
@@ -1577,7 +1577,7 @@ function CashFlowPage() {
                     </p>
                   </div>
                   {uninvoicedPosQ.data && uninvoicedPosQ.data.length > 0 && (
-                    <span className="rounded-full bg-amber-500/10 text-amber-700 dark:text-amber-300 px-3 py-1 text-xs font-bold">
+                    <span className="rounded-full bg-sem-attention/10 text-sem-attention px-3 py-1 text-xs font-bold">
                       {uninvoicedPosQ.data.length} pending
                     </span>
                   )}
@@ -1615,7 +1615,7 @@ function CashFlowPage() {
                             <tr key={po.id} className="hover:bg-muted/20 transition-colors">
                               <td className="px-5 py-3.5 font-medium text-foreground">
                                 <div className="flex items-center gap-2">
-                                  <CreditCard className="h-4 w-4 text-amber-600" />
+                                  <CreditCard className="h-4 w-4 text-sem-attention" />
                                   {po.poNumber || "—"}
                                 </div>
                               </td>
@@ -1628,17 +1628,17 @@ function CashFlowPage() {
                               <td className="px-5 py-3.5 text-xs font-mono text-muted-foreground">
                                 {po.expectedDeliveryDate || "—"}
                               </td>
-                              <td className="px-5 py-3.5 text-right font-mono font-bold text-red-600">
+                              <td className="px-5 py-3.5 text-right font-mono font-bold text-sem-critical">
                                 −{fmtFull(po.grandTotal)}
                               </td>
                               <td className="px-5 py-3.5 text-center">
                                 <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                                   po.status === "approved"
-                                    ? "bg-emerald-500/10 text-emerald-600"
+                                    ? "bg-sem-success/10 text-sem-success"
                                     : po.status === "sent"
-                                      ? "bg-blue-500/10 text-blue-600"
+                                      ? "bg-sem-info/10 text-sem-info"
                                       : po.status === "partially_received"
-                                        ? "bg-amber-500/10 text-amber-600"
+                                        ? "bg-sem-attention/10 text-sem-attention"
                                         : "bg-muted text-muted-foreground"
                                 }`}>
                                   {po.status?.replace(/_/g, " ") || "—"}
@@ -1677,9 +1677,9 @@ function CashFlowPage() {
                             <td className="px-5 py-3.5 font-mono text-xs">{invoice.invoice_number ?? invoice.invoiceNumber ?? "—"}</td>
                             <td className="px-5 py-3.5">{invoice.debtor_id ?? invoice.debtorId ?? "—"}</td>
                             <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{invoice.expected_date ?? invoice.expectedDate ?? invoice.due_date ?? invoice.dueDate ?? "—"}</td>
-                            <td className="px-5 py-3.5 text-right font-mono font-bold text-emerald-600">+{fmtFull(value)}</td>
+                            <td className="px-5 py-3.5 text-right font-mono font-bold text-sem-success">+{fmtFull(value)}</td>
                             <td className="px-5 py-3.5 text-right font-mono">{fmtFull(Math.max(0, value - advance - received))}</td>
-                            <td className="px-5 py-3.5 text-center"><span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{invoice.status || "—"}</span></td>
+                            <td className="px-5 py-3.5 text-center"><span className="sev-badge sev-info">{invoice.status || "—"}</span></td>
                           </tr>;
                         })}
                       </tbody>
@@ -1732,7 +1732,7 @@ function CashFlowPage() {
                             return (
                             <tr key={i.id} className="hover:bg-muted/20 transition-colors">
                               <td className="px-5 py-3.5 font-medium text-foreground">
-                                <span className="rounded-md bg-emerald-500/10 text-emerald-700 dark:text-emerald-300 px-2 py-0.5 text-xs font-medium">
+                                <span className="rounded-md bg-sem-success/10 text-sem-success px-2 py-0.5 text-xs font-medium">
                                   {(i.displayCategory || i.type).replace(/_/g, " ")}
                                 </span>
                               </td>
@@ -1745,16 +1745,16 @@ function CashFlowPage() {
                               <td className="px-5 py-3.5 text-center text-xs font-mono">
                                 {isSettlement ? "100%" : `${i.confidence || 80}%`}
                               </td>
-                              <td className="px-5 py-3.5 text-right font-mono font-bold text-emerald-600">
+                              <td className="px-5 py-3.5 text-right font-mono font-bold text-sem-success">
                                 +{fmtFull(i.amount)}
                               </td>
                               <td className="px-5 py-3.5 text-center">
                                 <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                                   i.status === "RECEIVED"
-                                    ? "bg-emerald-500/10 text-emerald-600"
+                                    ? "bg-sem-success/10 text-sem-success"
                                     : i.status === "OVERDUE"
-                                      ? "bg-red-500/10 text-red-600 ring-1 ring-red-300"
-                                      : "bg-blue-500/10 text-blue-600"
+                                      ? "bg-sem-critical/10 text-sem-critical ring-1 ring-sem-critical/40"
+                                      : "bg-sem-info/10 text-sem-info"
                                 }`}>
                                   {i.status === "OVERDUE" ? "⚠ OVERDUE" : i.status || "EXPECTED"}
                                 </span>
@@ -1766,7 +1766,7 @@ function CashFlowPage() {
                                       <Button
                                         variant="outline"
                                         size="sm"
-                                        className="h-7 text-xs text-emerald-600 border-emerald-300 hover:bg-emerald-50"
+                                        className="h-7 text-xs text-sem-success border-sem-success/40 hover:bg-sem-success/10"
                                         onClick={async () => {
                                           try {
                                             if (isSettlement) {
@@ -1799,7 +1799,7 @@ function CashFlowPage() {
                                       <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                                        className="h-7 w-7 text-sem-critical hover:text-sem-critical hover:bg-sem-critical/10 dark:hover:bg-sem-critical/20"
                                         onClick={() => setDeletingInflow(i)}
                                       >
                                         <Trash2 className="h-3.5 w-3.5" />
@@ -1860,7 +1860,7 @@ function CashFlowPage() {
                           combinedOutflows.map((o: any) => (
                             <tr key={o.id} className="hover:bg-muted/20 transition-colors">
                               <td className="px-5 py-3.5 font-medium text-foreground">
-                                <span className="rounded-md bg-red-500/10 text-red-700 dark:text-red-300 px-2 py-0.5 text-xs font-medium">
+                                <span className="rounded-md bg-sem-critical/10 text-sem-critical px-2 py-0.5 text-xs font-medium">
                                   {o.type.replace(/_/g, " ")}
                                 </span>
                               </td>
@@ -1873,23 +1873,23 @@ function CashFlowPage() {
                               <td className="px-5 py-3.5 text-center">
                                 <span className={`rounded-md px-2 py-0.5 text-[10px] font-bold ${
                                   o.priority === "CRITICAL"
-                                    ? "bg-red-500/10 text-red-600"
+                                    ? "bg-sem-critical/10 text-sem-critical"
                                     : o.priority === "HIGH"
-                                      ? "bg-amber-500/10 text-amber-600"
+                                      ? "bg-sem-attention/10 text-sem-attention"
                                       : "bg-muted text-muted-foreground"
                                 }`}>
                                   {o.priority || "NORMAL"}
                                 </span>
                               </td>
-                              <td className="px-5 py-3.5 text-right font-mono font-bold text-red-600">
+                              <td className="px-5 py-3.5 text-right font-mono font-bold text-sem-critical">
                                 −{fmtFull(o.amount)}
                               </td>
                               <td className="px-5 py-3.5 text-center">
                                 <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
                                   o.status === "PAID"
-                                    ? "bg-emerald-500/10 text-emerald-600"
+                                    ? "bg-sem-success/10 text-sem-success"
                                     : (o.expectedDate && o.expectedDate < new Date().toISOString().slice(0, 10) && o.status !== "PAID" && o.status !== "CANCELLED")
-                                      ? "bg-red-500/10 text-red-600 ring-1 ring-red-300"
+                                      ? "bg-sem-critical/10 text-sem-critical ring-1 ring-sem-critical/40"
                                       : "bg-muted text-muted-foreground"
                                 }`}>
                                   {(o.expectedDate && o.expectedDate < new Date().toISOString().slice(0, 10) && o.status !== "PAID" && o.status !== "CANCELLED")
@@ -1904,7 +1904,7 @@ function CashFlowPage() {
                                       <Button
                                         variant="outline"
                                         size="sm"
-                                        className="h-7 text-xs text-emerald-600 border-emerald-300 hover:bg-emerald-50"
+                                        className="h-7 text-xs text-sem-success border-sem-success/40 hover:bg-sem-success/10"
                                         onClick={async () => {
                                           try {
                                             await api.cashFlow.outflows.update(o.id, {
@@ -1932,7 +1932,7 @@ function CashFlowPage() {
                                     {o.type !== "PURCHASE_COMMITMENT" && o.type !== "RECURRING_EXPENSE" && <Button
                                       variant="ghost"
                                       size="icon"
-                                      className="h-7 w-7 text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                                      className="h-7 w-7 text-sem-critical hover:text-sem-critical hover:bg-sem-critical/10 dark:hover:bg-sem-critical/20"
                                       onClick={() => setDeletingOutflow(o)}
                                     >
                                       <Trash2 className="h-3.5 w-3.5" />
@@ -1961,21 +1961,21 @@ function CashFlowPage() {
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
                   <SummaryCard
                     icon={<ClipboardList className="h-4 w-4" />}
-                    iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                    iconClass="bg-sem-info/10 text-sem-info"
                     value={fmt(gstLedger.totals.gstTotalBilled)}
                     label="Total GST Billed"
                     sublabel={`${gstLedger.totals.gstInvoiceCount} invoices`}
                   />
                   <SummaryCard
                     icon={<CheckCircle2 className="h-4 w-4" />}
-                    iconClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                    iconClass="bg-sem-success/10 text-sem-success"
                     value={fmt(gstLedger.totals.gstCollected)}
                     label="GST Collected"
                     sublabel="Via customer receipts"
                   />
                   <SummaryCard
                     icon={<Clock className="h-4 w-4" />}
-                    iconClass="bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                    iconClass="bg-sem-attention/10 text-sem-attention"
                     value={fmt(gstLedger.totals.gstOutstanding)}
                     label="GST Outstanding"
                     sublabel="Yet to be collected"
@@ -2015,10 +2015,10 @@ function CashFlowPage() {
                             <td className="px-5 py-3.5">{row.customer || "—"}</td>
                             <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{row.expectedDate || row.dueDate || "—"}</td>
                             <td className="px-5 py-3.5 text-right font-mono">{fmtFull(row.grandTotal)}</td>
-                            <td className="px-5 py-3.5 text-right font-mono font-bold text-blue-600">{fmtFull(row.gstTotal)}</td>
-                            <td className="px-5 py-3.5 text-right font-mono text-emerald-600">{fmtFull(row.gstCollected)}</td>
-                            <td className="px-5 py-3.5 text-right font-mono text-amber-600">{fmtFull(row.gstOutstanding)}</td>
-                            <td className="px-5 py-3.5 text-center"><span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{row.status || "—"}</span></td>
+                            <td className="px-5 py-3.5 text-right font-mono font-bold text-sem-info">{fmtFull(row.gstTotal)}</td>
+                            <td className="px-5 py-3.5 text-right font-mono text-sem-success">{fmtFull(row.gstCollected)}</td>
+                            <td className="px-5 py-3.5 text-right font-mono text-sem-attention">{fmtFull(row.gstOutstanding)}</td>
+                            <td className="px-5 py-3.5 text-center"><span className="sev-badge sev-info">{row.status || "—"}</span></td>
                           </tr>
                         ))}
                       </tbody>
@@ -2389,20 +2389,20 @@ function PeriodRow({
         <td className="px-5 py-3.5 text-right font-mono text-muted-foreground">
           {fmtFull(period.openingCash)}
         </td>
-        <td className="px-5 py-3.5 text-right font-mono text-emerald-600 font-medium">
+        <td className="px-5 py-3.5 text-right font-mono text-sem-success font-medium">
           +{fmtFull(period.expectedInflows)}
         </td>
-        <td className="px-5 py-3.5 text-right font-mono text-red-600 font-medium">
+        <td className="px-5 py-3.5 text-right font-mono text-sem-critical font-medium">
           −{fmtFull(period.expectedOutflows)}
         </td>
         <td className={`px-5 py-3.5 text-right font-mono font-bold ${
-          closingStatus === "RED" ? "text-red-600" : closingStatus === "AMBER" ? "text-amber-600" : "text-foreground"
+          closingStatus === "RED" ? "text-sem-critical" : closingStatus === "AMBER" ? "text-sem-attention" : "text-foreground"
         }`}>
           {fmtFull(period.closingCash)}
         </td>
         <td className="px-5 py-3.5 text-center">
           <span className={`inline-block h-2.5 w-2.5 rounded-full ${
-            closingStatus === "RED" ? "bg-red-500" : closingStatus === "AMBER" ? "bg-amber-500" : "bg-emerald-500"
+            closingStatus === "RED" ? "bg-sem-critical" : closingStatus === "AMBER" ? "bg-sem-attention" : "bg-sem-success"
           }`} />
         </td>
       </tr>
@@ -2411,7 +2411,7 @@ function PeriodRow({
           <td colSpan={6} className="bg-muted/30 px-8 py-4">
             <div className="grid gap-6 md:grid-cols-2">
               <div>
-                <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+                <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-sem-success flex items-center gap-1.5">
                   <TrendingUp className="h-3.5 w-3.5" />
                   Inflows ({period.inflowEvents?.length || 0})
                 </h4>
@@ -2422,21 +2422,21 @@ function PeriodRow({
                     {period.inflowEvents.map((e: any, i: number) => (
                       <div
                         key={i}
-                        className={`flex items-center justify-between rounded-lg bg-card p-2 text-xs border border-border/60 ${onTrace ? "cursor-pointer hover:bg-emerald-50 dark:hover:bg-emerald-950/30 transition-colors" : ""}`}
+                        className={`flex items-center justify-between rounded-lg bg-card p-2 text-xs border border-border/60 ${onTrace ? "cursor-pointer hover:bg-sem-success/10 transition-colors" : ""}`}
                         onClick={() => onTrace?.(e.source, e.sourceId)}
                       >
                         <div className="min-w-0 pr-2">
                           <span className="font-medium text-foreground block truncate">{e.description || e.type}</span>
                           <span className="text-[10px] text-muted-foreground">{e.date} · {e.category || e.source}</span>
                         </div>
-                        <span className="font-mono font-bold text-emerald-600 shrink-0">+{fmtFull(e.amount)}</span>
+                        <span className="font-mono font-bold text-sem-success shrink-0">+{fmtFull(e.amount)}</span>
                       </div>
                     ))}
                   </div>
                 )}
               </div>
               <div>
-                <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-red-700 dark:text-red-400 flex items-center gap-1.5">
+                <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-sem-critical flex items-center gap-1.5">
                   <TrendingDown className="h-3.5 w-3.5" />
                   Outflows ({period.outflowEvents?.length || 0})
                 </h4>
@@ -2449,19 +2449,19 @@ function PeriodRow({
                         key={i}
                         className={`flex items-center justify-between rounded-lg p-2 text-xs border transition-colors ${
                           e.priority === "CRITICAL"
-                            ? "bg-red-50/80 dark:bg-red-950/20 border-red-200 dark:border-red-800"
+                            ? "bg-sem-critical/10 border-sem-critical/25"
                             : "bg-card border-border/60"
-                        } ${onTrace ? "cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/30" : ""}`}
+                        } ${onTrace ? "cursor-pointer hover:bg-sem-critical/10 dark:hover:bg-sem-critical/20/30" : ""}`}
                         onClick={() => onTrace?.(e.source, e.sourceId)}
                       >
                         <div className="min-w-0 pr-2">
                           <span className="font-medium text-foreground block truncate">
-                            {e.priority === "CRITICAL" && <span className="text-red-500 mr-1">●</span>}
+                            {e.priority === "CRITICAL" && <span className="text-sem-critical mr-1">●</span>}
                             {e.description || e.type}
                           </span>
                           <span className="text-[10px] text-muted-foreground">{e.date} · {e.category || e.source}</span>
                         </div>
-                        <span className="font-mono font-bold text-red-600 shrink-0">−{fmtFull(e.amount)}</span>
+                        <span className="font-mono font-bold text-sem-critical shrink-0">−{fmtFull(e.amount)}</span>
                       </div>
                     ))}
                   </div>
@@ -2528,7 +2528,7 @@ function BreakdownCard({
                   {type.replace(/_/g, " ")}
                 </span>
                 <span className={`text-xs font-bold font-mono ${
-                  direction === "INFLOW" ? "text-emerald-600" : "text-red-600"
+                  direction === "INFLOW" ? "text-sem-success" : "text-sem-critical"
                 }`}>
                   {direction === "INFLOW" ? "+" : "−"}{fmtFull(amount)}
                 </span>
@@ -2651,7 +2651,7 @@ function AccountFormDialog({
           </div>
           <div className="rounded-xl bg-muted/60 p-3 flex justify-between items-center text-xs">
             <span className="text-muted-foreground font-medium">Available for Operations:</span>
-            <span className="font-mono font-bold text-sm text-emerald-600">{fmtFull(avail)}</span>
+            <span className="font-mono font-bold text-sm text-sem-success">{fmtFull(avail)}</span>
           </div>
           {isEdit && (
             <div>
@@ -3203,7 +3203,7 @@ function SettlementFormDialog({
           </div>
           <div className="rounded-xl bg-muted/60 p-3 flex justify-between items-center text-xs">
             <span className="text-muted-foreground font-medium">Net Payout Expected:</span>
-            <span className="font-mono font-bold text-sm text-emerald-600">{fmtFull(net)}</span>
+            <span className="font-mono font-bold text-sm text-sem-success">{fmtFull(net)}</span>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -3407,10 +3407,10 @@ function ReconcileAccountDialog({
           </div>
           {Number(actualBalance) !== currentBal && (
             <div className={`rounded-xl p-3 flex justify-between items-center text-xs ${
-              diff > 0 ? "bg-emerald-50 dark:bg-emerald-950/30" : "bg-red-50 dark:bg-red-950/30"
+              diff > 0 ? "bg-sem-success/10" : "bg-sem-critical/10"
             }`}>
               <span className="text-muted-foreground font-medium">Adjustment:</span>
-              <span className={`font-mono font-bold text-sm ${diff > 0 ? "text-emerald-600" : "text-red-600"}`}>
+              <span className={`font-mono font-bold text-sm ${diff > 0 ? "text-sem-success" : "text-sem-critical"}`}>
                 {diff > 0 ? "+" : ""}{fmtFull(diff)}
               </span>
             </div>
@@ -3467,7 +3467,7 @@ function TraceDetailDialog({
           </div>
         ) : traceQ.isError ? (
           <div className="py-6 text-center">
-            <p className="text-sm text-red-500">Could not load source details.</p>
+            <p className="text-sm text-sem-critical">Could not load source details.</p>
           </div>
         ) : trace ? (
           <div className="space-y-3 py-2">

@@ -465,7 +465,7 @@ function QueuePage() {
       <div className="space-y-6 p-6 md:p-10">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Card title="Supplier balance due">
-            <div className="num text-3xl text-warning">{fmtMoney(balanceToPay)}</div>
+            <div className="num text-3xl text-sem-attention">{fmtMoney(balanceToPay)}</div>
             <div className="mt-1 text-xs text-muted-foreground">Net of advances against PO</div>
           </Card>
           <Card title="Advances applied (AP)">
@@ -477,7 +477,7 @@ function QueuePage() {
             <div className="mt-1 text-xs text-muted-foreground">Net of advances against PO</div>
           </Card>
           <Card title="Advances applied (AR)">
-            <div className="num text-3xl text-success">{fmtMoney(advancesAppliedIn)}</div>
+            <div className="num text-3xl text-sem-success">{fmtMoney(advancesAppliedIn)}</div>
             <div className="mt-1 text-xs text-muted-foreground">Already received from debtors</div>
           </Card>
         </div>
@@ -547,7 +547,7 @@ function QueuePage() {
                               className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
                                 r.kind === "sale"
                                   ? "bg-primary/15 text-primary"
-                                  : "bg-warning/15 text-warning"
+                                  : "bg-sem-attention/15 text-sem-attention"
                               }`}
                             >
                               {r.kind === "sale" ? "Sale (AR)" : "Purchase (AP)"}
@@ -576,7 +576,7 @@ function QueuePage() {
                             {r.advance > 0 ? `− ${fmtMoney(r.advance)}` : "—"}
                           </td>
                           <td
-                            className={`px-5 py-3 text-right num font-medium ${r.kind === "sale" ? "text-success" : "text-warning"}`}
+                            className={`px-5 py-3 text-right num font-medium ${r.kind === "sale" ? "text-sem-success" : "text-sem-attention"}`}
                           >
                             {fmtMoney(r.balance)}
                           </td>
@@ -595,7 +595,7 @@ function QueuePage() {
                             </td>
                           )}
                           {r.payment_amount != null && (
-                            <td className="px-5 py-3 text-right num text-success hidden md:table-cell">
+                            <td className="px-5 py-3 text-right num text-sem-success hidden md:table-cell">
                               {fmtMoney(r.payment_amount)}
                             </td>
                           )}
@@ -667,7 +667,7 @@ function QueuePage() {
                           <button
                             onClick={() => fundProforma.mutate(p)}
                             disabled={fundProforma.isPending}
-                            className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-warning/50 px-2.5 py-1 text-xs text-warning hover:bg-warning/10 disabled:opacity-60"
+                            className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-sem-attention/50 px-2.5 py-1 text-xs text-sem-attention hover:bg-sem-attention/10 disabled:opacity-60"
                           >
                             {p.side === "sales" ? "Mark received" : "Mark paid"}
                           </button>
@@ -747,7 +747,7 @@ function QueuePage() {
                           {inv ? fmtMoney(current) : "—"}
                         </td>
                         <td
-                          className={`px-5 py-3 text-right num ${signed < 0 ? "text-primary" : "text-warning"}`}
+                          className={`px-5 py-3 text-right num ${signed < 0 ? "text-primary" : "text-sem-attention"}`}
                         >
                           {signed < 0 ? `− ${fmtMoney(amt)}` : `+ ${fmtMoney(amt)}`}
                         </td>
@@ -813,7 +813,7 @@ function QueuePage() {
                           className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
                             h.kind === "sale"
                               ? "bg-primary/15 text-primary"
-                              : "bg-warning/15 text-warning"
+                              : "bg-sem-attention/15 text-sem-attention"
                           }`}
                         >
                           {h.kind === "sale" ? "Sale (AR)" : "Purchase (AP)"}
@@ -832,7 +832,7 @@ function QueuePage() {
                         </td>
                       )}
                       {h.payment_amount != null && (
-                        <td className="px-5 py-3 text-right num text-success hidden md:table-cell">
+                        <td className="px-5 py-3 text-right num text-sem-success hidden md:table-cell">
                           {fmtMoney(h.payment_amount)}
                         </td>
                       )}
@@ -896,7 +896,7 @@ function QueueAction({
     return (
       <button
         onClick={() => onCloseSale(row)}
-        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-success/50 px-2.5 py-1 text-xs text-success hover:bg-success/10"
+        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-sem-success/50 px-2.5 py-1 text-xs text-sem-success hover:bg-sem-success/10"
       >
         <ArrowDownToLine className="h-3 w-3" /> Record receipt
       </button>
@@ -906,7 +906,7 @@ function QueueAction({
   return (
     <button
       onClick={() => onPayPurchase(row)}
-      className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-warning/50 px-2.5 py-1 text-xs text-warning hover:bg-warning/10"
+      className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-sem-attention/50 px-2.5 py-1 text-xs text-sem-attention hover:bg-sem-attention/10"
     >
       <ArrowUpFromLine className="h-3 w-3" /> Record payment
     </button>
@@ -946,10 +946,10 @@ function PayPurchaseModal({
               Supplier payable: <span className="num text-foreground">{fmtMoney(row.amount)}</span>
             </div>
             <div>
-              Already paid: <span className="num text-success">{fmtMoney(alreadyPaid)}</span>
+              Already paid: <span className="num text-sem-success">{fmtMoney(alreadyPaid)}</span>
             </div>
             <div>
-              Balance due: <span className="num text-warning">{fmtMoney(row.balance)}</span> · Due{" "}
+              Balance due: <span className="num text-sem-attention">{fmtMoney(row.balance)}</span> · Due{" "}
               {fmtDate(row.due_date)}
             </div>
             <div className="pt-1 text-[10px]">
@@ -986,13 +986,13 @@ function PayPurchaseModal({
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
                 Total paid after
               </div>
-              <div className="num text-lg text-success">{fmtMoney(totalPaid)}</div>
+              <div className="num text-lg text-sem-success">{fmtMoney(totalPaid)}</div>
             </div>
             <div className="rounded-md border border-border bg-background/40 p-3">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
                 Remaining after
               </div>
-              <div className={`num text-lg ${outstanding > 0 ? "text-warning" : "text-success"}`}>
+              <div className={`num text-lg ${outstanding > 0 ? "text-sem-attention" : "text-sem-success"}`}>
                 {fmtMoney(outstanding)}
               </div>
             </div>
@@ -1050,7 +1050,7 @@ function CloseSaleModal({
               </div>
             )}
             <div>
-              Balance expected: <span className="num text-success">{fmtMoney(row.balance)}</span> ·
+              Balance expected: <span className="num text-sem-success">{fmtMoney(row.balance)}</span> ·
               Due {fmtDate(row.due_date)}
             </div>
           </div>
@@ -1083,7 +1083,7 @@ function CloseSaleModal({
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
                 Short payment
               </div>
-              <div className={`num text-lg ${short > 0 ? "text-destructive" : "text-success"}`}>
+              <div className={`num text-lg ${short > 0 ? "text-destructive" : "text-sem-success"}`}>
                 {fmtMoney(short)}
               </div>
             </div>
@@ -1091,7 +1091,7 @@ function CloseSaleModal({
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
                 Late days
               </div>
-              <div className={`num text-lg ${late > 0 ? "text-warning" : "text-success"}`}>
+              <div className={`num text-lg ${late > 0 ? "text-sem-attention" : "text-sem-success"}`}>
                 {late}
               </div>
             </div>
