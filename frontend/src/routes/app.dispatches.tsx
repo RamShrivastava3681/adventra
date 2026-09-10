@@ -584,6 +584,7 @@ function DispatchesPage() {
           stockBalance={stockBalance}
           proformas={proformasQ.data ?? []}
           invoices={invoicesQ.data ?? []}
+          dispatchedInvoiceIds={dispatchedInvoiceIds}
           stockLocations={(stockLocationsQ.data ?? []) as any[]}
           onClose={() => setCreateOpen(false)}
           onDone={invalidateAll}
@@ -642,6 +643,7 @@ function DispatchCreateModal({
   stockBalance,
   proformas,
   invoices,
+  dispatchedInvoiceIds,
   stockLocations,
   onClose,
   onDone,
@@ -656,6 +658,8 @@ function DispatchCreateModal({
   stockBalance: Map<string, number>;
   proformas: Array<{ id: string; number: string; customer: string | null }>;
   invoices: Array<{ id: string; number: string }>;
+  /** Invoice ids already linked to a dispatch — hidden from the linked-invoice picker. */
+  dispatchedInvoiceIds: Set<string>;
   stockLocations: any[];
   onClose: () => void;
   onDone: () => void;

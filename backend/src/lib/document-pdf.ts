@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import QRCode from "qrcode";
 import { formatPaymentTerms } from "./payment-terms.js";
 
 /**
@@ -1338,13 +1339,13 @@ export function buildSalesOrderTallyPdf(data: SalesOrderTallyData): Promise<Buff
       leftRow("Shipping Address :", { size: 7 });
       if (data.shipText) leftRow(data.shipText, { h: Math.max(22, Math.ceil(wrapH(data.shipText, LW, 7.5) + 5)) });
       leftRow(`GSTIN/UIN : ${data.shipGstin ?? ""}`);
-      leftRow(`PAN/IT No : ${data.shipPan ?? ""}`);
+      leftRow(`PAN : ${data.shipPan ?? ""}`);
       leftRow("BILL TO -", { size: 7 });
       leftRow(data.billText || "—", {
         h: Math.max(22, Math.ceil(wrapH(data.billText || "—", LW, 7.5) + 5)),
       });
       leftRow(`GSTIN/UIN : ${data.billGstin ?? ""}`);
-      leftRow(`PAN/IT No : ${data.billPan ?? ""}`);
+      leftRow(`PAN : ${data.billPan ?? ""}`);
       const leftH = ly - y0;
 
       // Right meta grid
@@ -1536,6 +1537,837 @@ export function buildSalesOrderTallyPdf(data: SalesOrderTallyData): Promise<Buff
       signRow("Authorised Signatory");
       if (data.jurisdiction) signRow(`SUBJECT TO ${data.jurisdiction} JURISDICTION`);
       signRow("This is a Computer Generated Sales Order");
+
+      doc.end();
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TALLY-STYLE TAX INVOICE + e-WAY BILL (PDF §7, manual-IRN v1)
+// ── Mirrors the Tally e-invoice print: TAX INVOICE title · IRN/Ack header ·
+//    QR · seller + consignee + buyer blocks · ref grid · item table with
+//    Rate (Incl. of Tax) · IGST/CGST+SGST rows · round-off · HSN tax table ·
+//    declaration + bank · signatory · jurisdiction · e-Way Bill section.
+// ═════════════════════════════════════════════════════════════════════════════
+
+export interface TallyInvoiceLine {
+  sno: number;
+  description: string;
+  hsn: string;
+  quantity: number;
+  unit: string;
+  rateInclTax: number;
+  rate: number;
+  amount: number;
+}
+
+export interface TallyInvoiceParty {
+  name: string;
+  address: string;
+  gstin: string;
+  pan: string;
+  state: string;
+  stateCode: string;
+}
+
+export interface TallyInvoiceTaxRow {
+  label: string;
+  rate: number;
+  amount: number;
+}
+
+export interface TallyInvoiceHsnRow {
+  hsn: string;
+  taxable: number;
+  rate: number;
+  amount: number;
+  total: number;
+}
+
+export interface TallyInvoiceEwbGood {
+  hsn: string;
+  name: string;
+  quantity: number;
+  unit: string;
+  taxable: number;
+  rate: number;
+}
+
+export interface TallyInvoiceEwb {
+  docNo: string;
+  date: string;
+  irn: string | null;
+  ackNo: string | null;
+  ackDate: string | null;
+  ewbNo: string;
+  mode: string;
+  generatedDate: string;
+  generatedBy: string;
+  approxDistance: string;
+  validUpto: string;
+  supplyType: string;
+  txnType: string;
+  fromName: string;
+  fromGstin: string;
+  fromState: string;
+  dispatchFrom: string;
+  toName: string;
+  toGstin: string;
+  toState: string;
+  shipTo: string;
+  goods: TallyInvoiceEwbGood[];
+  totalTaxable: number;
+  otherAmt: number;
+  totalInvAmt: number;
+  igstAmt: number;
+  transporterId: string;
+  transporterName: string;
+  transportDocNo: string;
+  transportDocDate: string;
+  vehicleNo: string;
+  vehicleFrom: string;
+  cewbNo: string;
+}
+
+export interface TallyInvoiceData {
+  number: string;
+  /** Already formatted, e.g. "8-Sep-26". */
+  date: string;
+  dueDate: string | null;
+  irn: string | null;
+  ackNo: string | null;
+  ackDate: string | null;
+  qrImage: Buffer | null;
+  seller: TallySOSeller;
+  consignee: TallyInvoiceParty;
+  buyer: TallyInvoiceParty;
+  placeOfSupply: string;
+  ewbNumber: string | null;
+  deliveryNoteRef: string | null;
+  paymentTerms: string | null;
+  referenceNo: string | null;
+  otherReferences: string | null;
+  buyerOrderNo: string | null;
+  buyerOrderDate: string | null;
+  dispatchDocNumber: string | null;
+  deliveryNoteDate: string | null;
+  dispatchedThrough: string | null;
+  destination: string | null;
+  termsOfDelivery: string | null;
+  lines: TallyInvoiceLine[];
+  totalQty: number;
+  totalQtyUnit: string;
+  subtotal: number;
+  taxRows: TallyInvoiceTaxRow[];
+  roundOff: number;
+  grandTotal: number;
+  amountWords: string;
+  hsnRows: TallyInvoiceHsnRow[];
+  hsnTotalTaxable: number;
+  hsnTotalTax: number;
+  taxWords: string;
+  declaration: string[];
+  bank: TallySOBank | null;
+  bankRaw: string | null;
+  jurisdiction: string;
+  ewb: TallyInvoiceEwb | null;
+}
+
+/** "2026-09-08" → "8-Sep-26" (the Tally e-invoice stamp). */
+function fmtTallyShortDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const dt = new Date(iso.length <= 10 ? `${iso}T00:00:00` : iso);
+  if (Number.isNaN(dt.getTime())) return String(iso);
+  const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${dt.getDate()}-${mon[dt.getMonth()]}-${String(dt.getFullYear()).slice(2)}`;
+}
+
+/** Render a QR PNG for the e-invoice header. Null when there is nothing to encode. */
+export async function makeEinvoiceQrImage(text: string | null | undefined): Promise<Buffer | null> {
+  if (!text || !String(text).trim()) return null;
+  try {
+    return await QRCode.toBuffer(String(text), { width: 220, margin: 1 });
+  } catch {
+    return null;
+  }
+}
+
+function tallyParty(p: Partial<TallyInvoiceParty>): TallyInvoiceParty {
+  return {
+    name: p.name || "",
+    address: p.address || "",
+    gstin: p.gstin || "",
+    pan: p.pan || "",
+    state: p.state || "",
+    stateCode: p.stateCode || "",
+  };
+}
+
+/**
+ * Map a sales invoice (+ debtor, linked SO, seller/bank inputs) onto the
+ * Tally e-invoice print shape. Nothing is defaulted: missing values render
+ * blank. Tax rows follow the inter-state rule (IGST) vs intra-state
+ * (CGST+SGST split) using the seller state code vs the buyer state code.
+ */
+export function invoiceToTallyData(
+  inv: any,
+  opts?: {
+    debtor?: any | null;
+    so?: any | null;
+    seller?: Partial<TallySOSeller> | null;
+    bank?: Partial<TallySOBank> | null;
+    bankRaw?: string | null;
+    declarationRaw?: string | null;
+    qrImage?: Buffer | null;
+    ewb?: TallyInvoiceEwb | null;
+  },
+): TallyInvoiceData {
+  const g = (camel: string, snake: string) => inv[camel] ?? inv[snake] ?? null;
+  const dg = (camel: string, snake: string) =>
+    (opts?.debtor?.[camel] ?? opts?.debtor?.[snake] ?? null) as any;
+  const sg = (camel: string, snake: string) =>
+    (opts?.so?.[camel] ?? opts?.so?.[snake] ?? null) as any;
+
+  const rawLines: any[] = inv.lines ?? inv.lineItems ?? [];
+  const lines: TallyInvoiceLine[] = rawLines.map((l: any, i: number) => {
+    const quantity = Number(l.quantity ?? l.qty ?? 0) || 0;
+    const unitPrice = Number(l.unitPrice ?? l.unit_price ?? 0) || 0;
+    const gstRate = Number(l.gstRate ?? l.gst_rate ?? 0) || 0;
+    const rateInclTax =
+      l.rateInclTax ?? l.rate_incl_tax ?? r2(unitPrice * (1 + gstRate / 100));
+    return {
+      sno: i + 1,
+      description: l.name ?? l.description ?? "Item",
+      hsn: l.hsnCode ?? l.hsn_code ?? "",
+      quantity,
+      unit: l.unit ?? "unit",
+      rateInclTax: r2(Number(rateInclTax) || 0),
+      rate: r2(unitPrice),
+      amount: r2(Number(l.lineTotal ?? l.line_total ?? quantity * unitPrice) || 0),
+    };
+  });
+
+  const subtotal = r2(Number(inv.subtotalGoods ?? inv.subtotal_goods ?? inv.subtotal ?? lines.reduce((s, l) => s + l.amount, 0)) || 0);
+  const freight = r2(Number(inv.freight ?? 0) || 0);
+  const grandTotal = r2(Number(inv.grandTotal ?? inv.grand_total ?? subtotal + freight) || 0);
+
+  // ── Tax rows: group taxable value by GST rate, then IGST or CGST+SGST. ──
+  const sellerStateCode = String(opts?.seller?.stateCode ?? "").trim();
+  const buyerStateCode = String(
+    g("buyerStateCode", "buyer_state_code") ?? dg("stateCode", "state_code") ?? "",
+  ).trim();
+  const intraState =
+    !!sellerStateCode && !!buyerStateCode && sellerStateCode === buyerStateCode;
+  const byRate = new Map<number, number>();
+  const hsnGroups = new Map<string, { hsn: string; rate: number; taxable: number }>();
+  rawLines.forEach((raw: any, i: number) => {
+    const rate = Number(raw.gstRate ?? raw.gst_rate ?? 0) || 0;
+    const taxable = lines[i]?.amount ?? 0;
+    byRate.set(rate, r2((byRate.get(rate) ?? 0) + taxable));
+    const key = `${lines[i]?.hsn ?? ""} ${rate}`;
+    const prev = hsnGroups.get(key);
+    hsnGroups.set(key, { hsn: lines[i]?.hsn ?? "", rate, taxable: r2((prev?.taxable ?? 0) + taxable) });
+  });
+  const taxRows: TallyInvoiceTaxRow[] = [];
+  for (const [rate, taxable] of [...byRate.entries()].sort((a, b) => a[0] - b[0])) {
+    const amt = r2((taxable * rate) / 100);
+    if (intraState) {
+      const half = r2(amt / 2);
+      taxRows.push({ label: `CGST OUTPUT TAX @${rate / 2}%`, rate: rate / 2, amount: half });
+      taxRows.push({ label: `SGST OUTPUT TAX @${rate / 2}%`, rate: rate / 2, amount: r2(amt - half) });
+    } else {
+      taxRows.push({ label: `IGST OUTPUT TAX @${rate}%`, rate, amount: amt });
+    }
+  }
+  const taxTotal = r2(taxRows.reduce((s, t) => s + t.amount, 0));
+  const roundOff = r2(grandTotal - subtotal - freight - taxTotal);
+  const hsnRows: TallyInvoiceHsnRow[] = [...hsnGroups.values()].map((h) => {
+    const amount = r2((h.taxable * h.rate) / 100);
+    return { hsn: h.hsn, taxable: h.taxable, rate: h.rate, amount, total: amount };
+  });
+  const hsnTotalTaxable = r2(hsnRows.reduce((s, h) => s + h.taxable, 0));
+  const hsnTotalTax = r2(hsnRows.reduce((s, h) => s + h.amount, 0));
+
+  const totalQty = lines.reduce((s, l) => s + l.quantity, 0);
+  const unit = lines[0]?.unit ?? "";
+
+  const debtorName = dg("name", "name") ?? "";
+  const consigneeName = g("consigneeName", "consignee_name") ?? debtorName;
+  const consigneeAddress =
+    g("consigneeAddress", "consignee_address") ??
+    [inv.deliveryAddress ?? inv.delivery_address, dg("city", "city"), dg("country", "country")]
+      .filter(Boolean)
+      .join(", ") ??
+    "";
+  const buyerAddress =
+    inv.billingAddress ??
+    inv.billing_address ??
+    [dg("billingAddress", "billing_address"), dg("city", "city"), dg("country", "country")]
+      .filter(Boolean)
+      .join(", ") ??
+    "";
+
+  const s = opts?.seller ?? {};
+  const b = opts?.bank ?? {};
+  const bank: TallySOBank | null =
+    b.holder || b.bank || b.acNo || b.ifsc || b.branch
+      ? { holder: b.holder || "", bank: b.bank || "", acNo: b.acNo || "", ifsc: b.ifsc || "", branch: b.branch || "" }
+      : null;
+  const declaration = String(opts?.declarationRaw ?? "")
+    .split(/\r?\n/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+
+  const buyerOrderNo = g("poNumber", "po_number") ?? sg("buyerOrderNo", "buyer_order_no") ?? null;
+  const absTotal = Math.abs(grandTotal);
+  const totalPaise = Math.round((absTotal - Math.floor(absTotal)) * 100);
+  const absTax = Math.abs(taxTotal);
+  const taxPaise = Math.round((absTax - Math.floor(absTax)) * 100);
+
+  return {
+    number: inv.invoiceNumber || inv.invoice_number || "—",
+    date: fmtTallyShortDate(inv.issueDate || inv.issue_date || ""),
+    dueDate: fmtTallyShortDate(inv.dueDate || inv.due_date || "") || null,
+    irn: g("irn", "irn"),
+    ackNo: g("ackNo", "ack_no"),
+    ackDate: fmtTallyShortDate(g("ackDate", "ack_date") || "") || null,
+    qrImage: opts?.qrImage ?? null,
+    seller: {
+      name: s.name || "",
+      address: s.address || "",
+      gstin: s.gstin || "",
+      stateName: s.stateName || "",
+      stateCode: s.stateCode || "",
+      email: s.email || "",
+    },
+    consignee: tallyParty({
+      name: consigneeName,
+      address: consigneeAddress,
+      gstin: g("consigneeGstin", "consignee_gstin") ?? dg("gstin", "gstin") ?? "",
+      pan: g("consigneePan", "consignee_pan") ?? dg("panCardNo", "pan_card_no") ?? "",
+      state: g("consigneeState", "consignee_state") ?? "",
+      stateCode: buyerStateCode,
+    }),
+    buyer: tallyParty({
+      name: debtorName,
+      address: buyerAddress,
+      gstin: g("buyerGstin", "buyer_gstin") ?? dg("gstin", "gstin") ?? "",
+      pan: g("buyerPan", "buyer_pan") ?? dg("panCardNo", "pan_card_no") ?? "",
+      state: g("buyerState", "buyer_state") ?? "",
+      stateCode: buyerStateCode,
+    }),
+    placeOfSupply:
+      g("placeOfSupply", "place_of_supply") ??
+      g("buyerState", "buyer_state") ??
+      "",
+    ewbNumber: g("ewbNumber", "ewb_number"),
+    deliveryNoteRef:
+      g("deliveryNoteRef", "delivery_note_ref") ?? sg("deliveryNote", "delivery_note") ?? null,
+    paymentTerms:
+      formatPaymentTerms(inv) || inv.paymentTerms || inv.payment_terms || null,
+    referenceNo: sg("referenceNo", "reference_no") ?? null,
+    otherReferences: g("otherReferences", "other_references"),
+    buyerOrderNo,
+    buyerOrderDate:
+      fmtTallyShortDate(g("buyerOrderDate", "buyer_order_date") ?? g("poDate", "po_date") ?? "") || null,
+    dispatchDocNumber: g("dispatchDocNumber", "dispatch_doc_number") ?? null,
+    deliveryNoteDate: fmtTallyShortDate(g("deliveryNoteDate", "delivery_note_date") || "") || null,
+    dispatchedThrough:
+      g("dispatchedThrough", "dispatched_through") ?? sg("dispatchedThrough", "dispatched_through") ?? null,
+    destination: g("destination", "destination"),
+    termsOfDelivery: g("termsOfDelivery", "terms_of_delivery"),
+    lines,
+    totalQty,
+    totalQtyUnit: unit,
+    subtotal,
+    taxRows,
+    roundOff: Math.abs(roundOff) < 0.005 ? 0 : roundOff,
+    grandTotal,
+    amountWords: `INR ${intWordsIN(Math.floor(absTotal))}${totalPaise > 0 ? ` and Paise ${wordsTwoDigits(totalPaise)}` : ""} Only`,
+    hsnRows,
+    hsnTotalTaxable,
+    hsnTotalTax,
+    taxWords: `INR ${intWordsIN(Math.floor(absTax))}${taxPaise > 0 ? ` and ${wordsTwoDigits(taxPaise)} paise` : ""} Only`,
+    declaration,
+    bank,
+    bankRaw: opts?.bankRaw ?? null,
+    jurisdiction: String(s.stateName || "").toUpperCase(),
+    ewb: opts?.ewb ?? null,
+  };
+}
+
+/** Render the Tally-style tax-invoice PDF (plus e-Way Bill section when present). */
+export function buildInvoiceTallyPdf(data: TallyInvoiceData): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    try {
+      const M = 24;
+      const PW = 595.28;
+      const PH = 841.89;
+      const CW = PW - M * 2;
+      const BOT = PH - M;
+      const doc = new PDFDocument({ size: "A4", margins: { top: M, bottom: M, left: M, right: M } });
+      const chunks: Buffer[] = [];
+      doc.on("data", (c: Buffer) => chunks.push(c));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+
+      const F = "Helvetica";
+      const FB = "Helvetica-Bold";
+      const PAD = 3;
+      let y = M;
+
+      const need = (h: number) => {
+        if (y + h > BOT) {
+          doc.addPage();
+          y = M;
+        }
+      };
+
+      const cell = (
+        x: number, yy: number, w: number, h: number,
+        text: string,
+        o?: { font?: string; size?: number; align?: "left" | "center" | "right"; fill?: string },
+      ) => {
+        if (o?.fill) doc.rect(x, yy, w, h).fill(o.fill);
+        doc.rect(x, yy, w, h).strokeColor(TALLY.ink).lineWidth(0.5).stroke();
+        if (text) {
+          doc
+            .font(o?.font ?? F)
+            .fontSize(o?.size ?? 7.5)
+            .fillColor(TALLY.ink)
+            .text(text, x + PAD, yy + 2, {
+              width: Math.max(1, w - PAD * 2),
+              align: o?.align ?? "left",
+            });
+        }
+      };
+
+      const wrapH = (text: string, w: number, size: number, font?: string): number => {
+        if (!text) return 0;
+        doc.font(font ?? F).fontSize(size);
+        return doc.heightOfString(text, { width: Math.max(1, w - PAD * 2) });
+      };
+
+      // ── Title + e-Invoice label ──────────────────────────────────────────
+      cell(M, y, CW, 18, "TAX INVOICE", { font: FB, size: 11, align: "center" });
+      doc.font(FB).fontSize(8).fillColor(TALLY.ink)
+        .text("e-Invoice", M, y + 3, { width: CW, align: "right" });
+      y += 18;
+
+      // ── IRN header + QR (only once the IRN is recorded) ──────────────────
+      if (data.irn) {
+        const qrW = 92;
+        const leftW = CW - qrW - 6;
+        const irnBodyH = Math.ceil(wrapH(`: ${data.irn}`, leftW - 32 - PAD, 7.5, FB));
+        const h = Math.max(58, irnBodyH + 28);
+        need(h);
+        const yIrn = y;
+        doc.font(F).fontSize(7.5).fillColor(TALLY.ink).text("IRN", M + PAD, y + 3, { width: 30 });
+        doc.font(FB).fontSize(7.5).text(`: ${data.irn}`, M + PAD + 32, y + 3, { width: leftW - 32 - PAD });
+        const ackY = y + 3 + irnBodyH + 2;
+        doc.font(F).fontSize(7.5).text("Ack No.", M + PAD, ackY, { width: 44 });
+        doc.font(FB).fontSize(7.5).text(`: ${data.ackNo ?? ""}`, M + PAD + 46, ackY);
+        doc.font(F).fontSize(7.5).text("Ack Date", M + PAD, ackY + 11, { width: 44 });
+        doc.font(FB).fontSize(7.5).text(`: ${data.ackDate ?? ""}`, M + PAD + 46, ackY + 11);
+        if (data.qrImage) {
+          try {
+            doc.image(data.qrImage, M + leftW + 6, y + 2, { fit: [qrW, h - 4], align: "center", valign: "center" });
+          } catch { /* header still prints without the QR */ }
+        }
+        doc.rect(M, yIrn, CW, h).strokeColor(TALLY.ink).lineWidth(0.5).stroke();
+        y += h;
+      }
+
+      // ── Header block: seller/consignee/buyer (left) + ref grid (right) ────
+      const LW = Math.round(CW * 0.605);
+      const RW = CW - LW;
+      const y0 = y;
+      let ly = y0;
+      const leftRow = (text: string, o?: { font?: string; size?: number; h?: number }) => {
+        const size = o?.size ?? 7.5;
+        const h = o?.h ?? Math.max(11, Math.ceil(wrapH(text, LW, size, o?.font) + 5));
+        cell(M, ly, LW, h, text, { font: o?.font, size });
+        ly += h;
+      };
+
+      const sel = data.seller;
+      leftRow(sel.name, { font: FB, size: 8.5, h: 13 });
+      if (sel.address) leftRow(sel.address, { h: Math.max(22, Math.ceil(wrapH(sel.address, LW, 7.5) + 5)) });
+      leftRow(`GSTIN/UIN: ${sel.gstin}`);
+      leftRow(`State Name : ${sel.stateName}, Code : ${sel.stateCode}`);
+      if (sel.email) leftRow(`E-Mail : ${sel.email}`);
+      leftRow("Consignee (Ship to)", { font: FB, size: 7.5, h: 12 });
+      if (data.consignee.name) leftRow(data.consignee.name, { font: FB, size: 7.5 });
+      if (data.consignee.address) leftRow(data.consignee.address, { h: Math.max(22, Math.ceil(wrapH(data.consignee.address, LW, 7.5) + 5)) });
+      leftRow(`GSTIN/UIN : ${data.consignee.gstin} PAN/IT No : ${data.consignee.pan}`);
+      leftRow(`State Name : ${data.consignee.state}, Code : ${data.consignee.stateCode}`);
+      leftRow("Buyer (Bill to)", { font: FB, size: 7.5, h: 12 });
+      if (data.buyer.name) leftRow(data.buyer.name, { font: FB, size: 7.5 });
+      if (data.buyer.address) leftRow(data.buyer.address, { h: Math.max(22, Math.ceil(wrapH(data.buyer.address, LW, 7.5) + 5)) });
+      leftRow(`GSTIN/UIN : ${data.buyer.gstin}`);
+      leftRow(`PAN/IT No : ${data.buyer.pan}`);
+      leftRow(`State Name : ${data.buyer.state}, Code : ${data.buyer.stateCode}`);
+      if (data.placeOfSupply) leftRow(`Place of Supply : ${data.placeOfSupply}`);
+      const leftH = ly - y0;
+
+      // Right ref grid
+      let ry = y0;
+      const refRow = (label: string, value: string | null, h = 13, valueFont?: string) => {
+        const lw = Math.round(RW * 0.52);
+        cell(M + LW, ry, lw, h, label, { size: 6.5, align: "center" });
+        cell(M + LW + lw, ry, RW - lw, h, value ?? "", { size: 7, font: valueFont });
+        ry += h;
+      };
+      refRow("Invoice No.", data.number, 13, FB);
+      refRow("e-Way Bill No.", data.ewbNumber, 13, FB);
+      refRow("Dated", data.date, 13, FB);
+      refRow("Delivery Note", data.deliveryNoteRef);
+      refRow("Mode/Terms of Payment", data.paymentTerms);
+      refRow("Reference No. & Date.", data.referenceNo);
+      refRow("Other References", data.otherReferences);
+      refRow("Buyer's Order No.", data.buyerOrderNo);
+      refRow("Dated", data.buyerOrderDate);
+      refRow("Dispatch Doc No.", data.dispatchDocNumber);
+      refRow("Delivery Note Date", data.deliveryNoteDate);
+      refRow("Dispatched through", data.dispatchedThrough, 13, FB);
+      refRow("Destination", data.destination);
+      cell(M + LW, ry, RW, 13, "Terms of Delivery", { size: 6.5 });
+      ry += 13;
+      if (data.termsOfDelivery) {
+        const th = Math.max(13, Math.ceil(wrapH(data.termsOfDelivery, RW, 7) + 5));
+        cell(M + LW, ry, RW, th, data.termsOfDelivery, { size: 7 });
+        ry += th;
+      }
+      const blockH = Math.max(leftH, ry - y0);
+      doc.rect(M, y0, CW, blockH).strokeColor(TALLY.ink).lineWidth(0.75).stroke();
+      doc.moveTo(M + LW, y0).lineTo(M + LW, y0 + blockH).strokeColor(TALLY.ink).lineWidth(0.5).stroke();
+      y = y0 + blockH;
+
+      // ── Item table ───────────────────────────────────────────────────────
+      const C = { sno: 26, desc: 0, hsn: 62, qty: 52, rateIncl: 56, rate: 56, per: 34, amt: 78 };
+      C.desc = CW - (C.sno + C.hsn + C.qty + C.rateIncl + C.rate + C.per + C.amt);
+      const cOrder: Array<keyof typeof C> = ["sno", "desc", "hsn", "qty", "rateIncl", "rate", "per", "amt"];
+      const colX = (key: keyof typeof C): number => {
+        let x = M;
+        for (const k of cOrder) {
+          if (k === key) return x;
+          x += C[k];
+        }
+        return x;
+      };
+      const HEAD_H = 30;
+      const drawInvHead = () => {
+        need(HEAD_H);
+        const heads: Array<[keyof typeof C, string]> = [
+          ["sno", "Sl No."], ["desc", "Description of Goods"], ["hsn", "HSN/SAC"],
+          ["qty", "Quantity"], ["rateIncl", "Rate (Incl. of Tax)"], ["rate", "Rate"],
+          ["per", "per"], ["amt", "Amount"],
+        ];
+        for (const [k, t] of heads) {
+          cell(colX(k), y, C[k], HEAD_H, t, { font: FB, size: 7, align: "center" });
+        }
+        y += HEAD_H;
+      };
+      drawInvHead();
+      data.lines.forEach((l, idx) => {
+        const rowH = Math.max(15, Math.ceil(wrapH(l.description, C.desc, 7.5, FB) + 6));
+        if (y + rowH > BOT) {
+          doc.addPage();
+          y = M;
+          drawInvHead();
+        }
+        const fill = idx % 2 === 1 ? TALLY.altRow : TALLY.white;
+        const qtyText = `${tallyNum(l.quantity)} ${l.unit}`;
+        const row: Array<[keyof typeof C, string, "left" | "center" | "right", string?]> = [
+          ["sno", String(l.sno), "center"],
+          ["desc", l.description, "left", FB],
+          ["hsn", l.hsn, "center"],
+          ["qty", qtyText, "right", FB],
+          ["rateIncl", tallyNum(l.rateInclTax), "right"],
+          ["rate", tallyNum(l.rate), "right"],
+          ["per", l.unit, "center"],
+          ["amt", tallyNum(l.amount), "right", FB],
+        ];
+        for (const [k, t, a, fnt] of row) {
+          cell(colX(k), y, C[k], rowH, t, { size: 7.5, align: a, font: fnt, fill });
+        }
+        y += rowH;
+      });
+
+      // Subtotal + tax rows + round off
+      const sumRow = (label: string, value: string) => {
+        const h = 14;
+        need(h);
+        const spanW = CW - C.amt;
+        cell(M, y, spanW, h, label, { size: 8, align: "center" });
+        cell(M + spanW, y, C.amt, h, value, { size: 8, align: "right" });
+        y += h;
+      };
+      sumRow("", tallyNum(data.subtotal));
+      for (const t of data.taxRows) {
+        sumRow(t.label, tallyNum(t.amount));
+      }
+      if (data.roundOff !== 0) sumRow("Round Off", tallyNum(data.roundOff));
+
+      // Total row
+      {
+        const h = 15;
+        need(h);
+        const labelW = C.sno + C.desc + C.hsn;
+        const qtyW = C.qty + C.rateIncl + C.rate + C.per;
+        cell(M, y, labelW, h, "Total", { font: FB, size: 8, align: "right", fill: TALLY.headGray });
+        cell(M + labelW, y, qtyW, h, `${tallyNum(data.totalQty)} ${data.totalQtyUnit}`, { font: FB, size: 8, align: "right", fill: TALLY.headGray });
+        cell(M + labelW + qtyW, y, C.amt, h, `₹ ${tallyNum(data.grandTotal)}`, { font: FB, size: 8, align: "right", fill: TALLY.headGray });
+        y += h;
+      }
+
+      // ── Amount in words + E&OE ───────────────────────────────────────────
+      {
+        const wordsW = Math.round(CW * 0.72);
+        const h = Math.max(30, Math.ceil(wrapH(data.amountWords, wordsW, 7.5) + 22));
+        need(h);
+        cell(M, y, wordsW, h, "", {});
+        doc.font(F).fontSize(7).fillColor(TALLY.ink).text("Amount Chargeable (in words)", M + PAD, y + 2, { width: wordsW - PAD * 2 });
+        doc.font(FB).fontSize(7.5).text(data.amountWords, M + PAD, y + 12, { width: wordsW - PAD * 2 });
+        cell(M + wordsW, y, CW - wordsW, h, "E. & O.E", { size: 7.5, align: "center" });
+        y += h;
+      }
+
+      // ── HSN tax table ────────────────────────────────────────────────────
+      {
+        const HC = { hsn: 150, tax: 100, rate: 60, amt: 110, tot: 0 };
+        HC.tot = CW - (HC.hsn + HC.tax + HC.rate + HC.amt);
+        const hx = (k: keyof typeof HC): number => {
+          let x = M;
+          for (const key of ["hsn", "tax", "rate", "amt", "tot"] as Array<keyof typeof HC>) {
+            if (key === k) return x;
+            x += HC[key];
+          }
+          return x;
+        };
+        const h = 14;
+        need(h * 2);
+        const heads: Array<[keyof typeof HC, string]> = [
+          ["hsn", "HSN/SAC"], ["tax", "Taxable Value"], ["rate", "Rate"], ["amt", "Amount"], ["tot", "Total Tax Amount"],
+        ];
+        for (const [k, t] of heads) {
+          cell(hx(k), y, HC[k], h, t, { font: FB, size: 7, align: "center" });
+        }
+        y += h;
+        cell(hx("hsn"), y, HC.hsn + HC.tax, h, "", {});
+        cell(hx("rate"), y, HC.rate + HC.amt, h, "IGST", { font: FB, size: 7, align: "center" });
+        cell(hx("tot"), y, HC.tot, h, "", {});
+        y += h;
+        for (const r of data.hsnRows) {
+          need(h);
+          cell(hx("hsn"), y, HC.hsn, h, r.hsn, { size: 7.5 });
+          cell(hx("tax"), y, HC.tax, h, tallyNum(r.taxable), { size: 7.5, align: "right" });
+          cell(hx("rate"), y, HC.rate, h, `${r.rate}%`, { size: 7.5, align: "right" });
+          cell(hx("amt"), y, HC.amt, h, tallyNum(r.amount), { size: 7.5, align: "right" });
+          cell(hx("tot"), y, HC.tot, h, tallyNum(r.total), { size: 7.5, align: "right" });
+          y += h;
+        }
+        need(h);
+        cell(hx("hsn"), y, HC.hsn, h, "Total", { font: FB, size: 7.5, align: "right" });
+        cell(hx("tax"), y, HC.tax, h, tallyNum(data.hsnTotalTaxable), { font: FB, size: 7.5, align: "right" });
+        cell(hx("rate"), y, HC.rate, h, "", {});
+        cell(hx("amt"), y, HC.amt, h, tallyNum(data.hsnTotalTax), { font: FB, size: 7.5, align: "right" });
+        cell(hx("tot"), y, HC.tot, h, tallyNum(data.hsnTotalTax), { font: FB, size: 7.5, align: "right" });
+        y += h;
+      }
+
+      // ── Tax amount in words ──────────────────────────────────────────────
+      {
+        const h = Math.max(14, Math.ceil(wrapH(`Tax Amount (in words) : ${data.taxWords}`, CW, 7.5) + 6));
+        need(h);
+        cell(M, y, CW, h, `Tax Amount (in words) : ${data.taxWords}`, { font: FB, size: 7.5 });
+        y += h;
+      }
+
+      // ── Declaration (left) + Bank (right) ────────────────────────────────
+      {
+        const bankW = Math.round(CW * 0.5);
+        const remW = CW - bankW;
+        const declText = data.declaration.join("\n");
+        const bankLineCount = data.bank ? 5 : 0;
+        const h = Math.max(72, Math.ceil(wrapH(declText, remW, 7) + 30), 14 + bankLineCount * 12);
+        need(h);
+        const yB = y;
+        cell(M, y, remW, h, "", {});
+        doc.font(F).fontSize(7).fillColor(TALLY.ink).text("Declaration", M + PAD, y + 2, { width: remW - PAD * 2 });
+        if (declText) {
+          doc.font(F).fontSize(7).text(declText, M + PAD, y + 12, { width: remW - PAD * 2 });
+        }
+        cell(M + remW, y, bankW, h, "", {});
+        doc.font(F).fontSize(7).text("Company's Bank Details", M + remW + PAD, y + 2, { width: bankW - PAD * 2 });
+        if (data.bank) {
+          const rows: Array<[string, string]> = [
+            ["A/c Holder's Name :", data.bank.holder],
+            ["Bank Name :", `${data.bank.bank} A/c No-${data.bank.acNo}`],
+            ["A/c No. :", data.bank.acNo],
+            ["Branch & IFS Code :", `${data.bank.branch} & ${data.bank.ifsc}`],
+          ];
+          let byy = y + 12;
+          for (const [k, v] of rows) {
+            doc.font(FB).fontSize(7).text(k, M + remW + PAD, byy, { width: 110 });
+            doc.font(FB).fontSize(7).text(v, M + remW + PAD + 112, byy, { width: bankW - 112 - PAD * 2 });
+            byy += 12;
+          }
+        } else if (data.bankRaw) {
+          doc.font(F).fontSize(7).text(data.bankRaw, M + remW + PAD, y + 12, { width: bankW - PAD * 2 });
+        }
+        y = yB + h;
+      }
+
+      // ── Sign-off ─────────────────────────────────────────────────────────
+      {
+        const h = 44;
+        need(h);
+        cell(M, y, CW, h, "", {});
+        doc.font(FB).fontSize(7.5).text(`for ${sel.name}`, M + PAD, y + 2, { width: CW - PAD * 2, align: "right" });
+        doc.font(F).fontSize(7.5).text("Authorised Signatory", M + PAD, y + h - 12, { width: CW - PAD * 2, align: "right" });
+        y += h;
+        const jh = 12;
+        need(jh);
+        if (data.jurisdiction) cell(M, y, CW, jh, `SUBJECT TO ${data.jurisdiction} JURISDICTION`, { size: 7.5, align: "center" });
+        else cell(M, y, CW, jh, "", {});
+        y += jh;
+        need(12);
+        cell(M, y, CW, 12, "This is a Computer Generated Invoice", { size: 7.5, align: "center" });
+        y += 12;
+      }
+
+      // ── e-Way Bill section ───────────────────────────────────────────────
+      if (data.ewb) {
+        const e = data.ewb;
+        doc.addPage();
+        y = M;
+        cell(M, y, CW, 18, "e-Way Bill", { font: FB, size: 11, align: "center" });
+        doc.font(FB).fontSize(8).text("e-Way Bill", M, y + 3, { width: CW, align: "right" });
+        y += 18;
+        const infoLine = (label: string, value: string) => {
+          const h = Math.max(12, Math.ceil(wrapH(`${label} : ${value}`, CW, 7.5) + 5));
+          need(h);
+          doc.font(F).fontSize(7.5).text(label, M + PAD, y + 2, { width: 60 });
+          doc.font(FB).fontSize(7.5).text(`: ${value}`, M + PAD + 62, y + 2, { width: CW - 62 - PAD * 2 });
+          y += h;
+        };
+        infoLine("Doc No.", e.docNo);
+        infoLine("Date", e.date);
+        if (e.irn) infoLine("IRN", e.irn);
+        if (e.ackNo) infoLine("Ack No.", e.ackNo);
+        if (e.ackDate) infoLine("Ack Date", e.ackDate);
+
+        const secHead = (t: string) => {
+          need(15);
+          cell(M, y, CW, 15, t, { font: FB, size: 8 });
+          y += 15;
+        };
+        secHead("1. e-Way Bill Details");
+        {
+          const h = 40;
+          need(h);
+          const cw3 = CW / 3;
+          cell(M, y, CW, h, "", {});
+          const trio = (yOff: number, a: [string, string], b: [string, string], c: [string, string]) => {
+            const cols: Array<[number, [string, string]]> = [[M, a], [M + cw3, b], [M + cw3 * 2, c]];
+            for (const [x, [k, v]] of cols) {
+              doc.font(F).fontSize(7.5).text(k, x + PAD, y + yOff, { width: 90 });
+              doc.font(FB).fontSize(7.5).text(v, x + PAD + 92, y + yOff, { width: Math.max(1, cw3 - 92 - PAD * 2) });
+            }
+          };
+          trio(2, ["e-Way Bill No.", e.ewbNo], ["Mode", e.mode], ["Generated Date", e.generatedDate]);
+          trio(13, ["Generated By", e.generatedBy], ["Approx Distance", e.approxDistance], ["Valid Upto", e.validUpto]);
+          trio(24, ["Supply Type", e.supplyType], ["Transaction Type", e.txnType], ["", ""]);
+          y += h;
+        }
+        secHead("2. Address Details");
+        {
+          const half = CW / 2;
+          const fromText = `${e.fromName}\nGSTIN : ${e.fromGstin}\n${e.fromState}\nDispatch From\n${e.dispatchFrom}`;
+          const toText = `${e.toName}\nGSTIN : ${e.toGstin}\n${e.toState}\nShip To\n${e.shipTo}`;
+          const h = Math.max(70, Math.ceil(Math.max(wrapH(fromText, half, 7.5), wrapH(toText, half, 7.5)) + 8));
+          need(h);
+          cell(M, y, half, h, "", {});
+          doc.font(FB).fontSize(7.5).text("From", M + PAD, y + 2, { width: half - PAD * 2 });
+          doc.font(F).fontSize(7.5).text(fromText, M + PAD, y + 12, { width: half - PAD * 2 });
+          cell(M + half, y, half, h, "", {});
+          doc.font(FB).fontSize(7.5).text("To", M + half + PAD, y + 2, { width: half - PAD * 2 });
+          doc.font(F).fontSize(7.5).text(toText, M + half + PAD, y + 12, { width: half - PAD * 2 });
+          y += h;
+        }
+        secHead("3. Goods Details");
+        {
+          const GC = { hsn: 52, name: 0, qty: 64, amt: 84, rate: 44 };
+          GC.name = CW - (GC.hsn + GC.qty + GC.amt + GC.rate);
+          const gx = (k: keyof typeof GC): number => {
+            let x = M;
+            for (const key of ["hsn", "name", "qty", "amt", "rate"] as Array<keyof typeof GC>) {
+              if (key === k) return x;
+              x += GC[key];
+            }
+            return x;
+          };
+          const gh = 22;
+          need(gh);
+          const gheads: Array<[keyof typeof GC, string]> = [
+            ["hsn", "HSN Code"], ["name", "Product Name & Desc"], ["qty", "Quantity"],
+            ["amt", "Taxable Amt"], ["rate", "Tax Rate (I)"],
+          ];
+          for (const [k, t] of gheads) cell(gx(k), y, GC[k], gh, t, { font: FB, size: 7, align: "center" });
+          y += gh;
+          for (const gl of e.goods) {
+            const rh = Math.max(14, Math.ceil(wrapH(gl.name, GC.name, 7.5) + 6));
+            if (y + rh > BOT) {
+              doc.addPage();
+              y = M;
+            }
+            cell(gx("hsn"), y, GC.hsn, rh, gl.hsn, { size: 7.5 });
+            cell(gx("name"), y, GC.name, rh, gl.name, { size: 7.5 });
+            cell(gx("qty"), y, GC.qty, rh, `${tallyNum(gl.quantity)} ${gl.unit}`, { size: 7.5, align: "right" });
+            cell(gx("amt"), y, GC.amt, rh, tallyNum(gl.taxable), { size: 7.5, align: "right" });
+            cell(gx("rate"), y, GC.rate, rh, String(gl.rate), { size: 7.5, align: "right" });
+            y += rh;
+          }
+          const th = 14;
+          need(th * 2);
+          cell(M, y, CW, th, `Tot.Taxable Amt : ${tallyNum(e.totalTaxable)}  Other Amt : ${tallyNum(e.otherAmt)}  Total Inv Amt : ${tallyNum(e.totalInvAmt)}`, { font: FB, size: 7.5 });
+          y += th;
+          cell(M, y, CW, th, `IGST Amt : ${tallyNum(e.igstAmt)}`, { font: FB, size: 7.5 });
+          y += th;
+        }
+        secHead("4. Transportation Details");
+        {
+          const h = 28;
+          need(h);
+          cell(M, y, CW, h, "", {});
+          doc.font(F).fontSize(7.5).text("Transporter ID", M + PAD, y + 2, { width: 90 });
+          doc.font(FB).fontSize(7.5).text(e.transporterId, M + PAD + 92, y + 2, { width: CW / 2 - 92 - PAD * 2 });
+          doc.font(F).fontSize(7.5).text("Doc No.", M + CW / 2 + PAD, y + 2, { width: 90 });
+          doc.font(FB).fontSize(7.5).text(e.transportDocNo, M + CW / 2 + PAD + 92, y + 2);
+          doc.font(F).fontSize(7.5).text("Name", M + PAD, y + 14, { width: 90 });
+          doc.font(FB).fontSize(7.5).text(e.transporterName, M + PAD + 92, y + 14, { width: CW / 2 - 92 - PAD * 2 });
+          doc.font(F).fontSize(7.5).text("Date", M + CW / 2 + PAD, y + 14, { width: 90 });
+          doc.font(FB).fontSize(7.5).text(e.transportDocDate, M + CW / 2 + PAD + 92, y + 14);
+          y += h;
+        }
+        secHead("5. Vehicle Details");
+        {
+          const h = 14;
+          need(h);
+          cell(M, y, CW, h, "", {});
+          doc.font(F).fontSize(7.5).text("Vehicle No.", M + PAD, y + 2, { width: 90 });
+          doc.font(FB).fontSize(7.5).text(e.vehicleNo, M + PAD + 92, y + 2, { width: CW / 3 - 92 - PAD * 2 });
+          doc.font(F).fontSize(7.5).text("From", M + CW / 3 + PAD, y + 2, { width: 90 });
+          doc.font(FB).fontSize(7.5).text(e.vehicleFrom, M + CW / 3 + PAD + 92, y + 2, { width: CW / 3 - 92 - PAD * 2 });
+          doc.font(F).fontSize(7.5).text("CEWB No.", M + (CW / 3) * 2 + PAD, y + 2, { width: 90 });
+          doc.font(FB).fontSize(7.5).text(e.cewbNo, M + (CW / 3) * 2 + PAD + 92, y + 2);
+          y += h;
+        }
+      }
 
       doc.end();
     } catch (e) {

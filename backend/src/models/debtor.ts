@@ -29,6 +29,15 @@ export interface Debtor {
   paymentTermsType: PaymentTermsType | null;
   /** Advance percentage for advance_partial terms (1–99). */
   advancePct: number | null;
+  /**
+   * LEGACY single-term fields (kept for historic documents). New payment terms
+   * live in DebtorPaymentTerm rows; one per debtor is the default. On create,
+   * the server auto-creates a default term from these fields — see routes.
+   */
+  /** Default approved term for new sales orders (DebtorPaymentTerm id). */
+  defaultPaymentTermId: string | null;
+  /** Credit limit for dispatch gating (null = no limit). */
+  creditLimit: number | null;
   // ── GST / E-Way Bill fields ──
   /** 15-digit GST Identification Number (required for E-Way Bill generation). */
   gstin: string | null;
@@ -90,6 +99,8 @@ export async function create(data: Partial<Debtor> & { name: string }) {
     paymentTermsDays: data.paymentTermsDays || 30,
     paymentTermsType: normalizePaymentTermsType(data.paymentTermsType) || "credit",
     advancePct: normalizeAdvancePct(data.advancePct),
+    defaultPaymentTermId: (data as any).defaultPaymentTermId || null,
+    creditLimit: (data as any).creditLimit ?? null,
     gstin: data.gstin || null,
     panCardNo: data.panCardNo || null,
     stateCode: data.stateCode || (data.gstin ? data.gstin.slice(0, 2) : null),
@@ -101,7 +112,7 @@ export async function create(data: Partial<Debtor> & { name: string }) {
 }
 
 export async function update(id: string, updates: Partial<Debtor>) {
-  const allowed = ["name","industry","billingAddress","shippingAddress","billingAddresses","shippingAddresses","city","country","postalCode","phone","website","contactName","contactEmail","contactDesignation","contactPhone","salesmanName","salesmanPhone","salesmanEmail","paymentTermsDays","paymentTermsType","advancePct","gstin","panCardNo","stateCode","notes"];
+  const allowed = ["name","industry","billingAddress","shippingAddress","billingAddresses","shippingAddresses","city","country","postalCode","phone","website","contactName","contactEmail","contactDesignation","contactPhone","salesmanName","salesmanPhone","salesmanEmail","paymentTermsDays","paymentTermsType","advancePct","defaultPaymentTermId","creditLimit","gstin","panCardNo","stateCode","notes"];
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   // Normalize address lists and keep the legacy single-address fields in sync

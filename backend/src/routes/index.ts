@@ -134,6 +134,12 @@ import * as Journal from "../models/journal.js";
 import * as CDNote from "../models/credit-debit-note.js";
 import * as Combined from "../models/models-combined.js";
 import * as StockLocation from "../models/stock-location.js";
+import * as DebtorTerm from "../models/debtor-payment-term.js";
+import * as WorkflowTask from "../models/workflow-task.js";
+import * as DocTimeline from "../models/doc-timeline.js";
+import * as PaymentReceipt from "../models/payment-receipt.js";
+import * as NotificationLog from "../models/notification-log.js";
+import * as WorkflowSettings from "../models/workflow-settings.js";
 import * as db from "../dynamodb.js";
 import * as AuditLog from "../models/audit-log.js";
 
@@ -182,6 +188,121 @@ function notifyPendingQueue(
       console.error("  ⚠ Pending-queue email failed:", err);
     }
   })();
+}
+
+/**
+ * Unified workflow handoff (PDF-3 §5 + Final Working Rule):
+ * open the next task (idempotent) + timeline entry + spec-format email +
+ * notification log. Fire-and-forget — never blocks the request. Email honors
+ * the client's WorkflowSettings (assignment/approval/rejection toggles).
+ */
+function advanceWorkflow(
+  req: Request,
+  task: Omit<WorkflowTask.OpenTaskInput, "clientId"> & { clientId?: string },
+  opts?: {
+    timelineKind?: DocTimeline.TimelineKind;
+    timelineText?: string | null;
+    emailKind?: "assignment" | "approval" | "rejection" | "info";
+    docType?: string;
+    appPath?: string;
+  },
+) {
+  const actor = (req as any).user as { userId: string; email: string; roles?: string[] } | undefined;
+  const clientId = task.clientId ?? actor?.userId ?? "";
+  void (async () => {
+    try {
+      const { task: opened, created } = await WorkflowTask.openTask(
+        { ...task, clientId },
+        { userId: actor?.userId, email: actor?.email },
+      );
+      const docType = opts?.docType ?? task.docType;
+      await DocTimeline.addEntry({
+        clientId,
+        docType,
+        docId: task.docId,
+        docNumber: task.docNumber ?? null,
+        kind: opts?.timelineKind ?? "assignment",
+        actorId: actor?.userId ?? null,
+        actorEmail: actor?.email ?? null,
+        actorRoles: actor?.roles ?? [],
+        text: opts?.timelineText ?? `${task.requiredAction} → ${task.ownerRole}`,
+        prevStatus: null,
+        newStatus: task.docStatus ?? null,
+      });
+      trackAction(req, `workflow.task_opened`, opened.id, {
+        entityType: "workflow_task",
+        stage: task.stage,
+        docType: task.docType,
+        docNumber: task.docNumber,
+        ownerRole: task.ownerRole,
+      });
+      // Email only for genuinely new assignments (dedupe by DocType+DocID+Stage).
+      if (!created) return;
+      const settings = await WorkflowSettings.get(clientId).catch(() => null);
+      const emailKind = opts?.emailKind ?? "assignment";
+      const allowed =
+        emailKind === "assignment"
+          ? settings?.emailOnAssignment !== false
+          : emailKind === "approval"
+            ? settings?.emailOnApproval !== false
+            : emailKind === "rejection"
+              ? settings?.emailOnRejection !== false
+              : true;
+      if (!allowed) return;
+      const { notifyWorkflowTask } = await import("../email.js");
+      const result = await notifyWorkflowTask({
+        taskName: task.requiredAction,
+        docNumber: task.docNumber ?? task.docId,
+        counterparty: task.counterparty ?? null,
+        currentStatus: task.docStatus ?? null,
+        requiredAction: task.requiredAction,
+        dueDate: task.dueDate ?? null,
+        latestUpdate: task.latestUpdate ?? null,
+        ownerRole: task.ownerRole,
+        submittedBy: actor?.email ?? null,
+        appPath: opts?.appPath ?? "/app/workspace",
+      });
+      await NotificationLog.log({
+        clientId,
+        kind: emailKind === "info" ? "info" : emailKind,
+        taskId: opened.id,
+        docType: task.docType,
+        docId: task.docId,
+        docNumber: task.docNumber ?? null,
+        recipients: result.recipients,
+        subject: `Action Required — ${task.requiredAction} — ${task.docNumber ?? ""}`,
+        sent: result.sent,
+        error: result.sent ? null : "suppressed or failed",
+      });
+    } catch (err) {
+      console.error("  ⚠ Workflow handoff failed:", err);
+    }
+  })();
+}
+
+/** Timeline status-change entry + audit for a document transition. */
+function timelineStatus(
+  req: Request,
+  doc: { clientId: string; docType: string; docId: string; docNumber?: string | null },
+  prevStatus: string | null,
+  newStatus: string,
+  text?: string | null,
+  kind: DocTimeline.TimelineKind = "status_change",
+) {
+  const actor = (req as any).user as { userId: string; email: string; roles?: string[] } | undefined;
+  void DocTimeline.addEntry({
+    clientId: doc.clientId,
+    docType: doc.docType,
+    docId: doc.docId,
+    docNumber: doc.docNumber ?? null,
+    kind,
+    actorId: actor?.userId ?? null,
+    actorEmail: actor?.email ?? null,
+    actorRoles: actor?.roles ?? [],
+    text: text ?? `${prevStatus ?? "—"} → ${newStatus}`,
+    prevStatus,
+    newStatus,
+  }).catch((e) => console.error("  ⚠ Timeline write failed:", e));
 }
 
 // Apply view-as middleware to all data routes
@@ -366,7 +487,8 @@ router.post("/products/create-hierarchy", authMiddleware, async (req, res) => {
     const common: any = { name, category: category.name, gender: gender.name, model, unitPrice, unitCost, mrp, ecommercePrice,
       retailerPrice: body.retailerPrice === "" ? null : validPrice(body.retailerPrice, "Retailer price"),
       distributorPrice: body.distributorPrice === "" ? null : validPrice(body.distributorPrice, "Distributor price"),
-      unitOfMeasure: body.unitOfMeasure || "piece", categoryMasterId: category.id, genderMasterId: gender.id, status: "active" };
+      unitOfMeasure: body.unitOfMeasure || "piece", categoryMasterId: category.id, genderMasterId: gender.id, status: "active",
+      hsnCode: String(body.hsnCode ?? "").trim() || null };
     const parent = await Product.create({ ...common, clientId, sku: parentSku, skuLevel: "parent" });
     const colourProducts: any[] = []; const variants: any[] = [];
     // Variant-matrix opt-outs: frontend sends ["<colorId>:<sizeId>"] for disabled cells.
@@ -1166,7 +1288,48 @@ router.get("/debtors/:id", authMiddleware, async (req, res) => {
 });
 router.post("/debtors", authMiddleware, async (req, res) => {
   try {
-    res.status(201).json(await Debtor.create(req.body));
+    const item = await Debtor.create(req.body);
+    // Auto-create the default approved term from the legacy single-term
+    // fields so every customer satisfies "terms are mandatory" (PDF §1).
+    // Failures here must not roll back the debtor itself.
+    try {
+      const body = req.body || {};
+      const clientId = (item as any).clientId ?? (req.user as any)?.userId ?? null;
+      const advancePct =
+        body.paymentTermsType === "advance_full"
+          ? 100
+          : Number(body.advancePct) || 0;
+      const { formatPaymentTerms, balancePctFor, defaultDispatchConditionFor } =
+        await import("../lib/payment-terms.js");
+      const name =
+        formatPaymentTerms({
+          paymentTermsType: body.paymentTermsType ?? null,
+          advancePct: advancePct || null,
+          paymentTermsDays: body.paymentTermsDays ?? null,
+          paymentTerms: body.paymentTerms ?? null,
+        }) || "Default terms";
+      if (clientId) {
+        const term = await DebtorTerm.create(clientId, item.id, {          name,
+          paymentTermsType: body.paymentTermsType ?? null,
+          paymentTerms: body.paymentTerms ?? null,
+          advancePct,
+          balancePct: balancePctFor(advancePct),
+          balanceDueDays:
+            !body.paymentTermsType || body.paymentTermsType === "credit"
+              ? Number(body.paymentTermsDays) || 0
+              : 0,
+          dispatchCondition: defaultDispatchConditionFor(
+            body.paymentTermsType ?? "credit",
+            advancePct,
+          ),
+          isDefault: true,
+        });
+        await Debtor.update(item.id, { defaultPaymentTermId: term.id } as any);
+      }
+    } catch (e: any) {
+      console.error("  ⚠ default payment-term auto-create failed:", e?.message ?? e);
+    }
+    res.status(201).json(item);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1182,6 +1345,301 @@ router.delete("/debtors/:id", authMiddleware, async (req, res) => {
   try {
     await Debtor.remove(req.params.id);
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ============ DEBTOR PAYMENT TERMS (PDF §1: multiple terms, one default) ====
+router.get("/debtors/:id/payment-terms", authMiddleware, async (req, res) => {
+  try {
+    const debtor = await Debtor.get(req.params.id);
+    if (!debtor) return res.status(404).json({ error: "Debtor not found" });
+    res.json(await DebtorTerm.listByDebtor(req.params.id));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.post("/debtors/:id/payment-terms", authMiddleware, async (req, res) => {
+  try {
+    const debtor = await Debtor.get(req.params.id);
+    if (!debtor) return res.status(404).json({ error: "Debtor not found" });
+    const clientId = (req.user as any)?.userId ?? "api";
+    const term = await DebtorTerm.create(clientId, req.params.id, req.body || {});
+    if (term.isDefault) {
+      await Debtor.update(req.params.id, { defaultPaymentTermId: term.id } as any);
+    }
+    trackAction(req, "debtor_term.created", term.id, {
+      entityType: "debtor_term", debtorId: req.params.id, name: term.name,
+    });
+    res.status(201).json(term);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+router.put("/debtors/:id/payment-terms/:termId", authMiddleware, async (req, res) => {
+  try {
+    const updated = await DebtorTerm.update(req.params.id, req.params.termId, req.body || {});
+    if (!updated) return res.status(404).json({ error: "Payment term not found" });
+    if (updated.isDefault) {
+      await Debtor.update(req.params.id, { defaultPaymentTermId: updated.id } as any);
+    }
+    trackAction(req, "debtor_term.updated", updated.id, {
+      entityType: "debtor_term", debtorId: req.params.id, name: updated.name,
+    });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+router.post("/debtors/:id/payment-terms/:termId/set-default", authMiddleware, async (req, res) => {
+  try {
+    const updated = await DebtorTerm.setDefault(req.params.id, req.params.termId);
+    if (!updated) return res.status(404).json({ error: "Payment term not found" });
+    await Debtor.update(req.params.id, { defaultPaymentTermId: updated.id } as any);
+    trackAction(req, "debtor_term.set_default", updated.id, {
+      entityType: "debtor_term", debtorId: req.params.id, name: updated.name,
+    });
+    res.json(updated);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+router.delete("/debtors/:id/payment-terms/:termId", authMiddleware, async (req, res) => {
+  try {
+    await DebtorTerm.remove(req.params.id, req.params.termId);
+    trackAction(req, "debtor_term.deleted", req.params.termId, {
+      entityType: "debtor_term", debtorId: req.params.id,
+    });
+    res.json({ success: true });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ===================== WORKFLOW ENGINE (PDF-3) =====================
+// Unified tasks, per-document timelines, payment receipts, notifications.
+
+// ---- Tasks ----
+router.get("/workflow-tasks", authMiddleware, async (req, res) => {
+  try {
+    const scopeAll = req.query.scope === "all";
+    const tasks = await WorkflowTask.listOpen(scopeAll ? undefined : effectiveListScope(req));
+    const withOverdue = tasks.map((t) => ({ ...t, overdue: WorkflowTask.isOverdue(t) }));
+    // Personal queue first (assigned to me), then role queue, then rest.
+    const me = req.user!.email;
+    const roleOf = (req.user!.roles ?? []) as string[];
+    const rank = (t: any) =>
+      t.assignedUser === me || t.assignedUser === req.user!.userId ? 0
+      : roleOf.includes(t.ownerRole) || t.ownerRole === "sales" && roleOf.includes("client") ? 1 : 2;
+    withOverdue.sort((a: any, b: any) => rank(a) - rank(b) || String(b.createdAt).localeCompare(String(a.createdAt)));
+    res.json(withOverdue);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.get("/workflow-tasks/doc/:docType/:docId", authMiddleware, async (req, res) => {
+  try {
+    res.json(await WorkflowTask.listForDoc(req.params.docType, req.params.docId));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Timeline ----
+router.get("/timeline/:docType/:docId", authMiddleware, async (req, res) => {
+  try {
+    const entries = await DocTimeline.listForDoc(req.params.docType, req.params.docId);
+    const notifs = await NotificationLog.listForDoc(req.params.docType, req.params.docId);
+    res.json({ entries, notifications: notifs });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.post("/timeline/:docType/:docId", authMiddleware, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.text?.trim() && !body.attachment)
+      return res.status(400).json({ error: "Write an update or attach a file" });
+    const entry = await DocTimeline.addEntry({
+      clientId: req.user!.userId,
+      docType: req.params.docType,
+      docId: req.params.docId,
+      docNumber: body.docNumber ?? null,
+      kind: body.kind || "note",
+      actorId: req.user!.userId,
+      actorEmail: req.user!.email,
+      actorRoles: req.user!.roles ?? [],
+      text: body.text?.trim() || null,
+      attachment: body.attachment || null,
+      mentionedUser: body.mentionedUser || null,
+    });
+    trackAction(req, "timeline.note_added", entry.id, {
+      entityType: "timeline", docType: req.params.docType, docId: req.params.docId,
+    });
+    // Mention emails the mentioned user directly (spec §6).
+    if (body.mentionedUser) {
+      void (async () => {
+        try {
+          const { notifyWorkflowTask } = await import("../email.js");
+          await notifyWorkflowTask({
+            taskName: "You were mentioned",
+            docNumber: body.docNumber ?? req.params.docId,
+            requiredAction: body.text?.trim()?.slice(0, 120) || "See the update",
+            ownerRole: "client",
+            submittedBy: req.user!.email,
+            appPath: "/app/workspace",
+          });
+        } catch (e) { console.error("  ⚠ Mention email failed:", e); }
+      })();
+    }
+    res.status(201).json(entry);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ---- Payment receipts (Sales submits → Treasury verifies) ----
+router.get("/payment-receipts", authMiddleware, async (req, res) => {
+  try {
+    res.json(await PaymentReceipt.list(effectiveListScope(req)));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.post("/payment-receipts", authMiddleware, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const item = await PaymentReceipt.submit({
+      clientId: req.user!.userId,
+      salesOrderId: body.salesOrderId ?? body.sales_order_id ?? null,
+      salesOrderNumber: body.salesOrderNumber ?? body.sales_order_number ?? null,
+      proformaId: body.proformaId ?? body.proforma_id ?? null,
+      proformaNumber: body.proformaNumber ?? body.proforma_number ?? null,
+      invoiceId: body.invoiceId ?? body.invoice_id ?? null,
+      invoiceNumber: body.invoiceNumber ?? body.invoice_number ?? null,
+      amount: Number(body.amount) || 0,
+      utr: body.utr ?? null,
+      paymentMode: body.paymentMode ?? body.payment_mode ?? null,
+      proofName: body.proofName ?? body.proof_name ?? null,
+      proofUrl: body.proofUrl ?? body.proof_url ?? null,
+      submittedBy: req.user!.email,
+    });
+    timelineStatus(req, { clientId: req.user!.userId, docType: "payment", docId: item.id, docNumber: item.utr },
+      null, "submitted", `Payment proof submitted by ${req.user!.email} — ₹${item.amount}${item.utr ? ` · UTR ${item.utr}` : ""}`, "payment_proof");
+    advanceWorkflow(req, {
+      workflowType: item.proformaId ? "proforma" : "sales_invoice",
+      stage: "payment_confirmation",
+      docType: "payment",
+      docId: item.id,
+      docNumber: item.utr || item.proformaNumber || item.invoiceNumber,
+      counterparty: null,
+      docStatus: "submitted",
+      ownerRole: "treasury",
+      requiredAction: "Verify payment and UTR",
+      nextAction: "Release next workflow step",
+      amount: item.amount,
+      paymentStatus: "submitted",
+      linkedDocs: [
+        ...(item.salesOrderId ? [{ type: "sales_order", id: item.salesOrderId, number: item.salesOrderNumber }] : []),
+        ...(item.proformaId ? [{ type: "proforma", id: item.proformaId, number: item.proformaNumber }] : []),
+        ...(item.invoiceId ? [{ type: "sales_invoice", id: item.invoiceId, number: item.invoiceNumber }] : []),
+      ],
+    }, { timelineKind: "payment_proof", docType: "payment", appPath: "/app/queue" });
+    res.status(201).json(item);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+router.post("/payment-receipts/:id/verify", authMiddleware, requireRole("treasury", "factor_admin"), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const item = await PaymentReceipt.verify(req.params.id, {
+      receiptDate: body.receiptDate ?? body.receipt_date ?? "",
+      collectionAccount: body.collectionAccount ?? body.collection_account ?? null,
+      paymentMode: body.paymentMode ?? body.payment_mode ?? null,
+      verifiedBy: req.user!.email,
+    });
+    await WorkflowTask.closeTasksForDoc("payment", item.id, req.user, "Payment verified");
+    timelineStatus(req, { clientId: item.clientId, docType: "payment", docId: item.id, docNumber: item.utr },
+      "submitted", "verified", `Treasury verified ₹${item.amount} on ${item.receiptDate}`, "payment_proof");
+    // Advance → Paid cascade: proforma paid + next Finance task (PDF-2 §6).
+    if (item.proformaId) {
+      try {
+        const pf = await PurchaseOrder.get(item.proformaId);
+        const total = await PaymentReceipt.verifiedTotalForProforma(item.proformaId);
+        const agreed = Number((pf as any)?.advanceAmount) || 0;
+        if (pf && total >= agreed) {
+          await PurchaseOrder.update(item.proformaId, { proformaStatus: "paid", paymentReference: item.utr } as any);
+          timelineStatus(req, { clientId: item.clientId, docType: "proforma", docId: item.proformaId, docNumber: item.proformaNumber },
+            (pf as any).proformaStatus, "paid", `Advance verified — ₹${total} received`);
+          // Next Finance task: Create Final Sales Invoice.
+          const so = (pf as any).linkedGoodsSoId ? await GoodsSO.get((pf as any).linkedGoodsSoId).catch(() => null) : null;
+          if (so) {
+            advanceWorkflow(req, {
+              clientId: item.clientId,
+              workflowType: "sales_order",
+              stage: "create_invoice",
+              docType: "sales_order",
+              docId: so.id,
+              docNumber: so.soNumber,
+              counterparty: so.customerName,
+              docStatus: so.status,
+              ownerRole: "treasury",
+              requiredAction: "Create Final Sales Invoice",
+              nextAction: "Send invoice for approval / IRN",
+              amount: Number(so.grandTotal) || 0,
+              paymentStatus: "advance_verified",
+              linkedDocs: [{ type: "proforma", id: item.proformaId, number: item.proformaNumber }],
+            }, { timelineKind: "system", docType: "sales_order", appPath: "/app/invoices" });
+          }
+        }
+      } catch (e: any) { console.error("  ⚠ Proforma paid cascade failed:", e?.message ?? e); }
+    }
+    try {
+      const _s = await WorkflowSettings.get(item.clientId).catch(() => null);
+      if (_s?.emailOnApproval !== false) {
+        const { notifyWorkflowTask } = await import("../email.js");
+        const r = await notifyWorkflowTask({
+          taskName: "Payment verified", docNumber: item.utr || item.proformaNumber || item.invoiceNumber || item.id,
+          requiredAction: `₹${item.amount} verified by Treasury`, ownerRole: "client",
+          submittedBy: req.user!.email, appPath: "/app/workspace",
+        });
+        await NotificationLog.log({
+          clientId: item.clientId, kind: "approval", taskId: null, docType: "payment",
+          docId: item.id, docNumber: item.utr, recipients: r.recipients,
+          subject: `Payment verified — ${item.utr || ""}`, sent: r.sent, error: r.sent ? null : "failed",
+        });
+      }
+    } catch (e) { console.error("  ⚠ Verify email failed:", e); }
+    res.json(item);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+router.post("/payment-receipts/:id/reject", authMiddleware, requireRole("treasury", "factor_admin"), async (req, res) => {
+  try {
+    const item = await PaymentReceipt.reject(req.params.id, String(req.body?.reason ?? ""), req.user!.email);
+    await WorkflowTask.closeTasksForDoc("payment", item.id, req.user, "Payment proof rejected");
+    timelineStatus(req, { clientId: item.clientId, docType: "payment", docId: item.id, docNumber: item.utr },
+      "submitted", "rejected", `Treasury rejected proof: ${item.rejectReason}`, "rejection");
+    res.json(item);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+// ---- Notification settings ----
+router.get("/workflow-settings", authMiddleware, async (req, res) => {
+  try {
+    res.json(await WorkflowSettings.get(req.user!.userId));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.put("/workflow-settings", authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    res.json(await WorkflowSettings.update(req.user!.userId, req.body || {}));
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1335,6 +1793,24 @@ function copyVariantSnapshot(line: any, sourceLine: any): void {
 }
 
 /**
+ * Snapshot Tally-print fields onto a sales-invoice line: HSN code from the
+ * catalogue (never re-looked-up later) and the tax-inclusive rate default.
+ * An explicitly supplied rateInclTax is kept so the print matches Tally.
+ */
+function applyInvoicePrintSnapshot(line: any, product: any): void {
+  if (!line) return;
+  if ((line.hsnCode === undefined || line.hsnCode === null || line.hsnCode === "") && product) {
+    const hsn = product.hsnCode ?? product.hsn_code ?? null;
+    if (hsn) line.hsnCode = hsn;
+  }
+  if (line.rateInclTax === undefined || line.rateInclTax === null) {
+    const base = Number(line.unitPrice) || 0;
+    const gst = Number(line.gstRate ?? product?.gstRate ?? product?.gst_rate ?? 0) || 0;
+    line.rateInclTax = Math.round(base * (1 + gst / 100) * 100) / 100;
+  }
+}
+
+/**
  * Resolve the proforma linked to an invoice (sales: customer proforma, or
  * purchase: supplier proforma) and compute the advance deduction from the
  * recorded advances (server-side, never trusted from the client). Prefers the
@@ -1408,6 +1884,50 @@ async function resolveProformaForInvoice(
 }
 
 /**
+ * Payment-condition gate for final-invoice creation (PDF-2 §4/§7).
+ * Reads the SO's permanent term snapshot + Treasury-verified receipts:
+ * - no_check (Net 30/60): client acceptance is enough.
+ * - advance_required: agreed advance (proforma advanceAmount or
+ *   SO value × advance %) must be verified.
+ * - full_required: the full invoice value must be verified.
+ */
+async function assertPaymentConditionForInvoice(so: any, lines: any[]): Promise<void> {
+  const condition = (so as any).dispatchCondition ?? "no_check";
+  if (condition === "no_check") return;
+  const lineTotal = lines.reduce((s: number, l: any) => s + (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0) * (1 - (Number(l.discountPct) || 0) / 100), 0);
+  const gstEst = lines.reduce((s: number, l: any) => {
+    const net = (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0) * (1 - (Number(l.discountPct) || 0) / 100);
+    return s + (net * (Number(l.gstRate) || 0)) / 100;
+  }, 0);
+  const invoiceValue = Math.round((lineTotal + gstEst) * 100) / 100;
+  // Verified money = receipts against any proforma/invoice of this order.
+  const receipts = await PaymentReceipt.list((so as any).clientId).catch(() => [] as any[]);
+  const mine = (receipts as any[]).filter(
+    (r) => r.status === "verified" && (r.salesOrderId === so.id || (r.proformaId && r.proformaNumber)),
+  );
+  const byProforma = new Map<string, number>();
+  for (const r of mine) {
+    if (r.proformaId) byProforma.set(r.proformaId, (byProforma.get(r.proformaId) ?? 0) + Number(r.amount));
+  }
+  const verified = [...byProforma.values()].reduce((s, v) => s + v, 0)
+    + mine.filter((r) => !r.proformaId).reduce((s, r) => s + Number(r.amount), 0);
+  if (condition === "advance_required") {
+    const advancePct = Number((so as any).advancePct ?? 0) || 0;
+    const soValue = Number(so.grandTotal) || invoiceValue;
+    const required = Math.round(soValue * (advancePct / 100) * 100) / 100;
+    if (verified + 0.005 < required) {
+      throw new Error(`Advance payment pending — ₹${verified.toLocaleString("en-IN")} verified of ₹${required.toLocaleString("en-IN")} required`);
+    }
+    return;
+  }
+  if (condition === "full_required") {
+    if (verified + 0.005 < invoiceValue) {
+      throw new Error(`Balance payment pending — ₹${verified.toLocaleString("en-IN")} verified of ₹${invoiceValue.toLocaleString("en-IN")} required`);
+    }
+  }
+}
+
+/**
  * Validate a sales invoice against its linked sales order: the SO must be
  * confirmed/open (never draft or cancelled), the invoice customer must be the
  * SO customer, and every line must reference a product on the SO with a
@@ -1475,6 +1995,23 @@ router.get("/invoices/:id", authMiddleware, async (req, res) => {
   }
 });
 
+/** GET /invoices/:id/pdf — download the Tally-style tax-invoice PDF. */
+router.get("/invoices/:id/pdf", authMiddleware, async (req, res) => {
+  try {
+    const inv = await Invoice.get(req.params.id);
+    if (!inv || (inv.clientId !== req.user!.userId && !isStaffAccount(req.user?.roles))) {
+      return res.status(404).json({ error: "Invoice not found" });
+    }
+    const { pdf, number } = await buildInvoiceTallyBuffer(inv, inv.clientId);
+    const filename = `${(number || "invoice").replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(pdf);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /**
  * POST /invoices/:id/send-noa — email the Notice of Assignment to the buyer
  * (debtor) with the invoice PDF attached, then mark the NOA as sent.
@@ -1516,20 +2053,16 @@ router.post("/invoices/:id/send-noa", authMiddleware, async (req, res) => {
         });
     }
 
-    // Build the invoice PDF (white background, "Adventra" branding, debtor details).
-    const company = await resolveCompanyName(inv.clientId);
+    // Build the invoice PDF (Tally-style tax invoice + e-Way Bill section).
+    const { pdf, number, grandTotal } = await buildInvoiceTallyBuffer(inv, inv.clientId);
     const companyName = "Adventra";
-    const { invoiceToPdfData, buildInvoicePdf } =
-      await import("../lib/document-pdf.js");
-    const pdfData = invoiceToPdfData(inv, debtor, companyName, company.contact);
-    const pdf = await buildInvoicePdf(pdfData);
 
-    const filename = `${pdfData.number.replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`;
+    const filename = `${number.replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`;
     const noaUrl = `${config.appUrl}/noa/${inv.noaToken}`;
     const { sendInvoiceNoaEmail } = await import("../email.js");
     const sent = await sendInvoiceNoaEmail({
       invoiceNumber: inv.invoiceNumber,
-      amount: pdfData.grandTotal,
+      amount: grandTotal,
       dueDate: inv.dueDate || null,
       issueDate: inv.issueDate || null,
       debtorName: debtor?.name || "Customer",
@@ -1614,6 +2147,16 @@ router.post("/invoices", authMiddleware, async (req, res) => {
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
+    // Payment-condition gate (PDF-2 §4/§7): orders carrying a permanent
+    // term snapshot can only be invoiced once Treasury verified enough.
+    // Legacy orders without a snapshot keep the old behavior.
+    if ((so as any).paymentTermId) {
+      try {
+        await assertPaymentConditionForInvoice(so, body.lines ?? []);
+      } catch (e: any) {
+        return res.status(400).json({ error: e.message });
+      }
+    }
     if (!body.goodsSalesOrderNumber) body.goodsSalesOrderNumber = so.soNumber;
     // Resolve the linked customer proforma (formal field or PO-number match)
     // and compute the advance deduction server-side from the recorded advances.
@@ -1643,6 +2186,16 @@ router.post("/invoices", authMiddleware, async (req, res) => {
       status: item.status,
       clientId,
     });
+    timelineStatus(req, { clientId, docType: "sales_invoice", docId: item.id, docNumber: item.invoiceNumber },
+      null, "draft", `Finance created final invoice ${item.invoiceNumber} from ${so.soNumber}`);
+    await WorkflowTask.closeTasksForDoc("sales_order", so.id, req.user, "Final invoice created");
+    try {
+      await GoodsSO.update(so.id, {
+        workflowStatus: "invoice_pending",
+        currentOwnerRole: "treasury",
+        nextRequiredAction: "Approve invoice and record IRN",
+      });
+    } catch { /* non-fatal */ }
     // Cash-flow sync: create expected customer collection from invoice
     (async () => {
       try {
@@ -1727,8 +2280,150 @@ router.post("/invoices/:id/issue", authMiddleware, async (req, res) => {
   }
 });
 
-/** POST /invoices/:id/payment — record a customer payment (treasury/admin). */
-router.post("/invoices/:id/payment", authMiddleware, async (req, res) => {
+/**
+ * POST /invoices/:id/irn — record the manually-entered IRN from Tally
+ * (v1: manual paste; later the Tally integration writes with source=tally).
+ * Only finance/admin/checker may record; the invoice must be approved/issued
+ * and have no IRN yet. Recording locks content edits (see PUT guard).
+ */
+router.post("/invoices/:id/irn", authMiddleware, async (req, res) => {
+  try {
+    const roles: string[] = req.user!.roles || [];
+    const allowed = roles.some((r) =>
+      ["factor_admin", "checker", "treasury", "super_admin"].includes(r),
+    );
+    if (!allowed)
+      return res.status(403).json({ error: "Only finance/checker/admin can record the IRN" });
+    const body = req.body || {};
+    try {
+      const updated = await Invoice.recordIrn(req.params.id, {
+        irn: String(body.irn ?? ""),
+        ackNo: body.ackNo ?? body.ack_no ?? null,
+        ackDate: body.ackDate ?? body.ack_date ?? null,
+        enteredBy: req.user!.email,
+        source: body.source === "tally" ? "tally" : "manual",
+      });
+      trackAction(req, "invoice.irn_recorded", updated.id, {
+        entityType: "invoice",
+        entityRef: (updated as any).invoiceNumber,
+        ackNo: (updated as any).ackNo,
+        ackDate: (updated as any).ackDate,
+      });
+      timelineStatus(req, { clientId: (updated as any).clientId, docType: "sales_invoice", docId: updated.id, docNumber: (updated as any).invoiceNumber },
+        "approved", "irn_generated", `IRN recorded (${String((updated as any).irn).slice(0, 12)}…) — invoice locked`);
+      await WorkflowTask.closeTasksForDoc("sales_invoice", updated.id, req.user, "IRN recorded");
+      // IRN → auto-create the Dispatch Order pre-filled from invoice + SO
+      // (PDF-1 step 8: warehouse receives "Prepare Dispatch Order").
+      try {
+        const invFull = await Invoice.get(updated.id);
+        const soForDispatch = invFull?.goodsSalesOrderId ? await GoodsSO.get(invFull.goodsSalesOrderId).catch(() => null) : null;
+        const invLines: any[] = (invFull as any)?.lines ?? [];
+        const dispLines = invLines.map((l: any) => ({
+          productId: l.productId,
+          sku: l.sku ?? null,
+          name: l.name,
+          unit: l.unit || "unit",
+          orderedQty: Number(soForDispatch?.lines?.find((x: any) => x.productId === l.productId)?.orderedQty ?? l.quantity) || 0,
+          dispatchedQty: 0,
+          deliveredQty: 0,
+          returnedQty: 0,
+          unitPrice: Number(l.unitPrice) || 0,
+          discountPct: l.discountPct ?? null,
+          gstRate: l.gstRate ?? null,
+          lineValue: 0,
+          notes: null,
+        }));
+        const dispatch = await GoodsDispatch.create({
+          clientId: (updated as any).clientId,
+          goodsSalesOrderId: invFull?.goodsSalesOrderId || "",
+          soNumber: invFull?.goodsSalesOrderNumber ?? soForDispatch?.soNumber ?? null,
+          customerId: invFull?.debtorId ?? soForDispatch?.customerId ?? null,
+          customerName: soForDispatch?.customerName ?? null,
+          contactPerson: soForDispatch?.contactPerson ?? invFull?.customerContact ?? null,
+          deliveryAddress: invFull?.deliveryAddress ?? soForDispatch?.deliveryAddress ?? null,
+          warehouse: (soForDispatch as any)?.dispatchLocation ?? null,
+          finalInvoiceId: updated.id,
+          finalInvoiceNumber: (updated as any).invoiceNumber,
+          irnSnapshot: (updated as any).irn,
+          invoicedValue: Number((updated as any).grandTotal) || 0,
+          invoicedGst: Number((updated as any).gstTotal) || 0,
+          linkedSalesInvoiceId: updated.id,
+          linkedSalesInvoiceNumber: (updated as any).invoiceNumber,
+          status: "draft",
+          lines: dispLines,
+        } as any);
+        timelineStatus(req, { clientId: (updated as any).clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
+          null, "draft", `Dispatch order auto-created from invoice ${(updated as any).invoiceNumber} — packing + transport pending`);
+        advanceWorkflow(req, {
+          workflowType: "dispatch",
+          stage: "prepare_dispatch",
+          docType: "dispatch",
+          docId: dispatch.id,
+          docNumber: dispatch.dispatchNumber,
+          counterparty: dispatch.customerName,
+          docStatus: "draft",
+          ownerRole: "operations",
+          requiredAction: "Prepare Dispatch Order (packing + transport)",
+          nextAction: "Submit Dispatch Details to Finance",
+          amount: Number((updated as any).grandTotal) || 0,
+          inventoryStatus: "reserved",
+          linkedDocs: [
+            { type: "sales_invoice", id: updated.id, number: (updated as any).invoiceNumber },
+            ...(invFull?.goodsSalesOrderId ? [{ type: "sales_order", id: invFull.goodsSalesOrderId, number: invFull.goodsSalesOrderNumber }] : []),
+          ],
+        }, { timelineKind: "system", docType: "dispatch", appPath: "/app/dispatches" });
+      } catch (e: any) {
+        console.error("  ⚠ Auto dispatch-order creation failed:", e?.message ?? e);
+      }
+      res.json(updated);
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * DELETE /invoices/:id/irn — clear a manually-entered IRN for same-day
+ * correction. Blocked once dispatch activity references the invoice.
+ */
+router.delete("/invoices/:id/irn", authMiddleware, async (req, res) => {
+  try {
+    const roles: string[] = req.user!.roles || [];
+    const allowed = roles.some((r) =>
+      ["factor_admin", "checker", "treasury", "super_admin"].includes(r),
+    );
+    if (!allowed)
+      return res.status(403).json({ error: "Only finance/checker/admin can clear the IRN" });
+    const inv = await Invoice.get(req.params.id);
+    if (!inv) return res.status(404).json({ error: "Invoice not found" });
+    // A dispatch linked to this invoice means goods may have moved — the IRN
+    // (and e-way bill) must go through cancellation, not silent clearing.
+    const dispatches = await GoodsDispatch.list((req.user as any)?.userId);
+    const linked = (dispatches as any[]).some(
+      (d) => d.linkedSalesInvoiceId === req.params.id && d.status !== "cancelled",
+    );
+    if (linked)
+      return res.status(400).json({
+        error: "A dispatch references this invoice — cancel the dispatch/e-way bill first",
+      });
+    try {
+      const updated = await Invoice.clearIrn(req.params.id, String(req.body?.reason ?? req.query?.reason ?? ""));
+      trackAction(req, "invoice.irn_cleared", updated.id, {
+        entityType: "invoice",
+        entityRef: (updated as any).invoiceNumber,
+      });
+      res.json(updated);
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** POST /invoices/:id/payment — record a customer payment (treasury/admin). */router.post("/invoices/:id/payment", authMiddleware, async (req, res) => {
   try {
     const roles: string[] = req.user!.roles || [];
     if (!roles.includes("factor_admin") && !roles.includes("treasury")) {
@@ -1822,6 +2517,45 @@ router.put("/invoices/:id", authMiddleware, async (req, res) => {
     const body = req.body || {};
     const current = await Invoice.get(req.params.id);
     if (!current) return res.status(404).json({ error: "Invoice not found" });
+    // Once an IRN is recorded, normal editing is blocked — use the
+    // cancellation or credit-note workflow instead (PDF §7). Only status,
+    // payment, NOA, EWB-link and print-reference fields stay editable.
+    if ((current as any).irn) {
+      const irnFrozen = [
+        "lines",
+        "freight",
+        "amount",
+        "debtorId",
+        "invoiceNumber",
+        "issueDate",
+        "dueDate",
+        "goodsSalesOrderId",
+        "goodsSalesOrderNumber",
+        "billingAddress",
+        "deliveryAddress",
+        "paymentTerms",
+        "paymentTermsType",
+        "advancePct",
+        "customerContact",
+        "notes",
+        "documents",
+        "poNumber",
+        "poDate",
+        "poAmount",
+        "linkedCustomerProformaId",
+        "linkedCustomerProformaNumber",
+        "advanceDeducted",
+        "subtotalGoods",
+        "totalDiscount",
+        "gstTotal",
+        "grandTotal",
+      ];
+      if (irnFrozen.some((k) => (body as any)[k] !== undefined)) {
+        return res.status(400).json({
+          error: "IRN is recorded — this e-invoice is locked. Use cancellation or a credit note to correct it",
+        });
+      }
+    }
     // Closed invoices are frozen for content edits (payment/status only).
     if (current.status === "paid" || current.status === "cancelled") {
       const frozen = [
@@ -1932,6 +2666,26 @@ router.put("/invoices/:id", authMiddleware, async (req, res) => {
           dueDate: (updated as any)?.dueDate ?? current.dueDate ?? null,
           reviewPath: "/app/queue",
         });
+        timelineStatus(req, { clientId: current.clientId, docType: "sales_invoice", docId: current.id, docNumber: current.invoiceNumber },
+          current.status, "approved", `Checker approved ${current.invoiceNumber} — IRN pending`);
+        advanceWorkflow(req, {
+          workflowType: "sales_invoice",
+          stage: "record_irn",
+          docType: "sales_invoice",
+          docId: current.id,
+          docNumber: current.invoiceNumber,
+          counterparty: null,
+          docStatus: "approved",
+          ownerRole: "treasury",
+          requiredAction: "Record IRN from Tally",
+          nextAction: "Prepare Dispatch Order",
+          amount: Number((updated as any)?.grandTotal ?? current.amount) || 0,
+          linkedDocs: current.goodsSalesOrderId ? [{ type: "sales_order", id: current.goodsSalesOrderId, number: current.goodsSalesOrderNumber }] : [],
+        }, { timelineKind: "system", docType: "sales_invoice", appPath: "/app/invoices" });
+      }
+      if (s === "rejected" || s === "disputed") {
+        timelineStatus(req, { clientId: current.clientId, docType: "sales_invoice", docId: current.id, docNumber: current.invoiceNumber },
+          current.status, s, `Invoice ${s}${req.body.notes ? `: ${req.body.notes}` : ""}`, "rejection");
       }
     }
     // Instant reminder check on update (e.g., status changed to approved)
@@ -2411,10 +3165,32 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
         amountPaid: Number(body.amountPaid) || 0,
         prevAmountPaid: Number(current.amountPaid ?? 0),
       });
+      timelineStatus(req, { clientId: req.user!.userId, docType: "purchase_invoice", docId: current.id, docNumber: current.invoiceNumber },
+        current.status, current.status, `Treasury recorded payment ₹${Number(body.amountPaid) || 0}`);
+      const payable = Number((updated as any)?.amount ?? current.amount) || 0;
+      if (payable > 0 && Number(body.amountPaid) >= payable - 0.005) {
+        advanceWorkflow(req, {
+          workflowType: "purchase_order",
+          stage: "await_goods",
+          docType: "purchase_invoice",
+          docId: current.id,
+          docNumber: current.invoiceNumber,
+          counterparty: (updated as any)?.supplierName ?? current.supplierName ?? null,
+          docStatus: "paid",
+          ownerRole: "operations",
+          requiredAction: "Monitor expected delivery, create GRN on arrival",
+          nextAction: "Credit inventory",
+          amount: payable,
+        }, { timelineKind: "system", docType: "purchase_invoice", appPath: "/app/warehouse" });
+      }
     }
     // Audit trail — record workflow status transitions.
     if (body.status && body.status !== current.status) {
       const s = String(body.status);
+      // Disputes and cancellations require a reason (PDF-3 §8).
+      if ((s === "disputed" || s === "cancelled") && !String(body.differenceNotes ?? body.notes ?? req.body?.reason ?? "").trim()) {
+        return res.status(400).json({ error: `A reason is required to mark the invoice ${s}` });
+      }
       const actionByStatus = {
         verified: "purchase_invoice.verified",
         approved_for_payment: "purchase_invoice.approved",
@@ -2443,6 +3219,27 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
           dueDate: (updated as any)?.dueDate ?? current.dueDate ?? null,
           reviewPath: s === "verified" ? "/app/checker" : "/app/queue",
         });
+        timelineStatus(req, { clientId: req.user!.userId, docType: "purchase_invoice", docId: current.id, docNumber: current.invoiceNumber },
+          current.status, s, s === "verified" ? "Invoice submitted for checker approval" : "Checker approved — sent to Treasury");
+        advanceWorkflow(req, {
+          workflowType: "purchase_invoice",
+          stage: s === "verified" ? "checker_approval" : "treasury_payment",
+          docType: "purchase_invoice",
+          docId: current.id,
+          docNumber: current.invoiceNumber,
+          counterparty: (updated as any)?.supplierName ?? current.supplierName ?? null,
+          docStatus: s,
+          ownerRole: s === "verified" ? "checker" : "treasury",
+          requiredAction: s === "verified" ? "Approve or reject invoice" : "Record payment commitment or actual payment",
+          nextAction: s === "verified" ? "Send to Treasury" : "Await goods",
+          amount: Number((updated as any)?.amount ?? current.amount) || 0,
+          paymentStatus: s,
+        }, { timelineKind: "system", docType: "purchase_invoice", appPath: s === "verified" ? "/app/checker" : "/app/queue" });
+      }
+      if (s === "disputed" || s === "cancelled") {
+        timelineStatus(req, { clientId: req.user!.userId, docType: "purchase_invoice", docId: current.id, docNumber: current.invoiceNumber },
+          current.status, s, `Invoice ${s}: ${String(body.differenceNotes ?? body.notes ?? req.body?.reason ?? "").trim()}`, "rejection");
+        await WorkflowTask.closeTasksForDoc("purchase_invoice", current.id, req.user, `Invoice ${s}`);
       }
     }
     // Instant reminder check on update
@@ -2495,6 +3292,7 @@ async function validateProformaLines(clientId: string | undefined, rawLines: any
     if (Number(l.unitPrice) < 0)
       throw new Error("Unit price must be greater than or equal to zero");
     applyVariantSnapshot(l, productById.get(l.productId));
+    applyInvoicePrintSnapshot(l, productById.get(l.productId));
   }
   return rawLines;
 }
@@ -2849,6 +3647,120 @@ router.post(
   },
 );
 
+/**
+ * POST /purchase-orders/from-sales-order — Finance creates the Advance
+ * Proforma FROM an accepted Sales Order (PDF-2 §5). Copies the order summary
+ * as catalogue lines; advance amount = SO value × advance %; due date = SO
+ * confirmation date (v1). Creates no stock/Invoice/IRN/EWB/receivable — only
+ * an expected advance receipt for cash-flow forecasting.
+ */
+router.post(
+  "/purchase-orders/from-sales-order",
+  authMiddleware,
+  requireRole("treasury", "factor_admin"),
+  async (req, res) => {
+    try {
+      const clientId = req.user!.userId;
+      const so = await GoodsSO.get(String(req.body?.salesOrderId ?? ""));
+      if (!so) return res.status(404).json({ error: "Sales order not found" });
+      if ((so as any).debtorApprovalStatus !== "approved")
+        return res.status(400).json({ error: "Client must accept the sales order first" });
+      const advancePct = Number((so as any).advancePct ?? 0) || 0;
+      if (!(advancePct > 0))
+        return res.status(400).json({ error: "This order needs no advance — create the final invoice instead" });
+      const existing = (await PurchaseOrder.list(clientId)).filter(
+        (p: any) => p.side === "sales" && (p as any).linkedGoodsSoId === so.id && p.status !== "cancelled",
+      );
+      if (existing.length > 0)
+        return res.status(400).json({ error: "An advance proforma already exists for this order" });
+      const lines = (so.lines ?? []).map((l: any) => ({
+        productId: l.productId,
+        sku: l.sku ?? null,
+        name: l.name,
+        unit: l.unit || "unit",
+        quantity: Number(l.orderedQty) || 0,
+        unitPrice: Number(l.unitPrice) || 0,
+        gstRate: l.gstRate ?? null,
+        lineTotal: 0,
+      }));
+      const soValue = Number(so.grandTotal) || 0;
+      const advanceAmount = Math.round(soValue * (advancePct / 100) * 100) / 100;
+      let bankDetails: string | null = null;
+      try {
+        const parts = await resolveTallySellerParts(clientId);
+        if (parts.bank) {
+          bankDetails = `${parts.bank.holder} | ${parts.bank.bank} | A/c ${parts.bank.acNo} | IFSC ${parts.bank.ifsc} | ${parts.bank.branch}`;
+        } else bankDetails = parts.bankRaw;
+      } catch { bankDetails = null; }
+      const item = await PurchaseOrder.create({
+        clientId,
+        side: "sales",
+        poNumber: `ADV-${so.soNumber}`,
+        debtorId: so.customerId,
+        debtorContact: so.contactPerson,
+        paymentTerms: (so as any).paymentTermName ?? so.paymentTerms ?? null,
+        paymentTermsType: (so as any).paymentTermsType ?? null,
+        advancePct,
+        lines,
+        freight: 0,
+        status: "draft",
+        linkedGoodsSoId: so.id,
+        advanceAmount,
+        advanceDueDate: (so as any).reviewedAt?.slice(0, 10) ?? db.todayDate(),
+        bankDetails,
+        upiDetails: null,
+      } as any);
+      await PurchaseOrder.update(item.id, { proformaStatus: "draft" } as any);
+      await WorkflowTask.closeTasksForDoc("sales_order", so.id, req.user, "Advance proforma created");
+      timelineStatus(req, { clientId, docType: "sales_order", docId: so.id, docNumber: so.soNumber },
+        (so as any).workflowStatus ?? null, "proforma_pending",
+        `Finance created advance proforma ${(item as any).proformaNumber ?? item.poNumber} — ₹${advanceAmount} (${advancePct}%)`);
+      advanceWorkflow(req, {
+        workflowType: "proforma",
+        stage: "await_payment",
+        docType: "proforma",
+        docId: item.id,
+        docNumber: (item as any).proformaNumber ?? item.poNumber,
+        counterparty: so.customerName,
+        docStatus: "sent",
+        ownerRole: "client",
+        requiredAction: "Collect advance payment",
+        nextAction: "Submit UTR to Treasury",
+        amount: advanceAmount,
+        paymentStatus: "awaiting",
+        linkedDocs: [{ type: "sales_order", id: so.id, number: so.soNumber }],
+      }, { timelineKind: "system", docType: "proforma", appPath: "/app/proformas" });
+      res.status(201).json(item);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+/**
+ * POST /purchase-orders/:id/send — Finance sends the advance proforma to the
+ * client (proformaStatus draft → sent). No stock/invoice/IRN/EWB effect.
+ */
+router.post(
+  "/purchase-orders/:id/send",
+  authMiddleware,
+  requireRole("treasury", "factor_admin"),
+  async (req, res) => {
+    try {
+      const pf = await PurchaseOrder.get(req.params.id);
+      if (!pf) return res.status(404).json({ error: "Proforma not found" });
+      if (pf.side !== "sales") return res.status(400).json({ error: "Only sales proformas can be sent" });
+      const updated = await PurchaseOrder.update(pf.id, { proformaStatus: "sent", sentAt: db.nowISO() } as any);
+      timelineStatus(req, { clientId: (pf as any).clientId, docType: "proforma", docId: pf.id, docNumber: (pf as any).proformaNumber ?? pf.poNumber },
+        (pf as any).proformaStatus, "sent", "Finance sent the advance proforma to the client");
+      trackAction(req, "proforma.sent", pf.id, { entityType: "proforma", entityRef: (pf as any).proformaNumber ?? pf.poNumber });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
 // ===================== GOODS PURCHASE ORDERS (catalogue-backed POs) =====================
 // Distinct from the proforma PurchaseOrder model above: a goods PO is a purchase
 // request/commitment that references catalogue SKUs. It NEVER creates inventory —
@@ -2986,6 +3898,65 @@ router.put("/goods-purchase-orders/:id", authMiddleware, async (req, res) => {
         dueDate: (updated as any)?.expectedDeliveryDate ?? current?.expectedDeliveryDate ?? null,
         reviewPath: "/app/checker",
       });
+      timelineStatus(req, { clientId: req.user!.userId, docType: "purchase_order", docId: req.params.id, docNumber: (updated as any)?.poNumber },
+        current?.status ?? null, "pending_review", "Procurement submitted PO for checker approval");
+      advanceWorkflow(req, {
+        workflowType: "purchase_order",
+        stage: "checker_approval",
+        docType: "purchase_order",
+        docId: req.params.id,
+        docNumber: (updated as any)?.poNumber ?? null,
+        counterparty: (updated as any)?.supplierName ?? null,
+        docStatus: "pending_review",
+        ownerRole: "checker",
+        requiredAction: "Approve or reject PO",
+        nextAction: "Send PO to Supplier",
+        amount: Number((updated as any)?.grandTotal) || 0,
+      }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/checker" });
+    }
+    // Approved → auto-email to supplier + procurement tracking task (PDF-3 §3).
+    if (body.status === "approved" && current?.status !== "approved") {
+      timelineStatus(req, { clientId: req.user!.userId, docType: "purchase_order", docId: req.params.id, docNumber: (updated as any)?.poNumber },
+        current?.status ?? null, "approved", `Checker approved PO ${(updated as any)?.poNumber ?? ""}`);
+      try {
+        const po = await GoodsPO.get(req.params.id);
+        if (po && po.status === "approved") {
+          const sent = await sendPurchaseOrderToSupplier(po, req.user!.userId);
+          await GoodsPO.update(po.id, {
+            supplierApprovalStatus: "pending",
+            supplierApprovalToken: sent.token,
+            supplierApprovalSentAt: db.nowISO(),
+            supplierApprovalRespondedAt: null,
+            supplierApprovalComments: null,
+            supplierApprovalEmail: sent.email,
+            status: "sent",
+          } as any);
+          timelineStatus(req, { clientId: req.user!.userId, docType: "purchase_order", docId: po.id, docNumber: (po as any).poNumber },
+            "approved", "sent", `System emailed PO to supplier (${sent.email})`);
+        }
+      } catch (e: any) {
+        console.error("  ⚠ Auto supplier email failed:", e?.message ?? e);
+      }
+      advanceWorkflow(req, {
+        workflowType: "purchase_order",
+        stage: "track_supplier",
+        docType: "purchase_order",
+        docId: req.params.id,
+        docNumber: (updated as any)?.poNumber ?? null,
+        counterparty: (updated as any)?.supplierName ?? null,
+        docStatus: "sent",
+        ownerRole: "client",
+        requiredAction: "Track supplier response, record supplier invoice",
+        nextAction: "Submit invoice for approval",
+        amount: Number((updated as any)?.grandTotal) || 0,
+      }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchases" });
+    }
+    if (body.status === "cancelled" && current?.status !== "cancelled") {
+      const reason = String(body.notes ?? req.body?.reason ?? "").trim();
+      if (!reason) return res.status(400).json({ error: "A reason is required to cancel the purchase order" });
+      timelineStatus(req, { clientId: req.user!.userId, docType: "purchase_order", docId: req.params.id, docNumber: (updated as any)?.poNumber },
+        current?.status ?? null, "cancelled", `PO cancelled: ${reason}`, "rejection");
+      await WorkflowTask.closeTasksForDoc("purchase_order", req.params.id, req.user, "PO cancelled");
     }
     res.json(updated);
   } catch (err: any) {
@@ -3312,6 +4283,14 @@ router.post("/goods-receipts/:id/confirm", authMiddleware, async (req, res) => {
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
+    // Variance gate (PDF-3 §3): received ≠ PO → warehouse note required.
+    const variance = (receipt.lines ?? []).some((l: any) => {
+      const poLine = (po.lines ?? []).find((x: any) => x.productId === l.productId);
+      return poLine && Number(l.receivedQty) !== Number(poLine.orderedQty);
+    });
+    if (variance && !String((receipt as any).notes ?? "").trim() && !String(req.body?.notes ?? "").trim()) {
+      return res.status(400).json({ error: "Received quantity differs from the PO — add a warehouse note first" });
+    }
     // Atomic draft → confirmed flip: exactly one concurrent confirm wins and
     // credits stock; the others get alreadyConfirmed and credit nothing.
     const flipped = await GoodsReceipt.flipToConfirmed(
@@ -3326,6 +4305,9 @@ router.post("/goods-receipts/:id/confirm", authMiddleware, async (req, res) => {
       poNumber: receipt.poNumber,
       lines: receipt.lines?.length ?? 0,
     });
+    timelineStatus(req, { clientId, docType: "grn", docId: receipt.id, docNumber: receipt.receiptNumber },
+      "draft", "confirmed", `Warehouse confirmed GRN — inventory credited against ${receipt.poNumber}`);
+    await WorkflowTask.closeTasksForDoc("purchase_order", po.id, req.user, "Goods received");
     await syncLinkedPurchaseInvoice(flipped);
     recomputeForecast(clientId);
     res.json(flipped);
@@ -3574,6 +4556,42 @@ router.post("/goods-sales-orders", authMiddleware, async (req, res) => {
     }
     if (!body.customerName && body.customerId)
       body.customerName = await resolveCustomerName(body.customerId);
+    // PDF §2: copy the selected approved term as a permanent snapshot.
+    // If the caller picked a term, verify it belongs to this customer;
+    // otherwise fall back to the customer's default term.
+    if (body.customerId) {
+      try {
+        const { normalizeBalancePct, normalizeBalanceDueDays } =
+          await import("../lib/payment-terms.js");
+        let term: any = null;
+        if (body.paymentTermId) {
+          term = await DebtorTerm.getById(String(body.paymentTermId));
+          if (!term || term.debtorId !== body.customerId || term.isActive === false) {
+            return res.status(400).json({
+              error: "Selected payment term is not approved for this customer",
+            });
+          }
+        } else {
+          term = await DebtorTerm.getDefault(body.customerId);
+        }
+        if (term) {
+          body.paymentTermId = term.id;
+          body.paymentTermName = term.name;
+          body.paymentTermsType = term.paymentTermsType;
+          body.advancePct = term.advancePct;
+          body.balancePct =
+            normalizeBalancePct(body.balancePct) ?? term.balancePct;
+          body.balanceDueDays =
+            normalizeBalanceDueDays(body.balanceDueDays) ?? term.balanceDueDays;
+          body.balanceDueBasis = term.balanceDueBasis;
+          body.advanceDueBasis = term.advanceDueBasis;
+          body.dispatchCondition = term.dispatchCondition;
+          if (!body.paymentTerms) body.paymentTerms = term.name;
+        }
+      } catch (e: any) {
+        console.error("  ⚠ payment-term snapshot failed:", e?.message ?? e);
+      }
+    }
     const item = await GoodsSO.create({
       ...body,
       // Every newly created sales order must enter the Sales review gate.
@@ -3583,6 +4601,23 @@ router.post("/goods-sales-orders", authMiddleware, async (req, res) => {
       salespersonId: req.user!.userId,
       salespersonName: req.user!.email,
     });
+    timelineStatus(req, { clientId: req.user!.userId, docType: "sales_order", docId: item.id, docNumber: item.soNumber },
+      null, "draft", `Sales created ${item.soNumber} for ${item.customerName ?? "customer"}`);
+    advanceWorkflow(req, {
+      workflowType: "sales_order",
+      stage: "stock_check",
+      docType: "sales_order",
+      docId: item.id,
+      docNumber: item.soNumber,
+      counterparty: item.customerName,
+      docStatus: "draft",
+      ownerRole: "operations",
+      requiredAction: "Confirm and reserve stock",
+      nextAction: "Send to Checker",
+      amount: Number(item.grandTotal) || 0,
+      inventoryStatus: "pending",
+      linkedDocs: [],
+    }, { timelineKind: "system", docType: "sales_order", appPath: "/app/warehouse" });
     res.status(201).json(item);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -3620,6 +4655,46 @@ router.put("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
     delete body.warehouseApprovedBy;
     delete body.warehouseApprovedAt;
     delete body.warehouseNotes;
+    // PDF §2: the payment-term snapshot is permanent. Once the SO leaves
+    // draft, term fields can only change through a term re-selection that
+    // re-snapshots from an approved master term.
+    const SNAPSHOT_FIELDS = [
+      "paymentTermId",
+      "paymentTermName",
+      "paymentTermsType",
+      "advancePct",
+      "balancePct",
+      "balanceDueDays",
+      "balanceDueBasis",
+      "advanceDueBasis",
+      "dispatchCondition",
+    ];
+    const touchesSnapshot = SNAPSHOT_FIELDS.some((k) => body[k] !== undefined);
+    if (touchesSnapshot && current && current.status !== "draft") {
+      // Allow re-selection only when the caller supplies a valid approved
+      // term id for the same customer — re-snapshot from the master.
+      if (body.paymentTermId && body.paymentTermId !== (current as any).paymentTermId) {
+        const term = await DebtorTerm.getById(String(body.paymentTermId));
+        if (!term || term.debtorId !== current.customerId || term.isActive === false) {
+          return res.status(400).json({
+            error: "Selected payment term is not approved for this customer",
+          });
+        }
+        body.paymentTermName = term.name;
+        body.paymentTermsType = term.paymentTermsType;
+        body.advancePct = term.advancePct;
+        body.balancePct = term.balancePct;
+        body.balanceDueDays = term.balanceDueDays;
+        body.balanceDueBasis = term.balanceDueBasis;
+        body.advanceDueBasis = term.advanceDueBasis;
+        body.dispatchCondition = term.dispatchCondition;
+        body.paymentTerms = term.name;
+      } else {
+        return res.status(403).json({
+          error: "Payment terms are frozen on this sales order — select another approved term to change them",
+        });
+      }
+    }
     // A re-confirmed SO re-enters the warehouse queue: clear the previous
     // sign-off so the hard gate re-applies after a checker review cycle.
     if (body.status === "confirmed") {
@@ -3731,6 +4806,11 @@ router.post(
       if (so.status !== transition.from)
         return res.status(409).json({ error: `Sales order must be ${transition.from}` });
 
+      // Reservation payload (stock check reserves, never debits — PDF-2 §3).
+      const stockStatus = String(req.body?.stockStatus || "reserved");
+      if (!["reserved", "in_transit"].includes(stockStatus) && action === "approve") {
+        return res.status(400).json({ error: "stockStatus must be reserved or in_transit" });
+      }
       const updated = await GoodsSO.update(so.id, {
         status: transition.to as any,
         manualStatus: transition.to as any,
@@ -3738,11 +4818,28 @@ router.post(
         warehouseApprovedBy: req.user!.userId,
         warehouseApprovedAt: new Date().toISOString(),
         warehouseNotes: req.body?.notes ? String(req.body.notes) : null,
+        ...(action === "approve"
+          ? {
+              stockStatus: stockStatus as any,
+              dispatchLocation: req.body?.dispatchLocation ? String(req.body.dispatchLocation) : so.dispatchLocation,
+              expectedInwardDate: stockStatus === "in_transit" ? String(req.body?.expectedInwardDate || "") || null : null,
+              reservedBy: req.user!.userId,
+              reservedAt: new Date().toISOString(),
+              workflowStatus: "checker_pending",
+              currentOwnerRole: "checker",
+              nextRequiredAction: "Approve or reject Sales Order",
+            }
+          : {}),
       });
       trackAction(req, `sales_order.warehouse_${action}`, so.id, {
         entityType: "sales_order", entityRef: so.soNumber,
         previous: so.status, status: transition.to,
       });
+      timelineStatus(req, { clientId: so.clientId, docType: "sales_order", docId: so.id, docNumber: so.soNumber },
+        so.status, transition.to as string,
+        action === "approve"
+          ? `Warehouse ${stockStatus === "in_transit" ? "marked Stock In Transit" : "reserved stock"} at ${req.body?.dispatchLocation || so.dispatchLocation || "warehouse"}${req.body?.notes ? ` — ${req.body.notes}` : ""}`
+          : `Warehouse put order on hold${req.body?.notes ? `: ${req.body.notes}` : ""}`);
       // Signed off → pending in checker: mail admin, treasury, checker users.
       if (action === "approve" && transition.to === "checker_pending") {
         notifyPendingQueue(req, {
@@ -3753,6 +4850,20 @@ router.post(
           dueDate: (updated as any)?.expectedDeliveryDate ?? (so as any)?.expectedDeliveryDate ?? null,
           reviewPath: "/app/checker",
         });
+        advanceWorkflow(req, {
+          workflowType: "sales_order",
+          stage: "checker_approval",
+          docType: "sales_order",
+          docId: so.id,
+          docNumber: so.soNumber,
+          counterparty: so.customerName,
+          docStatus: "checker_pending",
+          ownerRole: "checker",
+          requiredAction: "Approve or reject Sales Order",
+          nextAction: "Send to Client",
+          amount: Number((updated as any)?.grandTotal ?? so.grandTotal) || 0,
+          inventoryStatus: (updated as any)?.stockStatus ?? "reserved",
+        }, { timelineKind: "system", docType: "sales_order", appPath: "/app/checker" });
       }
       res.json(updated);
     } catch (err: any) {
@@ -3786,6 +4897,11 @@ router.post(
         return res.status(400).json({ error: "action must be approve or reject" });
       if (so.status !== transition.from)
         return res.status(409).json({ error: `Sales order must be ${transition.from}` });
+      // Rejection requires a reason (PDF-3 §8) — it travels back with the task.
+      const reason = String(req.body?.notes ?? req.body?.reason ?? "").trim();
+      if (action === "reject" && !reason) {
+        return res.status(400).json({ error: "A reason is required to reject the sales order" });
+      }
 
       const updated = await GoodsSO.update(so.id, {
         status: transition.to as any,
@@ -3794,11 +4910,71 @@ router.post(
         reviewedAt: action === "approve" ? new Date().toISOString() : null,
         ...(action === "reject"
           ? { warehouseStatus: "pending", warehouseApprovedBy: null, warehouseApprovedAt: null }
-          : {}),
+          : {
+              workflowStatus: "sent_to_client",
+              currentOwnerRole: "client",
+              nextRequiredAction: "Accept, reject or request change",
+            }),
       });
       trackAction(req, `sales_order.checker_${action}`, so.id, {
         entityType: "sales_order", entityRef: so.soNumber,
         previous: so.status, status: transition.to,
+      });
+      if (action === "reject") {
+        timelineStatus(req, { clientId: so.clientId, docType: "sales_order", docId: so.id, docNumber: so.soNumber },
+          so.status, transition.to as string, `Checker rejected: ${reason}`, "rejection");
+        advanceWorkflow(req, {
+          workflowType: "sales_order",
+          stage: "stock_check",
+          docType: "sales_order",
+          docId: so.id,
+          docNumber: so.soNumber,
+          counterparty: so.customerName,
+          docStatus: transition.to,
+          ownerRole: "operations",
+          requiredAction: "Re-check stock after checker rejection",
+          nextAction: "Send to Checker",
+          amount: Number(so.grandTotal) || 0,
+        }, { timelineKind: "rejection", timelineText: `Checker rejected: ${reason}`, emailKind: "rejection", docType: "sales_order", appPath: "/app/warehouse" });
+        return res.json(updated);
+      }
+      // Checker approved → system auto-sends the SO to the client (PDF-2 §3).
+      let sendNote: string | null = null;
+      try {
+        const sent = await sendDocumentToDebtor("sales_order", { ...so, ...(updated as any) }, so.clientId);
+        await GoodsSO.update(so.id, {
+          debtorApprovalStatus: "pending",
+          debtorApprovalToken: sent.token,
+          debtorApprovalSentAt: db.nowISO(),
+          debtorApprovalRespondedAt: null,
+          debtorApprovalComments: null,
+          debtorApprovalEmail: sent.email,
+        });
+        timelineStatus(req, { clientId: so.clientId, docType: "sales_order", docId: so.id, docNumber: so.soNumber },
+          "confirmed", "sent_to_client", `Checker approved — SO emailed to ${sent.email} for client acceptance`);
+      } catch (e: any) {
+        sendNote = e?.message ?? "automatic email failed";
+        timelineStatus(req, { clientId: so.clientId, docType: "sales_order", docId: so.id, docNumber: so.soNumber },
+          "confirmed", "confirmed", `Checker approved — auto-email failed (${sendNote}); resend from Sales Orders`);
+      }
+      advanceWorkflow(req, {
+        workflowType: "sales_order",
+        stage: "client_acceptance",
+        docType: "sales_order",
+        docId: so.id,
+        docNumber: so.soNumber,
+        counterparty: so.customerName,
+        docStatus: "confirmed",
+        ownerRole: "client",
+        requiredAction: "Accept, reject or request change",
+        nextAction: "Create Finance task",
+        amount: Number(so.grandTotal) || 0,
+        inventoryStatus: (so as any).stockStatus ?? "reserved",
+      }, {
+        timelineKind: "system",
+        timelineText: sendNote ? `Awaiting client acceptance (auto-email failed: ${sendNote})` : "Awaiting client acceptance — approval link emailed",
+        docType: "sales_order",
+        appPath: "/app/sales-orders",
       });
       res.json(updated);
     } catch (err: any) {
@@ -3970,6 +5146,120 @@ async function buildSalesOrderTallyBuffer(
   });
   const pdf = await buildSalesOrderTallyPdf(data);
   return { pdf, number: data.number, grandTotal: data.grandTotal };
+}
+
+/**
+ * Build the Tally-style tax-invoice PDF (+ e-Way Bill section when data is
+ * present) for an invoice record. Shared by download + NOA email.
+ * QR encodes the signed QR payload when pasted, else the IRN.
+ */
+async function buildInvoiceTallyBuffer(
+  inv: any,
+  clientId: string,
+): Promise<{ pdf: Buffer; number: string; grandTotal: number }> {
+  const { seller, bank, bankRaw, declarationRaw } = await resolveTallySellerParts(clientId);
+  const {
+    invoiceToTallyData,
+    buildInvoiceTallyPdf,
+    makeEinvoiceQrImage,
+  } = await import("../lib/document-pdf.js");
+  const debtor = inv.debtorId ? await Debtor.get(inv.debtorId).catch(() => null) : null;
+  const so = inv.goodsSalesOrderId ? await GoodsSO.get(inv.goodsSalesOrderId).catch(() => null) : null;
+  const qrImage = await makeEinvoiceQrImage(inv.signedQr || inv.irn || null).catch(() => null);
+  const ewb = await assembleInvoiceEwb(inv, debtor, seller).catch(() => null);
+  const data = invoiceToTallyData(inv, {
+    debtor,
+    so,
+    seller,
+    bank,
+    bankRaw,
+    declarationRaw,
+    qrImage,
+    ewb,
+  });
+  const pdf = await buildInvoiceTallyPdf(data);
+  return { pdf, number: data.number, grandTotal: data.grandTotal };
+}
+
+/**
+ * Assemble the e-Way Bill print section (v1: manual paste + dispatch/NIC
+ * record when linked). Returns null when there is no EWB number anywhere —
+ * the PDF then prints the invoice without the EWB section.
+ */
+async function assembleInvoiceEwb(inv: any, debtor: any, seller: any): Promise<any | null> {
+  const dispatches = await GoodsDispatch.list(inv.clientId).catch(() => [] as any[]);
+  const dispatch = (dispatches as any[])
+    .filter((d) => d.linkedSalesInvoiceId === inv.id && d.status !== "cancelled")
+    .sort((a, b) => String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")))[0] ?? null;
+  let record: any = null;
+  if (dispatch) {
+    try {
+      const EWB = await import("../models/eway-bill.js");
+      record = await EWB.getByDispatchId(dispatch.id);
+    } catch { record = null; }
+  }
+  const ewbNo =
+    record?.ewbNumber ?? inv.ewbNumber ?? inv.ewb_number ?? null;
+  if (!ewbNo) return null;
+  const short = (iso: any): string => {
+    if (!iso) return "";
+    const s = String(iso);
+    if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+      const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const [Y, M_, D] = s.slice(0, 10).split("-").map(Number);
+      return `${D}-${mon[M_ - 1]}-${String(Y).slice(2)}`;
+    }
+    return s;
+  };
+  const rawLines: any[] = inv.lines ?? [];
+  const goods = rawLines.map((l: any) => ({
+    hsn: l.hsnCode ?? l.hsn_code ?? "",
+    name: l.name ?? "Item",
+    quantity: Number(l.quantity ?? 0) || 0,
+    unit: l.unit ?? "unit",
+    taxable: Number(l.lineTotal ?? l.line_total ?? 0) || 0,
+    rate: Number(l.gstRate ?? l.gst_rate ?? 0) || 0,
+  }));
+  const subtotal = Number(inv.subtotalGoods ?? inv.subtotal ?? goods.reduce((x, gl) => x + gl.taxable, 0)) || 0;
+  const grandTotal = Number(inv.grandTotal ?? inv.grand_total ?? subtotal) || 0;
+  const taxTotal = Number(inv.gstTotal ?? inv.gst_total ?? 0) || 0;
+  const buyerGstin = inv.buyerGstin ?? inv.buyer_gstin ?? debtor?.gstin ?? "";
+  const buyerState = inv.buyerState ?? inv.buyer_state ?? "";
+  return {
+    docNo: `Tax Invoice - ${inv.invoiceNumber || inv.invoice_number || ""}`,
+    date: short(inv.issueDate ?? inv.issue_date ?? ""),
+    irn: inv.irn ?? null,
+    ackNo: inv.ackNo ?? inv.ack_no ?? null,
+    ackDate: short(inv.ackDate ?? inv.ack_date ?? ""),
+    ewbNo: String(ewbNo),
+    mode: "",
+    generatedDate: short(record?.generatedAt ?? record?.createdAt ?? new Date().toISOString()),
+    generatedBy: seller?.gstin ?? "",
+    approxDistance: record?.approxDistance ? `${record.approxDistance} KM` : "",
+    validUpto: short(record?.validUntil ?? ""),
+    supplyType: "Outward-Supply",
+    txnType: "Bill From - Dispatch From",
+    fromName: seller?.name ?? "",
+    fromGstin: seller?.gstin ?? "",
+    fromState: seller?.stateName ?? "",
+    dispatchFrom: dispatch?.warehouse ?? "",
+    toName: debtor?.name ?? "",
+    toGstin: buyerGstin,
+    toState: buyerState,
+    shipTo: inv.deliveryAddress ?? inv.delivery_address ?? "",
+    goods,
+    totalTaxable: Math.round(subtotal * 100) / 100,
+    otherAmt: Math.round((grandTotal - subtotal - taxTotal) * 100) / 100,
+    totalInvAmt: grandTotal,
+    igstAmt: taxTotal,
+    transporterId: record?.transporterGstin ?? record?.transporterId ?? "",
+    transporterName: dispatch?.transporterName ?? record?.transporterName ?? "",
+    transportDocNo: dispatch?.trackingNumber ?? "",
+    transportDocDate: "",
+    vehicleNo: record?.vehicleNumber ?? "",
+    vehicleFrom: String(seller?.stateName || "").toUpperCase(),
+    cewbNo: record?.consolidatedEwbNumber ?? "",
+  };
 }
 async function sendDocumentToDebtor(
   kind: "sales_order",
@@ -4318,6 +5608,10 @@ router.post(
 
       const locked = cfg.locked.includes(doc.status);
       const f = cfg.field;
+      // Client rejection / change-request requires a reason (PDF-3 §8).
+      if (decision !== "approved" && !String(comments || "").trim()) {
+        return res.status(400).json({ error: "Please give a reason so Sales can act on it" });
+      }
       const patch: Record<string, any> = {
         [`${f}Status`]: decision,
         [`${f}RespondedAt`]: db.nowISO(),
@@ -4331,13 +5625,13 @@ router.post(
         if (kind === "sales_order" || kind === "purchase_order") {
           patch.manualStatus = patch.status;
         }
-        // A sales order re-entering "confirmed" via the debtor-approval link
-        // re-enters the warehouse queue (clear any stale sign-off).
         if (kind === "sales_order" && patch.status === "confirmed") {
-          patch.warehouseStatus = null;
-          patch.warehouseApprovedBy = null;
-          patch.warehouseApprovedAt = null;
-          patch.warehouseNotes = null;
+          // Client acceptance KEEPS the warehouse reservation (PDF-2 §3) and
+          // records the acceptance identity for the audit trail.
+          patch.debtorApprovalEmail = (doc as any).debtorApprovalEmail ?? null;
+          patch.workflowStatus = "finance_pending";
+          patch.currentOwnerRole = "treasury";
+          patch.nextRequiredAction = "Create Proforma or Final Sales Invoice";
         }
       }
 
@@ -4356,6 +5650,58 @@ router.post(
           .json({
             error: "This approval link is invalid or has already been used",
           });
+      }
+      // Client acceptance auto-creates the correct Finance task (PDF-2 §4):
+      // advance% > 0 → Create Advance Proforma, else Create Final Sales Invoice.
+      if (kind === "sales_order" && decision === "approved" && !locked) {
+        const advancePct = Number((claimed as any).advancePct ?? 0) || 0;
+        const needsProforma = advancePct > 0;
+        const fakeReq = { user: { userId: (claimed as any).clientId, email: "system", roles: [] } } as any;
+        advanceWorkflow(fakeReq, {
+          clientId: (claimed as any).clientId,
+          workflowType: "sales_order",
+          stage: needsProforma ? "create_proforma" : "create_invoice",
+          docType: "sales_order",
+          docId: (claimed as any).id,
+          docNumber: (claimed as any).soNumber,
+          counterparty: (claimed as any).customerName,
+          docStatus: "confirmed",
+          ownerRole: "treasury",
+          requiredAction: needsProforma ? "Create Advance Proforma" : "Create Final Sales Invoice",
+          nextAction: needsProforma ? "Send proforma and await payment" : "Send invoice for approval / IRN",
+          amount: Number((claimed as any).grandTotal) || 0,
+          paymentStatus: needsProforma ? "advance_pending" : "not_required",
+          inventoryStatus: (claimed as any).stockStatus ?? "reserved",
+          linkedDocs: [],
+        }, {
+          timelineKind: "system",
+          timelineText: `Client accepted on ${(claimed as any).debtorApprovalRespondedAt ?? "recorded time"} — Finance task: ${needsProforma ? "Create Advance Proforma" : "Create Final Sales Invoice"}`,
+          docType: "sales_order",
+          appPath: needsProforma ? "/app/proformas" : "/app/invoices",
+        });
+      }
+      if (kind === "sales_order" && decision !== "approved" && !locked) {
+        const fakeReq = { user: { userId: (claimed as any).clientId, email: "system", roles: [] } } as any;
+        advanceWorkflow(fakeReq, {
+          clientId: (claimed as any).clientId,
+          workflowType: "sales_order",
+          stage: "stock_check",
+          docType: "sales_order",
+          docId: (claimed as any).id,
+          docNumber: (claimed as any).soNumber,
+          counterparty: (claimed as any).customerName,
+          docStatus: "draft",
+          ownerRole: "operations",
+          requiredAction: "Re-check stock after client rejection",
+          nextAction: "Send to Checker",
+          amount: Number((claimed as any).grandTotal) || 0,
+        }, {
+          timelineKind: "rejection",
+          timelineText: `Client rejected: ${comments}`,
+          emailKind: "rejection",
+          docType: "sales_order",
+          appPath: "/app/warehouse",
+        });
       }
       res.json({
         success: true,
@@ -4698,6 +6044,44 @@ router.post(
           req.user!.roles?.includes("checker"));
       const so = await GoodsSO.get(dispatch.goodsSalesOrderId);
       if (!so) return res.status(404).json({ error: "Sales order not found" });
+      // Readiness gate for the new flow (PDF-1 steps 10–12, PDF-2 §9):
+      // dispatches built from a final invoice confirm only when Ready
+      // (EWB generated) or EWB-Not-Required is recorded. Legacy dispatches
+      // without an invoice link keep the old direct-confirm behavior.
+      if ((dispatch as any).finalInvoiceId) {
+        const ready = dispatch.status === "ready_for_dispatch";
+        const excused = (dispatch as any).ewbNotRequired === true && !!(dispatch as any).ewbNotRequiredReason;
+        if (!ready && !excused) {
+          const hint =
+            dispatch.status === "details_submitted"
+              ? "E-Way Bill pending — Finance must record it first"
+              : "Dispatch order is not submitted — Warehouse must submit packing + transport first";
+          return res.status(400).json({ error: `Not ready for physical dispatch: ${hint}` });
+        }
+        // Dispatch controls (PDF-2 §10 blocked reasons).
+        if ((so as any).dispatchHold === true) {
+          return res.status(400).json({ error: `Manual dispatch hold: ${(so as any).dispatchHoldReason || "no reason given"}` });
+        }
+        // Credit-limit check (PDF-2 §10 blocked reasons).
+        if (so.customerId) {
+          try {
+            const debtor = await Debtor.get(so.customerId);
+            const limit = Number((debtor as any)?.creditLimit);
+            if (Number.isFinite(limit) && limit > 0) {
+              const invoices = await Invoice.list(clientId).catch(() => [] as any[]);
+              const exposure = (invoices as any[])
+                .filter((i: any) => i.debtorId === so.customerId && !["paid", "cancelled", "rejected"].includes(i.status))
+                .reduce((s: number, i: any) => s + (Number(i.amount) || 0), 0);
+              if (exposure > limit) {
+                return res.status(400).json({ error: `Credit limit exceeded — exposure ₹${exposure.toLocaleString("en-IN")} over limit ₹${limit.toLocaleString("en-IN")}` });
+              }
+            }
+          } catch (e: any) {
+            if (e?.message?.startsWith("Credit limit exceeded")) throw e;
+            console.error("  ⚠ Credit-limit check failed:", e?.message ?? e);
+          }
+        }
+      }
       try {
         assertSODispatchable(so);
       } catch (e: any) {
@@ -4736,12 +6120,28 @@ router.post(
       );
       if (!flipped) return res.json({ ...dispatch, alreadyConfirmed: true });
       await debitSalesOrder(clientId, flipped, so);
+      // Physical-confirm capture (PDF-1 step 12): actuals recorded at flip.
+      try {
+        const actuals: Record<string, any> = {};
+        if (req.body?.actualDispatchedAt) actuals.actualDispatchedAt = String(req.body.actualDispatchedAt);
+        else actuals.actualDispatchedAt = db.nowISO();
+        if (req.body?.actualVehicleNumber !== undefined) actuals.actualVehicleNumber = String(req.body.actualVehicleNumber || "") || null;
+        if (req.body?.actualPackedQty !== undefined) actuals.actualPackedQty = Number(req.body.actualPackedQty) || null;
+        if (req.body?.lrNumber !== undefined) actuals.lrNumber = String(req.body.lrNumber || "") || null;
+        await GoodsDispatch.update(flipped.id, actuals);
+      } catch (e) { console.error("  ⚠ Dispatch actuals capture failed:", e); }
       trackAction(req, "dispatch.confirmed", dispatch.id, {
         entityType: "dispatch",
         entityRef: dispatch.dispatchNumber,
         soNumber: dispatch.soNumber,
         lines: dispatch.lines?.length ?? 0,
       });
+      timelineStatus(req, { clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
+        "ready_for_dispatch", "confirmed",
+        `Warehouse confirmed physical dispatch from ${dispatch.warehouse ?? "warehouse"}${req.body?.lrNumber ? ` · LR ${req.body.lrNumber}` : ""} — inventory debited`);
+      await WorkflowTask.closeTasksForDoc("dispatch", dispatch.id, req.user, "Physical dispatch confirmed");
+      timelineStatus(req, { clientId, docType: "sales_order", docId: so.id, docNumber: so.soNumber },
+        so.status, "dispatched", `Goods dispatched via ${dispatch.dispatchNumber} — visible to Sales, Finance and Treasury`);
       recomputeForecast(clientId);
       // Auto-generate E-Way Bill if taxable value exceeds threshold
       (async () => {
@@ -4793,6 +6193,14 @@ router.post(
               "Cannot cancel a returned dispatch — the return has already credited stock back",
           });
       }
+      // EWB generated but goods not leaving → cancel the e-way bill through
+      // the approved process first (PDF-1 rule 9 / PDF-2 §9).
+      const hasEwb = !!(dispatch.ewayBillNumber || dispatch.ewayBillId) && !dispatch.ewbNotRequired;
+      if (hasEwb && req.body?.ewbCancelled !== true) {
+        return res.status(400).json({
+          error: "E-way bill exists — cancel it first, then retry with ewbCancelled: true",
+        });
+      }
       // Atomic → cancelled flip: only the winner performs the reversal.
       const flipped = await GoodsDispatch.flipToCancelled(
         dispatch.id,
@@ -4809,8 +6217,197 @@ router.post(
           wasDebited,
         });
       }
+      timelineStatus(req, { clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
+        dispatch.status, "cancelled", req.body?.reason ? `Cancelled: ${req.body.reason}` : "Dispatch cancelled");
+      await WorkflowTask.closeTasksForDoc("dispatch", dispatch.id, req.user, "Dispatch cancelled");
       recomputeForecast(clientId);
       res.json(flipped);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+/**
+ * POST /goods-dispatches/:id/submit-to-finance — warehouse submits packing +
+ * transport details (PDF-1). Validates required fields, moves draft →
+ * details_submitted, opens the Finance "Generate E-Way Bill" task.
+ */
+router.post(
+  "/goods-dispatches/:id/submit-to-finance",
+  authMiddleware,
+  requireRole("operations", "factor_admin"),
+  async (req, res) => {
+    try {
+      const dispatch = await GoodsDispatch.get(req.params.id);
+      if (!dispatch) return res.status(404).json({ error: "Dispatch note not found" });
+      if (dispatch.status !== "draft")
+        return res.status(400).json({ error: "Only draft dispatch orders can be submitted" });
+      const d: any = { ...dispatch, ...(req.body || {}) };
+      const missing: string[] = [];
+      if (!d.transportMode) missing.push("transport mode");
+      if (!d.transporterName) missing.push("transporter name");
+      if (!(Number(d.distanceKm) > 0)) missing.push("approximate distance");
+      if (!d.vehicleNumber && !d.transportDocNumber) missing.push("vehicle number or transport document number");
+      if (missing.length > 0)
+        return res.status(400).json({ error: `Missing dispatch details: ${missing.join(", ")}` });
+      const pack: Record<string, any> = {};
+      for (const k of ["cartonCount", "packageType", "grossWeight", "grossWeightUnit", "handlingInstructions", "internalDispatchNotes", "plannedDispatchAt", "transportMode", "transporterName", "transporterId", "distanceKm", "vehicleNumber", "vehicleType", "transportDocType", "transportDocNumber", "transportDocDate", "driverName", "driverMobile", "deliveryCity", "deliveryState", "deliveryPincode"]) {
+        if ((req.body || {})[k] !== undefined) pack[k] = (req.body || {})[k];
+      }
+      const updated = await GoodsDispatch.update(dispatch.id, {
+        ...pack,
+        status: "details_submitted" as any,
+        submittedAt: db.nowISO(),
+        submittedBy: req.user!.email,
+      });
+      trackAction(req, "dispatch.submitted", dispatch.id, {
+        entityType: "dispatch", entityRef: dispatch.dispatchNumber,
+      });
+      timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
+        "draft", "details_submitted", `Warehouse submitted packing + transport (${d.transporterName}, ${d.transportMode})`);
+      advanceWorkflow(req, {
+        workflowType: "dispatch",
+        stage: "generate_ewb",
+        docType: "dispatch",
+        docId: dispatch.id,
+        docNumber: dispatch.dispatchNumber,
+        counterparty: dispatch.customerName,
+        docStatus: "details_submitted",
+        ownerRole: "treasury",
+        requiredAction: "Generate E-Way Bill",
+        nextAction: "Confirm Physical Dispatch",
+        amount: (dispatch as any).invoicedValue ?? null,
+        linkedDocs: [
+          ...(dispatch.finalInvoiceId ? [{ type: "sales_invoice", id: dispatch.finalInvoiceId, number: dispatch.finalInvoiceNumber }] : []),
+          { type: "sales_order", id: dispatch.goodsSalesOrderId, number: dispatch.soNumber },
+        ],
+      }, { timelineKind: "system", docType: "dispatch", appPath: "/app/dispatches" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+/**
+ * POST /goods-dispatches/:id/send-back — Finance returns the dispatch order
+ * for correction before EWB generation (PDF-1 rule 8). Reason mandatory.
+ */
+router.post(
+  "/goods-dispatches/:id/send-back",
+  authMiddleware,
+  requireRole("treasury", "factor_admin"),
+  async (req, res) => {
+    try {
+      const reason = String(req.body?.reason ?? "").trim();
+      if (!reason) return res.status(400).json({ error: "A reason is required to send the order back" });
+      const dispatch = await GoodsDispatch.get(req.params.id);
+      if (!dispatch) return res.status(404).json({ error: "Dispatch note not found" });
+      if (dispatch.status !== "details_submitted")
+        return res.status(400).json({ error: "Only submitted dispatch orders can be sent back" });
+      const updated = await GoodsDispatch.update(dispatch.id, { status: "draft" as any });
+      timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
+        "details_submitted", "draft", `Finance sent back for correction: ${reason}`, "rejection");
+      advanceWorkflow(req, {
+        workflowType: "dispatch",
+        stage: "prepare_dispatch",
+        docType: "dispatch",
+        docId: dispatch.id,
+        docNumber: dispatch.dispatchNumber,
+        counterparty: dispatch.customerName,
+        docStatus: "draft",
+        ownerRole: "operations",
+        requiredAction: `Correct dispatch order: ${reason}`,
+        nextAction: "Submit Dispatch Details to Finance",
+        amount: (dispatch as any).invoicedValue ?? null,
+      }, { timelineKind: "rejection", timelineText: reason, emailKind: "rejection", docType: "dispatch", appPath: "/app/dispatches" });
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+/**
+ * POST /goods-dispatches/:id/record-ewb — Finance records the EWB (v1 manual;
+ * later written by Tally). Saves on dispatch + invoice, moves to
+ * ready_for_dispatch, opens "Confirm Physical Dispatch" for Warehouse.
+ */
+router.post(
+  "/goods-dispatches/:id/record-ewb",
+  authMiddleware,
+  requireRole("treasury", "factor_admin"),
+  async (req, res) => {
+    try {
+      const dispatch = await GoodsDispatch.get(req.params.id);
+      if (!dispatch) return res.status(404).json({ error: "Dispatch note not found" });
+      if (!["details_submitted", "draft"].includes(dispatch.status))
+        return res.status(400).json({ error: "E-Way Bill can only be recorded on a submitted dispatch order" });
+      const body = req.body || {};
+      // "EWB Not Required" path with authorised reason (PDF-2 §9).
+      if (body.notRequired === true) {
+        const reason = String(body.reason ?? "").trim();
+        if (!reason) return res.status(400).json({ error: "An authorised reason is required when no e-way bill is needed" });
+        const updated = await GoodsDispatch.update(dispatch.id, {
+          ewbNotRequired: true, ewbNotRequiredReason: reason, status: "ready_for_dispatch" as any,
+        });
+        timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
+          dispatch.status, "ready_for_dispatch", `E-Way Bill not required: ${reason} (by ${req.user!.email})`);
+        advanceWorkflow(req, {
+          workflowType: "dispatch",
+          stage: "confirm_dispatch",
+          docType: "dispatch",
+          docId: dispatch.id,
+          docNumber: dispatch.dispatchNumber,
+          counterparty: dispatch.customerName,
+          docStatus: "ready_for_dispatch",
+          ownerRole: "operations",
+          requiredAction: "Confirm Physical Dispatch",
+          nextAction: "Debit inventory",
+          amount: (dispatch as any).invoicedValue ?? null,
+        }, { timelineKind: "system", docType: "dispatch", appPath: "/app/warehouse" });
+        return res.json(updated);
+      }
+      const ewbNumber = String(body.ewbNumber ?? "").trim();
+      if (!/^\d{8,16}$/.test(ewbNumber))
+        return res.status(400).json({ error: "Enter the numeric E-Way Bill number from Tally" });
+      const updated = await GoodsDispatch.update(dispatch.id, {
+        ewayBillNumber: ewbNumber,
+        ewayBillStatus: "generated",
+        ewayBillGeneratedAt: body.generatedAt || db.nowISO(),
+        ewayBillValidUntil: body.validUntil || null,
+        status: "ready_for_dispatch" as any,
+      });
+      // Mirror onto the linked invoice (spec: saved against both).
+      if (dispatch.finalInvoiceId) {
+        try {
+          await Invoice.update(dispatch.finalInvoiceId, {
+            ewbNumber,
+            ewbGeneratedAt: body.generatedAt || db.nowISO(),
+            ewbValidUntil: body.validUntil || null,
+            transporter: dispatch.transporterName,
+            vehicleNumber: (dispatch as any).vehicleNumber ?? null,
+            lrRef: (dispatch as any).transportDocNumber ?? null,
+          } as any);
+        } catch (e) { console.error("  ⚠ Invoice EWB mirror failed:", e); }
+      }
+      timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
+        dispatch.status, "ready_for_dispatch", `E-Way Bill ${ewbNumber} recorded — ready for physical dispatch`);
+      advanceWorkflow(req, {
+        workflowType: "dispatch",
+        stage: "confirm_dispatch",
+        docType: "dispatch",
+        docId: dispatch.id,
+        docNumber: dispatch.dispatchNumber,
+        counterparty: dispatch.customerName,
+        docStatus: "ready_for_dispatch",
+        ownerRole: "operations",
+        requiredAction: "Confirm Physical Dispatch",
+        nextAction: "Debit inventory",
+        amount: (dispatch as any).invoicedValue ?? null,
+      }, { timelineKind: "system", docType: "dispatch", appPath: "/app/warehouse" });
+      res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }

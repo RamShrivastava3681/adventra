@@ -158,6 +158,8 @@ type Dispatch = {
   shipping_status_at: string | null;
   shipping_status_by: string | null;
   shipping_notes: string | null;
+  /** Final sales invoice linked at IRN time (used to flag invoiced dispatches). */
+  linked_sales_invoice_id: string | null;
   lines: DispatchLine[];
 };
 

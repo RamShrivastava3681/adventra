@@ -179,6 +179,18 @@ const api = {
     create: (data: any) => api.post<any>("/debtors", data),
     update: (id: string, data: any) => api.put<any>(`/debtors/${id}`, data),
     delete: (id: string) => api.delete(`/debtors/${id}`),
+    // Approved payment terms per customer (PDF §1: multiple terms, one default).
+    terms: {
+      list: (debtorId: string) => api.get<any[]>(`/debtors/${debtorId}/payment-terms`),
+      create: (debtorId: string, data: any) =>
+        api.post<any>(`/debtors/${debtorId}/payment-terms`, data),
+      update: (debtorId: string, termId: string, data: any) =>
+        api.put<any>(`/debtors/${debtorId}/payment-terms/${termId}`, data),
+      setDefault: (debtorId: string, termId: string) =>
+        api.post<any>(`/debtors/${debtorId}/payment-terms/${termId}/set-default`, {}),
+      delete: (debtorId: string, termId: string) =>
+        api.delete(`/debtors/${debtorId}/payment-terms/${termId}`),
+    },
   },
 
   // Vendors
@@ -206,6 +218,30 @@ const api = {
     update: (id: string, data: any) => api.put<any>(`/invoices/${id}`, data),
     delete: (id: string) => api.delete(`/invoices/${id}`),
     issue: (id: string) => api.post<any>(`/invoices/${id}/issue`, {}),
+    // Manual e-invoice IRN from Tally (v1: paste; later written by integration).
+    recordIrn: (id: string, data: { irn: string; ackNo?: string | null; ackDate?: string | null }) =>
+      api.post<any>(`/invoices/${id}/irn`, data),
+    clearIrn: (id: string, reason: string) =>
+      api.delete<any>(`/invoices/${id}/irn?reason=${encodeURIComponent(reason)}`),
+    // Tally-style tax-invoice PDF download.
+    downloadPdf: async (id: string, filename: string) => {
+      const res = await fetch(`${API_URL}/invoices/${id}/pdf`, { credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || "Could not download PDF");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disp = res.headers.get("content-disposition") || "";
+      const m = disp.match(/filename="?([^"]+)"?/);
+      a.download = m?.[1] ?? `${filename}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
     recordPayment: (id: string, data: { amountReceived: number; receiptDate?: string }) =>
       api.post<any>(`/invoices/${id}/payment`, data),
     // Email the Notice of Assignment to the buyer with the invoice PDF attached.

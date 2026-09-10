@@ -22,6 +22,8 @@ import * as db from "../dynamodb.js";
 
 export type GoodsDispatchStatus =
   | "draft"
+  | "details_submitted"
+  | "ready_for_dispatch"
   | "confirmed"
   | "partially_delivered"
   | "delivered"
@@ -100,6 +102,8 @@ export interface GoodsDispatchLine {
   orderedQty: number;
   /** Quantity actually dispatched on this note. */
   dispatchedQty: number;
+  /** Packed quantity handed over (defaults to dispatchedQty at confirm). */
+  packedQty: number | null;
   /** System-maintained: quantity confirmed delivered to the customer. */
   deliveredQty: number;
   /** System-maintained: quantity returned by the customer. */
@@ -171,6 +175,51 @@ export interface GoodsDispatch {
   ewayBillNumber: string | null;
   /** EWB lifecycle status: pending, generated, vehicle_updated, cancelled, failed. */
   ewayBillStatus: string | null;
+  /** EWB generation + validity timestamps (manual paste or service). */
+  ewayBillGeneratedAt: string | null;
+  ewayBillValidUntil: string | null;
+  /** "EWB Not Required" with authorised reason recorded (PDF-2 §9). */
+  ewbNotRequired: boolean;
+  ewbNotRequiredReason: string | null;
+  // ── Dispatch Order link + invoice snapshot (PDF-1: auto-filled, no re-entry). ──
+  /** Final Sales Invoice this dispatch order was built from. */
+  finalInvoiceId: string | null;
+  finalInvoiceNumber: string | null;
+  /** IRN snapshot at dispatch-order creation. */
+  irnSnapshot: string | null;
+  /** Invoiced value + GST snapshot (never recomputed). */
+  invoicedValue: number | null;
+  invoicedGst: number | null;
+  // ── Packing details (warehouse fills, PDF-1). ──
+  /** Packed quantity override per line is stored on lines (packedQty). */
+  cartonCount: number | null;
+  packageType: string | null;
+  grossWeight: number | null;
+  grossWeightUnit: string | null;
+  handlingInstructions: string | null;
+  internalDispatchNotes: string | null;
+  // ── Transport details (warehouse fills, PDF-1). ──
+  plannedDispatchAt: string | null;
+  transportMode: string | null;
+  transporterId: string | null;
+  distanceKm: number | null;
+  vehicleNumber: string | null;
+  vehicleType: string | null;
+  transportDocType: string | null;
+  transportDocNumber: string | null;
+  transportDocDate: string | null;
+  driverName: string | null;
+  driverMobile: string | null;
+  deliveryCity: string | null;
+  deliveryState: string | null;
+  deliveryPincode: string | null;
+  // ── Physical confirm capture (PDF-1 step 12). ──
+  actualDispatchedAt: string | null;
+  actualVehicleNumber: string | null;
+  actualPackedQty: number | null;
+  lrNumber: string | null;
+  submittedAt: string | null;
+  submittedBy: string | null;
   lines: GoodsDispatchLine[];
 
   // ── Shipping pipeline (logistics only — never affects stock) ──
@@ -215,6 +264,7 @@ function normalizeLines(lines: GoodsDispatchLine[]): GoodsDispatchLine[] {
       unit: l.unit || "unit",
       orderedQty,
       dispatchedQty,
+      packedQty: l.packedQty === undefined || l.packedQty === null ? null : Number(l.packedQty) || 0,
       deliveredQty: Number(l.deliveredQty) || 0,
       returnedQty: Number(l.returnedQty) || 0,
       unitPrice,
@@ -297,6 +347,41 @@ export async function create(data: Partial<GoodsDispatch> & { clientId: string; 
     ewayBillId: data.ewayBillId || null,
     ewayBillNumber: data.ewayBillNumber || null,
     ewayBillStatus: data.ewayBillStatus || null,
+    ewayBillGeneratedAt: data.ewayBillGeneratedAt || null,
+    ewayBillValidUntil: data.ewayBillValidUntil || null,
+    ewbNotRequired: data.ewbNotRequired === true,
+    ewbNotRequiredReason: data.ewbNotRequiredReason || null,
+    finalInvoiceId: data.finalInvoiceId || null,
+    finalInvoiceNumber: data.finalInvoiceNumber || null,
+    irnSnapshot: data.irnSnapshot || null,
+    invoicedValue: data.invoicedValue ?? null,
+    invoicedGst: data.invoicedGst ?? null,
+    cartonCount: data.cartonCount ?? null,
+    packageType: data.packageType || null,
+    grossWeight: data.grossWeight ?? null,
+    grossWeightUnit: data.grossWeightUnit || null,
+    handlingInstructions: data.handlingInstructions || null,
+    internalDispatchNotes: data.internalDispatchNotes || null,
+    plannedDispatchAt: data.plannedDispatchAt || null,
+    transportMode: data.transportMode || null,
+    transporterId: data.transporterId || null,
+    distanceKm: data.distanceKm ?? null,
+    vehicleNumber: data.vehicleNumber || null,
+    vehicleType: data.vehicleType || null,
+    transportDocType: data.transportDocType || null,
+    transportDocNumber: data.transportDocNumber || null,
+    transportDocDate: data.transportDocDate || null,
+    driverName: data.driverName || null,
+    driverMobile: data.driverMobile || null,
+    deliveryCity: data.deliveryCity || null,
+    deliveryState: data.deliveryState || null,
+    deliveryPincode: data.deliveryPincode || null,
+    actualDispatchedAt: data.actualDispatchedAt || null,
+    actualVehicleNumber: data.actualVehicleNumber || null,
+    actualPackedQty: data.actualPackedQty ?? null,
+    lrNumber: data.lrNumber || null,
+    submittedAt: data.submittedAt || null,
+    submittedBy: data.submittedBy || null,
     lines,
     shippingStatus:
       (SHIPPING_STATUSES as string[]).includes(data.shippingStatus as string)
@@ -329,6 +414,15 @@ export async function update(id: string, updates: Partial<GoodsDispatch>) {
     "returnedAt", "returnedBy", "notes", "documents", "status", "stockDebited",
     "debitedAt", "debitedBy", "cancelledAt", "cancelledBy",
     "ewayBillId", "ewayBillNumber", "ewayBillStatus",
+    "ewayBillGeneratedAt", "ewayBillValidUntil", "ewbNotRequired", "ewbNotRequiredReason",
+    "finalInvoiceId", "finalInvoiceNumber", "irnSnapshot", "invoicedValue", "invoicedGst",
+    "cartonCount", "packageType", "grossWeight", "grossWeightUnit",
+    "handlingInstructions", "internalDispatchNotes",
+    "plannedDispatchAt", "transportMode", "transporterId", "distanceKm",
+    "vehicleNumber", "vehicleType", "transportDocType", "transportDocNumber", "transportDocDate",
+    "driverName", "driverMobile", "deliveryCity", "deliveryState", "deliveryPincode",
+    "actualDispatchedAt", "actualVehicleNumber", "actualPackedQty", "lrNumber",
+    "submittedAt", "submittedBy",
     "lines",
     "shippingStatus", "shippingStatusAt", "shippingStatusBy", "shippingNotes",
     // Location fields
@@ -362,8 +456,8 @@ export async function flipToConfirmed(id: string, debitedBy: string) {
       debitedBy,
       updatedAt: db.nowISO(),
     },
-    "#status = :draft",
-    { ":draft": "draft" },
+    "#status IN (:draft, :submitted, :ready)",
+    { ":draft": "draft", ":submitted": "details_submitted", ":ready": "ready_for_dispatch" },
     true,
     { "#status": "status" },
   ) as Promise<GoodsDispatch | null>;

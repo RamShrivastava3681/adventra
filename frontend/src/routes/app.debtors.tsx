@@ -5,6 +5,7 @@ import {
   toFormFields as toTermsFormFields,
   toPayload as toTermsPayload,
 } from "@/components/payment-terms";
+import { CustomerTermsManager } from "@/components/customer-terms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import api from "@/lib/api-client";
@@ -241,6 +242,14 @@ function DebtorModal({
   });
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [k]: e.target.value });
+  // Approved terms for this debtor (edit mode only). When terms exist, they
+  // own the payment configuration and the legacy single-term fields hide.
+  const termsQ = useQuery({
+    queryKey: ["debtor-terms", (debtor as any)?.id ?? "new"],
+    queryFn: () => api.debtors.terms.list((debtor as any).id),
+    enabled: isEdit && !!(debtor as any)?.id,
+  });
+  const hasTerms = (termsQ.data ?? []).length > 0;
   const save = useMutation({
     mutationFn: async () => {
       if (!form.name.trim()) throw new Error("Name is required");
@@ -606,18 +615,43 @@ function DebtorModal({
           </Section>
 
           <Section title="Payment terms">
-            <div className="grid gap-3 md:grid-cols-2">
-              <L label="Terms type" full>
-                <PaymentTermsFields
-                  type={form.payment_terms_type}
-                  advancePct={form.payment_terms_advance_pct}
-                  paymentTermsDays={form.payment_terms_days}
-                  freeText={form.payment_terms}
-                  daysLabel="Net days"
-                  onChange={(patch) => setForm({ ...form, ...patch })}
-                />
-              </L>
-            </div>
+            {isEdit && (debtor as any)?.id ? (
+              <div className="space-y-3">
+                <CustomerTermsManager debtorId={(debtor as any).id} />
+                {!hasTerms && (
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <L label="Terms type (legacy — used until first approved term is added)" full>
+                      <PaymentTermsFields
+                        type={form.payment_terms_type}
+                        advancePct={form.payment_terms_advance_pct}
+                        paymentTermsDays={form.payment_terms_days}
+                        freeText={form.payment_terms}
+                        daysLabel="Net days"
+                        onChange={(patch) => setForm({ ...form, ...patch })}
+                      />
+                    </L>
+                  </div>
+                )}
+                {hasTerms && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Historic sales orders keep the term snapshot taken at order time.
+                  </p>
+                )}
+              </div>
+            ) : (
+              <div className="grid gap-3 md:grid-cols-2">
+                <L label="Terms type (becomes the default approved term)" full>
+                  <PaymentTermsFields
+                    type={form.payment_terms_type}
+                    advancePct={form.payment_terms_advance_pct}
+                    paymentTermsDays={form.payment_terms_days}
+                    freeText={form.payment_terms}
+                    daysLabel="Net days"
+                    onChange={(patch) => setForm({ ...form, ...patch })}
+                  />
+                </L>
+              </div>
+            )}
           </Section>
 
           <div className="flex justify-end gap-2 pt-2">
@@ -651,8 +685,7 @@ function DebtorDetailModal({
   debtor: any;
   exposure: number;
   onClose: () => void;
-}) {
-  const billingList = (() => {
+}) {  const billingList = (() => {
     const l = toAddressList(debtor.billing_addresses ?? debtor.billingAddresses);
     if (l.length) return l.map((a) => a);
     const single = [debtor.billing_address, debtor.city, debtor.country, debtor.postal_code]
@@ -668,6 +701,12 @@ function DebtorDetailModal({
       .join(", ");
     return single ? [{ label: "", address: single }] : [];
   })();
+  const termsQ = useQuery({
+    queryKey: ["debtor-terms", debtor?.id ?? "none"],
+    queryFn: () => api.debtors.terms.list(debtor.id),
+    enabled: !!debtor?.id,
+  });
+  const terms: any[] = termsQ.data ?? [];
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
@@ -700,6 +739,58 @@ function DebtorDetailModal({
             <D label="GSTIN" value={debtor.gstin ?? "—"} />
             <D label="Website" value={debtor.website ?? "—"} />
             <D label="Phone" value={debtor.phone ?? "—"} />
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">
+              Approved terms ({terms.filter((t) => t.isActive !== false).length})
+            </div>
+            {termsQ.isLoading ? (
+              <div className="text-sm text-muted-foreground">Loading…</div>
+            ) : terms.length === 0 ? (
+              <div className="text-sm">
+                {formatPaymentTerms({
+                  paymentTermsType: debtor.paymentTermsType ?? debtor.payment_terms_type,
+                  advancePct: debtor.advancePct ?? debtor.advance_pct,
+                  paymentTermsDays: debtor.payment_terms_days ?? debtor.paymentTermsDays,
+                  paymentTerms: debtor.payment_terms ?? debtor.paymentTerms,
+                })}
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {terms.map((t) => (
+                  <div key={t.id} className="rounded-md border border-border/60 px-2.5 py-1.5 text-sm">
+                    <div>
+                      {t.name}
+                      {t.isDefault && (
+                        <span className="ml-1 text-[10px] uppercase tracking-widest text-primary">
+                          · default
+                        </span>
+                      )}
+                      {t.isActive === false && (
+                        <span className="ml-1 text-[10px] uppercase tracking-widest text-muted-foreground">
+                          · inactive
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {(() => {
+                        const adv = Number(t.advancePct ?? 0) || 0;
+                        const days = Number(t.balanceDueDays ?? 0) || 0;
+                        const base =
+                          adv >= 100
+                            ? "100% Advance"
+                            : adv > 0
+                              ? `${adv}% Advance + Balance ${days > 0 ? `Net ${days}` : "before dispatch"}`
+                              : days > 0
+                                ? `Net ${days}`
+                                : "No advance";
+                        return base;
+                      })()}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
           <div>
             <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Billing addresses ({billingList.length || 0})</div>

@@ -301,6 +301,8 @@ function QueuePage() {
         status: string;
         receipt_date?: string | null;
         amountReceived?: number | null;
+        utr_reference?: string | null;
+        payment_amount?: number | null;
       }> = [];
       for (const i of sales) {
         const s = i as any;

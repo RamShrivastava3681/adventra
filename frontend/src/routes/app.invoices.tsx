@@ -18,6 +18,7 @@ import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import {
   PaymentTermsFields,
   formatPaymentTerms,
+  normalizePaymentTermsType,
   toFormFields as toTermsFormFields,
   toPayload as toTermsPayload,
 } from "@/components/payment-terms";
@@ -76,6 +77,9 @@ type Inv = {
   goods_sales_order_number: string | null;
   expected_dispatch_date?: string | null;
   payment_terms: string | null;
+  payment_terms_type: string | null;
+  payment_terms_days: number | null;
+  advance_pct: number | null;
   lines: InvLine[];
   subtotal_goods: number;
   total_discount: number;
@@ -94,6 +98,13 @@ type Inv = {
   utr_reference: string | null;
   /** Payment amount captured by the checker at approval time. */
   payment_amount: number | null;
+  /** Manual e-invoice IRN pasted from Tally (64-char hex). */
+  irn: string | null;
+  ack_no: string | null;
+  ack_date: string | null;
+  irn_source: string | null;
+  /** Manually pasted e-Way Bill number (v1). */
+  ewb_number: string | null;
 };
 
 function round2(n: number): number {
@@ -116,11 +127,13 @@ const DOC_LABELS: Record<string, string> = {
 function InvoicesPage() {
   const { isAdmin, isChecker, isClient, isTreasury, user } = useAuth();
   const canCreate = isAdmin || (isClient && !isChecker && !isTreasury);
+  const canRecordIrn = isAdmin || isChecker || isTreasury;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Inv | null>(null);
   const [viewing, setViewing] = useState<Inv | null>(null);
   const [utrFor, setUtrFor] = useState<Inv | null>(null);
+  const [irnFor, setIrnFor] = useState<Inv | null>(null);
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", "list"],
@@ -180,6 +193,21 @@ function InvoicesPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["invoices"] });
       toast.success("UTR recorded");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const recordIrn = useMutation({
+    mutationFn: async (vals: { id: string; irn: string; ackNo?: string | null; ackDate?: string | null }) => {
+      await api.invoices.recordIrn(vals.id, {
+        irn: vals.irn,
+        ackNo: vals.ackNo || null,
+        ackDate: vals.ackDate || null,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      toast.success("IRN recorded — invoice is now locked for edits");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -299,6 +327,14 @@ function InvoicesPage() {
                                   Less advance {fmtMoney(advance)}
                                 </div>
                               )}
+                              {i.irn ? (
+                                <div
+                                  className="text-[10px] text-sem-success"
+                                  title={`IRN: ${i.irn}${i.ack_no ? ` · Ack ${i.ack_no}` : ""}${i.ack_date ? ` · ${i.ack_date}` : ""}`}
+                                >
+                                  IRN ✓ {String(i.irn).slice(0, 8)}…{String(i.irn).slice(-4)}
+                                </div>
+                              ) : null}
                               {i.po_number && (
                                 <div className="text-[10px] text-muted-foreground">
                                   PO {i.po_number}
@@ -402,6 +438,15 @@ function InvoicesPage() {
                                     <Send className="h-3 w-3" /> UTR
                                   </button>
                                 )}
+                                {canRecordIrn && !i.irn && ["approved", "pending", "funded", "advanced"].includes(i.status) && (
+                                  <button
+                                    onClick={() => setIrnFor(i)}
+                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10"
+                                    title="Record the IRN from Tally (locks the invoice)"
+                                  >
+                                    <FileCheck className="h-3 w-3" /> IRN
+                                  </button>
+                                )}
                               </div>
                             </td>
                           </tr>
@@ -440,6 +485,18 @@ function InvoicesPage() {
             addUtr.mutate(
               { id: utrFor.id, utr_reference: vals.utr_reference, payment_amount: vals.payment_amount },
               { onSuccess: () => setUtrFor(null) },
+            );
+          }}
+        />
+      )}
+      {irnFor && (
+        <IrnModal
+          invoice={irnFor}
+          onClose={() => setIrnFor(null)}
+          onSubmit={(vals) => {
+            recordIrn.mutate(
+              { id: irnFor.id, irn: vals.irn, ackNo: vals.ackNo, ackDate: vals.ackDate },
+              { onSuccess: () => setIrnFor(null) },
             );
           }}
         />
@@ -1412,9 +1469,24 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
           <h3 className="font-display text-lg">Invoice {invoice.invoice_number}</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                try {
+                  await api.invoices.downloadPdf(invoice.id, invoice.invoice_number);
+                  toast.success("PDF downloaded");
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Could not download PDF");
+                }
+              }}
+              className="rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary"
+            >
+              PDF
+            </button>
+            <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         <div className="space-y-4 p-5 text-sm">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
@@ -1454,22 +1526,37 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
               <D label="Customer contact" value={invoice.customer_contact} />
             )}
             {formatPaymentTerms({
-              paymentTermsType: invoice.paymentTermsType ?? invoice.payment_terms_type,
-              advancePct: invoice.advancePct ?? invoice.advance_pct,
-              paymentTermsDays: invoice.payment_terms_days ?? invoice.paymentTermsDays,
-              paymentTerms: invoice.payment_terms ?? invoice.paymentTerms,
+              paymentTermsType: normalizePaymentTermsType(invoice.payment_terms_type),
+              advancePct: invoice.advance_pct,
+              paymentTermsDays: invoice.payment_terms_days,
+              paymentTerms: invoice.payment_terms,
             }) !== "—" && (
               <D
                 label="Payment terms"
                 value={formatPaymentTerms({
-                  paymentTermsType: invoice.paymentTermsType ?? invoice.payment_terms_type,
-                  advancePct: invoice.advancePct ?? invoice.advance_pct,
-                  paymentTermsDays: invoice.payment_terms_days ?? invoice.paymentTermsDays,
-                  paymentTerms: invoice.payment_terms ?? invoice.paymentTerms,
+                  paymentTermsType: normalizePaymentTermsType(invoice.payment_terms_type),
+                  advancePct: invoice.advance_pct,
+                  paymentTermsDays: invoice.payment_terms_days,
+                  paymentTerms: invoice.payment_terms,
                 })}
               />
             )}
             {invoice.po_number && <D label="PO number" value={invoice.po_number} />}
+            {invoice.irn ? (
+              <>
+                <div className="col-span-2 md:col-span-3">
+                  <D label="IRN" value={<span className="break-all font-mono text-xs">{invoice.irn}</span>} />
+                </div>
+                {invoice.ack_no && <D label="Ack No." value={invoice.ack_no} />}
+                {invoice.ack_date && <D label="Ack Date" value={fmtDate(invoice.ack_date)} />}
+                {invoice.irn_source && <D label="IRN source" value={invoice.irn_source} />}
+              </>
+            ) : (
+              <D label="IRN" value={<span className="text-muted-foreground">Not recorded</span>} />
+            )}
+            {invoice.ewb_number && (
+              <D label="e-Way Bill No." value={invoice.ewb_number} />
+            )}
             {invoice.po_amount != null && invoice.po_amount > 0 && (
               <D
                 label="PO amount"
@@ -1658,8 +1745,7 @@ function D({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function UtrModal({
-  invoice,
+function UtrModal({  invoice,
   onClose,
   onSubmit,
 }: {
@@ -1731,6 +1817,107 @@ function UtrModal({
           >
             <Send className="h-3.5 w-3.5" />
             Save UTR
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function IrnModal({
+  invoice,
+  onClose,
+  onSubmit,
+}: {
+  invoice: Inv;
+  onClose: () => void;
+  onSubmit: (v: { irn: string; ackNo?: string | null; ackDate?: string | null }) => void;
+}) {
+  const [irn, setIrn] = useState("");
+  const [ackNo, setAckNo] = useState("");
+  const [ackDate, setAckDate] = useState(new Date().toISOString().slice(0, 10));
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = () => {
+    const clean = irn.replace(/-/g, "").trim().toLowerCase();
+    if (!/^[0-9a-f]{64}$/.test(clean)) {
+      setError("IRN must be the 64-character hex string from Tally (dashes allowed)");
+      return;
+    }
+    if (ackNo.trim() && !/^\d{9,20}$/.test(ackNo.trim())) {
+      setError("Ack No. must be the numeric acknowledgement number from Tally");
+      return;
+    }
+    setError(null);
+    onSubmit({ irn: clean, ackNo: ackNo.trim() || null, ackDate: ackDate || null });
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="mb-4 font-display text-lg">
+          Record IRN · {invoice.invoice_number}
+        </h3>
+        <div className="space-y-3 text-sm">
+          <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground space-y-1">
+            <div>Debtor: <span className="text-foreground">{invoice.debtor?.name ?? "—"}</span></div>
+            <div>Grand total: <span className="num text-foreground">{fmtMoney(invoice.grand_total ?? invoice.amount)}</span></div>
+            <div className="text-sem-attention">Recording the IRN locks this invoice — further edits need a cancellation or credit note.</div>
+          </div>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+              IRN (from Tally) *
+            </span>
+            <textarea
+              rows={3}
+              value={irn}
+              onChange={(e) => setIrn(e.target.value)}
+              className="w-full rounded-md border border-border bg-background p-2 font-mono text-xs"
+              placeholder="64-character hex IRN…"
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+                Ack No.
+              </span>
+              <input
+                value={ackNo}
+                onChange={(e) => setAckNo(e.target.value)}
+                className="w-full rounded-md border border-border bg-background p-2"
+                placeholder="172621127371897"
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+                Ack Date
+              </span>
+              <input
+                type="date"
+                value={ackDate}
+                onChange={(e) => setAckDate(e.target.value)}
+                className="w-full rounded-md border border-border bg-background p-2"
+              />
+            </label>
+          </div>
+          {error && <div className="text-xs text-destructive">{error}</div>}
+        </div>
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
+            Cancel
+          </button>
+          <button
+            onClick={submit}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+          >
+            <FileCheck className="h-3.5 w-3.5" />
+            Record IRN
           </button>
         </div>
       </div>

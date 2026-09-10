@@ -1575,7 +1575,68 @@ function PurchaseProformaModal({
   );
 }
 
-function ReviewModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: () => void }) {
+function ReviewModal({ pf, onClose }: { pf: PF; userId: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [comments, setComments] = useState("");
+  const review = useMutation({
+    mutationFn: async (proforma_status: string) => {
+      await api.purchaseOrders.update(pf.id, {
+        proforma_status,
+        // Optional checker note — travels with the proforma on approval and
+        // is mandatory context on rejection (set by the caller below).
+        proforma_review_comments: comments.trim() || null,
+      });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+  const reject = () => {
+    if (!comments.trim()) {
+      toast.error("A reason is required to reject the proforma");
+      return;
+    }
+    review.mutate("rejected");
+  };
+  const isRejected = pf.proforma_status === "rejected";
+
+  return (
+    <Modal
+      title={`Review proforma · ${pf.proforma_number ?? pf.po_number}`}
+      onClose={onClose}
+    >
+      <div className="space-y-3 p-5">
+        <div className="flex justify-between">
+          <span className="text-muted-foreground">Amount</span>
+          <span className="num">{fmtMoney(pf.amount)}</span>
+        </div>
+        <L label="Review note (required to reject)">
+          <textarea
+            className="inp min-h-20"
+            value={comments}
+            onChange={(e) => setComments(e.target.value)}
+            placeholder={isRejected ? "Rejection reason…" : "Optional note for the maker…"}
+          />
+        </L>
+        {isRejected && pf.proforma_review_comments && (
+          <p className="text-xs text-sem-attention">
+            Previously rejected: {pf.proforma_review_comments}
+          </p>
+        )}
+        <Actions
+          onClose={onClose}
+          pending={review.isPending}
+          label="Approve"
+          onPrimary={() => review.mutate("approved")}
+          onSecondary={reject}
+          secondaryLabel="Reject"
+        />
+      </div>
+    </Modal>
+  );
+}
 
 /**
  * Advance amount for a proforma that carries an advance % (purchase side):
@@ -1692,8 +1753,11 @@ function FundModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: (
   );
 }
 
-// ─── Detail modal ─────────────────────────────────────────────────────────
-function ProformaDetailModal({ pf, onClose }: { pf: PF; onClose: () => void }) {
+
+
+// ─── Detail modal ──────────────────────────────────────────────────────────
+function ProformaDetailModal({
+  pf, onClose }: { pf: PF; onClose: () => void }) {
   const cp = pf.side === "sales" ? pf.debtor?.name : pf.vendor?.name;
   const docLabel = PF_DOC_LABELS[pf.status] ? PF_DOC_LABELS[pf.status] : pf.status;
   return (
@@ -1888,10 +1952,17 @@ function Actions({
   onClose,
   pending,
   label,
+  onPrimary,
+  onSecondary,
+  secondaryLabel,
 }: {
   onClose: () => void;
   pending: boolean;
   label: string;
+  /** Explicit click handler; when omitted the button submits its form. */
+  onPrimary?: () => void;
+  onSecondary?: () => void;
+  secondaryLabel?: string;
 }) {
   return (
     <div className="flex justify-end gap-2 pt-2">
@@ -1902,7 +1973,19 @@ function Actions({
       >
         Cancel
       </button>
+      {onSecondary && secondaryLabel && (
+        <button
+          type="button"
+          onClick={onSecondary}
+          disabled={pending}
+          className="rounded-md border border-sem-attention/60 px-4 py-2 text-sm text-sem-attention disabled:opacity-60"
+        >
+          {secondaryLabel}
+        </button>
+      )}
       <button
+        type={onPrimary ? "button" : "submit"}
+        onClick={onPrimary}
         disabled={pending}
         className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
       >
@@ -1934,5 +2017,4 @@ function StatCard({ label, value, icon: Icon }: { label: string; value: string |
       <div className="mt-1 font-display text-2xl">{value}</div>
     </div>
   );
-}
 }

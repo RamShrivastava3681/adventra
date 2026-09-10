@@ -1,6 +1,6 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
-import { PaymentTermsType, normalizePaymentTermsType, normalizeAdvancePct } from "../lib/payment-terms.js";
+import { PaymentTermsType, DispatchCondition, DueBasis, normalizePaymentTermsType, normalizeAdvancePct, normalizeBalancePct, normalizeBalanceDueDays, normalizeDueBasis, normalizeDispatchCondition, balancePctFor } from "../lib/payment-terms.js";
 
 /**
  * Goods Sales Order (SO) — a customer's confirmed order against the product
@@ -102,6 +102,22 @@ export interface GoodsSalesOrder {
   paymentTermsType: PaymentTermsType | null;
   /** Advance percentage for advance_partial terms (1–99). */
   advancePct: number | null;
+  // ── Payment-term snapshot (PDF §2): the approved term copied permanently
+  // onto the SO. Later Customer Master edits must not change historic SOs. ──
+  /** Approved term this SO was created from (DebtorPaymentTerm id). */
+  paymentTermId: string | null;
+  /** Approved term name at time of selection (snapshot). */
+  paymentTermName: string | null;
+  /** Balance % snapshot (advancePct + balancePct == 100). */
+  balancePct: number | null;
+  /** Balance due days snapshot (0 = due on invoice date). */
+  balanceDueDays: number | null;
+  /** Balance due basis snapshot. V1: always "invoice_date". */
+  balanceDueBasis: DueBasis | null;
+  /** Advance due basis snapshot. V1: always "so_confirmation". */
+  advanceDueBasis: DueBasis | null;
+  /** Dispatch condition snapshot — gates dispatch in a later phase. */
+  dispatchCondition: DispatchCondition | null;
   expectedDispatchDate: string | null;
   expectedDeliveryDate: string | null;
   notes: string | null;
@@ -146,6 +162,25 @@ export interface GoodsSalesOrder {
   warehouseApprovedAt: string | null;
   /** Free-text note left by the warehouse (usually with a hold). */
   warehouseNotes: string | null;
+  // ── Stock reservation (PDF-2 §3: reserve, never debit, at stock check). ──
+  /** Reservation state for this order's lines. */
+  stockStatus: "pending" | "reserved" | "in_transit" | null;
+  /** Warehouse / dispatch location confirmed at stock check. */
+  dispatchLocation: string | null;
+  /** Expected inward date for pre-orders (Stock In Transit). */
+  expectedInwardDate: string | null;
+  /** Who confirmed the reservation. */
+  reservedBy: string | null;
+  reservedAt: string | null;
+  // ── Dispatch controls (PDF-2 §10 blocked reasons). ──
+  /** Manual dispatch hold with mandatory reason. */
+  dispatchHold: boolean;
+  dispatchHoldReason: string | null;
+  // ── Workflow engine pointers (PDF-3 §10: stored on each document). ──
+  workflowStatus: string | null;
+  currentOwnerRole: string | null;
+  nextRequiredAction: string | null;
+  nextDueDate: string | null;
   lines: GoodsSalesOrderLine[];
   totalQty: number;
   subtotal: number;
@@ -325,9 +360,27 @@ export async function create(
     warehouseApprovedBy: data.warehouseApprovedBy || null,
     warehouseApprovedAt: data.warehouseApprovedAt || null,
     warehouseNotes: data.warehouseNotes || null,
+    stockStatus: (data.stockStatus as any) || "pending",
+    dispatchLocation: data.dispatchLocation || null,
+    expectedInwardDate: data.expectedInwardDate || null,
+    reservedBy: data.reservedBy || null,
+    reservedAt: data.reservedAt || null,
+    dispatchHold: (data as any).dispatchHold === true,
+    dispatchHoldReason: data.dispatchHoldReason || null,
+    workflowStatus: data.workflowStatus || "draft",
+    currentOwnerRole: data.currentOwnerRole || "sales",
+    nextRequiredAction: data.nextRequiredAction || "Complete sales order",
+    nextDueDate: data.nextDueDate || null,
     paymentTerms: data.paymentTerms || null,
     paymentTermsType: normalizePaymentTermsType(data.paymentTermsType),
     advancePct: normalizeAdvancePct(data.advancePct),
+    paymentTermId: data.paymentTermId || null,
+    paymentTermName: data.paymentTermName || null,
+    balancePct: normalizeBalancePct((data as any).balancePct) ?? balancePctFor(normalizeAdvancePct(data.advancePct)),
+    balanceDueDays: normalizeBalanceDueDays((data as any).balanceDueDays) ?? null,
+    balanceDueBasis: normalizeDueBasis((data as any).balanceDueBasis) ?? "invoice_date",
+    advanceDueBasis: normalizeDueBasis((data as any).advanceDueBasis) ?? "so_confirmation",
+    dispatchCondition: normalizeDispatchCondition((data as any).dispatchCondition),
     expectedDispatchDate: data.expectedDispatchDate || null,
     expectedDeliveryDate: data.expectedDeliveryDate || null,
     notes: data.notes || null,
@@ -373,6 +426,13 @@ export async function update(id: string, updates: Partial<GoodsSalesOrder>) {
     "paymentTerms",
     "paymentTermsType",
     "advancePct",
+    "paymentTermId",
+    "paymentTermName",
+    "balancePct",
+    "balanceDueDays",
+    "balanceDueBasis",
+    "advanceDueBasis",
+    "dispatchCondition",
     "expectedDispatchDate",
     "expectedDeliveryDate",
     "notes",
@@ -401,6 +461,17 @@ export async function update(id: string, updates: Partial<GoodsSalesOrder>) {
     "warehouseApprovedBy",
     "warehouseApprovedAt",
     "warehouseNotes",
+    "stockStatus",
+    "dispatchLocation",
+    "expectedInwardDate",
+    "reservedBy",
+    "reservedAt",
+    "dispatchHold",
+    "dispatchHoldReason",
+    "workflowStatus",
+    "currentOwnerRole",
+    "nextRequiredAction",
+    "nextDueDate",
   ];
   for (const k of allowed) {
     if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k];

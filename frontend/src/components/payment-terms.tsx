@@ -132,7 +132,7 @@ export function PaymentTermsFields({
         disabled={disabled}
         onChange={(e) => {
           const nextType = e.target.value as PaymentTermsType | "";
-          const patch: Parameters<typeof onChange>[0][0] = {
+          const patch: Parameters<typeof onChange>[0] = {
             payment_terms_type: nextType,
           };
           // Clear the free-text override when a structured type is chosen so

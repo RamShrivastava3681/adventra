@@ -796,3 +796,79 @@ export async function notifyPendingApprovers(params: {
     return false;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Unified workflow task notifications (PDF-3 §6)
+// Subject: Action Required — [Task Name] — [Document Number]. Never includes
+// bank details or credentials — the user opens the secure platform link.
+// ---------------------------------------------------------------------------
+
+/** Owner roles that map to notifiable platform roles. */
+const WORKFLOW_NOTIFY_ROLES = [
+  "factor_admin",
+  "super_admin",
+  "checker",
+  "treasury",
+  "operations",
+  "reporting_manager",
+  "sales_rep",
+  "client",
+];
+
+export async function notifyWorkflowTask(params: {
+  taskName: string;
+  docNumber: string;
+  counterparty?: string | null;
+  currentStatus?: string | null;
+  requiredAction: string;
+  dueDate?: string | null;
+  latestUpdate?: string | null;
+  ownerRole: string;
+  submittedBy?: string | null;
+  appPath?: string;
+}): Promise<{ sent: boolean; recipients: string[] }> {
+  try {
+    if (!isEmailConfigured()) return { sent: false, recipients: [] };
+    const users = await db.scanByType("User");
+    const actor = String(params.submittedBy || "").trim().toLowerCase();
+    const wanted = [params.ownerRole, "factor_admin", "super_admin"];
+    const recipients = Array.from(
+      new Set(
+        (users as any[])
+          .filter((u) => Array.isArray(u?.roles) && u.roles.some((r: string) => wanted.includes(r) && WORKFLOW_NOTIFY_ROLES.includes(r)))
+          .map((u) => String(u?.email || "").trim().toLowerCase())
+          .filter((email) => email && email.includes("@") && email !== actor),
+      ),
+    );
+    if (recipients.length === 0) return { sent: false, recipients: [] };
+    const subject = `Action Required — ${params.taskName} — ${params.docNumber}`;
+    const openUrl = `${config.appUrl}${params.appPath || "/app/workspace"}`;
+    const body = `
+      <table cellpadding="0" cellspacing="0" style="width:100%;">
+        ${invoiceTableRow("Document", esc(params.docNumber))}
+        ${params.counterparty ? invoiceTableRow("Supplier / Customer", esc(params.counterparty)) : ""}
+        ${params.currentStatus ? invoiceTableRow("Current Status", esc(params.currentStatus)) : ""}
+        ${invoiceTableRow("Required Action", `<strong>${esc(params.requiredAction)}</strong>`)}
+        ${params.dueDate ? invoiceTableRow("Due Date", esc(params.dueDate)) : ""}
+        ${params.latestUpdate ? invoiceTableRow("Latest Update", esc(params.latestUpdate)) : ""}
+      </table>
+      <div style="margin-top:24px;text-align:center;">
+        <a href="${openUrl}" style="display:inline-block;background:#1e293b;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">
+          Open Task
+        </a>
+      </div>
+    `;
+    const transporter = getTransporter();
+    await transporter.sendMail({
+      from: `"Insight Factor" <${config.smtp.user}>`,
+      to: recipients.join(", "),
+      subject,
+      html: wrapHTML(body, subject),
+    });
+    console.log(`  ✅ Workflow notice sent: ${params.docNumber} → ${recipients.length} recipient(s)`);
+    return { sent: true, recipients };
+  } catch (err) {
+    console.error(`  ❌ Failed to send workflow notice for ${params.docNumber}:`, err);
+    return { sent: false, recipients: [] };
+  }
+}

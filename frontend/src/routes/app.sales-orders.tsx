@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
@@ -25,11 +25,14 @@ import {
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import {
-  PaymentTermsFields,
   formatPaymentTerms,
   toFormFields as toTermsFormFields,
   toPayload as toTermsPayload,
 } from "@/components/payment-terms";
+import {
+  dispatchConditionLabel,
+  termSummary,
+} from "@/components/customer-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductVariantPicker } from "@/components/product-variant-picker";
 import { TableSkeleton } from "@/components/skeletons";
@@ -102,6 +105,10 @@ type SO = {
   salesperson_id: string | null;
   salesperson_name: string | null;
   payment_terms: string | null;
+  payment_term_id?: string | null;
+  paymentTermId?: string | null;
+  payment_term_name?: string | null;
+  paymentTermName?: string | null;
   expected_dispatch_date: string | null;
   expected_delivery_date: string | null;
   notes: string | null;
@@ -666,6 +673,7 @@ function SOModal({
     bill_gstin: so?.bill_gstin ?? "",
     bill_pan: so?.bill_pan ?? "",
     remarks: so?.remarks ?? "",
+    payment_term_id: (so as any)?.payment_term_id ?? (so as any)?.paymentTermId ?? "",
     ...toTermsFormFields(so),
     expected_dispatch_date: (so?.expected_dispatch_date ?? "")?.slice(0, 10) ?? "",
     expected_delivery_date: (so?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
@@ -693,6 +701,33 @@ function SOModal({
   );
   const [docs, setDocs] = useState<DocMeta[]>(so?.documents ?? []);
   const [pdfBusy, setPdfBusy] = useState(false);
+
+  // Approved payment terms for the selected customer (PDF §2). The SO copies
+  // the chosen term as a permanent snapshot — master edits never change it.
+  const soTermsQ = useQuery({
+    queryKey: ["so-customer-terms", f.customer_id],
+    queryFn: () => api.debtors.terms.list(f.customer_id),
+    enabled: !!f.customer_id,
+  });
+  const soTerms: any[] = soTermsQ.data ?? [];
+  const selectedTerm = soTerms.find((t) => t.id === (f as any).payment_term_id) ?? null;
+
+  // Auto-select the customer's default term for new orders once terms load.
+  useEffect(() => {
+    if (isEdit || !f.customer_id || (f as any).payment_term_id || soTermsQ.isLoading) return;
+    const def = soTerms.find((t) => t.isDefault) ?? soTerms[0] ?? null;
+    if (def) {
+      setF((prev) => ({
+        ...prev,
+        payment_term_id: def.id,
+        payment_terms_type: def.paymentTermsType ?? def.payment_terms_type ?? "",
+        payment_terms_advance_pct: String(def.advancePct ?? def.advance_pct ?? ""),
+        payment_terms_days: String(def.balanceDueDays ?? def.balance_due_days ?? "30"),
+        payment_terms: def.name ?? prev.payment_terms,
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [f.customer_id, soTermsQ.isLoading]);
 
   const downloadPdf = async () => {
     if (!so) return;
@@ -733,10 +768,30 @@ function SOModal({
       ship_pan: c?.pan ?? "",
       bill_gstin: c?.gstin ?? "",
       bill_pan: c?.pan ?? "",
-      // Pre-fill payment terms from the debtor master (still editable).
+      // Reset the approved-term selection; the effect above auto-selects the
+      // new customer's default once its terms load.
+      payment_term_id: "",
+      // Pre-fill legacy display fields from the debtor master (still editable
+      // until the approved terms load and override).
       ...(id
         ? toTermsFormFields(c)
         : { payment_terms_type: "" as const, payment_terms_advance_pct: "", payment_terms: "" }),
+    }));
+  };
+
+  const pickTerm = (termId: string) => {
+    const t = soTerms.find((x) => x.id === termId) ?? null;
+    setF((prev) => ({
+      ...prev,
+      payment_term_id: termId,
+      ...(t
+        ? {
+            payment_terms_type: t.paymentTermsType ?? t.payment_terms_type ?? "",
+            payment_terms_advance_pct: String(t.advancePct ?? t.advance_pct ?? ""),
+            payment_terms_days: String(t.balanceDueDays ?? t.balance_due_days ?? "30"),
+            payment_terms: t.name ?? prev.payment_terms,
+          }
+        : {}),
     }));
   };
 
@@ -857,6 +912,9 @@ function SOModal({
           throw new Error("Discount must be a percentage between 0 and 100");
         }
       }
+      if (!f.customer_id) throw new Error("Select a customer");
+      if (!(f as any).payment_term_id && soTerms.length > 0)
+        throw new Error("Select an approved payment term for this order");
       const payload = {
         order_date: f.order_date,
         customer_id: f.customer_id || null,
@@ -876,6 +934,7 @@ function SOModal({
         bill_gstin: f.bill_gstin.trim() || null,
         bill_pan: f.bill_pan.trim() || null,
         remarks: f.remarks.trim() || null,
+        paymentTermId: (f as any).payment_term_id || null,
         ...toTermsPayload(f),
         payment_terms: f.payment_terms_type ? formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }) : f.payment_terms || null,
         expected_dispatch_date: f.expected_dispatch_date || null,
@@ -1133,16 +1192,57 @@ function SOModal({
               <L label="Salesperson / owner">
                 <input className="inp" value={so?.salesperson_name ?? "You"} disabled />
               </L>
-              <L label="Payment terms">
-                <PaymentTermsFields
-                  type={f.payment_terms_type}
-                  advancePct={f.payment_terms_advance_pct}
-                  paymentTermsDays={f.payment_terms_days}
-                  freeText={f.payment_terms}
-                  daysLabel="Net days"
-                  disabled={!editable}
-                  onChange={(patch) => setF({ ...f, ...patch })}
-                />
+              <L label="Payment terms (approved)">
+                {!f.customer_id ? (
+                  <div className="text-xs text-muted-foreground">
+                    Select a customer first — only its approved terms can be used.
+                  </div>
+                ) : soTermsQ.isLoading ? (
+                  <div className="text-xs text-muted-foreground">Loading approved terms…</div>
+                ) : soTerms.length === 0 ? (
+                  <div className="text-xs text-destructive">
+                    No approved terms for this customer. Add one in Debtors → Edit before
+                    creating the order.
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <select
+                      className="inp"
+                      value={(f as any).payment_term_id ?? ""}
+                      disabled={!editable}
+                      onChange={(e) => pickTerm(e.target.value)}
+                    >
+                      <option value="">Select approved term…</option>
+                      {soTerms
+                        .filter((t) => t.isActive !== false)
+                        .map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                            {t.isDefault ? " — Default" : ""}
+                          </option>
+                        ))}
+                    </select>
+                    {selectedTerm ? (
+                      <div className="rounded-md bg-muted/40 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+                        {termSummary(selectedTerm)} ·{" "}
+                        {dispatchConditionLabel(
+                          selectedTerm.dispatchCondition ?? selectedTerm.dispatch_condition,
+                        )}
+                        {isEdit && (
+                          <span className="ml-1">
+                            · snapshot — changing the term re-snapshots from the master.
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-muted-foreground">
+                        {(so as any)?.paymentTermName ?? (so as any)?.payment_term_name
+                          ? `Snapshot: ${(so as any).paymentTermName ?? (so as any).payment_term_name}`
+                          : "Choose the term for this order."}
+                      </div>
+                    )}
+                  </div>
+                )}
               </L>
               <L label="Expected dispatch date">
                 <input

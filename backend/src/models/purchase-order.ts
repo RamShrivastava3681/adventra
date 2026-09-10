@@ -66,6 +66,18 @@ export interface PurchaseOrder {
   linkedGoodsPoId: string | null;
   /** The goods Sales Order this sales proforma was converted to (if any). */
   linkedGoodsSoId: string | null;
+  // ── Advance Proforma from SO (PDF-2 §5: Finance collects advance). ──
+  /** Advance amount requested (= SO value × advance %). */
+  advanceAmount: number | null;
+  /** Advance due date (= SO confirmation date, v1). */
+  advanceDueDate: string | null;
+  /** Bank + UPI collection details printed on the proforma. */
+  bankDetails: string | null;
+  upiDetails: string | null;
+  /** Payment reference once paid. */
+  paymentReference: string | null;
+  /** When the proforma was sent to the client. */
+  sentAt: string | null;
   createdAt: string; updatedAt: string;
 }
 
@@ -136,6 +148,12 @@ export async function create(data: Partial<PurchaseOrder> & { clientId: string; 
     ...totals,
     linkedGoodsPoId: data.linkedGoodsPoId || null,
     linkedGoodsSoId: data.linkedGoodsSoId || null,
+    advanceAmount: data.advanceAmount ?? null,
+    advanceDueDate: data.advanceDueDate || null,
+    bankDetails: data.bankDetails || null,
+    upiDetails: data.upiDetails || null,
+    paymentReference: data.paymentReference || null,
+    sentAt: data.sentAt || null,
     createdAt: now, updatedAt: now,
   };
   await db.putItem(item);
@@ -150,6 +168,7 @@ export async function update(id: string, updates: Partial<PurchaseOrder>) {
     "proformaFundingReference","proformaReviewedAt","proformaReviewedBy","proformaReviewComments","notes",
     "supplierContact","supplierGstin","debtorContact","debtorGstin","validUntil","paymentTerms","paymentTermsType","advancePct","expectedDeliveryDate","advancePct","documents",
     "lines","subtotal","gstTotal","freight","grandTotal","linkedGoodsPoId","linkedGoodsSoId",
+    "advanceAmount","advanceDueDate","bankDetails","upiDetails","paymentReference","sentAt",
   ];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   // Recompute line totals + document totals whenever lines/freight change.

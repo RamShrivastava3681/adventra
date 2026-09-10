@@ -147,6 +147,21 @@ export async function deleteItem(pk: string, sk?: string) {
 
 // ---- Queries ----
 
+export async function queryByPk(
+  pk: string,
+  options?: { limit?: number; reverse?: boolean },
+) {
+  const params: QueryCommandInput = {
+    TableName: TABLE,
+    KeyConditionExpression: "pk = :pk",
+    ExpressionAttributeValues: { ":pk": pk },
+    Limit: options?.limit || 500,
+    ScanIndexForward: options?.reverse !== undefined ? !options.reverse : true,
+  };
+  const result = await docClient.send(new QueryCommand(params));
+  return { items: result.Items ?? [], lastKey: result.LastEvaluatedKey };
+}
+
 export async function queryByGSI1(
   clientId: string,
   options?: {
