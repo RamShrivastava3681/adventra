@@ -410,6 +410,7 @@ function AppLayout() {
       "/app/forecast",
       "/app/grn",
       "/app/dispatches",
+      "/app/dispatches/challan",
       "/app/stock-allocation",
       "/app/sample-distribution",
     ];
@@ -567,6 +568,7 @@ function AppLayout() {
   const currentPage = (() => {
     // Detail / preview routes that don't share a nav-item prefix.
     const DETAIL_LABELS: [string, string][] = [
+      ["/app/dispatches/challan/", "Challan"],
       ["/app/invoice-preview/", "Invoice"],
       ["/app/note-preview/", "Credit / Debit note"],
     ];

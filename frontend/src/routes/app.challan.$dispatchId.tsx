@@ -1,20 +1,20 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useLoaderData } from "@tanstack/react-router";
 import api from "@/lib/api-client";
 import { ArrowLeft, Printer } from "lucide-react";
 import { fmtMoney, fmtDate } from "@/components/ledger-ui";
 
 export const Route = createFileRoute("/app/challan/$dispatchId")({
+  loader: async ({ params }: { params: { dispatchId: string } }) => {
+    const d = await api.goodsDispatches.get(params.dispatchId);
+    if (!d) throw new Response("Not found", { status: 404 });
+    return d as any;
+  },
   component: ChallanPage,
 });
 
 function ChallanPage() {
-  const { dispatchId } = Route.useParams();
-  const q = useQuery({
-    queryKey: ["dispatch", dispatchId],
-    queryFn: async () => api.goodsDispatches.get(dispatchId),
-  });
-  const d = q.data as any;
+  const d = useLoaderData() as any;
 
   const totalQty = (d?.lines ?? []).reduce((s: number, l: any) => s + l.dispatched_qty, 0);
   const totalValue = (d?.lines ?? []).reduce((s: number, l: any) => s + (l.line_value ?? 0), 0);
@@ -40,11 +40,7 @@ function ChallanPage() {
       </div>
 
       <div className="mx-auto my-8 max-w-4xl">
-        {q.isLoading ? (
-          <div className="grid place-items-center py-24 text-sm text-muted-foreground">
-            Loading…
-          </div>
-        ) : !d ? (
+        {!d ? (
           <div className="grid place-items-center py-24 text-sm text-muted-foreground">
             Dispatch not found
           </div>
@@ -166,14 +162,12 @@ function ChallanPage() {
         )}
       </div>
 
-      <style>{`
-        @media print {
-          @page { size: A4; margin: 12mm; }
-          body { background: white !important; }
-          .no-print { display: none !important; }
-          #print-sheet { box-shadow: none !important; margin: 0 !important; }
-        }
-      `}</style>
+      <style>{`@media print {
+        @page { size: A4; margin: 12mm; }
+        body { background: white !important; }
+        .no-print { display: none !important; }
+        #print-sheet { box-shadow: none !important; margin: 0 !important; }
+      }`}</style>
     </div>
   );
 }
