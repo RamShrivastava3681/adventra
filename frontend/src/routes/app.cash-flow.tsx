@@ -334,6 +334,12 @@ function CashFlowPage() {
     queryFn: () => api.cashFlow.settlements.list(),
   });
 
+  const gstCollectionQ = useQuery({
+    queryKey: ["cash-flow-gst-collection"],
+    queryFn: () => api.cashFlow.gstCollection.list(),
+    refetchInterval: 30_000,
+  });
+
   const invalidateAll = () => {
     queryClient.invalidateQueries({ queryKey: ["cash-accounts"] });
     queryClient.invalidateQueries({ queryKey: ["cash-flow-forecast"] });
@@ -345,6 +351,7 @@ function CashFlowPage() {
     queryClient.invalidateQueries({ queryKey: ["cash-flow-uninvoiced-pos"] });
     queryClient.invalidateQueries({ queryKey: ["cash-flow-planned-pos"] });
     queryClient.invalidateQueries({ queryKey: ["cash-flow-settlements"] });
+    queryClient.invalidateQueries({ queryKey: ["cash-flow-gst-collection"] });
     queryClient.invalidateQueries({ queryKey: ["cash-flow-settings"] });
   };
 
@@ -514,6 +521,78 @@ function CashFlowPage() {
     }
     return list;
   }, [outflowsQ.data, commitmentsQ.data, recurringQ.data, uninvoicedPosQ.data]);
+
+  // GST Collection ledger — prefers the dedicated backend ledger, falls back to
+  // summary totals, then to a client-side roll-up of sales invoices.
+  const gstLedger = useMemo(() => {
+    const fromApi = gstCollectionQ.data;
+    if (fromApi?.invoices?.length || fromApi?.totals) {
+      return {
+        totals: {
+          gstTotalBilled: Number(fromApi.totals?.gstTotalBilled ?? 0) || 0,
+          gstCollected: Number(fromApi.totals?.gstCollected ?? 0) || 0,
+          gstOutstanding: Number(fromApi.totals?.gstOutstanding ?? 0) || 0,
+          gstDueNext7Days: Number(fromApi.totals?.gstDueNext7Days ?? 0) || 0,
+          gstInvoiceCount: Number(fromApi.totals?.gstInvoiceCount ?? fromApi.invoices?.length ?? 0) || 0,
+        },
+        invoices: (fromApi.invoices ?? []) as any[],
+      };
+    }
+    if (summary && (summary.gstTotalBilled != null || summary.gstCollected != null)) {
+      return {
+        totals: {
+          gstTotalBilled: Number(summary.gstTotalBilled ?? 0) || 0,
+          gstCollected: Number(summary.gstCollected ?? 0) || 0,
+          gstOutstanding: Number(summary.gstOutstanding ?? 0) || 0,
+          gstDueNext7Days: Number(summary.gstDueNext7Days ?? 0) || 0,
+          gstInvoiceCount: Number(summary.gstInvoiceCount ?? 0) || 0,
+        },
+        invoices: [] as any[],
+      };
+    }
+    // Client-side fallback from sales invoices already loaded on this page.
+    const rows: any[] = [];
+    let billed = 0;
+    let collected = 0;
+    for (const inv of (salesInvoicesQ.data ?? []) as any[]) {
+      const status = String(inv.status || "").toLowerCase();
+      if (!inv?.id || status === "cancelled") continue;
+      const gst = Number(inv.gstTotal ?? inv.gst_total ?? inv.taxAmount ?? inv.tax_amount) || 0;
+      const grand = Number(inv.grandTotal ?? inv.grand_total ?? inv.amount ?? 0) || 0;
+      const advance = Number(inv.advanceDeducted ?? inv.advance_deducted ?? 0) || 0;
+      const totalDue = Math.max(0, grand - advance);
+      let paid = Math.min(totalDue, Math.max(0, Number(inv.amountReceived ?? inv.amount_received) || 0));
+      if (status === "paid" && paid <= 0) paid = totalDue;
+      const ratio = totalDue > 0 ? Math.min(1, paid / totalDue) : (status === "paid" ? 1 : 0);
+      const gstPaid = Math.round(gst * ratio * 100) / 100;
+      billed = Math.round((billed + gst) * 100) / 100;
+      collected = Math.round((collected + gstPaid) * 100) / 100;
+      rows.push({
+        id: inv.id,
+        invoiceNumber: inv.invoiceNumber ?? inv.invoice_number ?? "—",
+        customer: inv.debtorId ?? inv.debtor_id ?? "—",
+        issueDate: inv.issueDate ?? inv.issue_date ?? null,
+        dueDate: inv.dueDate ?? inv.due_date ?? null,
+        expectedDate: inv.expectedDate ?? inv.expected_date ?? null,
+        grandTotal: grand,
+        gstTotal: gst,
+        amountReceived: paid,
+        gstCollected: gstPaid,
+        gstOutstanding: Math.max(0, Math.round((gst - gstPaid) * 100) / 100),
+        status: inv.status || "—",
+      });
+    }
+    return {
+      totals: {
+        gstTotalBilled: billed,
+        gstCollected: collected,
+        gstOutstanding: Math.max(0, Math.round((billed - collected) * 100) / 100),
+        gstDueNext7Days: Number(summary?.gstDueNext7Days ?? 0) || 0,
+        gstInvoiceCount: rows.length,
+      },
+      invoices: rows,
+    };
+  }, [gstCollectionQ.data, summary, salesInvoicesQ.data]);
 
   const hasWrite = canWrite;
 
@@ -749,6 +828,10 @@ function CashFlowPage() {
                 <TabsTrigger value="outflows" className="text-xs font-medium gap-1.5 px-3">
                   <TrendingDown className="h-3.5 w-3.5" />
                   All Outflows ({outflowsQ.data?.length || 0})
+                </TabsTrigger>
+                <TabsTrigger value="gst" className="text-xs font-medium gap-1.5 px-3">
+                  <ClipboardList className="h-3.5 w-3.5" />
+                  GST Collection ({gstLedger.totals.gstInvoiceCount || 0})
                 </TabsTrigger>
               </TabsList>
 
@@ -1860,6 +1943,84 @@ function CashFlowPage() {
                             </tr>
                           ))
                         )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </TabsContent>
+
+              {/* ── Tab: GST Collection (GST across all sales invoices) ── */}
+              <TabsContent value="gst" className="space-y-5">
+                <div className="rounded-2xl border bg-card p-5 shadow-xs">
+                  <h3 className="text-base font-semibold text-foreground">GST Amount Collection</h3>
+                  <p className="text-xs text-muted-foreground">
+                    Total GST billed on all sales invoices, how much GST has been collected via customer receipts, and how much is still outstanding.
+                  </p>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                  <SummaryCard
+                    icon={<ClipboardList className="h-4 w-4" />}
+                    iconClass="bg-blue-500/10 text-blue-600 dark:text-blue-400"
+                    value={fmt(gstLedger.totals.gstTotalBilled)}
+                    label="Total GST Billed"
+                    sublabel={`${gstLedger.totals.gstInvoiceCount} invoices`}
+                  />
+                  <SummaryCard
+                    icon={<CheckCircle2 className="h-4 w-4" />}
+                    iconClass="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400"
+                    value={fmt(gstLedger.totals.gstCollected)}
+                    label="GST Collected"
+                    sublabel="Via customer receipts"
+                  />
+                  <SummaryCard
+                    icon={<Clock className="h-4 w-4" />}
+                    iconClass="bg-amber-500/10 text-amber-600 dark:text-amber-400"
+                    value={fmt(gstLedger.totals.gstOutstanding)}
+                    label="GST Outstanding"
+                    sublabel="Yet to be collected"
+                  />
+                  <SummaryCard
+                    icon={<Calendar className="h-4 w-4" />}
+                    iconClass="bg-violet-500/10 text-violet-600 dark:text-violet-400"
+                    value={fmt(gstLedger.totals.gstDueNext7Days)}
+                    label="GST Due (7d)"
+                    sublabel="On invoices due next 7 days"
+                  />
+                </div>
+
+                <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                          <th className="px-5 py-3.5">Invoice</th>
+                          <th className="px-5 py-3.5">Customer</th>
+                          <th className="px-5 py-3.5">Due Date</th>
+                          <th className="px-5 py-3.5 text-right">Invoice Value</th>
+                          <th className="px-5 py-3.5 text-right">GST Amount</th>
+                          <th className="px-5 py-3.5 text-right">GST Collected</th>
+                          <th className="px-5 py-3.5 text-right">GST Outstanding</th>
+                          <th className="px-5 py-3.5 text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border/60">
+                        {gstCollectionQ.isLoading ? (
+                          <tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground"><Loader2 className="mr-2 inline-block h-4 w-4 animate-spin" />Loading GST collection...</td></tr>
+                        ) : gstLedger.invoices.length === 0 ? (
+                          <tr><td colSpan={8} className="py-8 text-center text-sm text-muted-foreground">No sales invoices. GST collection will appear here once invoices are raised.</td></tr>
+                        ) : gstLedger.invoices.map((row: any) => (
+                          <tr key={row.id} className="hover:bg-muted/20">
+                            <td className="px-5 py-3.5 font-mono text-xs">{row.invoiceNumber || "—"}</td>
+                            <td className="px-5 py-3.5">{row.customer || "—"}</td>
+                            <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{row.expectedDate || row.dueDate || "—"}</td>
+                            <td className="px-5 py-3.5 text-right font-mono">{fmtFull(row.grandTotal)}</td>
+                            <td className="px-5 py-3.5 text-right font-mono font-bold text-blue-600">{fmtFull(row.gstTotal)}</td>
+                            <td className="px-5 py-3.5 text-right font-mono text-emerald-600">{fmtFull(row.gstCollected)}</td>
+                            <td className="px-5 py-3.5 text-right font-mono text-amber-600">{fmtFull(row.gstOutstanding)}</td>
+                            <td className="px-5 py-3.5 text-center"><span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[11px] font-semibold text-blue-700">{row.status || "—"}</span></td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>

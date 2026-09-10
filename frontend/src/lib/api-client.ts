@@ -562,6 +562,10 @@ const api = {
       api.get<any>(`/cash-flow/trace/${sourceType}/${sourceId}`),
     // Dashboard Summary
     summary: async () => normalizeCashFlowResponse(await api.get<any>("/cash-flow/summary")),
+    // GST Collection ledger (per-invoice GST across all sales invoices)
+    gstCollection: {
+      list: async () => normalizeCashFlowResponse(await api.get<any>("/cash-flow/gst-collection")),
+    },
   },
 
   // Reports module (portfolio-wide; see backend/src/routes/reports.ts)

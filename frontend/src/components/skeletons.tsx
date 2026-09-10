@@ -133,6 +133,41 @@ export function DashboardSkeleton() {
         </div>
       </div>
 
+      {/* Action required table */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <Skeleton className="mb-4 h-5 w-36" />
+        <TableSkeleton rows={4} cols={5} />
+      </div>
+
+      {/* Portfolio health + recent activity */}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <div className="rounded-xl border border-border bg-card p-5">
+          <Skeleton className="mb-4 h-5 w-36" />
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="flex items-center justify-between">
+                <Skeleton className="h-3 w-28" />
+                <Skeleton className="h-4 w-20" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-5">
+          <Skeleton className="mb-4 h-5 w-32" />
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="flex items-start gap-3">
+                <Skeleton className="mt-1 h-2.5 w-2.5 rounded-full" />
+                <div className="flex-1 space-y-1">
+                  <Skeleton className="h-3 w-3/4" />
+                  <Skeleton className="h-2 w-32" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       {/* Recent invoices table */}
       <div className="rounded-xl border border-border bg-card p-5">
         <Skeleton className="mb-4 h-5 w-32" />

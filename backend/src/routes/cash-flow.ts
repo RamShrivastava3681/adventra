@@ -851,6 +851,36 @@ router.get("/cash-flow/trace/:sourceType/:sourceId", async (req: Request, res: R
   }
 });
 
+// ===================== GST COLLECTION (per-invoice GST ledger) =====================
+
+router.get("/cash-flow/gst-collection", async (req: Request, res: Response) => {
+  try {
+    const scope = effectiveListScope(req);
+    if (!scope) {
+      // Portfolio-wide: merge per-owner ledgers
+      const owners = await CashFlowEngine.cashDataOwners();
+      const ledgers = await Promise.all(
+        owners.map((id) => CashFlowEngine.getGstCollection(id)),
+      );
+      const invoices = ledgers.flatMap((l) => l.invoices);
+      invoices.sort((a: any, b: any) => String(b.issueDate || "").localeCompare(String(a.issueDate || "")));
+      const totals = {
+        gstTotalBilled: invoices.reduce((s: number, r: any) => s + (Number(r.gstTotal) || 0), 0),
+        gstCollected: invoices.reduce((s: number, r: any) => s + (Number(r.gstCollected) || 0), 0),
+        gstOutstanding: invoices.reduce((s: number, r: any) => s + (Number(r.gstOutstanding) || 0), 0),
+        gstDueNext7Days: ledgers.reduce((s, l) => s + (Number(l.totals.gstDueNext7Days) || 0), 0),
+        gstInvoiceCount: invoices.length,
+      };
+      res.json({ totals, invoices });
+      return;
+    }
+    const ledger = await CashFlowEngine.getGstCollection(scope);
+    res.json(ledger);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===================== DASHBOARD SUMMARY =====================
 
 router.get("/cash-flow/summary", async (req: Request, res: Response) => {

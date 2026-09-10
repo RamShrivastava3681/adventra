@@ -828,7 +828,7 @@ function AppLayout() {
       </div>
 
       {/* Desktop sidebar */}
-      <aside className="relative hidden w-60 flex-col border-r border-sidebar-border bg-sidebar md:flex print:hidden">
+      <aside className="relative hidden w-56 flex-col border-r border-sidebar-border bg-sidebar md:flex print:hidden">
         {renderSidebarContent(false)}
 
         {/* ── Horizontal flyout panel ── */}
@@ -837,7 +837,7 @@ function AppLayout() {
             {/* Backdrop */}
             <div className="fixed inset-0 z-40" onClick={() => setActiveFlyout(null)} />
             {/* Flyout panel */}
-            <div className="fixed left-60 top-0 z-50 flex h-full w-64 flex-col border-r border-border bg-popover shadow-modal animate-in slide-in-from-left-2 fade-in duration-150">
+            <div className="fixed left-56 top-0 z-50 flex h-full w-64 flex-col border-r border-border bg-popover shadow-modal animate-in slide-in-from-left-2 fade-in duration-150">
               {/* Flyout header */}
               <div className="flex items-center gap-3 px-4 h-14 shrink-0 border-b border-border">
                 <button
@@ -913,9 +913,13 @@ function AppLayout() {
               onClick={() => setCmdOpen(true)}
               aria-label="Search"
               title="Search (Ctrl+K)"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-transparent px-2.5 text-[13px] text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground"
             >
-              <Search className="h-[18px] w-[18px]" />
+              <Search className="h-4 w-4" />
+              <span className="hidden lg:inline">Search…</span>
+              <kbd className="hidden rounded border border-border bg-card px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground lg:inline-flex">
+                ⌘K
+              </kbd>
             </button>
             <Link
               to="/app/alerts"

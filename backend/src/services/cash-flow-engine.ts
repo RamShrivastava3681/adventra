@@ -489,7 +489,7 @@ function generatePeriods(
  * Distinct client scopes that actually hold cash-flow records. Used to run the
  * engine portfolio-wide for platform-staff accounts (no single client scope).
  */
-async function cashDataOwners(): Promise<string[]> {
+export async function cashDataOwners(): Promise<string[]> {
   const [accounts, inflows, outflows, recurring, settlements, commitments] =
     await Promise.all([
       CashAccount.list(),
@@ -887,8 +887,66 @@ export interface CashCommandCentreSummary {
   salesInflowsNext7Days: number;
   recurringOutflowsNext7Days: number;
   purchaseOutflowsNext7Days: number;
+  /** GST billed across all (non-cancelled) sales invoices. */
+  gstTotalBilled: number;
+  /** GST portion of amounts already received from customers. */
+  gstCollected: number;
+  /** GST portion still outstanding (billed − collected). */
+  gstOutstanding: number;
+  /** Outstanding GST on invoices due within the next 7 days. */
+  gstDueNext7Days: number;
+  /** Count of non-cancelled sales invoices contributing to GST totals. */
+  gstInvoiceCount: number;
   cashStatus: "GREEN" | "AMBER" | "RED";
   alerts: CashFlowAlert[];
+}
+
+export interface GstCollectionRow {
+  id: string;
+  invoiceNumber: string;
+  customer: string;
+  issueDate: string | null;
+  dueDate: string | null;
+  expectedDate: string | null;
+  grandTotal: number;
+  gstTotal: number;
+  amountReceived: number;
+  gstCollected: number;
+  gstOutstanding: number;
+  status: string;
+}
+
+export interface GstCollection {
+  totals: {
+    gstTotalBilled: number;
+    gstCollected: number;
+    gstOutstanding: number;
+    gstDueNext7Days: number;
+    gstInvoiceCount: number;
+  };
+  invoices: GstCollectionRow[];
+}
+
+/** GST amount on a sales invoice — supports both camelCase and snake_case shapes. */
+function invoiceGstTotal(invoice: any): number {
+  return (
+    Number(invoice?.gstTotal ?? invoice?.gst_total ?? invoice?.taxAmount ?? invoice?.tax_amount) || 0
+  );
+}
+
+/** Net receivable on a sales invoice (grand total minus advance deducted). */
+function invoiceNetReceivable(invoice: any): number {
+  const grand = Number(invoice?.grandTotal ?? invoice?.grand_total ?? invoice?.amount ?? 0) || 0;
+  const advance = Math.max(0, Number(invoice?.advanceDeducted ?? invoice?.advance_deducted ?? 0) || 0);
+  return Math.max(0, grand - advance);
+}
+
+/** Amount already received on a sales invoice (paid invoices count as fully received). */
+function invoicePaidAmount(invoice: any, totalDue: number): number {
+  const status = String(invoice?.status || "").toLowerCase();
+  let paid = Math.min(totalDue, Math.max(0, Number(invoice?.amountReceived ?? invoice?.amount_received) || 0));
+  if (status === "paid" && paid <= 0) paid = totalDue;
+  return paid;
 }
 
 async function getOwnerSummary(clientId: string): Promise<CashCommandCentreSummary> {
@@ -1063,6 +1121,34 @@ async function getOwnerSummary(clientId: string): Promise<CashCommandCentreSumma
     return s + Math.max(0, totalDue - (Number(invoice.amountPaid) || 0));
   }, 0);
 
+  // ── GST collected across ALL sales invoices (output GST) ──
+  // Billed = sum of invoice GST; collected = billed × (paid / net receivable);
+  // outstanding = billed − collected. Cancelled invoices are excluded.
+  let gstTotalBilled = 0;
+  let gstCollected = 0;
+  let gstDueNext7Days = 0;
+  let gstInvoiceCount = 0;
+  for (const invoice of salesInvoices) {
+    const status = String(invoice?.status || "").toLowerCase();
+    if (!invoice?.id || status === "cancelled") continue;
+    const gst = invoiceGstTotal(invoice);
+    const totalDue = invoiceNetReceivable(invoice);
+    const paid = invoicePaidAmount(invoice, totalDue);
+    const ratio = totalDue > 0 ? Math.min(1, paid / totalDue) : (status === "paid" ? 1 : 0);
+    const collected = round2(gst * ratio);
+    const outstanding = round2(Math.max(0, gst - collected));
+    gstTotalBilled = round2(gstTotalBilled + gst);
+    gstCollected = round2(gstCollected + collected);
+    gstInvoiceCount += 1;
+    const iv: any = invoice;
+    const dueDate =
+      iv?.expectedDate || iv?.expected_date || iv?.dueDate || iv?.due_date || iv?.issueDate;
+    if (outstanding > 0 && dueDate >= today && dueDate <= in7) {
+      gstDueNext7Days = round2(gstDueNext7Days + outstanding);
+    }
+  }
+  const gstOutstanding = round2(Math.max(0, gstTotalBilled - gstCollected));
+
   // Run forecast for projected values
   const weekly = await computeForecast(clientId, "weekly");
   const daily = await computeForecast(clientId, "daily");
@@ -1096,8 +1182,70 @@ async function getOwnerSummary(clientId: string): Promise<CashCommandCentreSumma
     salesInflowsNext7Days: round2(invoiceInflows7d),
     recurringOutflowsNext7Days: round2(recurring7d),
     purchaseOutflowsNext7Days: round2(invoiceOutflows7d),
+    gstTotalBilled: round2(gstTotalBilled),
+    gstCollected: round2(gstCollected),
+    gstOutstanding,
+    gstDueNext7Days: round2(gstDueNext7Days),
+    gstInvoiceCount,
     cashStatus: weekly.cashStatus,
     alerts: weekly.alerts,
+  };
+}
+
+/**
+ * GST collection ledger for the Cash Command Centre: one row per sales
+ * invoice (no changes to any existing inflow/outflow tables) plus totals.
+ */
+export async function getGstCollection(clientId: string): Promise<GstCollection> {
+  const salesInvoices = await Invoice.list(clientId);
+  const today = new Date().toISOString().slice(0, 10);
+  const in7 = addDays(today, 7);
+  const rows: GstCollectionRow[] = [];
+  let gstTotalBilled = 0;
+  let gstCollected = 0;
+  let gstDueNext7Days = 0;
+  for (const invoice of salesInvoices) {
+    const status = String(invoice?.status || "").toLowerCase();
+    if (!invoice?.id || status === "cancelled") continue;
+    const gst = invoiceGstTotal(invoice);
+    const totalDue = invoiceNetReceivable(invoice);
+    const paid = invoicePaidAmount(invoice, totalDue);
+    const ratio = totalDue > 0 ? Math.min(1, paid / totalDue) : (status === "paid" ? 1 : 0);
+    const collected = round2(gst * ratio);
+    const outstanding = round2(Math.max(0, gst - collected));
+    gstTotalBilled = round2(gstTotalBilled + gst);
+    gstCollected = round2(gstCollected + collected);
+    const iv2: any = invoice;
+    const dueDate =
+      iv2?.expectedDate || iv2?.expected_date || iv2?.dueDate || iv2?.due_date || null;
+    if (outstanding > 0 && dueDate && dueDate >= today && dueDate <= in7) {
+      gstDueNext7Days = round2(gstDueNext7Days + outstanding);
+    }
+    rows.push({
+      id: invoice.id,
+      invoiceNumber: invoice.invoiceNumber ?? (invoice as any).invoice_number ?? "—",
+      customer: (invoice as any).debtorId ?? (invoice as any).debtor_id ?? "—",
+      issueDate: invoice.issueDate ?? (invoice as any).issue_date ?? null,
+      dueDate: invoice.dueDate ?? (invoice as any).due_date ?? null,
+      expectedDate: invoice.expectedDate ?? (invoice as any).expected_date ?? null,
+      grandTotal: Number(invoice.grandTotal ?? (invoice as any).grand_total ?? invoice.amount ?? 0) || 0,
+      gstTotal: round2(gst),
+      amountReceived: paid,
+      gstCollected: collected,
+      gstOutstanding: outstanding,
+      status: invoice.status || "—",
+    });
+  }
+  rows.sort((a, b) => String(b.issueDate || "").localeCompare(String(a.issueDate || "")));
+  return {
+    totals: {
+      gstTotalBilled: round2(gstTotalBilled),
+      gstCollected: round2(gstCollected),
+      gstOutstanding: round2(Math.max(0, gstTotalBilled - gstCollected)),
+      gstDueNext7Days: round2(gstDueNext7Days),
+      gstInvoiceCount: rows.length,
+    },
+    invoices: rows,
   };
 }
 
@@ -1136,6 +1284,11 @@ export async function getSummary(
       salesInflowsNext7Days: 0,
       recurringOutflowsNext7Days: 0,
       purchaseOutflowsNext7Days: 0,
+      gstTotalBilled: 0,
+      gstCollected: 0,
+      gstOutstanding: 0,
+      gstDueNext7Days: 0,
+      gstInvoiceCount: 0,
       cashStatus: "GREEN",
       alerts: [],
     };
@@ -1153,6 +1306,8 @@ export async function getSummary(
     "supplierPayables", "poCommitments", "plannedPurchaseOrders",
     "marketplaceInflowsNext7Days", "salesInflowsNext7Days",
     "recurringOutflowsNext7Days", "purchaseOutflowsNext7Days",
+    "gstTotalBilled", "gstCollected", "gstOutstanding", "gstDueNext7Days",
+    "gstInvoiceCount",
   ] as const;
   const merged: CashCommandCentreSummary = {
     ...base,
