@@ -1368,9 +1368,11 @@ export function buildSalesOrderTallyPdf(data: SalesOrderTallyData): Promise<Buff
       const rightRowsH = ry - y0;
 
       // Logo cell fills the remaining right-column height (min 64).
+      // White background: the Adventra logo asset is a dark mark on
+      // transparency, so it needs a light cell to stay visible.
       const logoH = Math.max(64, leftH - rightRowsH);
       const lx = M + LW;
-      doc.rect(lx, ry, RW, logoH).fill("#111111");
+      doc.rect(lx, ry, RW, logoH).fill(TALLY.white);
       doc.rect(lx, ry, RW, logoH).strokeColor(TALLY.ink).lineWidth(0.5).stroke();
       if (data.logoImage) {
         try {
@@ -1380,10 +1382,10 @@ export function buildSalesOrderTallyPdf(data: SalesOrderTallyData): Promise<Buff
             valign: "center",
           });
         } catch {
-          doc.font(FB).fontSize(10).fillColor("#FFFFFF").text(sel.name, lx + 6, ry + logoH / 2 - 8, { width: RW - 12, align: "center" });
+          doc.font(FB).fontSize(10).fillColor(TALLY.ink).text(sel.name || " ", lx + 6, ry + logoH / 2 - 8, { width: RW - 12, align: "center" });
         }
       } else {
-        doc.font(FB).fontSize(10).fillColor("#FFFFFF").text(sel.name, lx + 6, ry + logoH / 2 - 8, { width: RW - 12, align: "center" });
+        doc.font(FB).fontSize(10).fillColor(TALLY.ink).text(sel.name || " ", lx + 6, ry + logoH / 2 - 8, { width: RW - 12, align: "center" });
       }
       ry += logoH;
       rightDivs.push(ry);
