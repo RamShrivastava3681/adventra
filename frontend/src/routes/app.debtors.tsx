@@ -176,6 +176,38 @@ function DebtorsPage() {
   );
 }
 
+function toAddressList(v: any): { label: string; address: string }[] {
+  if (!v) return [];
+  const arr = Array.isArray(v) ? v : [v];
+  const out: { label: string; address: string }[] = [];
+  for (const e of arr) {
+    if (typeof e === "string") {
+      if (e.trim()) out.push({ label: "", address: e.trim() });
+    } else if (e && typeof e === "object") {
+      const addr = e.address ?? e.address_line ?? "";
+      if (typeof addr === "string" && addr.trim())
+        out.push({ label: e.label ?? "", address: addr.trim() });
+    }
+  }
+  return out;
+}
+
+function addressesFromDebtor(debtor: any, kind: "billing" | "shipping"): { label: string; address: string }[] {
+  if (!debtor) return [{ label: "", address: "" }];
+  const list =
+    kind === "billing"
+      ? (debtor.billing_addresses ?? debtor.billingAddresses ?? null)
+      : (debtor.shipping_addresses ?? debtor.shippingAddresses ?? null);
+  const norm = toAddressList(list);
+  if (norm.length) return norm;
+  // Legacy single-address fallback
+  const single =
+    kind === "billing"
+      ? (debtor.billing_address ?? debtor.address_line ?? "")
+      : (debtor.shipping_address ?? "");
+  return [{ label: "", address: single ?? "" }];
+}
+
 function DebtorModal({
   debtor,
   onClose,
@@ -192,8 +224,8 @@ function DebtorModal({
     ...toTermsFormFields(debtor),
     gstin: debtor?.gstin ?? "",
     panCardNo: debtor?.panCardNo ?? debtor?.pan_card_no ?? "",
-    billing_address: debtor?.billing_address ?? debtor?.address_line ?? "",
-    shipping_address: debtor?.shipping_address ?? "",
+    billing_addresses: addressesFromDebtor(debtor, "billing"),
+    shipping_addresses: addressesFromDebtor(debtor, "shipping"),
     city: debtor?.city ?? "",
     country: debtor?.country ?? "",
     postal_code: debtor?.postal_code ?? "",
@@ -215,14 +247,22 @@ function DebtorModal({
       if (form.contact_email && !/^\S+@\S+\.\S+$/.test(form.contact_email))
         throw new Error("Invalid contact email");
       if (form.website && form.website.length > 255) throw new Error("Website too long");
+      const cleanBilling = form.billing_addresses
+        .map((a) => ({ label: a.label.trim() || null, address: a.address.trim() }))
+        .filter((a) => a.address);
+      const cleanShipping = form.shipping_addresses
+        .map((a) => ({ label: a.label.trim() || null, address: a.address.trim() }))
+        .filter((a) => a.address);
       const payload = {
         name: form.name.trim(),
         industry: form.industry || null,
         ...toTermsPayload(form),
         gstin: form.gstin || null,
         panCardNo: form.panCardNo || null,
-        billingAddress: form.billing_address || null,
-        shippingAddress: form.shipping_address || null,
+        billingAddress: cleanBilling[0]?.address || null,
+        shippingAddress: cleanShipping[0]?.address || null,
+        billingAddresses: cleanBilling.length ? cleanBilling : null,
+        shippingAddresses: cleanShipping.length ? cleanShipping : null,
         city: form.city || null,
         country: form.country || null,
         postalCode: form.postal_code || null,
@@ -324,33 +364,152 @@ function DebtorModal({
             </div>
           </Section>
 
-          <Section title="Billing address">
+          <Section
+            title="Billing addresses"
+            action={
+              <button
+                type="button"
+                title="Add billing address"
+                onClick={() =>
+                  setForm({
+                    ...form,
+                    billing_addresses: [...form.billing_addresses, { label: "", address: "" }],
+                  })
+                }
+                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-primary hover:text-primary"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add
+              </button>
+            }
+          >
             <div className="grid gap-3">
-              <L label="Billing address" full>
-                <textarea
-                  rows={3}
-                  maxLength={500}
-                  className="inp resize-y"
-                  value={form.billing_address}
-                  onChange={(e) => setForm({ ...form, billing_address: e.target.value })}
-                  placeholder="Street, building, landmarks…"
-                />
-              </L>
+              {form.billing_addresses.map((a, i) => (
+                <div key={i} className="rounded-md border border-border/60 p-2">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                      Billing address {i + 1}
+                      {i === 0 && <span className="ml-1 text-primary">(primary)</span>}
+                    </span>
+                    {form.billing_addresses.length > 1 && (
+                      <button
+                        type="button"
+                        title="Remove"
+                        onClick={() =>
+                          setForm({
+                            ...form,
+                            billing_addresses: form.billing_addresses.filter((_, j) => j !== i),
+                          })
+                        }
+                        className="rounded p-1 text-muted-foreground hover:text-destructive"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid gap-2">
+                    <input
+                      maxLength={60}
+                      className="inp"
+                      value={a.label}
+                      onChange={(e) => {
+                        const next = [...form.billing_addresses];
+                        next[i] = { ...next[i], label: e.target.value };
+                        setForm({ ...form, billing_addresses: next });
+                      }}
+                      placeholder="Label — e.g. HQ, Branch, Warehouse 1"
+                    />
+                    <textarea
+                      rows={2}
+                      maxLength={500}
+                      className="inp resize-y"
+                      value={a.address}
+                      onChange={(e) => {
+                        const next = [...form.billing_addresses];
+                        next[i] = { ...next[i], address: e.target.value };
+                        setForm({ ...form, billing_addresses: next });
+                      }}
+                      placeholder="Street, building, landmarks…"
+                    />
+                  </div>
+                </div>
+              ))}
             </div>
           </Section>
 
-          <Section title="Shipping address">
+          <Section
+            title="Shipping addresses"
+            action={
+              <button
+                type="button"
+                title="Add shipping address"
+                onClick={() =>
+                  setForm({
+                    ...form,
+                    shipping_addresses: [...form.shipping_addresses, { label: "", address: "" }],
+                  })
+                }
+                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-primary hover:text-primary"
+              >
+                <Plus className="h-3.5 w-3.5" /> Add
+              </button>
+            }
+          >
             <div className="grid gap-3">
-              <L label="Shipping address" full>
-                <textarea
-                  rows={3}
-                  maxLength={500}
-                  className="inp resize-y"
-                  value={form.shipping_address}
-                  onChange={(e) => setForm({ ...form, shipping_address: e.target.value })}
-                  placeholder="Separate delivery address — leave blank to use billing address"
-                />
-              </L>
+              {form.shipping_addresses.map((a, i) => (
+                <div key={i} className="rounded-md border border-border/60 p-2">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                      Shipping address {i + 1}
+                      {i === 0 && <span className="ml-1 text-primary">(primary)</span>}
+                    </span>
+                    {form.shipping_addresses.length > 1 && (
+                      <button
+                        type="button"
+                        title="Remove"
+                        onClick={() =>
+                          setForm({
+                            ...form,
+                            shipping_addresses: form.shipping_addresses.filter((_, j) => j !== i),
+                          })
+                        }
+                        className="rounded p-1 text-muted-foreground hover:text-destructive"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid gap-2">
+                    <input
+                      maxLength={60}
+                      className="inp"
+                      value={a.label}
+                      onChange={(e) => {
+                        const next = [...form.shipping_addresses];
+                        next[i] = { ...next[i], label: e.target.value };
+                        setForm({ ...form, shipping_addresses: next });
+                      }}
+                      placeholder="Label — e.g. Godown, Site, Store 2"
+                    />
+                    <textarea
+                      rows={2}
+                      maxLength={500}
+                      className="inp resize-y"
+                      value={a.address}
+                      onChange={(e) => {
+                        const next = [...form.shipping_addresses];
+                        next[i] = { ...next[i], address: e.target.value };
+                        setForm({ ...form, shipping_addresses: next });
+                      }}
+                      placeholder="Separate delivery address — leave blank to use billing address"
+                    />
+                  </div>
+                </div>
+              ))}
+              {form.shipping_addresses.length === 1 && !form.shipping_addresses[0].address && (
+                <p className="text-[11px] text-muted-foreground">
+                  Leave blank to use the billing address. Use <Plus className="inline h-3 w-3" /> Add to save multiple delivery locations.
+                </p>
+              )}
             </div>
           </Section>
 
@@ -493,14 +652,22 @@ function DebtorDetailModal({
   exposure: number;
   onClose: () => void;
 }) {
-  const billingAddress =
-    [debtor.billing_address, debtor.city, debtor.country, debtor.postal_code]
+  const billingList = (() => {
+    const l = toAddressList(debtor.billing_addresses ?? debtor.billingAddresses);
+    if (l.length) return l.map((a) => a);
+    const single = [debtor.billing_address, debtor.city, debtor.country, debtor.postal_code]
       .filter(Boolean)
-      .join(", ") || "—";
-  const shippingAddress =
-    [debtor.shipping_address, debtor.city, debtor.country, debtor.postal_code]
+      .join(", ");
+    return single ? [{ label: "", address: single }] : [];
+  })();
+  const shippingList = (() => {
+    const l = toAddressList(debtor.shipping_addresses ?? debtor.shippingAddresses);
+    if (l.length) return l.map((a) => a);
+    const single = [debtor.shipping_address, debtor.city, debtor.country, debtor.postal_code]
       .filter(Boolean)
-      .join(", ") || "—";
+      .join(", ");
+    return single ? [{ label: "", address: single }] : [];
+  })();
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
@@ -535,15 +702,35 @@ function DebtorDetailModal({
             <D label="Phone" value={debtor.phone ?? "—"} />
           </div>
           <div>
-            <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Billing address</div>
-            <div className="text-sm">{billingAddress}</div>
+            <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Billing addresses ({billingList.length || 0})</div>
+            {billingList.length === 0 ? (
+              <div className="text-sm">—</div>
+            ) : (
+              <div className="space-y-1.5">
+                {billingList.map((a, i) => (
+                  <div key={i} className="rounded-md border border-border/60 px-2.5 py-1.5 text-sm">
+                    {a.label && <div className="text-[10px] uppercase tracking-widest text-primary">{a.label}{i === 0 ? " · primary" : ""}</div>}
+                    <div>{a.address}</div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          {shippingAddress !== billingAddress && (
-            <div>
-              <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Shipping address</div>
-              <div className="text-sm">{shippingAddress}</div>
-            </div>
-          )}
+          <div>
+            <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">Shipping addresses ({shippingList.length || 0})</div>
+            {shippingList.length === 0 ? (
+              <div className="text-sm">—</div>
+            ) : (
+              <div className="space-y-1.5">
+                {shippingList.map((a, i) => (
+                  <div key={i} className="rounded-md border border-border/60 px-2.5 py-1.5 text-sm">
+                    {a.label && <div className="text-[10px] uppercase tracking-widest text-primary">{a.label}{i === 0 ? " · primary" : ""}</div>}
+                    <div>{a.address}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <D label="Contact name" value={debtor.contact_name ?? "—"} />
             <D label="Designation" value={debtor.contact_designation ?? "—"} />
@@ -577,10 +764,13 @@ function D({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div>
-      <div className="mb-2 text-xs uppercase tracking-widest text-primary">{title}</div>
+      <div className="mb-2 flex items-center justify-between text-xs uppercase tracking-widest text-primary">
+        <span>{title}</span>
+        {action}
+      </div>
       {children}
     </div>
   );

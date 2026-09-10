@@ -11,8 +11,15 @@ export const Route = createFileRoute("/app/settings")({
 });
 
 function SettingsPage() {
-  const { user, isAdmin } = useAuth();
-  const [profile, setProfile] = useState({ company_name: "", contact_name: "" });
+  const { user, isAdmin, refreshAuth } = useAuth();
+  const [profile, setProfile] = useState({ company_name: "", contact_name: "", company_address: "" });
+  const [bank, setBank] = useState({
+    bank_holder: "",
+    bank_name: "",
+    bank_ac_no: "",
+    bank_ifsc: "",
+    bank_branch: "",
+  });
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -24,6 +31,20 @@ function SettingsPage() {
           setProfile({
             company_name: data.companyName ?? data.company_name ?? "",
             contact_name: data.contactName ?? data.contact_name ?? "",
+            company_address: data.address ?? "",
+          });
+      })
+      .catch(() => {});
+    api.invoiceTemplates
+      .get()
+      .then((data: any) => {
+        if (data)
+          setBank({
+            bank_holder: data.bank_holder ?? "",
+            bank_name: data.bank_name ?? "",
+            bank_ac_no: data.bank_ac_no ?? "",
+            bank_ifsc: data.bank_ifsc ?? "",
+            bank_branch: data.bank_branch ?? "",
           });
       })
       .catch(() => {});
@@ -35,7 +56,25 @@ function SettingsPage() {
       await api.auth.updateProfile({
         company_name: profile.company_name,
         contact_name: profile.contact_name,
+        address: profile.company_address,
       });
+      // Keep the invoice template in sync so the company details are used
+      // everywhere (sales order PDFs read the profile first, invoice previews
+      // read the template).
+      try {
+        await api.invoiceTemplates.update({
+          company_name: profile.company_name,
+          company_address: profile.company_address,
+          bank_holder: bank.bank_holder || null,
+          bank_name: bank.bank_name || null,
+          bank_ac_no: bank.bank_ac_no || null,
+          bank_ifsc: bank.bank_ifsc || null,
+          bank_branch: bank.bank_branch || null,
+        });
+      } catch {
+        toast.error("Profile saved, but template sync failed — open Invoice template and save again");
+      }
+      refreshAuth();
       toast.success("Profile saved");
     } catch (e: any) {
       toast.error(e.message ?? "Failed");
@@ -65,6 +104,67 @@ function SettingsPage() {
             </L>
             <L label="Email">
               <input className="inp" value={user?.email ?? ""} disabled />
+            </L>
+            <L label="Company address (used on all documents)">
+              <textarea
+                rows={3}
+                className="inp resize-y"
+                value={profile.company_address}
+                onChange={(e) => setProfile({ ...profile, company_address: e.target.value })}
+                placeholder="209, 2nd Floor, Garg Tower, H-1, District Center Netaji Subhash Place, PITAMPURA, New Delhi-110034"
+              />
+            </L>
+            <button
+              onClick={save}
+              disabled={loading}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+            >
+              {loading && <Loader2 className="h-4 w-4 animate-spin" />} Save
+            </button>
+          </div>
+        </Card>
+
+        <Card title="Company bank details">
+          <div className="space-y-3">
+            <p className="-mt-1 text-xs text-muted-foreground">
+              Printed as the bank table on sales order PDFs. Saved to the invoice template.
+            </p>
+            <L label="A/c holder's name">
+              <input
+                className="inp"
+                value={bank.bank_holder}
+                onChange={(e) => setBank({ ...bank, bank_holder: e.target.value })}
+              />
+            </L>
+            <L label="Bank name">
+              <input
+                className="inp"
+                value={bank.bank_name}
+                onChange={(e) => setBank({ ...bank, bank_name: e.target.value })}
+              />
+            </L>
+            <div className="grid gap-3 md:grid-cols-2">
+              <L label="A/c no.">
+                <input
+                  className="inp"
+                  value={bank.bank_ac_no}
+                  onChange={(e) => setBank({ ...bank, bank_ac_no: e.target.value })}
+                />
+              </L>
+              <L label="IFSC code">
+                <input
+                  className="inp"
+                  value={bank.bank_ifsc}
+                  onChange={(e) => setBank({ ...bank, bank_ifsc: e.target.value })}
+                />
+              </L>
+            </div>
+            <L label="Branch">
+              <input
+                className="inp"
+                value={bank.bank_branch}
+                onChange={(e) => setBank({ ...bank, bank_branch: e.target.value })}
+              />
             </L>
             <button
               onClick={save}

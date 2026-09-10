@@ -52,7 +52,16 @@ export interface InvoiceTemplate {
   pk: string; sk: string; entityType: "InvoiceTemplate";
   id: string; clientId: string;
   companyName: string; companyAddress: string | null; companyEmail: string | null; companyPhone: string | null;
+  /** Seller state name for GST print blocks, e.g. "Delhi". */
+  companyState: string | null;
+  /** Seller 2-digit state code, e.g. "07". */
+  companyStateCode: string | null;
   taxId: string | null; logoUrl: string | null;
+  /** Structured bank block for Tally-style print (A/c holder, bank, no, IFSC, branch). */
+  bankHolder: string | null; bankName: string | null; bankAcNo: string | null;
+  bankIfsc: string | null; bankBranch: string | null;
+  /** Sales-order declaration lines (newline-separated), printed under remarks. */
+  declaration: string | null;
   primaryColor: string; accentColor: string;
   currency: string; currencySymbol: string; defaultTaxRate: number;
   bankDetails: string | null; terms: string | null; footerText: string | null;
@@ -70,7 +79,7 @@ export async function upsertTemplate(data: Partial<InvoiceTemplate> & { clientId
   const now = db.nowISO();
   if (existing) {
     const patch: Record<string, any> = { updatedAt: now };
-    const allowed = ["companyName","companyAddress","companyEmail","companyPhone","taxId","logoUrl","primaryColor","accentColor","currency","currencySymbol","defaultTaxRate","bankDetails","terms","footerText","signatureLabel"];
+    const allowed = ["companyName","companyAddress","companyEmail","companyPhone","companyState","companyStateCode","taxId","logoUrl","bankHolder","bankName","bankAcNo","bankIfsc","bankBranch","declaration","primaryColor","accentColor","currency","currencySymbol","defaultTaxRate","bankDetails","terms","footerText","signatureLabel"];
     for (const k of allowed) { if ((data as any)[k] !== undefined) patch[k] = (data as any)[k]; }
     return db.updateItem(existing.pk, existing.sk, patch);
   }
@@ -80,7 +89,11 @@ export async function upsertTemplate(data: Partial<InvoiceTemplate> & { clientId
     entityType: "InvoiceTemplate", id, clientId: data.clientId,
     companyName: data.companyName || "", companyAddress: data.companyAddress || null,
     companyEmail: data.companyEmail || null, companyPhone: data.companyPhone || null,
+    companyState: data.companyState || null, companyStateCode: data.companyStateCode || null,
     taxId: data.taxId || null, logoUrl: data.logoUrl || null,
+    bankHolder: data.bankHolder || null, bankName: data.bankName || null,
+    bankAcNo: data.bankAcNo || null, bankIfsc: data.bankIfsc || null,
+    bankBranch: data.bankBranch || null, declaration: data.declaration || null,
     primaryColor: data.primaryColor || "#0EA5E9", accentColor: data.accentColor || "#0F172A",
     currency: data.currency || "INR", currencySymbol: data.currencySymbol || "₹",
     defaultTaxRate: data.defaultTaxRate || 0,

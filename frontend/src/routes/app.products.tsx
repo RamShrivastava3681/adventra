@@ -104,6 +104,9 @@ function ProductsPage() {
   const [editing, setEditing] = useState<Product | null>(null);
   const [variantFor, setVariantFor] = useState<{ parent: Product; child?: Product } | null>(null);
   const [detailFor, setDetailFor] = useState<Product | null>(null);
+  // Staged child-SKU creation from the Master SKU drawer: "color" adds a
+  // colour-coded SKU under a master, "size" a size-coded SKU under a colour.
+  const [stageFor, setStageFor] = useState<{ parent: Product; level: "color" | "size" } | null>(null);
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
   const [deleting, setDeleting] = useState<Product | null>(null);
@@ -326,7 +329,7 @@ function ProductsPage() {
               }}
               className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
             >
-              <Plus className="h-4 w-4" /> New product
+              <Plus className="h-4 w-4" /> Create Master SKU
             </button>
             </div>
           ) : (
@@ -528,16 +531,14 @@ function ProductsPage() {
                         <td className="px-5 py-3 text-right">
                           {canWrite && (
                             <div className="flex justify-end gap-2">
-                              {!isVariant && (
-                                <button
-                                  onClick={() => setVariantFor({ parent: p })}
-                                  title={`Add a colour/size variant SKU to ${p.name}`}
-                                  className="inline-flex max-w-[220px] items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-all duration-200 hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
-                                >
-                                  <Layers className="h-3.5 w-3.5 shrink-0" />
-                                  <span className="truncate">Add variant · {p.name}</span>
-                                </button>
-                              )}
+                              <button
+                                onClick={() => setDetailFor(isVariant ? (parentOf(p) ?? p) : p)}
+                                title={isVariant ? "Open the Master SKU hierarchy" : "Open Master SKU hierarchy"}
+                                className="inline-flex max-w-[220px] items-center gap-1.5 rounded-md border border-border/60 px-2.5 py-1.5 text-[11px] font-medium text-muted-foreground transition-all duration-200 hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                              >
+                                <Layers className="h-3.5 w-3.5 shrink-0" />
+                                <span className="truncate">Colours & sizes</span>
+                              </button>
                               <button
                                 onClick={() => {
                                   if (isVariant) {
@@ -610,10 +611,30 @@ function ProductsPage() {
       )}
       {detailFor && (
         <ProductDetailDrawer
-          product={detailFor}
+          product={(productsQ.data ?? []).find((p) => p.id === detailFor.id) ?? detailFor}
           all={(productsQ.data ?? []) as Product[]}
           childrenByParent={childrenByParent}
+          canWrite={canWrite}
+          onAddChild={(parent, level) => setStageFor({ parent, level })}
           onClose={() => setDetailFor(null)}
+        />
+      )}
+      {stageFor && user && (
+        <StagedSkuModal
+          parent={stageFor.parent}
+          level={stageFor.level}
+          colors={(colorsQ.data ?? []).filter((x: SkuMaster) => x.active)}
+          sizes={(sizesQ.data ?? []).filter((x: SkuMaster) => x.active)}
+          takenNames={(childrenByParent.get(stageFor.parent.id) ?? []).map((p) =>
+            stageFor.level === "color" ? (p.color ?? "") : (p.size ?? ""),
+          )}
+          onClose={() => setStageFor(null)}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ["products"] });
+            qc.invalidateQueries({ queryKey: ["products-forecast"] });
+            qc.invalidateQueries({ queryKey: ["products-inventory"] });
+            setStageFor(null);
+          }}
         />
       )}
       {deleting && (
@@ -636,7 +657,14 @@ function ProductsPage() {
   );
 }
 
-function ProductDetailDrawer({ product, all, childrenByParent, onClose }: { product: Product; all: Product[]; childrenByParent: Map<string, Product[]>; onClose: () => void }) {
+function ProductDetailDrawer({ product, all, childrenByParent, canWrite, onAddChild, onClose }: {
+  product: Product;
+  all: Product[];
+  childrenByParent: Map<string, Product[]>;
+  canWrite: boolean;
+  onAddChild: (parent: Product, level: "color" | "size") => void;
+  onClose: () => void;
+}) {
   const byId = new Map(all.map((p) => [p.id, p]));
   // Hierarchy is parent → colour SKUs → size SKUs (two levels under the parent).
   const colourNodes = (childrenByParent.get(product.id) ?? []).slice().sort((a, b) => a.sku.localeCompare(b.sku));
@@ -646,7 +674,7 @@ function ProductDetailDrawer({ product, all, childrenByParent, onClose }: { prod
     <div className="fixed inset-0 z-50 flex justify-end bg-black/60 backdrop-blur-sm" onClick={onClose}>
       <div className="flex max-h-screen w-full max-w-xl flex-col overflow-hidden border-l border-border bg-card" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between border-b border-border p-5">
-          <div><p className="text-[10px] uppercase tracking-widest text-primary">Product detail</p><h3 className="mt-1 font-display text-lg">{product.name}</h3><p className="mt-1 font-mono text-sm font-semibold text-primary">{product.sku}</p><p className="mt-1 text-xs text-muted-foreground">{[product.category, product.gender, product.model].filter(Boolean).join(" · ")}</p></div>
+          <div><p className="text-[10px] uppercase tracking-widest text-primary">Master SKU detail</p><h3 className="mt-1 font-display text-lg">{product.name}</h3><p className="mt-1 font-mono text-sm font-semibold text-primary">{product.sku}</p><p className="mt-1 text-xs text-muted-foreground">{[product.category, product.gender, product.model].filter(Boolean).join(" · ")}</p></div>
           <button onClick={onClose} className="rounded-md p-2 hover:bg-muted"><X className="h-4 w-4" /></button>
         </div>
         <div className="flex-1 space-y-5 overflow-y-auto p-5">
@@ -660,16 +688,27 @@ function ProductDetailDrawer({ product, all, childrenByParent, onClose }: { prod
             <div className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 font-mono"><span className="text-muted-foreground">Cost</span><span className="text-right">{fmtMoney(product.unit_cost)}</span><span className="text-muted-foreground">Selling</span><span className="text-right">{fmtMoney(product.unit_price)}</span><span className="text-muted-foreground">Retailer</span><span className="text-right">{product.retailer_price ? fmtMoney(product.retailer_price) : "—"}</span><span className="text-muted-foreground">Distributor</span><span className="text-right">{product.distributor_price ? fmtMoney(product.distributor_price) : "—"}</span></div>
           </div>
           <div>
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground">SKU hierarchy — Product → Colour → Size</p>
-            <div className="mt-2 rounded-lg border border-primary/25 bg-primary/5 p-3"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Parent SKU</p><p className="mt-0.5 flex items-center justify-between font-mono text-sm font-semibold text-primary">{product.sku}<button onClick={() => { navigator.clipboard.writeText(product.sku); toast.success("Parent SKU copied"); }} className="rounded p-1 hover:bg-primary/10"><Copy className="h-3.5 w-3.5" /></button></p></div>
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground">SKU hierarchy — Master → Colour → Size</p>
+              {canWrite && (
+                <button
+                  onClick={() => onAddChild(product, "color")}
+                  title="Add a colour-coded SKU under this Master SKU"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:border-primary hover:text-primary"
+                >
+                  <Plus className="h-3 w-3" /> Add colour
+                </button>
+              )}
+            </div>
+            <div className="mt-2 rounded-lg border border-primary/25 bg-primary/5 p-3"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Master SKU</p><p className="mt-0.5 flex items-center justify-between font-mono text-sm font-semibold text-primary">{product.sku}<button onClick={() => { navigator.clipboard.writeText(product.sku); toast.success("Master SKU copied"); }} className="rounded p-1 hover:bg-primary/10"><Copy className="h-3.5 w-3.5" /></button></p></div>
             <div className="mt-3 space-y-3">
-              {colourNodes.length === 0 && <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">No colour variants yet — use “Add variant”.</p>}
+              {colourNodes.length === 0 && <p className="rounded-lg border border-dashed border-border p-4 text-center text-xs text-muted-foreground">No colour SKUs yet — use “＋ Add colour” above.</p>}
               {colourNodes.map((c) => {
                 const sizes = (childrenByParent.get(c.id) ?? []).slice().sort((a, b) => a.sku.localeCompare(b.sku));
                 return (
                   <div key={c.id} className="rounded-lg border border-border/70">
-                    <div className="flex items-center justify-between border-b border-border/60 bg-muted/20 px-3 py-2"><div><span className="font-medium">{c.color ?? c.name}</span><p className="font-mono text-xs text-primary">{c.sku}</p></div><button onClick={() => { navigator.clipboard.writeText(c.sku); toast.success("Colour SKU copied"); }} className="rounded p-1.5 text-muted-foreground hover:text-primary"><Copy className="h-3.5 w-3.5" /></button></div>
-                    <div className="p-2">{sizes.length === 0 ? <p className="px-2 py-1 text-xs text-muted-foreground">Colour SKU only — no sizes.</p> : sizes.map((s) => <div key={s.id} className="flex items-center justify-between px-2 py-1.5 text-sm"><span className="text-muted-foreground">→ {s.size ?? s.sku.split("-").slice(-1)}</span><span className="flex items-center gap-2 font-mono text-xs">{s.sku}<button onClick={() => { navigator.clipboard.writeText(s.sku); toast.success("Final SKU copied"); }} className="rounded p-1 text-muted-foreground hover:text-primary"><Copy className="h-3 w-3" /></button></span></div>)}</div>
+                    <div className="flex items-center justify-between border-b border-border/60 bg-muted/20 px-3 py-2"><div><span className="font-medium">{c.color ?? c.name}</span><p className="font-mono text-xs text-primary">{c.sku}</p><p className="mt-0.5 text-[10px] text-muted-foreground">Sell {c.unit_price ? fmtMoney(c.unit_price) : "—"}{c.mrp ? ` · MRP ${fmtMoney(c.mrp)}` : ""}</p></div><div className="flex items-center gap-1">{canWrite && <button onClick={() => onAddChild(c, "size")} title={`Add a size-coded SKU under ${c.sku}`} className="rounded p-1.5 text-muted-foreground hover:text-primary"><Plus className="h-3.5 w-3.5" /></button>}<button onClick={() => { navigator.clipboard.writeText(c.sku); toast.success("Colour SKU copied"); }} className="rounded p-1.5 text-muted-foreground hover:text-primary"><Copy className="h-3.5 w-3.5" /></button></div></div>
+                    <div className="p-2">{sizes.length === 0 ? <p className="px-2 py-1 text-xs text-muted-foreground">Colour SKU only — no sizes yet. Use ＋ above to add one.</p> : sizes.map((s) => <div key={s.id} className="flex items-center justify-between gap-2 px-2 py-1.5 text-sm"><span className="text-muted-foreground">→ {s.size ?? s.sku.split("-").slice(-1)}</span><span className="ml-auto text-[11px] tabular-nums text-muted-foreground">{s.unit_price ? fmtMoney(s.unit_price) : "—"}</span><span className="flex items-center gap-2 font-mono text-xs">{s.sku}<button onClick={() => { navigator.clipboard.writeText(s.sku); toast.success("Final SKU copied"); }} className="rounded p-1 text-muted-foreground hover:text-primary"><Copy className="h-3 w-3" /></button></span></div>)}</div>
                   </div>
                 );
               })}
@@ -755,9 +794,401 @@ function variantDisplayName(parentName: string, color?: string | null, size?: st
   return attrs ? `${parentName} — ${attrs}` : parentName;
 }
 
-// Minimal colour/size form for a child SKU. Pricing, cost, tax and the image
-// are inherited from the parent record (server-side on create). Only the
-// colour, size and an optional SKU override are asked for.
+// ─── Staged child-SKU creation ─────────────────────────────────────────────
+// Master → colour (level "color"): pick a colour master → colour-coded SKU
+//   MASTER-COLOUR, e.g. AD-U-TN-ET1100-AQB.
+// Colour → size (level "size"): pick a size master → size-coded SKU
+//   COLOUR-SKU-SIZE, e.g. …-AQB-3P.
+// Pricing is prefilled from the parent (snapshot model): save as-is to keep
+// the parent's prices, or edit any field to set this SKU's own price. Later
+// changes to the parent price never rewrite the child.
+function StagedSkuModal({
+  parent,
+  level,
+  colors,
+  sizes,
+  takenNames,
+  onClose,
+  onSaved,
+}: {
+  parent: Product;
+  level: "color" | "size";
+  colors: SkuMaster[];
+  sizes: SkuMaster[];
+  /** Colour names (level color) or size names (level size) already used under this parent. */
+  takenNames: string[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const qc = useQueryClient();
+  const isColour = level === "color";
+  const [masterId, setMasterId] = useState("");
+  const [sku, setSku] = useState("");
+  const [quick, setQuick] = useState({ name: "", code: "", system: "International" });
+  const [localColors, setLocalColors] = useState<SkuMaster[]>(colors);
+  const [localSizes, setLocalSizes] = useState<SkuMaster[]>(sizes);
+  useEffect(() => setLocalColors(colors), [colors]);
+  useEffect(() => setLocalSizes(sizes), [sizes]);
+  const str = (v: number | null | undefined) =>
+    v === null || v === undefined ? "" : String(v);
+  const [prices, setPrices] = useState({
+    unit_cost: str(parent.unit_cost),
+    unit_price: str(parent.unit_price),
+    mrp: str(parent.mrp),
+    ecommerce_price: str(parent.ecommerce_price),
+    retailer_price: str(parent.retailer_price),
+    distributor_price: str(parent.distributor_price),
+    gst_rate: str(parent.gst_rate),
+  });
+  const setP = (k: keyof typeof prices) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setPrices({ ...prices, [k]: e.target.value });
+
+  const options = isColour ? localColors : localSizes;
+  const selected = options.find((x) => x.id === masterId);
+  const preview = sku.trim() || (selected ? `${parent.sku}-${selected.code}` : "");
+  const dupName =
+    !!selected &&
+    takenNames.some((n) => !!n && n.toLowerCase() === selected.name.toLowerCase());
+
+  const checkQ = useQuery({
+    queryKey: ["check-sku", preview],
+    queryFn: () => api.products.checkSku(preview),
+    enabled: preview.length > 5,
+    staleTime: 15000,
+  });
+  const skuTaken = !!checkQ.data?.exists;
+
+  const priceError = (() => {
+    const entries: Array<[string, string]> = [
+      ["Cost", prices.unit_cost],
+      ["Selling price", prices.unit_price],
+      ["MRP", prices.mrp],
+      ["Retailer price", prices.retailer_price],
+      ["Distributor price", prices.distributor_price],
+      ["E-commerce price", prices.ecommerce_price],
+    ];
+    for (const [label, v] of entries) {
+      if (v !== "" && !(Number(v) >= 0)) return `${label} cannot be negative`;
+    }
+    if (prices.gst_rate !== "" && !(Number(prices.gst_rate) >= 0))
+      return "GST rate cannot be negative";
+    if (
+      prices.mrp !== "" &&
+      prices.unit_price !== "" &&
+      Number(prices.mrp) < Number(prices.unit_price)
+    )
+      return "MRP should not be lower than Selling price";
+    return null;
+  })();
+
+  const canSave = !!selected && !dupName && !!preview && !skuTaken && !priceError;
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (!selected) throw new Error(isColour ? "Pick a colour" : "Pick a size");
+      if (dupName)
+        throw new Error(
+          `${isColour ? "This colour already exists" : "This size already exists"} under ${parent.sku}`,
+        );
+      const pricePayload = {
+        unit_cost: numOrNull(prices.unit_cost) ?? 0,
+        unit_price: numOrNull(prices.unit_price) ?? 0,
+        mrp: numOrNull(prices.mrp),
+        ecommerce_price: numOrNull(prices.ecommerce_price),
+        retailer_price: numOrNull(prices.retailer_price),
+        distributor_price: numOrNull(prices.distributor_price),
+        gst_rate: numOrNull(prices.gst_rate),
+      };
+      if (isColour) {
+        await api.products.create({
+          parent_id: parent.id,
+          sku_level: "color",
+          color: selected.name,
+          color_master_id: selected.id,
+          sku: sku.trim() || undefined,
+          ...pricePayload,
+        });
+      } else {
+        await api.products.create({
+          parent_id: parent.id,
+          sku_level: "variant",
+          size: selected.name,
+          size_master_id: selected.id,
+          color: parent.color,
+          color_master_id:
+            (parent as any).color_master_id ?? (parent as any).colorMasterId ?? null,
+          sku: sku.trim() || undefined,
+          ...pricePayload,
+        });
+      }
+      return preview;
+    },
+    onSuccess: (made) => {
+      onSaved();
+      toast.success(`${isColour ? "Colour" : "Size"} SKU ${made} created`);
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const quickCreate = useMutation({
+    mutationFn: async () => {
+      if (isColour) {
+        const created: any = await api.skuMasters.create("color", {
+          name: quick.name.trim(),
+          code: quick.code,
+        });
+        const entry = {
+          id: created.id ?? String(Date.now()),
+          name: created.name,
+          code: created.code,
+          active: true,
+        } as SkuMaster;
+        setLocalColors((prev) => [...prev, entry]);
+        setMasterId(entry.id);
+      } else {
+        const created: any = await api.skuMasters.create("size", {
+          name: quick.name.trim(),
+          code: quick.code,
+          sizeSystem: quick.system,
+        });
+        const entry = {
+          id: created.id ?? String(Date.now()),
+          name: created.name,
+          code: created.code,
+          active: true,
+          size_system: created.sizeSystem ?? quick.system,
+        } as SkuMaster;
+        setLocalSizes((prev) => [...prev, entry]);
+        setMasterId(entry.id);
+      }
+      setQuick({ name: "", code: "", system: "International" });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sku-masters", isColour ? "color" : "size"] });
+      toast.success("Master created & selected");
+    },
+    onError: (e) =>
+      toast.error(e instanceof Error ? e.message : "Could not create master — code may exist"),
+  });
+
+  const sizeGroups = (["International", "EU", "UK", "US", "Custom"] as const)
+    .map((sys) => ({
+      sys,
+      list: localSizes.filter(
+        (x: any) => (x.size_system ?? x.sizeSystem ?? "Custom") === sys,
+      ),
+    }))
+    .filter((g) => g.list.length > 0);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-2xl overflow-y-auto rounded-xl border border-border bg-card p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border pb-3">
+          <div>
+            <h3 className="font-display text-lg">
+              {isColour ? "Add colour" : "Add size"} — {parent.sku}
+            </h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {isColour
+                ? `Creates a colour-coded SKU under Master ${parent.sku} (${parent.name})`
+                : `Creates a size-coded SKU under Colour ${parent.sku} (${parent.color ?? parent.name})`}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate();
+          }}
+          className="mt-4 space-y-4"
+        >
+          <div>
+            <p className="mb-1.5 text-xs uppercase tracking-widest text-muted-foreground">
+              {isColour ? "Colour *" : "Size *"}
+            </p>
+            {isColour ? (
+              <div className="flex flex-wrap gap-2">
+                {localColors.map((x) => (
+                  <button
+                    key={x.id}
+                    type="button"
+                    onClick={() => setMasterId(x.id)}
+                    className={`rounded-md border px-3 py-1.5 text-xs ${masterId === x.id ? "border-primary bg-primary/10 text-primary" : "border-border"}`}
+                  >
+                    {masterId === x.id && <Check className="mr-1 inline h-3 w-3" />}
+                    {x.name} <span className="font-mono">({x.code})</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div>
+                {sizeGroups.map((g) => (
+                  <div key={g.sys} className="mb-2">
+                    <p className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+                      {g.sys}
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {g.list.map((x) => (
+                        <button
+                          key={x.id}
+                          type="button"
+                          onClick={() => setMasterId(x.id)}
+                          className={`rounded-md border px-3 py-1.5 text-xs ${masterId === x.id ? "border-primary bg-primary/10 text-primary" : "border-border"}`}
+                        >
+                          {masterId === x.id && <Check className="mr-1 inline h-3 w-3" />}
+                          {x.name} <span className="font-mono">({x.code})</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div
+              className={`mt-3 grid gap-2 rounded-lg border border-dashed border-border p-3 ${isColour ? "md:grid-cols-[1fr_120px_auto]" : "md:grid-cols-[1fr_100px_130px_auto]"}`}
+            >
+              <input
+                className="inp !py-1.5"
+                value={quick.name}
+                onChange={(e) => setQuick({ ...quick, name: e.target.value })}
+                placeholder={isColour ? "New colour — Aqua Blue" : "New size — 3 Pair"}
+              />
+              <input
+                className="inp !py-1.5 font-mono uppercase"
+                value={quick.code}
+                onChange={(e) =>
+                  setQuick({ ...quick, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })
+                }
+                placeholder={isColour ? "AQB" : "3P"}
+              />
+              {!isColour && (
+                <select
+                  className="inp !py-1.5"
+                  value={quick.system}
+                  onChange={(e) => setQuick({ ...quick, system: e.target.value })}
+                >
+                  {["International", "EU", "UK", "US", "Custom"].map((x) => (
+                    <option key={x}>{x}</option>
+                  ))}
+                </select>
+              )}
+              <button
+                type="button"
+                disabled={quickCreate.isPending || !quick.name.trim() || !quick.code.trim()}
+                onClick={() => quickCreate.mutate()}
+                className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-50"
+              >
+                + Add & select
+              </button>
+            </div>
+            {dupName && selected && (
+              <p className="mt-2 text-xs font-medium text-destructive">
+                {selected.name} already exists under {parent.sku} — pick another.
+              </p>
+            )}
+          </div>
+
+          <div>
+            <L label="SKU (optional — auto-coded from parent + selection)">
+              <input
+                className="inp font-mono"
+                value={sku}
+                onChange={(e) => setSku(e.target.value)}
+                placeholder={selected ? `${parent.sku}-${selected.code}` : "Select above first"}
+              />
+            </L>
+            {preview ? (
+              <div className="mt-2 rounded-lg border border-primary/25 bg-primary/5 p-2.5">
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  {isColour ? "Colour" : "Size"} SKU
+                </p>
+                <p className="mt-0.5 font-mono text-sm font-semibold text-primary">{preview}</p>
+                {checkQ.isFetching ? (
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">Checking uniqueness…</p>
+                ) : skuTaken ? (
+                  <p className="mt-0.5 text-[11px] font-medium text-destructive">
+                    Already exists — change the SKU override.
+                  </p>
+                ) : (
+                  <p className="mt-0.5 text-[11px] text-sem-success">Available ✓</p>
+                )}
+              </div>
+            ) : null}
+          </div>
+
+          <div>
+            <p className="mb-1.5 text-xs uppercase tracking-widest text-muted-foreground">
+              Pricing (₹) — prefilled from {parent.sku}
+            </p>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <L label="Cost">
+                <input type="number" min="0" step="0.01" className="inp" value={prices.unit_cost} onChange={setP("unit_cost")} />
+              </L>
+              <L label="Selling price">
+                <input type="number" min="0" step="0.01" className="inp" value={prices.unit_price} onChange={setP("unit_price")} />
+              </L>
+              <L label="MRP">
+                <input type="number" min="0" step="0.01" className="inp" value={prices.mrp} onChange={setP("mrp")} />
+              </L>
+              <L label="Retailer price">
+                <input type="number" min="0" step="0.01" className="inp" value={prices.retailer_price} onChange={setP("retailer_price")} />
+              </L>
+              <L label="Distributor price">
+                <input type="number" min="0" step="0.01" className="inp" value={prices.distributor_price} onChange={setP("distributor_price")} />
+              </L>
+              <L label="E-commerce price">
+                <input type="number" min="0" step="0.01" className="inp" value={prices.ecommerce_price} onChange={setP("ecommerce_price")} />
+              </L>
+              <L label="GST %">
+                <input type="number" min="0" step="0.01" className="inp" value={prices.gst_rate} onChange={setP("gst_rate")} />
+              </L>
+            </div>
+            <p className="mt-1.5 text-[11px] text-muted-foreground">
+              Save as-is to use {parent.sku}’s prices, or edit any field to set this SKU’s own
+              price. Later changes to the parent price won’t rewrite it.
+            </p>
+            {priceError && <p className="mt-1 text-xs font-medium text-destructive">{priceError}</p>}
+          </div>
+
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={save.isPending || !canSave}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+            >
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {save.isPending
+                ? "Creating…"
+                : `Create ${isColour ? "colour" : "size"} SKU`}
+            </button>
+          </div>
+        </form>
+        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+      </div>
+    </div>
+  );
+}
+
+// Colour/size edit form for an existing child SKU (pencil on a variant row).
+// Pricing is this SKU's own snapshot — editable here, never rewritten by the
+// parent. Supplier and image stay inherited from the parent record.
 function VariantModal({
   parent,
   child,
@@ -769,11 +1200,24 @@ function VariantModal({
 }) {
   const qc = useQueryClient();
   const isEdit = !!child;
+  // Price source: the record itself when editing, the parent when creating.
+  const priced = child ?? parent;
+  const str = (v: number | null | undefined) =>
+    v === null || v === undefined ? "" : String(v);
   const [f, setF] = useState({
     color: child?.color ?? "",
     size: child?.size ?? "",
     sku: child?.sku ?? "",
+    unit_cost: str(priced.unit_cost),
+    unit_price: str(priced.unit_price),
+    mrp: str(priced.mrp),
+    ecommerce_price: str(priced.ecommerce_price),
+    retailer_price: str(priced.retailer_price),
+    distributor_price: str(priced.distributor_price),
+    gst_rate: str(priced.gst_rate),
   });
+  const setP = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setF({ ...f, [k]: e.target.value });
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["products"] });
@@ -788,10 +1232,19 @@ function VariantModal({
       const sku = f.sku.trim() || undefined;
       const name = variantDisplayName(parent.name, color, size);
       if (!color && !size) throw new Error("Enter a colour or a size for this variant");
+      const pricePayload = {
+        unit_cost: numOrNull(f.unit_cost) ?? 0,
+        unit_price: numOrNull(f.unit_price) ?? 0,
+        mrp: numOrNull(f.mrp),
+        ecommerce_price: numOrNull(f.ecommerce_price),
+        retailer_price: numOrNull(f.retailer_price),
+        distributor_price: numOrNull(f.distributor_price),
+        gst_rate: numOrNull(f.gst_rate),
+      };
       if (isEdit && child) {
-        await api.products.update(child.id, { color, size, sku, name });
+        await api.products.update(child.id, { color, size, sku, name, ...pricePayload });
       } else {
-        await api.products.create({ parent_id: parent.id, color, size, sku });
+        await api.products.create({ parent_id: parent.id, color, size, sku, ...pricePayload });
       }
     },
     onSuccess: () => {
@@ -861,11 +1314,39 @@ function VariantModal({
               placeholder={`e.g. ${parent.sku}-BLACK-42`}
             />
           </L>
+          <div>
+            <p className="mb-1.5 text-xs uppercase tracking-widest text-muted-foreground">
+              Pricing (₹){isEdit ? " — this SKU's own prices" : ` — prefilled from ${parent.sku}`}
+            </p>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <L label="Cost">
+                <input type="number" min="0" step="0.01" className="inp" value={f.unit_cost} onChange={setP("unit_cost")} />
+              </L>
+              <L label="Selling price">
+                <input type="number" min="0" step="0.01" className="inp" value={f.unit_price} onChange={setP("unit_price")} />
+              </L>
+              <L label="MRP">
+                <input type="number" min="0" step="0.01" className="inp" value={f.mrp} onChange={setP("mrp")} />
+              </L>
+              <L label="Retailer price">
+                <input type="number" min="0" step="0.01" className="inp" value={f.retailer_price} onChange={setP("retailer_price")} />
+              </L>
+              <L label="Distributor price">
+                <input type="number" min="0" step="0.01" className="inp" value={f.distributor_price} onChange={setP("distributor_price")} />
+              </L>
+              <L label="E-commerce price">
+                <input type="number" min="0" step="0.01" className="inp" value={f.ecommerce_price} onChange={setP("ecommerce_price")} />
+              </L>
+              <L label="GST %">
+                <input type="number" min="0" step="0.01" className="inp" value={f.gst_rate} onChange={setP("gst_rate")} />
+              </L>
+            </div>
+          </div>
           <div className="rounded-md border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
             <Layers className="mb-1 h-3.5 w-3.5 text-primary" />
-            Prices, cost, GST, supplier and image are inherited from the parent{" "}
-            <span className="font-mono">{parent.sku}</span> — only colour and size define this
-            SKU. Leave the SKU blank to auto-generate it.
+            Supplier and image stay inherited from{" "}
+            <span className="font-mono">{parent.sku}</span> — prices above are this SKU's own
+            (snapshot, not linked to the parent). Leave the SKU blank to auto-generate it.
           </div>
           <div className="flex justify-end gap-2 pt-1">
             <button
@@ -1034,7 +1515,7 @@ function ProductModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">{isEdit ? "Edit product" : "New product"}</h3>
+          <h3 className="font-display text-lg">{isEdit ? "Edit Master SKU" : "New Master SKU"}</h3>
           <button onClick={onClose}>
             <X className="h-4 w-4" />
           </button>
@@ -1046,7 +1527,7 @@ function ProductModal({
           }}
           className="space-y-5 p-5"
         >
-          <Section title="Basic product details" step="1">
+          <Section title="Basic Master SKU details" step="1">
             <div className="grid grid-cols-2 gap-3">
               <L label="SKU (auto if blank)">
                 <input
@@ -1764,7 +2245,7 @@ function SkuMastersModal({ onClose, onSaved }: { onClose: () => void; onSaved: (
   </div></div>;
 }
 
-const WIZARD_STEPS = ["Product details", "Pricing", "Colours", "Sizes", "Variant matrix", "Review & create"] as const;
+const WIZARD_STEPS = ["Master SKU details", "Pricing", "Colours", "Sizes", "Variant matrix", "Review & create"] as const;
 
 function sanitizeModel(v: string) { return v.trim().toUpperCase().replace(/[^A-Z0-9]+/g, ""); }
 
@@ -1828,8 +2309,8 @@ function SkuBuilderModal({
       retailerPrice: f.retailerPrice === "" ? "" : Number(f.retailerPrice), distributorPrice: f.distributorPrice === "" ? "" : Number(f.distributorPrice),
       colorMasterIds: colorIds, sizeMasterIds: sizeIds, disabledKeys: [...disabledKeys],
     }),
-    onSuccess: (result) => { qc.invalidateQueries({ queryKey: ["products"] }); toast.success(`Created ${parentSku} with ${result.variants.length} final SKUs`); onSaved(); },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not create product"),
+    onSuccess: (result) => { qc.invalidateQueries({ queryKey: ["products"] }); toast.success(`Master SKU ${parentSku} created with ${result.variants.length} final SKUs`); onSaved(); },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not create Master SKU"),
   });
   const quickCreate = useMutation({
     mutationFn: async (kind: "color" | "size") => {
@@ -1853,7 +2334,7 @@ function SkuBuilderModal({
   return <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm" onClick={onClose}>
     <div className="flex max-h-[92vh] w-full max-w-6xl flex-col overflow-hidden rounded-xl border border-border bg-card" onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center justify-between border-b border-border bg-card px-6 py-4">
-        <div><h3 className="font-display text-xl">Create Product & SKU Hierarchy</h3><p className="text-xs text-muted-foreground">Brand <span className="font-mono font-semibold">AD</span> is fixed · Step {step + 1} of {WIZARD_STEPS.length} — {WIZARD_STEPS[step]}</p></div>
+        <div><h3 className="font-display text-xl">Create Master SKU</h3><p className="text-xs text-muted-foreground">Brand <span className="font-mono font-semibold">AD</span> is fixed · Master SKU = <span className="font-mono font-semibold">AD-GENDER-CATEGORY-MODEL</span> · Step {step + 1} of {WIZARD_STEPS.length} — {WIZARD_STEPS[step]}</p></div>
         <button className="rounded-md p-2 hover:bg-muted" onClick={onClose}><X className="h-4 w-4" /></button>
       </div>
       <div className="flex flex-wrap gap-1.5 border-b border-border bg-muted/20 px-6 py-3">
@@ -1865,24 +2346,24 @@ function SkuBuilderModal({
       </div>
       <div className="grid flex-1 gap-6 overflow-y-auto p-6 lg:grid-cols-[1fr_330px]">
         <div className="min-w-0 space-y-6">
-          {step === 0 && <Card title="Step 1 — Product details"><div className="grid gap-4 md:grid-cols-2">
-            <L label="Product name *"><input className="inp" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Essential T-Shirt" /></L>
-            <L label="Model number *"><input className="inp font-mono uppercase" value={f.model} onChange={(e) => setF({ ...f, model: e.target.value.toUpperCase() })} placeholder="ET1100" /><span className="mt-1 block text-[10px] text-muted-foreground">Letters + digits only · becomes the MODEL part of the SKU</span></L>
+          {step === 0 && <Card title="Step 1 — Master SKU details"><div className="grid gap-4 md:grid-cols-2">
+            <L label="Master SKU name *"><input className="inp" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Essential T-Shirt" /></L>
+            <L label="Model number *"><input className="inp font-mono uppercase" value={f.model} onChange={(e) => setF({ ...f, model: e.target.value.toUpperCase() })} placeholder="ET1100" /><span className="mt-1 block text-[10px] text-muted-foreground">Letters + digits only · becomes the MODEL part of the Master SKU</span></L>
             <L label="Category *"><SearchableSelect value={f.categoryMasterId} onChange={(v) => setF({ ...f, categoryMasterId: v })} placeholder="Select category…" options={categories.map((x) => ({ value: x.id, label: `${x.name} (${x.code})`, hint: x.code }))} /></L>
             <L label="Gender *"><SearchableSelect value={f.genderMasterId} onChange={(v) => setF({ ...f, genderMasterId: v })} placeholder="Select gender…" options={genders.map((x) => ({ value: x.id, label: `${x.name} (${x.code})`, hint: x.code }))} /></L>
           </div>
-          {parentSku ? <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-3"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Generated parent SKU</p><p className="mt-1 font-mono text-lg font-semibold text-primary">{parentSku}</p>{skuCheckQ.isFetching ? <p className="mt-1 text-xs text-muted-foreground">Checking uniqueness…</p> : skuTaken ? <p className="mt-1 text-xs font-medium text-destructive">SKU already exists: {parentSku} — change model / category / gender.</p> : <p className="mt-1 text-xs text-sem-success">Available ✓</p>}</div> : <p className="mt-4 text-xs text-muted-foreground">Pick a category, gender and model number to generate <span className="font-mono">AD-U-TN-ET1100</span>.</p>}
+          {parentSku ? <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-3"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Generated Master SKU</p><p className="mt-1 font-mono text-lg font-semibold text-primary">{parentSku}</p>{skuCheckQ.isFetching ? <p className="mt-1 text-xs text-muted-foreground">Checking uniqueness…</p> : skuTaken ? <p className="mt-1 text-xs font-medium text-destructive">Master SKU already exists: {parentSku} — change model / category / gender.</p> : <p className="mt-1 text-xs text-sem-success">Available ✓</p>}</div> : <p className="mt-4 text-xs text-muted-foreground">Pick a category, gender and model number to generate your Master SKU, e.g. <span className="font-mono">AD-U-TN-ET1100</span>. Pricing comes next, then colours and sizes.</p>}
           </Card>}
-          {step === 1 && <Card title="Step 2 — Pricing (₹ INR)"><div className="grid gap-4 md:grid-cols-3">
+          {step === 1 && <Card title="Step 2 — Master SKU pricing (₹ INR)"><div className="grid gap-4 md:grid-cols-3">
             {[["Unit Price (cost)", "unitCost"], ["Selling Price", "unitPrice"], ["MRP", "mrp"], ["Retailer Price", "retailerPrice"], ["Distributor Price", "distributorPrice"], ["E-commerce Price", "ecommercePrice"]].map(([label, key]) => (
               <L key={key} label={`₹ ${label}`}><input type="number" min="0" step="0.01" className="inp" value={(f as any)[key]} onChange={(e) => setF({ ...f, [key]: e.target.value })} placeholder="0.00" /></L>
             ))}
           </div>{priceError ? <p className="mt-3 text-xs font-medium text-destructive">{priceError}</p> : <p className="mt-3 text-xs text-muted-foreground">Prices cannot be negative. MRP should not be lower than Selling Price. Stored at product level and inherited by every variant.</p>}</Card>}
-          {step === 2 && <Card title="Step 3 — Colours"><p className="-mt-1 mb-3 text-xs text-muted-foreground">Each colour becomes <span className="font-mono">{parentSku || "AD-…"}-COLOUR</span>, e.g. <span className="font-mono">{parentSku || "AD-U-TN-ET1100"}-AQB</span>.</p>
+          {step === 2 && <Card title="Step 3 — Master SKU colours"><p className="-mt-1 mb-3 text-xs text-muted-foreground">Each colour becomes <span className="font-mono">{parentSku || "AD-…"}-COLOUR</span>, e.g. <span className="font-mono">{parentSku || "AD-U-TN-ET1100"}-AQB</span>.</p>
             <div className="flex flex-wrap gap-2">{localColors.map((x) => <button key={x.id} onClick={() => toggleId(x.id, setColorIds)} className={`rounded-md border px-3 py-1.5 text-xs ${colorIds.includes(x.id) ? "border-primary bg-primary/10 text-primary" : "border-border"}`}>{colorIds.includes(x.id) && <Check className="mr-1 inline h-3 w-3" />}{x.name} <span className="font-mono">({x.code})</span></button>)}</div>
             <div className="mt-4 grid gap-2 rounded-lg border border-dashed border-border p-3 md:grid-cols-[1fr_120px_auto]"><input className="inp !py-1.5" value={quickColor.name} onChange={(e) => setQuickColor({ ...quickColor, name: e.target.value })} placeholder="New colour — Aqua Blue" /><input className="inp !py-1.5 font-mono uppercase" value={quickColor.code} onChange={(e) => setQuickColor({ ...quickColor, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} placeholder="AQB" /><button disabled={quickCreate.isPending || !quickColor.name.trim() || !quickColor.code.trim()} onClick={() => quickCreate.mutate("color")} className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-50">+ Add & select</button></div>
           </Card>}
-          {step === 3 && <Card title="Step 4 — Sizes"><p className="-mt-1 mb-3 text-xs text-muted-foreground">Grouped by size system. Each size appends <span className="font-mono">-SIZE</span>, e.g. <span className="font-mono">…-AQB-3P</span>.</p>
+          {step === 3 && <Card title="Step 4 — Master SKU sizes"><p className="-mt-1 mb-3 text-xs text-muted-foreground">Grouped by size system. Each size appends <span className="font-mono">-SIZE</span>, e.g. <span className="font-mono">…-AQB-3P</span>.</p>
             {(["International", "EU", "UK", "US", "Custom"] as const).map((sys) => { const list = localSizes.filter((x: any) => (x.size_system ?? x.sizeSystem ?? "Custom") === sys); if (!list.length) return null; return <div key={sys} className="mb-3"><p className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">{sys}</p><div className="flex flex-wrap gap-2">{list.map((x) => <button key={x.id} onClick={() => toggleId(x.id, setSizeIds)} className={`rounded-md border px-3 py-1.5 text-xs ${sizeIds.includes(x.id) ? "border-primary bg-primary/10 text-primary" : "border-border"}`}>{sizeIds.includes(x.id) && <Check className="mr-1 inline h-3 w-3" />}{x.name} <span className="font-mono">({x.code})</span></button>)}</div></div>; })}
             <div className="mt-2 grid gap-2 rounded-lg border border-dashed border-border p-3 md:grid-cols-[1fr_100px_130px_auto]"><input className="inp !py-1.5" value={quickSize.name} onChange={(e) => setQuickSize({ ...quickSize, name: e.target.value })} placeholder="New size — 3 Pair" /><input className="inp !py-1.5 font-mono uppercase" value={quickSize.code} onChange={(e) => setQuickSize({ ...quickSize, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })} placeholder="3P" /><select className="inp !py-1.5" value={quickSize.system} onChange={(e) => setQuickSize({ ...quickSize, system: e.target.value })}>{["International", "EU", "UK", "US", "Custom"].map((x) => <option key={x}>{x}</option>)}</select><button disabled={quickCreate.isPending || !quickSize.name.trim() || !quickSize.code.trim()} onClick={() => quickCreate.mutate("size")} className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-50">+ Add & select</button></div>
           </Card>}
@@ -1890,7 +2371,7 @@ function SkuBuilderModal({
             {selectedColors.length === 0 || selectedSizes.length === 0 ? <p className="py-6 text-center text-sm text-muted-foreground">Select at least one colour and one size.</p> : <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr><th className="p-2 text-left text-xs uppercase tracking-widest text-muted-foreground">Colour \ Size</th>{selectedSizes.map((s) => <th key={s.id} className="p-2 text-left font-mono text-xs">{s.code}<div className="font-sans text-[10px] font-normal text-muted-foreground">{s.name}</div></th>)}</tr></thead><tbody>{selectedColors.map((c) => <tr key={c.id} className="border-t border-border"><td className="p-2 font-medium">{c.name} <span className="font-mono text-xs text-muted-foreground">{c.code}</span><div className="font-mono text-[10px] text-muted-foreground">{parentSku}-{c.code}</div></td>{selectedSizes.map((s) => { const k = `${c.id}:${s.id}`; const off = disabledKeys.has(k); const sku = parentSku ? `${parentSku}-${c.code}-${s.code}` : "—"; return <td key={s.id} onClick={() => setPreviewCell({ colorId: c.id, sizeId: s.id })} className={`cursor-pointer p-1.5 align-top ${previewCell?.colorId === c.id && previewCell?.sizeId === s.id ? "bg-primary/5" : ""}`}><label className={`block rounded-md border p-2 ${off ? "border-border bg-muted/30 opacity-50" : "border-primary/25 bg-primary/5"}`} onClick={(e) => e.stopPropagation()}><span className="flex items-center gap-1.5 text-[11px]"><input type="checkbox" checked={!off} onChange={() => toggleCell(c.id, s.id)} />{off ? "Off" : "On"}</span><span className="mt-1 block font-mono text-[10px] leading-tight">{sku}</span></label></td>; })}</tr>)}</tbody></table></div>}
           </Card>}
           {step === 5 && <Card title="Step 6 — Review & create"><div className="grid gap-4 text-sm md:grid-cols-2">
-            <div><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Product</p><p className="mt-1 font-medium">{f.name || "—"} <span className="text-muted-foreground">· {model || "—"}</span></p><p className="mt-1 text-xs text-muted-foreground">{category?.name} ({category?.code}) · {gender?.name} ({gender?.code})</p><p className="mt-2 font-mono text-sm font-semibold text-primary">{parentSku}</p></div>
+            <div><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Master SKU</p><p className="mt-1 font-medium">{f.name || "—"} <span className="text-muted-foreground">· {model || "—"}</span></p><p className="mt-1 text-xs text-muted-foreground">{category?.name} ({category?.code}) · {gender?.name} ({gender?.code})</p><p className="mt-2 font-mono text-sm font-semibold text-primary">{parentSku}</p></div>
             <div><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Pricing (₹)</p><p className="mt-1 font-mono text-xs">Cost {f.unitCost || "0"} · Sell {f.unitPrice || "0"} · MRP {f.mrp || "—"}</p><p className="mt-1 font-mono text-xs text-muted-foreground">Ret {f.retailerPrice || "—"} · Dist {f.distributorPrice || "—"}</p></div>
           </div>
           <div className="mt-4 text-sm"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Colours ({selectedColors.length}) → Sizes ({selectedSizes.length}) → {enabledCombos.length} final SKUs</p>
@@ -1906,7 +2387,7 @@ function SkuBuilderModal({
           <p className="mt-1 break-all font-mono text-base font-semibold text-primary">{previewFinalSku || "AD-…"}</p>
           <div className="mt-3 flex gap-2"><button disabled={!previewFinalSku} onClick={() => { navigator.clipboard.writeText(previewFinalSku); toast.success("SKU copied"); }} className="inline-flex flex-1 items-center justify-center gap-1 rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-50"><Copy className="h-3 w-3" /> Copy SKU</button></div>
           <div className="mt-4 flex gap-2"><button disabled={step === 0} onClick={() => setStep((s) => s - 1)} className="flex-1 rounded-md border border-border px-3 py-2 text-sm disabled:opacity-40">Back</button>{step < WIZARD_STEPS.length - 1 ? <button disabled={!canStep(step)} onClick={() => setStep((s) => s + 1)} className="flex-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40">Continue</button> : <button disabled={save.isPending || !canStep(0) || !canStep(4)} onClick={() => save.mutate()} className="flex-1 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground disabled:opacity-40">{save.isPending ? "Creating…" : `Create · ${enabledCombos.length} SKUs`}</button>}</div>
-          {!canStep(step) && step !== 5 && <p className="mt-2 text-[11px] text-sem-attention">Complete this step to continue{step === 0 && skuTaken ? " — parent SKU is taken" : ""}.</p>}
+          {!canStep(step) && step !== 5 && <p className="mt-2 text-[11px] text-sem-attention">Complete this step to continue{step === 0 && skuTaken ? " — Master SKU is taken" : ""}.</p>}
         </aside>
       </div>
     </div>

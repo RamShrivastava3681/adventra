@@ -1,5 +1,6 @@
 import nodemailer from "nodemailer";
 import { config } from "./config.js";
+import * as db from "./dynamodb.js";
 
 let transporter: nodemailer.Transporter | null = null;
 
@@ -687,6 +688,111 @@ export async function sendDocumentApprovalEmail(params: {
     return true;
   } catch (err) {
     console.error(`  ❌ Failed to send approval email for ${params.number}:`, err);
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pending-approval notifications (checker / treasury queues)
+// ---------------------------------------------------------------------------
+
+/** Roles that must be notified when a document lands in a review queue. */
+const PENDING_APPROVER_ROLES = ["factor_admin", "super_admin", "treasury", "checker"];
+
+const PENDING_KIND_LABELS: Record<string, string> = {
+  sales_invoice: "Sales Invoice",
+  purchase_invoice: "Purchase Invoice",
+  proforma: "Proforma",
+  purchase_order: "Purchase Order",
+  sales_order: "Sales Order",
+};
+
+/**
+ * Notify every admin / treasury / checker user that a document is waiting in
+ * the checker review queue or the treasury action queue. Fire-and-forget safe:
+ * never throws — returns false when email is unconfigured, nobody matches, or
+ * sending fails. The actor (submitter) is excluded from recipients.
+ */
+export async function notifyPendingApprovers(params: {
+  stage: "checker" | "treasury";
+  kind: "sales_invoice" | "purchase_invoice" | "proforma" | "purchase_order" | "sales_order";
+  number: string;
+  amount: number;
+  counterparty?: string | null;
+  dueDate?: string | null;
+  submittedBy?: string | null;
+  reviewPath?: string;
+}): Promise<boolean> {
+  try {
+    if (!isEmailConfigured()) {
+      console.log(`  ⚠ Email not configured — skipping pending-${params.stage} notice for ${params.number}`);
+      return false;
+    }
+
+    const users = await db.scanByType("User");
+    const actor = String(params.submittedBy || "").trim().toLowerCase();
+    const recipients = Array.from(
+      new Set(
+        (users as any[])
+          .filter((u) => Array.isArray(u?.roles) && u.roles.some((r: string) => PENDING_APPROVER_ROLES.includes(r)))
+          .map((u) => String(u?.email || "").trim().toLowerCase())
+          .filter((email) => email && email.includes("@") && email !== actor),
+      ),
+    );
+    if (recipients.length === 0) {
+      console.log(`  ⚠ No approver recipients found — skipping pending-${params.stage} notice for ${params.number}`);
+      return false;
+    }
+
+    const kindLabel = PENDING_KIND_LABELS[params.kind] || params.kind;
+    const stageLabel = params.stage === "checker" ? "checker review" : "treasury action";
+    const reviewUrl = `${config.appUrl}${params.reviewPath || (params.stage === "checker" ? "/app/checker" : "/app/queue")}`;
+    const amountLabel = `₹${Number(params.amount || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+    const safeNumber = esc(params.number);
+    const subject = `[Action required] ${kindLabel} ${params.number} awaiting ${stageLabel} — ${amountLabel}`;
+
+    const body = `
+      <div style="margin-bottom:20px;">
+        <div style="font-size:13px;color:#64748b;margin-bottom:4px;">AWAITING ${esc(stageLabel.toUpperCase())}</div>
+        <div style="font-size:22px;font-weight:700;color:#1e293b;">${safeNumber}</div>
+      </div>
+
+      <div style="background:#fffbeb;border-radius:8px;padding:12px 16px;margin-bottom:20px;border-left:4px solid #f59e0b;">
+        <div style="font-size:14px;font-weight:700;color:#d97706;">
+          🟡 Pending ${esc(stageLabel)}
+        </div>
+        <div style="font-size:12px;color:#d97706;margin-top:4px;">
+          Notified: admin, treasury and checker users${params.submittedBy ? ` · Submitted by ${esc(params.submittedBy)}` : ""}.
+        </div>
+      </div>
+
+      <table cellpadding="0" cellspacing="0" style="width:100%;">
+        ${invoiceTableRow("Document", `${esc(kindLabel)} ${safeNumber}`)}
+        ${invoiceTableRow("Amount", `<strong>${amountLabel}</strong>`)}
+        ${params.counterparty ? invoiceTableRow("Counterparty", esc(params.counterparty)) : ""}
+        ${params.dueDate ? invoiceTableRow("Due date", esc(params.dueDate)) : ""}
+        ${invoiceTableRow("Queue", params.stage === "checker" ? "Checker review" : "Treasury (funding / payment)")}
+        ${invoiceTableRow("Status", statusBadge("pending"))}
+      </table>
+
+      <div style="margin-top:24px;text-align:center;">
+        <a href="${reviewUrl}" style="display:inline-block;background:#1e293b;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">
+          📋 Review in Dashboard
+        </a>
+      </div>
+    `;
+
+    const transporter = getTransporter();
+    await transporter.sendMail({
+      from: `"Insight Factor" <${config.smtp.user}>`,
+      to: recipients.join(", "),
+      subject,
+      html: wrapHTML(body, `⏳ ${kindLabel} awaiting ${stageLabel}`),
+    });
+    console.log(`  ✅ Pending-${params.stage} notice sent: ${params.number} → ${recipients.length} approver(s)`);
+    return true;
+  } catch (err) {
+    console.error(`  ❌ Failed to send pending-${params.stage} notice for ${params.number}:`, err);
     return false;
   }
 }

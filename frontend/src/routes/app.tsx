@@ -83,8 +83,8 @@ const FINANCE_ITEMS: NavItem[] = [
   { to: "/app/bulk-payments", label: "Bulk Payments", icon: ArrowRightLeft },
 ];
 
-// ─── Sales Operator items ──
-const SALES_OPERATOR_ITEMS: NavItem[] = [
+// ─── Sales items ──
+const SALES_ITEMS: NavItem[] = [
   { to: "/app/debtors", label: "Debtors", icon: Building2 },
   { to: "/app/suppliers", label: "Suppliers", icon: Truck },
   { to: "/app/sales-orders", label: "Sales orders", icon: ShoppingBag },
@@ -182,8 +182,8 @@ function buildNavSections(roles: string[]): NavSection[] {
         }
       : null;
 
-  // Sales Operator — visible to operations, sales rep, admin
-  const salesOperatorItems: NavItem[] =
+  // Sales — visible to operations, sales rep, admin
+  const salesItems: NavItem[] =
     isSalesRep
       ? [
           { to: "/app/crm", label: "Leads", icon: Users },
@@ -191,14 +191,14 @@ function buildNavSections(roles: string[]): NavSection[] {
           { to: "/app/suppliers", label: "Suppliers", icon: Truck },
           { to: "/app/naughty-list", label: "Naughty List", icon: AlertTriangle },
         ]
-      : [...SALES_OPERATOR_ITEMS];
-  const salesOperatorSection: NavSection | null =
+      : [...SALES_ITEMS];
+  const salesSection: NavSection | null =
     (isSalesRep || isOperations || isAdmin)
       ? {
           type: "group",
-          label: "Sales Operator",
+          label: "Sales",
           icon: ShoppingBag,
-          items: salesOperatorItems,
+          items: salesItems,
         }
       : null;
 
@@ -247,14 +247,14 @@ function buildNavSections(roles: string[]): NavSection[] {
       : null;
 
   // Assemble in the desired order: Dashboard, Checker, Finance, Procurement,
-  // Sales Operator, Warehouse Control, Reports, System
+  // Sales, Warehouse Control, Reports, System
   const sections = [
     dashboardSection,
     workspaceSection,
     checkerSection,
     financeSection,
     procurementSection,
-    salesOperatorSection,
+    salesSection,
     warehouseControlSection,
     ...reportsSections,
     systemSection,
@@ -349,8 +349,8 @@ function AppLayout() {
     // Shared routes accessible to all logged-in users
     const SHARED_ROUTES = ["/app/profile", "/app/workspace", "/app/settings"];
 
-    // Sales Operator routes
-    const salesOperatorRoutes: string[] = [
+    // Sales routes
+    const salesRoutes: string[] = [
       "/app/debtors",
       "/app/sales-orders",
       "/app/invoices",
@@ -406,7 +406,7 @@ function AppLayout() {
       "/app/settings",
       ...procurementRoutes,
       ...supplierListRoutes,
-      ...salesOperatorRoutes,
+      ...salesRoutes,
       ...naughtyListRoutes,
       ...warehouseControlRoutes,
     ];
@@ -419,7 +419,7 @@ function AppLayout() {
       "/app/bulk-payments",
       ...procurementRoutes,
       ...supplierListRoutes,
-      ...salesOperatorRoutes,
+      ...salesRoutes,
       ...naughtyListRoutes,
       ...warehouseControlRoutes,
     ];

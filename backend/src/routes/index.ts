@@ -1,6 +1,9 @@
 import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { v4 as uuid } from "uuid";
+import { existsSync, readFileSync } from "fs";
+import { dirname, resolve } from "path";
+import { fileURLToPath } from "url";
 import { config } from "../config.js";
 import {
   authMiddleware,
@@ -34,6 +37,20 @@ import * as User from "../models/user.js";
 import * as Submission from "../models/submission.js";
 import * as ReminderLog from "../models/reminder-log.js";
 import * as ReminderSettings from "../models/reminder-settings.js";
+
+// ─── Default company logo for print PDFs ─────────────────────────────────────
+// <repo-root>/img/logo.png, resolved from this file so it works both from
+// src/ (tsx dev) and dist/ (compiled production).
+const ROUTES_DIR = dirname(fileURLToPath(import.meta.url));
+const ROOT_LOGO_PATH = resolve(ROUTES_DIR, "../../../img/logo.png");
+function loadRootLogo(): Buffer | null {
+  try {
+    if (existsSync(ROOT_LOGO_PATH)) return readFileSync(ROOT_LOGO_PATH);
+  } catch {
+    /* fall through to the text fallback */
+  }
+  return null;
+}
 
 // ─── View-As middleware (for reporting managers to see their reports' data) ──
 // NOTE: this runs via router.use() BEFORE the per-route authMiddleware, so it
@@ -137,6 +154,34 @@ function trackAction(
     detail,
     { ip: req.ip, userAgent: req.headers["user-agent"] },
   );
+}
+
+/**
+ * Email every admin / treasury / checker user when a document lands in the
+ * checker review queue or the treasury action queue. Fire-and-forget — never
+ * blocks or fails the request.
+ */
+function notifyPendingQueue(
+  req: Request,
+  notice: {
+    stage: "checker" | "treasury";
+    kind: "sales_invoice" | "purchase_invoice" | "proforma" | "purchase_order" | "sales_order";
+    number: string;
+    amount: number;
+    counterparty?: string | null;
+    dueDate?: string | null;
+    reviewPath?: string;
+  },
+) {
+  const actorEmail = (req as any).user?.email as string | undefined;
+  void (async () => {
+    try {
+      const { notifyPendingApprovers } = await import("../email.js");
+      await notifyPendingApprovers({ ...notice, submittedBy: actorEmail ?? null });
+    } catch (err) {
+      console.error("  ⚠ Pending-queue email failed:", err);
+    }
+  })();
 }
 
 // Apply view-as middleware to all data routes
@@ -416,9 +461,14 @@ async function resolveVariantParent(clientId: string, parentId: string, isStaff:
   if (parent.clientId !== clientId && !isStaff) {
     throw new Error("Forbidden — the parent product belongs to another client");
   }
-  if (parent.parentId) {
+  // Staged hierarchy: Master SKU → colour SKU → size SKU (max two levels).
+  // A final size SKU (one that carries a size of its own) cannot own children —
+  // sizes are always added under a colour SKU.
+  const isFinalSizeSku =
+    parent.skuLevel === "variant" || !!(parent.size && String(parent.size).trim());
+  if (isFinalSizeSku) {
     throw new Error(
-      "Variants are one level deep — a variant cannot itself have variants. Create this colour/size under the top-level parent instead.",
+      "A size SKU cannot have variants. Add sizes under a colour SKU instead.",
     );
   }
   return parent;
@@ -440,6 +490,23 @@ router.post("/products", authMiddleware, async (req, res) => {
         if ((parent as any)[key] !== undefined && (body as any)[key] === undefined) {
           (body as any)[key] = (parent as any)[key];
         }
+      }
+      // Staged-creation rules: a colour is added under a Master SKU, a size
+      // under a colour SKU. (A colour+size one-shot under a master is still
+      // accepted for back-compat with document quick-add flows.)
+      const parentIsMaster = !parent.parentId;
+      const reqColour = (body.color ?? "").toString().trim();
+      const reqSize = (body.size ?? "").toString().trim();
+      if (parentIsMaster && !reqColour && !reqSize) {
+        throw new Error("Enter a colour or a size for this variant");
+      }
+      if (!parentIsMaster && !reqSize) {
+        throw new Error("Pick a size for this size SKU");
+      }
+      // Default the hierarchy level when the caller doesn't state it: a lone
+      // colour under a master is a colour SKU, everything else is final.
+      if ((body as any).skuLevel === undefined) {
+        (body as any).skuLevel = !parentIsMaster || reqSize ? "variant" : "color";
       }
       if (!body.name) body.name = parent.name;
       // The variant name reads as a concrete sellable line, e.g. "Running Shoe — Black / 42".
@@ -1645,6 +1712,15 @@ router.post("/invoices/:id/issue", authMiddleware, async (req, res) => {
       entityRef: current.invoiceNumber,
       status: "pending",
     });
+    // Pending in checker → mail admin, treasury and checker users.
+    notifyPendingQueue(req, {
+      stage: "checker",
+      kind: "sales_invoice",
+      number: current.invoiceNumber,
+      amount: Number((updated as any)?.grandTotal ?? (updated as any)?.amount ?? current.amount) || 0,
+      dueDate: (updated as any)?.dueDate ?? current.dueDate ?? null,
+      reviewPath: "/app/checker",
+    });
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -1844,6 +1920,17 @@ router.put("/invoices/:id", authMiddleware, async (req, res) => {
           entityRef: current.invoiceNumber,
           status: s,
           prevStatus: current.status,
+        });
+      }
+      // Checker-approved → pending in treasury: mail admin, treasury, checker.
+      if (s === "approved") {
+        notifyPendingQueue(req, {
+          stage: "treasury",
+          kind: "sales_invoice",
+          number: current.invoiceNumber,
+          amount: Number((updated as any)?.grandTotal ?? (updated as any)?.amount ?? current.amount) || 0,
+          dueDate: (updated as any)?.dueDate ?? current.dueDate ?? null,
+          reviewPath: "/app/queue",
         });
       }
     }
@@ -2344,6 +2431,19 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
           amount: current.amount,
         });
       }
+      // Verified → pending in checker; approved_for_payment → pending in
+      // treasury: mail admin, treasury and checker users.
+      if (s === "verified" || s === "approved_for_payment") {
+        notifyPendingQueue(req, {
+          stage: s === "verified" ? "checker" : "treasury",
+          kind: "purchase_invoice",
+          number: current.invoiceNumber,
+          amount: Number((updated as any)?.grandTotal ?? (updated as any)?.amount ?? current.amount) || 0,
+          counterparty: (updated as any)?.supplierName ?? current.supplierName ?? null,
+          dueDate: (updated as any)?.dueDate ?? current.dueDate ?? null,
+          reviewPath: s === "verified" ? "/app/checker" : "/app/queue",
+        });
+      }
     }
     // Instant reminder check on update
     if (body.dueDate || body.status) {
@@ -2439,6 +2539,14 @@ router.post("/purchase-orders", authMiddleware, async (req, res) => {
       side: item.side,
       amount: item.poAmount ?? item.amount,
       status: item.proformaStatus,
+    });
+    // Submitted to checker → mail admin, treasury and checker users.
+    notifyPendingQueue(req, {
+      stage: "checker",
+      kind: "proforma",
+      number: item.proformaNumber ?? item.poNumber,
+      amount: Number(item.poAmount ?? item.amount) || 0,
+      reviewPath: "/app/checker",
     });
     res.status(201).json(item);
   } catch (err: any) {
@@ -2622,6 +2730,17 @@ router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
           status: s,
           prevStatus: current.proformaStatus,
           amount: current.poAmount ?? current.amount,
+        });
+      }
+      // Re-submitted → pending in checker; approved → pending in treasury:
+      // mail admin, treasury and checker users.
+      if (s === "pending_review" || s === "approved") {
+        notifyPendingQueue(req, {
+          stage: s === "pending_review" ? "checker" : "treasury",
+          kind: "proforma",
+          number: (updated as any)?.proformaNumber ?? current.proformaNumber ?? current.poNumber,
+          amount: Number((updated as any)?.poAmount ?? (updated as any)?.amount ?? current.poAmount ?? current.amount) || 0,
+          reviewPath: s === "pending_review" ? "/app/checker" : "/app/queue",
         });
       }
     }
@@ -2845,6 +2964,7 @@ router.post("/goods-purchase-orders", authMiddleware, async (req, res) => {
 router.put("/goods-purchase-orders/:id", authMiddleware, async (req, res) => {
   try {
     const body = req.body || {};
+    const current = await GoodsPO.get(req.params.id);
     if (body.lines !== undefined) {
       let lines: any[];
       try {
@@ -2854,7 +2974,20 @@ router.put("/goods-purchase-orders/:id", authMiddleware, async (req, res) => {
       }
       body.lines = lines;
     }
-    res.json(await GoodsPO.update(req.params.id, body));
+    const updated = await GoodsPO.update(req.params.id, body);
+    // Submitted → pending in checker: mail admin, treasury and checker users.
+    if (body.status === "pending_review" && current?.status !== "pending_review") {
+      notifyPendingQueue(req, {
+        stage: "checker",
+        kind: "purchase_order",
+        number: (updated as any)?.poNumber ?? current?.poNumber ?? req.params.id,
+        amount: Number((updated as any)?.grandTotal ?? current?.grandTotal) || 0,
+        counterparty: (updated as any)?.supplierName ?? current?.supplierName ?? null,
+        dueDate: (updated as any)?.expectedDeliveryDate ?? current?.expectedDeliveryDate ?? null,
+        reviewPath: "/app/checker",
+      });
+    }
+    res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -3345,6 +3478,14 @@ async function validateGoodsSOLines(clientId: string | undefined, rawLines: any[
       }
     }
     applyVariantSnapshot(l, productById.get(l.productId));
+    // Server-owned print snapshots (code/MRP): always refreshed from the
+    // catalogue so the Tally-style SO PDF prints catalogue truth.
+    // (Colour/size are handled by applyVariantSnapshot above.)
+    const soProduct = productById.get(l.productId) as any;
+    if (soProduct) {
+      l.productCode = soProduct.model || soProduct.sku || null;
+      l.mrp = soProduct.mrp ?? null;
+    }
   }
   return lines;
 }
@@ -3503,6 +3644,23 @@ router.delete("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
   }
 });
 
+/** GET /goods-sales-orders/:id/pdf — download the Tally-style sales-order PDF. */
+router.get("/goods-sales-orders/:id/pdf", authMiddleware, async (req, res) => {
+  try {
+    const so = await GoodsSO.get(req.params.id);
+    if (!so || (so.clientId !== req.user!.userId && !isStaffAccount(req.user?.roles))) {
+      return res.status(404).json({ error: "Sales order not found" });
+    }
+    const { pdf, number } = await buildSalesOrderTallyBuffer(so, so.clientId);
+    const filename = `${(number || "sales-order").replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(pdf);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /** Sales review: draft -> pending_review -> warehouse_pending. */
 router.post(
   "/goods-sales-orders/:id/sales-review",
@@ -3585,6 +3743,17 @@ router.post(
         entityType: "sales_order", entityRef: so.soNumber,
         previous: so.status, status: transition.to,
       });
+      // Signed off → pending in checker: mail admin, treasury, checker users.
+      if (action === "approve" && transition.to === "checker_pending") {
+        notifyPendingQueue(req, {
+          stage: "checker",
+          kind: "sales_order",
+          number: so.soNumber,
+          amount: Number((updated as any)?.grandTotal ?? so.grandTotal) || 0,
+          dueDate: (updated as any)?.expectedDeliveryDate ?? (so as any)?.expectedDeliveryDate ?? null,
+          reviewPath: "/app/checker",
+        });
+      }
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -3710,10 +3879,10 @@ async function findApprovalDoc(
   return null;
 }
 
-/** Resolve the client's company name + contact for the PDF and email branding. */
+/** Resolve the client's company name + contact + address for PDFs and email branding. */
 async function resolveCompanyName(
   userId: string,
-): Promise<{ name: string; contact: string | null }> {
+): Promise<{ name: string; contact: string | null; address: string | null }> {
   try {
     const client = await db.getItem(`USER#${userId}`);
     if (client) {
@@ -3721,15 +3890,87 @@ async function resolveCompanyName(
         name:
           (client as any).companyName || (client as any).email || "Our Company",
         contact: (client as any).email || null,
+        address: (client as any).address || null,
       };
     }
   } catch {
     /* ignore */
   }
-  return { name: "Our Company", contact: null };
+  return { name: "Our Company", contact: null, address: null };
 }
 
 /** Shared send-to-debtor logic: build PDF, email it, return the fresh token. */
+/** Seller + bank + logo inputs for the Tally-style SO PDF (template first, user record fallback). */
+async function resolveTallySellerParts(clientId: string): Promise<{
+  seller: { name: string; address: string; gstin: string; stateName: string; stateCode: string; email: string };
+  bank: { holder: string; bank: string; acNo: string; ifsc: string; branch: string } | null;
+  bankRaw: string | null;
+  declarationRaw: string | null;
+  logoImage: Buffer | null;
+}> {
+  const [template, company] = await Promise.all([
+    Combined.getTemplate(clientId).catch(() => null),
+    resolveCompanyName(clientId),
+  ]);
+  const t = (template ?? {}) as any;
+  // Company identity precedence: the address written in Settings (user
+  // profile) wins everywhere; the invoice template is the fallback. Name and
+  // email keep the template-first print-branding override. Nothing is
+  // defaulted here — blanks render blank on the PDF.
+  const rawName = t.companyName || company.name || "";
+  const seller = {
+    name: rawName === "Our Company" ? "" : rawName,
+    address: company.address || t.companyAddress || "",
+    gstin: t.taxId || "",
+    stateName: t.companyState || "",
+    stateCode: t.companyStateCode || "",
+    email: t.companyEmail || company.contact || "",
+  };
+  const bank =
+    t.bankHolder || t.bankName || t.bankAcNo || t.bankIfsc || t.bankBranch
+      ? {
+          holder: t.bankHolder || "",
+          bank: t.bankName || "",
+          acNo: t.bankAcNo || "",
+          ifsc: t.bankIfsc || "",
+          branch: t.bankBranch || "",
+        }
+      : null;
+  let logoImage: Buffer | null = null;
+  if (typeof t.logoUrl === "string" && /^https?:\/\//i.test(t.logoUrl)) {
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 8000);
+      const resp = await fetch(t.logoUrl, { signal: ctrl.signal });
+      clearTimeout(timer);
+      if (resp.ok) logoImage = Buffer.from(await resp.arrayBuffer());
+    } catch {
+      logoImage = null;
+    }
+  }
+  // Default to the Adventra logo shipped in <repo-root>/img/logo.png.
+  if (!logoImage) logoImage = loadRootLogo();
+  return { seller, bank, bankRaw: t.bankDetails || null, declarationRaw: t.declaration || null, logoImage };
+}
+
+/** Build the Tally-style sales-order PDF for a SO record. Shared by download + email. */
+async function buildSalesOrderTallyBuffer(
+  doc: any,
+  clientId: string,
+): Promise<{ pdf: Buffer; number: string; grandTotal: number }> {
+  const { seller, bank, bankRaw, declarationRaw, logoImage } = await resolveTallySellerParts(clientId);
+  const { salesOrderToTallyData, buildSalesOrderTallyPdf } =
+    await import("../lib/document-pdf.js");
+  const data = salesOrderToTallyData(doc, {
+    seller,
+    bank,
+    bankRaw,
+    declarationRaw,
+    logoImage,
+  });
+  const pdf = await buildSalesOrderTallyPdf(data);
+  return { pdf, number: data.number, grandTotal: data.grandTotal };
+}
 async function sendDocumentToDebtor(
   kind: "sales_order",
   doc: any,
@@ -3750,24 +3991,21 @@ async function sendDocumentToDebtor(
   }
 
   const company = await resolveCompanyName(clientId);
-  const { salesOrderToPdfData, buildDocumentPdf } =
-    await import("../lib/document-pdf.js");
-  const data = salesOrderToPdfData(doc, company.name, company.contact);
-  const pdf = await buildDocumentPdf(data);
+  const { pdf, number, grandTotal } = await buildSalesOrderTallyBuffer(doc, clientId);
 
   const token = uuid();
   const approvalUrl = `${config.appUrl}/approve/${token}`;
   const { sendDocumentApprovalEmail } = await import("../email.js");
   const sent = await sendDocumentApprovalEmail({
     kind,
-    number: data.number,
-    grandTotal: data.grandTotal,
-    validUntil: data.validUntil,
-    customerName: data.customerName || debtor?.name || "Customer",
+    number,
+    grandTotal,
+    validUntil: doc.expectedDeliveryDate ?? doc.expected_delivery_date ?? null,
+    customerName: doc.customerName ?? doc.customer_name ?? debtor?.name ?? "Customer",
     customerEmail: email,
     companyName: company.name,
     pdfBuffer: pdf,
-    pdfFilename: `${data.number.replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`,
+    pdfFilename: `${number.replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`,
     approvalUrl,
   });
   if (!sent)
@@ -3775,7 +4013,7 @@ async function sendDocumentToDebtor(
   return {
     token,
     email,
-    filename: `${data.number.replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`,
+    filename: `${number.replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`,
   };
 }
 

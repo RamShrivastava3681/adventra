@@ -39,6 +39,27 @@ export const Route = createFileRoute("/app/sales-orders")({
   component: SalesOrdersPage,
 });
 
+const API_URL = import.meta.env.VITE_API_URL || "/api";
+
+async function downloadSalesOrderPdf(id: string, fallbackName: string) {
+  const res = await fetch(`${API_URL}/goods-sales-orders/${id}/pdf`, { credentials: "include" });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error((err as any).error || "Could not download PDF");
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  const disp = res.headers.get("content-disposition") || "";
+  const m = disp.match(/filename="?([^"]+)"?/);
+  a.download = m?.[1] ?? `${fallbackName}.pdf`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
 // ─── Types (snake_case — the API transform middleware shapes responses) ───
 type SOLine = {
   product_id: string;
@@ -50,6 +71,10 @@ type SOLine = {
   unit_price: number;
   discount_pct: number | null;
   gst_rate: number | null;
+  color: string | null;
+  size: string | null;
+  product_code: string | null;
+  mrp: number | null;
   line_total: number;
   notes: string | null;
 };
@@ -64,6 +89,16 @@ type SO = {
   contact_person: string | null;
   billing_address: string | null;
   delivery_address: string | null;
+  buyer_order_no: string | null;
+  reference_no: string | null;
+  delivery_note: string | null;
+  dispatch_doc_no: string | null;
+  dispatched_through: string | null;
+  ship_gstin: string | null;
+  ship_pan: string | null;
+  bill_gstin: string | null;
+  bill_pan: string | null;
+  remarks: string | null;
   salesperson_id: string | null;
   salesperson_name: string | null;
   payment_terms: string | null;
@@ -91,6 +126,9 @@ type CatalogueProduct = {
   sku: string | null;
   name: string;
   unit_of_measure: string;
+  color: string | null;
+  size: string | null;
+  model: string | null;
   gst_rate: number | null;
   unit_price: number | null;
   unit_cost: number | null;
@@ -102,16 +140,43 @@ type CatalogueProduct = {
   status: string;
 };
 
+type CustomerAddress = { label: string | null; address: string };
+
 type Customer = {
   id: string;
   name: string;
   contact_name: string | null;
   billing_address: string | null;
   shipping_address: string | null;
+  billing_addresses: CustomerAddress[];
+  shipping_addresses: CustomerAddress[];
+  gstin: string | null;
+  pan: string | null;
   city: string | null;
   country: string | null;
   postal_code: string | null;
 };
+
+function normAddresses(v: any): CustomerAddress[] {
+  if (!v) return [];
+  const arr = Array.isArray(v) ? v : [v];
+  const out: CustomerAddress[] = [];
+  for (const e of arr) {
+    if (typeof e === "string") {
+      if (e.trim()) out.push({ label: null, address: e.trim() });
+    } else if (e && typeof e === "object") {
+      const addr = e.address ?? e.address_line ?? "";
+      if (typeof addr === "string" && addr.trim())
+        out.push({ label: e.label ?? null, address: addr.trim() });
+    }
+  }
+  return out;
+}
+
+function addrLabel(a: CustomerAddress, i: number): string {
+  const short = a.address.length > 60 ? `${a.address.slice(0, 60)}…` : a.address;
+  return `${a.label ? `${a.label} — ` : ""}${short}${i === 0 ? " (primary)" : ""}`;
+}
 
 const SO_STATUSES = [
   "draft",
@@ -198,6 +263,19 @@ function SalesOrdersPage() {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<SO | null>(null);
+  const [pdfId, setPdfId] = useState<string | null>(null);
+
+  const downloadRowPdf = async (s: SO) => {
+    setPdfId(s.id);
+    try {
+      await downloadSalesOrderPdf(s.id, s.so_number);
+      toast.success("PDF downloaded");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not download PDF");
+    } finally {
+      setPdfId(null);
+    }
+  };
 
   const sosQ = useQuery({
     queryKey: ["goods-sos"],
@@ -220,20 +298,32 @@ function SalesOrdersPage() {
     queryFn: async () => {
       const data = (await api.debtors.list()) as any[];
       return data
-        .map((d) => ({
-          id: d.id,
-          name: d.name ?? d.id,
-          contact_name: d.contact_name ?? null,
-          billing_address: d.billing_address ?? d.address_line ?? null,
-          shipping_address: d.shipping_address ?? null,
-          city: d.city ?? null,
-          country: d.country ?? null,
-          postal_code: d.postal_code ?? null,
+        .map((d) => {
+          const billing_address = d.billing_address ?? d.address_line ?? null;
+          const shipping_address = d.shipping_address ?? null;
+          let billing_addresses = normAddresses(d.billing_addresses ?? d.billingAddresses);
+          if (!billing_addresses.length && billing_address) billing_addresses = [{ label: null, address: billing_address }];
+          let shipping_addresses = normAddresses(d.shipping_addresses ?? d.shippingAddresses);
+          if (!shipping_addresses.length && shipping_address) shipping_addresses = [{ label: null, address: shipping_address }];
+          return {
+            id: d.id,
+            name: d.name ?? d.id,
+            contact_name: d.contact_name ?? null,
+            billing_address,
+            shipping_address,
+            billing_addresses,
+            shipping_addresses,
+            gstin: d.gstin ?? null,
+            pan: d.panCardNo ?? d.pan_card_no ?? null,
+            city: d.city ?? null,
+            country: d.country ?? null,
+            postal_code: d.postal_code ?? null,
           paymentTermsType: d.paymentTermsType ?? d.payment_terms_type ?? null,
           advancePct: d.advancePct ?? d.advance_pct ?? null,
           paymentTermsDays: d.paymentTermsDays ?? d.payment_terms_days ?? null,
           paymentTerms: d.paymentTerms ?? d.payment_terms ?? null,
-        }))
+          };
+        })
         .sort((a, b) => a.name.localeCompare(b.name)) as Customer[];
     },
   });
@@ -447,6 +537,20 @@ function SalesOrdersPage() {
                                 >
                                   View
                                 </button>
+                                <button
+                                  onClick={() => downloadRowPdf(s)}
+                                  disabled={pdfId === s.id}
+                                  title="Download sales order PDF"
+                                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary disabled:opacity-60"
+                                >
+                                  {pdfId === s.id ? (
+                                    "…"
+                                  ) : (
+                                    <>
+                                      <FileDown className="h-3 w-3" /> PDF
+                                    </>
+                                  )}
+                                </button>
                                 {canWrite && ["draft", "confirmed"].includes(s.status) && (
                                   <button
                                     onClick={() => {
@@ -507,6 +611,10 @@ type LineDraft = {
   sku: string | null;
   name: string;
   unit: string;
+  color: string;
+  size: string;
+  product_code: string;
+  mrp: string;
   ordered_qty: string;
   unit_price: string;
   discount_pct: string;
@@ -548,6 +656,16 @@ function SOModal({
     contact_person: so?.contact_person ?? "",
     billing_address: so?.billing_address ?? "",
     delivery_address: so?.delivery_address ?? "",
+    buyer_order_no: so?.buyer_order_no ?? "",
+    reference_no: so?.reference_no ?? "",
+    delivery_note: so?.delivery_note ?? "",
+    dispatch_doc_no: so?.dispatch_doc_no ?? "",
+    dispatched_through: so?.dispatched_through ?? "",
+    ship_gstin: so?.ship_gstin ?? "",
+    ship_pan: so?.ship_pan ?? "",
+    bill_gstin: so?.bill_gstin ?? "",
+    bill_pan: so?.bill_pan ?? "",
+    remarks: so?.remarks ?? "",
     ...toTermsFormFields(so),
     expected_dispatch_date: (so?.expected_dispatch_date ?? "")?.slice(0, 10) ?? "",
     expected_delivery_date: (so?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
@@ -560,6 +678,10 @@ function SOModal({
       sku: l.sku,
       name: l.name,
       unit: l.unit,
+      color: (l as any).color ?? "",
+      size: (l as any).size != null ? String((l as any).size) : "",
+      product_code: (l as any).product_code ?? "",
+      mrp: (l as any).mrp != null ? String((l as any).mrp) : "",
       ordered_qty: String(l.ordered_qty),
       unit_price: String(l.unit_price),
       discount_pct: l.discount_pct != null ? String(l.discount_pct) : "",
@@ -570,6 +692,20 @@ function SOModal({
     })),
   );
   const [docs, setDocs] = useState<DocMeta[]>(so?.documents ?? []);
+  const [pdfBusy, setPdfBusy] = useState(false);
+
+  const downloadPdf = async () => {
+    if (!so) return;
+    setPdfBusy(true);
+    try {
+      await downloadSalesOrderPdf(so.id, so.so_number);
+      toast.success("PDF downloaded");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not download PDF");
+    } finally {
+      setPdfBusy(false);
+    }
+  };
 
   const setLine = (i: number, patch: Partial<LineDraft>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -592,6 +728,11 @@ function SOModal({
       contact_person: c?.contact_name ?? prev.contact_person,
       billing_address: c?.billing_address ?? prev.billing_address,
       delivery_address: c?.shipping_address ?? c?.billing_address ?? prev.delivery_address,
+      // Buyer tax snapshots for the PDF (ship-to and bill-to may differ — editable per order).
+      ship_gstin: c?.gstin ?? "",
+      ship_pan: c?.pan ?? "",
+      bill_gstin: c?.gstin ?? "",
+      bill_pan: c?.pan ?? "",
       // Pre-fill payment terms from the debtor master (still editable).
       ...(id
         ? toTermsFormFields(c)
@@ -606,6 +747,10 @@ function SOModal({
       name: p?.name ?? "",
       sku: p?.sku ?? null,
       unit: p?.unit_of_measure ?? "piece",
+      color: (p as any)?.color ?? "",
+      size: (p as any)?.size != null ? String((p as any).size) : "",
+      product_code: (p as any)?.model || p?.sku || "",
+      mrp: (p as any)?.mrp != null ? String((p as any).mrp) : "",
       unit_price: p?.unit_price != null ? String(p.unit_price) : "",
       gst_rate: p?.gst_rate != null ? String(p.gst_rate) : "",
       price_tier: "",
@@ -620,6 +765,10 @@ function SOModal({
         sku: null,
         name: "",
         unit: "piece",
+        color: "",
+        size: "",
+        product_code: "",
+        mrp: "",
         ordered_qty: "",
         unit_price: "",
         discount_pct: "",
@@ -689,6 +838,10 @@ function SOModal({
         sku: l.sku,
         name: l.name,
         unit: l.unit || "piece",
+        color: l.color.trim() || null,
+        size: l.size.trim() || null,
+        product_code: l.product_code.trim() || null,
+        mrp: l.mrp ? Number(l.mrp) : null,
         ordered_qty: Number(l.ordered_qty) || 0,
         unit_price: Number(l.unit_price) || 0,
         discount_pct: l.discount_pct ? Number(l.discount_pct) : null,
@@ -713,6 +866,16 @@ function SOModal({
         contact_person: f.contact_person.trim() || null,
         billing_address: f.billing_address.trim() || null,
         delivery_address: f.delivery_address.trim() || null,
+        buyer_order_no: f.buyer_order_no.trim() || null,
+        reference_no: f.reference_no.trim() || null,
+        delivery_note: f.delivery_note.trim() || null,
+        dispatch_doc_no: f.dispatch_doc_no.trim() || null,
+        dispatched_through: f.dispatched_through.trim() || null,
+        ship_gstin: f.ship_gstin.trim() || null,
+        ship_pan: f.ship_pan.trim() || null,
+        bill_gstin: f.bill_gstin.trim() || null,
+        bill_pan: f.bill_pan.trim() || null,
+        remarks: f.remarks.trim() || null,
         ...toTermsPayload(f),
         payment_terms: f.payment_terms_type ? formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }) : f.payment_terms || null,
         expected_dispatch_date: f.expected_dispatch_date || null,
@@ -839,14 +1002,38 @@ function SOModal({
                 />
               </L>
               <L label="Billing address">
-                <textarea
-                  rows={2}
-                  className="inp resize-y"
-                  value={f.billing_address}
-                  onChange={(e) => setF({ ...f, billing_address: e.target.value })}
-                  placeholder="Auto-filled from customer"
-                  disabled={!editable}
-                />
+                {(() => {
+                  const c = customers.find((x) => x.id === f.customer_id);
+                  const opts = c?.billing_addresses ?? [];
+                  return (
+                    <>
+                      {editable && opts.length > 1 && (
+                        <select
+                          className="inp mb-1"
+                          value={opts.findIndex((a) => a.address === f.billing_address) >= 0 ? String(opts.findIndex((a) => a.address === f.billing_address)) : "custom"}
+                          onChange={(e) => {
+                            if (e.target.value === "custom") return;
+                            const a = opts[Number(e.target.value)];
+                            if (a) setF({ ...f, billing_address: a.address });
+                          }}
+                        >
+                          {opts.map((a, i) => (
+                            <option key={i} value={String(i)}>{addrLabel(a, i)}</option>
+                          ))}
+                          <option value="custom">Custom / edited…</option>
+                        </select>
+                      )}
+                      <textarea
+                        rows={2}
+                        className="inp resize-y"
+                        value={f.billing_address}
+                        onChange={(e) => setF({ ...f, billing_address: e.target.value })}
+                        placeholder="Auto-filled from customer — pick a saved address or type custom"
+                        disabled={!editable}
+                      />
+                    </>
+                  );
+                })()}
                 {editable && f.customer_id && (
                   <div className="mt-1 flex flex-wrap gap-1">
                     <button
@@ -858,21 +1045,61 @@ function SOModal({
                     </button>
                   </div>
                 )}
+                <div className="mt-1 grid grid-cols-2 gap-1.5">
+                  <input
+                    className="inp !py-1.5 !text-xs"
+                    value={f.bill_gstin}
+                    onChange={(e) => setF({ ...f, bill_gstin: e.target.value })}
+                    placeholder="Bill-to GSTIN"
+                    disabled={!editable}
+                  />
+                  <input
+                    className="inp !py-1.5 !text-xs"
+                    value={f.bill_pan}
+                    onChange={(e) => setF({ ...f, bill_pan: e.target.value })}
+                    placeholder="Bill-to PAN"
+                    disabled={!editable}
+                  />
+                </div>
               </L>
               <L label="Delivery / shipping address">
-                <textarea
-                  rows={2}
-                  className="inp resize-y"
-                  value={f.delivery_address}
-                  onChange={(e) => setF({ ...f, delivery_address: e.target.value })}
-                  placeholder="Auto-filled from customer"
-                  disabled={!editable}
-                />
+                {(() => {
+                  const c = customers.find((x) => x.id === f.customer_id);
+                  const opts = c?.shipping_addresses?.length ? c.shipping_addresses : (c?.billing_addresses ?? []);
+                  return (
+                    <>
+                      {editable && opts.length > 1 && (
+                        <select
+                          className="inp mb-1"
+                          value={opts.findIndex((a) => a.address === f.delivery_address) >= 0 ? String(opts.findIndex((a) => a.address === f.delivery_address)) : "custom"}
+                          onChange={(e) => {
+                            if (e.target.value === "custom") return;
+                            const a = opts[Number(e.target.value)];
+                            if (a) setF({ ...f, delivery_address: a.address });
+                          }}
+                        >
+                          {opts.map((a, i) => (
+                            <option key={i} value={String(i)}>{addrLabel(a, i)}</option>
+                          ))}
+                          <option value="custom">Custom / edited…</option>
+                        </select>
+                      )}
+                      <textarea
+                        rows={2}
+                        className="inp resize-y"
+                        value={f.delivery_address}
+                        onChange={(e) => setF({ ...f, delivery_address: e.target.value })}
+                        placeholder="Auto-filled from customer — pick a saved address or type custom"
+                        disabled={!editable}
+                      />
+                    </>
+                  );
+                })()}
                 {editable && f.customer_id && (
                   <div className="mt-1 flex flex-wrap gap-1">
                     <button
                       type="button"
-                      onClick={() => setF({ ...f, delivery_address: customers.find((c) => c.id === f.customer_id)?.shipping_address ?? customers.find((c) => c.id === f.customer_id)?.billing_address ?? "" })}
+                      onClick={() => setF({ ...f, delivery_address: customers.find((c) => c.id === f.customer_id)?.shipping_addresses?.[0]?.address ?? customers.find((c) => c.id === f.customer_id)?.shipping_address ?? customers.find((c) => c.id === f.customer_id)?.billing_address ?? "" })}
                       className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
                     >
                       Use customer shipping
@@ -886,6 +1113,22 @@ function SOModal({
                     </button>
                   </div>
                 )}
+                <div className="mt-1 grid grid-cols-2 gap-1.5">
+                  <input
+                    className="inp !py-1.5 !text-xs"
+                    value={f.ship_gstin}
+                    onChange={(e) => setF({ ...f, ship_gstin: e.target.value })}
+                    placeholder="Ship-to GSTIN"
+                    disabled={!editable}
+                  />
+                  <input
+                    className="inp !py-1.5 !text-xs"
+                    value={f.ship_pan}
+                    onChange={(e) => setF({ ...f, ship_pan: e.target.value })}
+                    placeholder="Ship-to PAN"
+                    disabled={!editable}
+                  />
+                </div>
               </L>
               <L label="Salesperson / owner">
                 <input className="inp" value={so?.salesperson_name ?? "You"} disabled />
@@ -943,6 +1186,72 @@ function SOModal({
             </div>
           </fieldset>
 
+          {/* Document references (printed on the PDF header grid) */}
+          <fieldset className="rounded-lg border border-border/60 p-4">
+            <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              Document references — for PDF
+            </legend>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <L label="Buyer's order no.">
+                <input
+                  className="inp"
+                  value={f.buyer_order_no}
+                  onChange={(e) => setF({ ...f, buyer_order_no: e.target.value })}
+                  placeholder="Customer PO number"
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Reference no. & date">
+                <input
+                  className="inp"
+                  value={f.reference_no}
+                  onChange={(e) => setF({ ...f, reference_no: e.target.value })}
+                  placeholder="Ref no. & date"
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Delivery note">
+                <input
+                  className="inp"
+                  value={f.delivery_note}
+                  onChange={(e) => setF({ ...f, delivery_note: e.target.value })}
+                  placeholder="Delivery note ref"
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Dispatch doc no.">
+                <input
+                  className="inp"
+                  value={f.dispatch_doc_no}
+                  onChange={(e) => setF({ ...f, dispatch_doc_no: e.target.value })}
+                  placeholder="Dispatch document"
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Dispatched through">
+                <input
+                  className="inp"
+                  value={f.dispatched_through}
+                  onChange={(e) => setF({ ...f, dispatched_through: e.target.value })}
+                  placeholder="Transporter / courier"
+                  disabled={!editable}
+                />
+              </L>
+            </div>
+            <div className="mt-3">
+              <L label="Remarks (printed above bank details)">
+                <textarea
+                  rows={2}
+                  className="inp resize-y"
+                  value={f.remarks}
+                  onChange={(e) => setF({ ...f, remarks: e.target.value })}
+                  placeholder="Optional remarks for the PDF — leave blank to print nothing"
+                  disabled={!editable}
+                />
+              </L>
+            </div>
+          </fieldset>
+
           {/* Line items */}
           <fieldset className="rounded-lg border border-border/60 p-4">
             <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
@@ -969,6 +1278,13 @@ function SOModal({
                 {lines.map((l, i) => {
                   const gross = (Number(l.ordered_qty) || 0) * (Number(l.unit_price) || 0);
                   const lineTotal = round2(gross * (1 - (Number(l.discount_pct) || 0) / 100));
+                  const offerUnit = round2((Number(l.unit_price) || 0) * (1 - (Number(l.discount_pct) || 0) / 100));
+                  // Print snapshots: line values first, catalogue fallback for old lines.
+                  const prod = products.find((x) => x.id === l.product_id) as any;
+                  const snapColor = l.color || prod?.color || "";
+                  const snapSize = l.size || (prod?.size != null ? String(prod.size) : "");
+                  const snapCode = l.product_code || prod?.model || l.sku || "";
+                  const snapMrp = l.mrp || (prod?.mrp != null ? String(prod.mrp) : "");
                   const overDispatched =
                     editable && l.dispatched_qty > 0 && Number(l.ordered_qty) < l.dispatched_qty;
                   return (
@@ -985,6 +1301,19 @@ function SOModal({
                           </L>
                           {l.name && (
                             <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
+                          )}
+                          {(snapColor || snapSize || snapCode || snapMrp) && (
+                            <div className="mt-0.5 text-[10px] text-muted-foreground">
+                              {[
+                                snapColor || null,
+                                snapSize ? `Size ${snapSize}` : null,
+                                snapCode ? `Code ${snapCode}` : null,
+                                snapMrp ? `MRP ₹${snapMrp}` : null,
+                                `Offer ₹${offerUnit.toLocaleString("en-IN")}`,
+                              ]
+                                .filter(Boolean)
+                                .join(" · ")}
+                            </div>
                           )}
                         </div>
                         <div>
@@ -1220,6 +1549,18 @@ function SOModal({
               </p>
             </div>
             <div className="flex gap-2">
+              {isEdit && (
+                <button
+                  type="button"
+                  onClick={downloadPdf}
+                  disabled={pdfBusy}
+                  title="Download the Tally-style sales order PDF"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm hover:border-primary hover:text-primary disabled:opacity-60"
+                >
+                  {pdfBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+                  PDF
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onClose}

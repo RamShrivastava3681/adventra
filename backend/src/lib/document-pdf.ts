@@ -550,7 +550,7 @@ export function purchaseOrderToPdfData(
     contactPerson: null,
     billingAddress: null,
     deliveryAddress: po.warehouse ?? null,
-    paymentTerms: formatPaymentTerms(po) || po.paymentTerms ?? po.payment_terms ?? null,
+    paymentTerms: (formatPaymentTerms(po) || po.paymentTerms) ?? po.payment_terms ?? null,
     expectedDeliveryDate: po.expectedDeliveryDate ?? po.expected_delivery_date ?? null,
     salespersonName: po.buyerName ?? po.buyer_name ?? null,
     notes: po.notes ?? null,
@@ -593,7 +593,7 @@ export function salesOrderToPdfData(so: any, companyName: string, companyContact
     contactPerson: so.contactPerson ?? so.contact_person ?? null,
     billingAddress: so.billingAddress ?? so.billing_address ?? null,
     deliveryAddress: so.deliveryAddress ?? so.delivery_address ?? null,
-    paymentTerms: formatPaymentTerms(so) || so.paymentTerms ?? so.payment_terms ?? null,
+    paymentTerms: (formatPaymentTerms(so) || so.paymentTerms) ?? so.payment_terms ?? null,
     expectedDeliveryDate: so.expectedDeliveryDate ?? so.expected_delivery_date ?? null,
     salespersonName: so.salespersonName ?? so.salesperson_name ?? null,
     notes: so.notes ?? null,
@@ -1008,5 +1008,539 @@ export function invoiceToPdfData(
     companyContact,
   };
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// TALLY-STYLE SALES ORDER PDF (bordered grid, classic GST-invoice look)
+// ── Cream title bar · seller + ship-to + bill-to blocks · meta grid ·
+//    item table (SNO/Particulars/Color/Code/Size/MRP/Selling/Qty/Offer/Total) ·
+//    amount-in-words · remarks + bank details · declaration · signatory.
+// ═════════════════════════════════════════════════════════════════════════════
+
+export interface TallySOLine {
+  sno: number;
+  particulars: string;
+  color: string;
+  productCode: string;
+  size: string;
+  mrp: number | null;
+  sellingPrice: number;
+  quantity: number;
+  offerPrice: number;
+  amount: number;
+}
+
+export interface TallySOSeller {
+  name: string;
+  address: string;
+  gstin: string;
+  stateName: string;
+  stateCode: string;
+  email: string;
+}
+
+export interface TallySOBank {
+  holder: string;
+  bank: string;
+  acNo: string;
+  ifsc: string;
+  branch: string;
+}
+
+export interface SalesOrderTallyData {
+  number: string;
+  /** Already formatted, e.g. "5/Sep/2026". */
+  date: string;
+  deliveryNote: string | null;
+  paymentTerms: string | null;
+  referenceNo: string | null;
+  buyerOrderNo: string | null;
+  dispatchDocNo: string | null;
+  dispatchedThrough: string | null;
+  seller: TallySOSeller;
+  shipAddress: string;
+  /** De-duplicated "Name, address" line for the shipping block. */
+  shipText: string;
+  shipGstin: string | null;
+  shipPan: string | null;
+  billName: string;
+  billAddress: string;
+  /** De-duplicated "Name, address" line for the BILL TO block. */
+  billText: string;
+  billGstin: string | null;
+  billPan: string | null;
+  lines: TallySOLine[];
+  totalQty: number;
+  grandTotal: number;
+  amountWords: string;
+  bank: TallySOBank | null;
+  /** Free-text bank block fallback when structured bank rows aren't set. */
+  bankRaw: string | null;
+  /** Remarks printed above the bank-details block (null = blank). */
+  remarks: string | null;
+  /** Declaration lines printed under remarks (empty = omitted, never defaulted). */
+  declaration: string[];
+  jurisdiction: string;
+  logoImage: Buffer | null;
+}
+
+const TALLY = {
+  cream: "#FFF3D4",
+  headGray: "#D9D9D9",
+  altRow: "#FFFBEB",
+  white: "#FFFFFF",
+  ink: "#000000",
+};
+
+function r2(n: number): number {
+  return Math.round((Number(n) || 0) * 100) / 100;
+}
+
+/** Compact international-grouped number like the reference print (24,990 / 161,367). */
+function tallyNum(n: number | null | undefined): string {
+  const v = Number(n ?? 0);
+  if (!Number.isFinite(v)) return "0";
+  return Number.isInteger(v)
+    ? v.toLocaleString("en-US", { maximumFractionDigits: 0 })
+    : v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/** "2026-09-05" → "5/Sep/2026" (the Tally-style stamp). */
+function fmtTallyDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const dt = new Date(iso);
+  if (Number.isNaN(dt.getTime())) return String(iso);
+  const mon = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return `${dt.getDate()}/${mon[dt.getMonth()]}/${dt.getFullYear()}`;
+}
+
+// ── Amount in words (Indian numbering) ──────────────────────────────────────
+const WORD_ONES = [
+  "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
+  "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen",
+  "Seventeen", "Eighteen", "Nineteen",
+];
+const WORD_TENS = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"];
+
+function wordsTwoDigits(n: number): string {
+  if (n < 20) return WORD_ONES[n];
+  return `${WORD_TENS[Math.floor(n / 10)]}${n % 10 ? `-${WORD_ONES[n % 10]}` : ""}`;
+}
+
+function wordsThreeDigits(n: number): string {
+  const h = Math.floor(n / 100);
+  const rest = n % 100;
+  return `${h ? `${WORD_ONES[h]} Hundred${rest ? " " : ""}` : ""}${rest ? wordsTwoDigits(rest) : ""}`;
+}
+
+function intWordsIN(n: number): string {
+  if (n === 0) return "Zero";
+  const parts: string[] = [];
+  const crore = Math.floor(n / 10000000);
+  const lakh = Math.floor((n % 10000000) / 100000);
+  const thousand = Math.floor((n % 100000) / 1000);
+  const rest = n % 1000;
+  if (crore) parts.push(`${wordsThreeDigits(crore)} Crore`);
+  if (lakh) parts.push(`${wordsTwoDigits(lakh)} Lakh`);
+  if (thousand) parts.push(`${wordsTwoDigits(thousand)} Thousand`);
+  if (rest) parts.push(wordsThreeDigits(rest));
+  return parts.join(" ");
+}
+
+/** 161367 → "Rupees One Lakh Sixty-One Thousand Three Hundred Sixty-Seven Only". */
+export function amountInWordsINR(value: number | null | undefined): string {
+  const v = Math.round((Number(value) || 0) * 100) / 100;
+  const rupees = Math.floor(Math.abs(v));
+  const paise = Math.round((Math.abs(v) - rupees) * 100);
+  let s = `Rupees ${intWordsIN(rupees)}`;
+  if (paise > 0) s += ` and Paise ${wordsTwoDigits(paise)}`;
+  return `${s} Only`;
+}
+
+/** Map a sales order (+ seller/bank inputs) onto the Tally print shape.
+ *  Nothing is defaulted: missing values render blank on the PDF. */
+export function salesOrderToTallyData(
+  so: any,
+  opts?: {
+    seller?: Partial<TallySOSeller> | null;
+    bank?: Partial<TallySOBank> | null;
+    bankRaw?: string | null;
+    /** Raw declaration text (newline-separated) from settings — never hardcoded. */
+    declarationRaw?: string | null;
+    logoImage?: Buffer | null;
+  },
+): SalesOrderTallyData {
+  const s = opts?.seller ?? {};
+  const lines: TallySOLine[] = (so.lines ?? []).map((l: any, i: number) => {
+    const sellingPrice = Number(l.unitPrice ?? l.unit_price ?? 0) || 0;
+    const quantity = Number(l.orderedQty ?? l.ordered_qty ?? 0) || 0;
+    const discountPct = Number(l.discountPct ?? l.discount_pct ?? 0) || 0;
+    const offerPrice = r2(sellingPrice * (1 - Math.min(100, Math.max(0, discountPct)) / 100));
+    return {
+      sno: i + 1,
+      particulars: l.name || "Item",
+      color: l.color ?? l.colour ?? "",
+      productCode: l.productCode ?? l.product_code ?? l.model ?? l.sku ?? "",
+      size: l.size ? String(l.size) : "",
+      mrp: l.mrp ?? null,
+      sellingPrice,
+      quantity,
+      offerPrice,
+      amount: r2(Number(l.lineTotal ?? l.line_total ?? quantity * offerPrice) || 0),
+    };
+  });
+  const totalQty = Number(so.totalQty ?? so.total_qty ?? lines.reduce((x, l) => x + l.quantity, 0)) || 0;
+  const grandTotal = r2(Number(so.grandTotal ?? so.grand_total ?? lines.reduce((x, l) => x + l.amount, 0)) || 0);
+  const b = opts?.bank ?? {};
+  const bank: TallySOBank | null =
+    b.holder || b.bank || b.acNo || b.ifsc || b.branch
+      ? {
+          holder: b.holder || "",
+          bank: b.bank || "",
+          acNo: b.acNo || "",
+          ifsc: b.ifsc || "",
+          branch: b.branch || "",
+        }
+      : null;
+  const stateName = s.stateName || "";
+  const declaration = String(opts?.declarationRaw ?? "")
+    .split(/\r?\n/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const billName = so.customerName ?? so.customer_name ?? "";
+  const billAddress = so.billingAddress ?? so.billing_address ?? "";
+  const shipAddress = so.deliveryAddress ?? so.delivery_address ?? "";
+  // Avoid "Name, Name, address" when a stored address already starts with the buyer name.
+  const startsWithName = (addr: string) =>
+    !!billName && addr.toLowerCase().startsWith(billName.toLowerCase());
+  const shipText = startsWithName(shipAddress)
+    ? shipAddress
+    : [billName, shipAddress].filter(Boolean).join(", ");
+  const billText = startsWithName(billAddress)
+    ? billAddress
+    : [billName, billAddress].filter(Boolean).join(", ");
+  return {
+    number: so.soNumber || so.so_number || "—",
+    date: fmtTallyDate(so.orderDate || so.order_date || ""),
+    deliveryNote: so.deliveryNote ?? so.delivery_note ?? null,
+    paymentTerms: formatPaymentTerms(so) || so.paymentTerms || so.payment_terms || null,
+    referenceNo: so.referenceNo ?? so.reference_no ?? null,
+    buyerOrderNo: so.buyerOrderNo ?? so.buyer_order_no ?? null,
+    dispatchDocNo: so.dispatchDocNo ?? so.dispatch_doc_no ?? null,
+    dispatchedThrough: so.dispatchedThrough ?? so.dispatched_through ?? null,
+    seller: {
+      name: s.name || "",
+      address: s.address || "",
+      gstin: s.gstin || "",
+      stateName,
+      stateCode: s.stateCode || "",
+      email: s.email || "",
+    },
+    shipAddress: so.deliveryAddress ?? so.delivery_address ?? "",
+    shipText,
+    shipGstin: so.shipGstin ?? so.ship_gstin ?? null,
+    shipPan: so.shipPan ?? so.ship_pan ?? null,
+    billName,
+    billAddress,
+    billText,
+    billGstin: so.billGstin ?? so.bill_gstin ?? null,
+    billPan: so.billPan ?? so.bill_pan ?? null,
+    lines,
+    totalQty,
+    grandTotal,
+    amountWords: amountInWordsINR(grandTotal),
+    bank,
+    bankRaw: opts?.bankRaw ?? null,
+    remarks: (so.remarks ?? null) as string | null,
+    declaration,
+    jurisdiction: stateName.toUpperCase(),
+    logoImage: opts?.logoImage ?? null,
+  };
+}
+
+/** Render the Tally-style sales-order PDF. */
+export function buildSalesOrderTallyPdf(data: SalesOrderTallyData): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    try {
+      const M = 24;
+      const PW = 595.28;
+      const PH = 841.89;
+      const CW = PW - M * 2;
+      const BOT = PH - M;
+      const doc = new PDFDocument({ size: "A4", margins: { top: M, bottom: M, left: M, right: M } });
+      const chunks: Buffer[] = [];
+      doc.on("data", (c: Buffer) => chunks.push(c));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+
+      const F = "Helvetica";
+      const FB = "Helvetica-Bold";
+      const PAD = 3;
+      let y = M;
+
+      const need = (h: number) => {
+        if (y + h > BOT) {
+          doc.addPage();
+          y = M;
+        }
+      };
+
+      /** Stroked cell with optional fill + text. Returns nothing; advances nothing. */
+      const cell = (
+        x: number, yy: number, w: number, h: number,
+        text: string,
+        o?: { font?: string; size?: number; align?: "left" | "center" | "right"; fill?: string },
+      ) => {
+        if (o?.fill) doc.rect(x, yy, w, h).fill(o.fill);
+        doc.rect(x, yy, w, h).strokeColor(TALLY.ink).lineWidth(0.5).stroke();
+        if (text) {
+          doc
+            .font(o?.font ?? F)
+            .fontSize(o?.size ?? 7.5)
+            .fillColor(TALLY.ink)
+            .text(text, x + PAD, yy + 2, {
+              width: Math.max(1, w - PAD * 2),
+              align: o?.align ?? "left",
+            });
+        }
+      };
+
+      const wrapH = (text: string, w: number, size: number, font?: string): number => {
+        if (!text) return 0;
+        doc.font(font ?? F).fontSize(size);
+        return doc.heightOfString(text, { width: Math.max(1, w - PAD * 2) });
+      };
+
+      // ── Title bar ──────────────────────────────────────────────────────────
+      cell(M, y, CW, 18, "SALES ORDER", { font: FB, size: 11, align: "center", fill: TALLY.cream });
+      y += 18;
+
+      // ── Header block: seller/buyer (left) + meta grid + logo (right) ───────
+      const LW = Math.round(CW * 0.605);
+      const RW = CW - LW;
+      const y0 = y;
+      const leftDivs: number[] = [];
+      let ly = y0;
+
+      const leftRow = (text: string, o?: { font?: string; size?: number; h?: number; fill?: string }) => {
+        const size = o?.size ?? 7.5;
+        const h = o?.h ?? Math.max(11, Math.ceil(wrapH(text, LW, size, o?.font) + 5));
+        cell(M, ly, LW, h, text, { font: o?.font, size, fill: o?.fill });
+        ly += h;
+        leftDivs.push(ly);
+      };
+
+      const sel = data.seller;
+      leftRow(sel.name, { font: FB, size: 8.5, h: 13 });
+      if (sel.address) leftRow(sel.address, { h: Math.max(22, Math.ceil(wrapH(sel.address, LW, 7.5) + 5)) });
+      leftRow(`GSTIN/UIN : ${sel.gstin}`);
+      leftRow(`State Name : ${sel.stateName}, Code : ${sel.stateCode}`);
+      leftRow(`E-Mail : ${sel.email}`);
+      leftRow("Shipping Address :", { size: 7 });
+      if (data.shipText) leftRow(data.shipText, { h: Math.max(22, Math.ceil(wrapH(data.shipText, LW, 7.5) + 5)) });
+      leftRow(`GSTIN/UIN : ${data.shipGstin ?? ""}`);
+      leftRow(`PAN/IT No : ${data.shipPan ?? ""}`);
+      leftRow("BILL TO -", { size: 7 });
+      leftRow(data.billText || "—", {
+        h: Math.max(22, Math.ceil(wrapH(data.billText || "—", LW, 7.5) + 5)),
+      });
+      leftRow(`GSTIN/UIN : ${data.billGstin ?? ""}`);
+      leftRow(`PAN/IT No : ${data.billPan ?? ""}`);
+      const leftH = ly - y0;
+
+      // Right meta grid
+      const rightDivs: number[] = [];
+      let ry = y0;
+      const metaRow = (label: string, value: string | null, h = 13) => {
+        const lw = Math.round(RW * 0.52);
+        cell(M + LW, ry, lw, h, label, { size: 6.5, align: "center" });
+        cell(M + LW + lw, ry, RW - lw, h, value ?? "", { size: 7.5, align: "center" });
+        ry += h;
+        rightDivs.push(ry);
+      };
+      metaRow("No.", data.number);
+      metaRow("Dated", data.date);
+      metaRow("Delivery Note", data.deliveryNote);
+      metaRow("Mode/Terms of Payment", data.paymentTerms);
+      metaRow("Reference No. & Date.", data.referenceNo);
+      metaRow("Buyer's Order No.", data.buyerOrderNo);
+      metaRow("Dispatch Doc No.", data.dispatchDocNo);
+      metaRow("Dispatched through", data.dispatchedThrough);
+      const rightRowsH = ry - y0;
+
+      // Logo cell fills the remaining right-column height (min 64).
+      const logoH = Math.max(64, leftH - rightRowsH);
+      const lx = M + LW;
+      doc.rect(lx, ry, RW, logoH).fill("#111111");
+      doc.rect(lx, ry, RW, logoH).strokeColor(TALLY.ink).lineWidth(0.5).stroke();
+      if (data.logoImage) {
+        try {
+          doc.image(data.logoImage, lx + 6, ry + 6, {
+            fit: [RW - 12, logoH - 12],
+            align: "center",
+            valign: "center",
+          });
+        } catch {
+          doc.font(FB).fontSize(10).fillColor("#FFFFFF").text(sel.name, lx + 6, ry + logoH / 2 - 8, { width: RW - 12, align: "center" });
+        }
+      } else {
+        doc.font(FB).fontSize(10).fillColor("#FFFFFF").text(sel.name, lx + 6, ry + logoH / 2 - 8, { width: RW - 12, align: "center" });
+      }
+      ry += logoH;
+      rightDivs.push(ry);
+
+      const blockH = Math.max(leftH, ry - y0);
+      // Outer frame + column divider (row dividers already drawn by cell()).
+      doc.rect(M, y0, CW, blockH).strokeColor(TALLY.ink).lineWidth(0.75).stroke();
+      doc.moveTo(M + LW, y0).lineTo(M + LW, y0 + blockH).strokeColor(TALLY.ink).lineWidth(0.5).stroke();
+      y = y0 + blockH;
+
+      // ── Item table ─────────────────────────────────────────────────────────
+      const C = { sno: 30, color: 56, code: 56, size: 34, mrp: 52, sell: 56, qty: 42, offer: 56, amt: 66 };
+      const partW = CW - (C.sno + C.color + C.code + C.size + C.mrp + C.sell + C.qty + C.offer + C.amt);
+      const colX = (key: keyof typeof C | "part"): number => {
+        let x = M;
+        const order: Array<keyof typeof C | "part"> = ["sno", "part", "color", "code", "size", "mrp", "sell", "qty", "offer", "amt"];
+        const widths: Record<string, number> = { ...C, part: partW };
+        for (const k of order) {
+          if (k === key) return x;
+          x += widths[k];
+        }
+        return x;
+      };
+      const colW = (key: keyof typeof C | "part"): number =>
+        key === "part" ? partW : C[key as keyof typeof C];
+
+      const HEAD_H = 26;
+      const drawTableHead = () => {
+        need(HEAD_H);
+        const heads: Array<[keyof typeof C | "part", string]> = [
+          ["sno", "SNO"], ["part", "Particulars"], ["color", "Product Color"],
+          ["code", "Product Cod"], ["size", "Size"], ["mrp", "MRP"],
+          ["sell", "Selling Price"], ["qty", "Quantity"], ["offer", "Offer Price"],
+          ["amt", "Total Amount"],
+        ];
+        for (const [k, t] of heads) {
+          cell(colX(k), y, colW(k), HEAD_H, t, { font: FB, size: 7, align: "center", fill: TALLY.headGray });
+        }
+        y += HEAD_H;
+      };
+
+      drawTableHead();
+      data.lines.forEach((l, idx) => {
+        const rowH = Math.max(
+          14,
+          Math.ceil(wrapH(l.particulars, partW, 7.5) + 6),
+        );
+        if (y + rowH > BOT) {
+          doc.addPage();
+          y = M;
+          drawTableHead();
+        }
+        const fill = idx % 2 === 1 ? TALLY.altRow : TALLY.white;
+        type TallyAlign = "left" | "center" | "right";
+        const row: Array<[keyof typeof C | "part", string, TallyAlign]> = [
+          ["sno", String(l.sno), "center"],
+          ["part", l.particulars, "left"],
+          ["color", l.color, "center"],
+          ["code", l.productCode, "center"],
+          ["size", l.size, "center"],
+          ["mrp", l.mrp != null ? tallyNum(l.mrp) : "", "right"],
+          ["sell", tallyNum(l.sellingPrice), "right"],
+          ["qty", tallyNum(l.quantity), "right"],
+          ["offer", tallyNum(l.offerPrice), "right"],
+          ["amt", tallyNum(l.amount), "right"],
+        ];
+        for (const [k, t, a] of row) {
+          cell(colX(k), y, colW(k), rowH, t, { size: 7.5, align: a ?? "left", fill });
+        }
+        y += rowH;
+      });
+
+      // Totals row: "Total" spans sno..sell, qty sum, offer blank, amount.
+      const TOT_H = 15;
+      need(TOT_H);
+      const spanW = C.sno + partW + C.color + C.code + C.size + C.mrp + C.sell;
+      cell(M, y, spanW, TOT_H, "Total", { font: FB, size: 8, align: "center", fill: TALLY.headGray });
+      cell(M + spanW, y, C.qty, TOT_H, tallyNum(data.totalQty), { font: FB, size: 8, align: "right", fill: TALLY.headGray });
+      cell(M + spanW + C.qty, y, C.offer, TOT_H, "", { fill: TALLY.headGray });
+      cell(M + spanW + C.qty + C.offer, y, C.amt, TOT_H, tallyNum(data.grandTotal), { font: FB, size: 8, align: "right", fill: TALLY.headGray });
+      y += TOT_H;
+
+      // ── Amount in words + E&OE ─────────────────────────────────────────────
+      const wordsW = Math.round(CW * 0.65);
+      const wordsH = Math.max(32, Math.ceil(wrapH(data.amountWords, wordsW, 7.5) + 20));
+      need(wordsH);
+      cell(M, y, wordsW, wordsH, "", {});
+      doc.font(FB).fontSize(7).fillColor(TALLY.ink).text("Amount Chargeable (in words) :", M + PAD, y + 2, { width: wordsW - PAD * 2 });
+      doc.font(F).fontSize(7.5).fillColor(TALLY.ink).text(data.amountWords, M + PAD, y + 13, { width: wordsW - PAD * 2 });
+      cell(M + wordsW, y, CW - wordsW, wordsH, "E. & O.E", { font: FB, size: 7.5, align: "center" });
+      y += wordsH;
+
+      // ── Remarks/Declaration (left) + Bank details (right) ──────────────────
+      const bankW = Math.round(CW * 0.45);
+      const remW = CW - bankW;
+      const remarkText = data.remarks ? `Remarks: ${data.remarks}` : "";
+      const declText = (data.declaration ?? []).join("\n");
+      const leftTextH =
+        (remarkText ? wrapH(remarkText, remW, 7) + 6 : 0) +
+        (declText ? wrapH(`Declaration:\n${declText}`, remW, 7) : 0);
+      const bankRowsH = data.bank ? 12 + 5 * 12 : data.bankRaw ? Math.max(36, Math.ceil(wrapH(data.bankRaw, bankW, 7) + 20)) : 24;
+      const rbH = Math.max(24, Math.ceil(leftTextH + 12), bankRowsH + 4);
+      need(rbH);
+      const ry0 = y;
+      cell(M, y, remW, rbH, "", {});
+      let ty = y + 2;
+      if (remarkText) {
+        doc.font(FB).fontSize(7).fillColor(TALLY.ink).text(remarkText, M + PAD, ty, { width: remW - PAD * 2 });
+        ty += Math.ceil(wrapH(remarkText, remW, 7)) + 5;
+      }
+      if (declText) {
+        doc.font(FB).fontSize(7).fillColor(TALLY.ink).text("Declaration:", M + PAD, ty, { width: remW - PAD * 2 });
+        ty += 10;
+        doc.font(F).fontSize(7).fillColor(TALLY.ink).text(declText, M + PAD, ty, { width: remW - PAD * 2 });
+      }
+      // Bank block
+      cell(M + remW, y, bankW, rbH, "", {});
+      let by = y;
+      cell(M + remW, by, bankW, 12, "Company's Bank Details:", { font: FB, size: 7, align: "center" });
+      by += 12;
+      if (data.bank) {
+        const rows: Array<[string, string]> = [
+          ["A/c Holder's Name:", data.bank.holder],
+          ["Bank Name:", data.bank.bank],
+          ["A/c No.:", data.bank.acNo],
+          ["IFSC Code:", data.bank.ifsc],
+          ["Branch :", data.bank.branch],
+        ];
+        for (const [k, v] of rows) {
+          const klw = Math.round(bankW * 0.38);
+          cell(M + remW, by, klw, 12, k, { font: FB, size: 7, align: "center" });
+          cell(M + remW + klw, by, bankW - klw, 12, v, { size: 7.5, align: "center" });
+          by += 12;
+        }
+      } else if (data.bankRaw) {
+        doc.font(F).fontSize(7).fillColor(TALLY.ink).text(data.bankRaw, M + remW + PAD, by + 2, { width: bankW - PAD * 2 });
+      }
+      y = ry0 + rbH;
+
+      // ── Sign-off lines ─────────────────────────────────────────────────────
+      const signRow = (text: string, o?: { font?: string; size?: number; h?: number }) => {
+        const h = o?.h ?? 12;
+        need(h);
+        cell(M, y, CW, h, text, { font: o?.font ?? F, size: o?.size ?? 7.5, align: "center" });
+        y += h;
+      };
+      if (data.seller.name) signRow(`ONLY ${data.seller.name}`, { font: FB, h: 13 });
+      signRow("Authorised Signatory");
+      if (data.jurisdiction) signRow(`SUBJECT TO ${data.jurisdiction} JURISDICTION`);
+      signRow("This is a Computer Generated Sales Order");
+
+      doc.end();
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
 
 

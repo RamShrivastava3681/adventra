@@ -28,6 +28,14 @@ export interface GoodsSalesOrderLine {
   discountPct: number | null;
   /** GST rate as a percentage (0–99), from the catalogue or overridden. */
   gstRate: number | null;
+  /** Server snapshot from the catalogue (overwritten on every save): variant colour. */
+  color: string | null;
+  /** Server snapshot from the catalogue (overwritten on every save): variant size. */
+  size: string | null;
+  /** Server snapshot (overwritten on every save): product model code, fallback SKU. Printed as "Product Code". */
+  productCode: string | null;
+  /** Server snapshot from the catalogue (overwritten on every save): MRP. */
+  mrp: number | null;
   /** System-calculated: orderedQty × unitPrice × (1 − discountPct/100). */
   lineTotal: number;
   /** Optional per-line note. */
@@ -63,6 +71,28 @@ export interface GoodsSalesOrder {
   contactPerson: string | null;
   billingAddress: string | null;
   deliveryAddress: string | null;
+  // ── PDF header meta (Tally-style print): all optional, blank renders blank. ──
+  /** Buyer's purchase-order number printed on the PDF. */
+  buyerOrderNo: string | null;
+  /** Reference number & date printed on the PDF. */
+  referenceNo: string | null;
+  /** Delivery note reference printed on the PDF. */
+  deliveryNote: string | null;
+  /** Dispatch document number printed on the PDF. */
+  dispatchDocNo: string | null;
+  /** "Dispatched through" line printed on the PDF. */
+  dispatchedThrough: string | null;
+  // ── Buyer tax snapshots (ship-to and bill-to can carry different GSTINs). ──
+  /** GSTIN printed under the shipping-address block (auto-filled from debtor, editable). */
+  shipGstin: string | null;
+  /** PAN printed under the shipping-address block. */
+  shipPan: string | null;
+  /** GSTIN printed under the BILL TO block (auto-filled from debtor, editable). */
+  billGstin: string | null;
+  /** PAN printed under the BILL TO block. */
+  billPan: string | null;
+  /** Remarks printed above the bank-details block. */
+  remarks: string | null;
   /** Salesperson / owner who owns the order. */
   salespersonId: string | null;
   salespersonName: string | null;
@@ -273,6 +303,16 @@ export async function create(
     contactPerson: data.contactPerson || null,
     billingAddress: data.billingAddress || null,
     deliveryAddress: data.deliveryAddress || null,
+    buyerOrderNo: data.buyerOrderNo || null,
+    referenceNo: data.referenceNo || null,
+    deliveryNote: data.deliveryNote || null,
+    dispatchDocNo: data.dispatchDocNo || null,
+    dispatchedThrough: data.dispatchedThrough || null,
+    shipGstin: data.shipGstin || null,
+    shipPan: data.shipPan || null,
+    billGstin: data.billGstin || null,
+    billPan: data.billPan || null,
+    remarks: data.remarks || null,
     salespersonId: data.salespersonId || null,
     salespersonName: data.salespersonName || null,
     debtorApprovalStatus: (data.debtorApprovalStatus as any) || null,
@@ -318,6 +358,16 @@ export async function update(id: string, updates: Partial<GoodsSalesOrder>) {
     "contactPerson",
     "billingAddress",
     "deliveryAddress",
+    "buyerOrderNo",
+    "referenceNo",
+    "deliveryNote",
+    "dispatchDocNo",
+    "dispatchedThrough",
+    "shipGstin",
+    "shipPan",
+    "billGstin",
+    "billPan",
+    "remarks",
     "salespersonId",
     "salespersonName",
     "paymentTerms",

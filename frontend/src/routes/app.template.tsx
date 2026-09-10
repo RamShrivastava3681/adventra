@@ -16,6 +16,8 @@ type Template = {
   company_address: string;
   company_email: string;
   company_phone: string;
+  company_state: string;
+  company_state_code: string;
   tax_id: string;
   logo_url: string;
   primary_color: string;
@@ -24,6 +26,12 @@ type Template = {
   currency_symbol: string;
   default_tax_rate: number;
   bank_details: string;
+  bank_holder: string;
+  bank_name: string;
+  bank_ac_no: string;
+  bank_ifsc: string;
+  bank_branch: string;
+  declaration: string;
   terms: string;
   footer_text: string;
   signature_label: string;
@@ -34,6 +42,8 @@ const empty: Template = {
   company_address: "",
   company_email: "",
   company_phone: "",
+  company_state: "",
+  company_state_code: "",
   tax_id: "",
   logo_url: "",
   primary_color: "#0EA5E9",
@@ -42,6 +52,12 @@ const empty: Template = {
   currency_symbol: "₹",
   default_tax_rate: 0,
   bank_details: "",
+  bank_holder: "",
+  bank_name: "",
+  bank_ac_no: "",
+  bank_ifsc: "",
+  bank_branch: "",
+  declaration: "",
   terms: "Payment due within 30 days of invoice date.",
   footer_text: "Thank you for your business.",
   signature_label: "Authorised signatory",
@@ -70,6 +86,8 @@ function TemplatePage() {
         company_address: (d.company_address as string) ?? "",
         company_email: (d.company_email as string) ?? "",
         company_phone: (d.company_phone as string) ?? "",
+        company_state: (d.company_state as string) ?? "",
+        company_state_code: (d.company_state_code as string) ?? "",
         tax_id: (d.tax_id as string) ?? "",
         logo_url: (d.logo_url as string) ?? "",
         primary_color: (d.primary_color as string) ?? "#0EA5E9",
@@ -78,6 +96,12 @@ function TemplatePage() {
         currency_symbol: (d.currency_symbol as string) ?? "₹",
         default_tax_rate: Number(d.default_tax_rate ?? 0),
         bank_details: (d.bank_details as string) ?? "",
+        bank_holder: (d.bank_holder as string) ?? "",
+        bank_name: (d.bank_name as string) ?? "",
+        bank_ac_no: (d.bank_ac_no as string) ?? "",
+        bank_ifsc: (d.bank_ifsc as string) ?? "",
+        bank_branch: (d.bank_branch as string) ?? "",
+        declaration: (d.declaration as string) ?? "",
         terms: (d.terms as string) ?? "",
         footer_text: (d.footer_text as string) ?? "",
         signature_label: (d.signature_label as string) ?? "",
@@ -102,7 +126,7 @@ function TemplatePage() {
       <PageHeader
         eyebrow="Branding"
         title="Invoice template"
-        description="Branding and boilerplate used whenever you generate a sales invoice or credit / debit note from inside the platform."
+        description="Branding, seller identity and bank details used on sales orders, sales invoices and credit / debit notes."
         icon={<Palette className="h-5 w-5" />}
       />
 
@@ -150,6 +174,25 @@ function TemplatePage() {
                   className="inp"
                   value={form.company_address}
                   onChange={(e) => setForm({ ...form, company_address: e.target.value })}
+                  disabled={!canEdit}
+                />
+              </L>
+              <L label="State name (for GST print)">
+                <input
+                  className="inp"
+                  placeholder="e.g. Delhi"
+                  value={form.company_state}
+                  onChange={(e) => setForm({ ...form, company_state: e.target.value })}
+                  disabled={!canEdit}
+                />
+              </L>
+              <L label="State code">
+                <input
+                  className="inp"
+                  maxLength={2}
+                  placeholder="e.g. 07"
+                  value={form.company_state_code}
+                  onChange={(e) => setForm({ ...form, company_state_code: e.target.value })}
                   disabled={!canEdit}
                 />
               </L>
@@ -219,14 +262,61 @@ function TemplatePage() {
 
           <Card title="Boilerplate">
             <div className="grid gap-3">
-              <L label="Bank details (shown for remittance)">
+              <div className="rounded-md border border-border/60 p-3">
+                <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">
+                  Bank details — structured rows for the sales order PDF
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <L label="A/c holder's name">
+                    <input
+                      className="inp"
+                      value={form.bank_holder}
+                      onChange={(e) => setForm({ ...form, bank_holder: e.target.value })}
+                      disabled={!canEdit}
+                    />
+                  </L>
+                  <L label="Bank name">
+                    <input
+                      className="inp"
+                      value={form.bank_name}
+                      onChange={(e) => setForm({ ...form, bank_name: e.target.value })}
+                      disabled={!canEdit}
+                    />
+                  </L>
+                  <L label="A/c no.">
+                    <input
+                      className="inp"
+                      value={form.bank_ac_no}
+                      onChange={(e) => setForm({ ...form, bank_ac_no: e.target.value })}
+                      disabled={!canEdit}
+                    />
+                  </L>
+                  <L label="IFSC code">
+                    <input
+                      className="inp"
+                      value={form.bank_ifsc}
+                      onChange={(e) => setForm({ ...form, bank_ifsc: e.target.value })}
+                      disabled={!canEdit}
+                    />
+                  </L>
+                  <L label="Branch">
+                    <input
+                      className="inp"
+                      value={form.bank_branch}
+                      onChange={(e) => setForm({ ...form, bank_branch: e.target.value })}
+                      disabled={!canEdit}
+                    />
+                  </L>
+                </div>
+              </div>
+              <L label="Bank details (free text fallback)">
                 <textarea
-                  rows={4}
+                  rows={3}
                   className="inp"
                   value={form.bank_details}
                   onChange={(e) => setForm({ ...form, bank_details: e.target.value })}
                   disabled={!canEdit}
-                  placeholder="Bank: Acme National&#10;Account: 1234 5678&#10;IFSC / SWIFT: ABCD0123"
+                  placeholder="Used only when the structured rows above are empty&#10;Bank: Acme National&#10;Account: 1234 5678&#10;IFSC / SWIFT: ABCD0123"
                 />
               </L>
               <L label="Terms">
@@ -236,6 +326,16 @@ function TemplatePage() {
                   value={form.terms}
                   onChange={(e) => setForm({ ...form, terms: e.target.value })}
                   disabled={!canEdit}
+                />
+              </L>
+              <L label="Declaration (sales order PDF — blank prints nothing)">
+                <textarea
+                  rows={4}
+                  className="inp"
+                  value={form.declaration}
+                  onChange={(e) => setForm({ ...form, declaration: e.target.value })}
+                  disabled={!canEdit}
+                  placeholder="1 - Check the order before payment&#10;2 - Advance Payment to be done&#10;3 - Once payment done, logistic process take 24 to 48 Hrs&#10;4 - Once Shipped the Tracking ID will be shared via selected mode or communication"
                 />
               </L>
               <L label="Footer text">
