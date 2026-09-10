@@ -10,7 +10,9 @@ import { TanStackRouterVite } from "@tanstack/router-plugin/vite";
 // ────────────────────────────────────────────────────────────────────────────
 export default defineConfig({
   plugins: [
-    TanStackRouterVite(),
+    TanStackRouterVite({
+      routeFileIgnorePrefix: "-",
+    }),
     react(),
     tailwindcss(),
     tsConfigPaths(),
