@@ -1,4 +1,4 @@
-import { X } from "lucide-react";
+import { X, FileSignature } from "lucide-react";
 import type { ReactNode } from "react";
 import { fmtMoney, fmtDate } from "@/components/ledger-ui";
 import { DocumentList, type DocMeta } from "@/components/document-uploader";
@@ -471,6 +471,13 @@ export function ProformaDetailModal({ pf, onClose }: { pf: any; onClose: () => v
         />
 
         <div className="flex justify-end border-t border-border pt-3">
+          <a
+            href={`/proformas/${p.id}/pdf`}
+            download
+            className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted flex items-center gap-2"
+          >
+            <FileSignature className="h-4 w-4" /> Download PDF
+          </a>
           <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
             Close
           </button>

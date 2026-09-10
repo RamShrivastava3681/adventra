@@ -25,6 +25,17 @@ import {
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductVariantPicker } from "@/components/product-variant-picker";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
+import {
+  Dialog,
+  DialogWithStickyFooter,
+  Field,
+  TwoFieldGrid,
+  InfoPanel,
+  inputBase,
+  selectBase,
+  textareaBase,
+} from "@/components/dialog";
+import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 
 export const Route = createFileRoute("/app/invoices")({
   component: InvoicesPage,
@@ -905,28 +916,53 @@ function NewInvoiceModal({
       },
     ]);
 
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault"
-        onClick={(e) => e.stopPropagation()}
+  const footer = (
+    <div className="flex justify-end gap-2">
+      <button
+        type="button"
+        onClick={onClose}
+        className="rounded-md border border-border px-4 py-2 text-sm"
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">{isEdit ? "Edit invoice" : "New invoice"}</h3>
-          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            save.mutate({ issueNow: true });
-          }}
-          className="space-y-5 p-5"
-        >
+        Cancel
+      </button>
+      <button
+        type="button"
+        onClick={() => save.mutate({ issueNow: false })}
+        disabled={save.isPending}
+        className="rounded-md border border-border px-4 py-2 text-sm"
+      >
+        {isEdit ? "Save changes" : "Save draft"}
+      </button>
+      <button
+        type="submit"
+        disabled={save.isPending}
+        className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+      >
+        {save.isPending ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : (
+          <FileCheck className="h-4 w-4" />
+        )}
+        {isEdit ? "Save & review" : "Create & review"}
+      </button>
+    </div>
+  );
+
+  return (
+    <DialogWithStickyFooter
+      title={isEdit ? "Edit invoice" : "New invoice"}
+      subtitle="Catalogue-backed goods invoice — every invoice links to a confirmed sales order."
+      onClose={onClose}
+      wide
+      footer={footer}
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate({ issueNow: true });
+        }}
+        className="space-y-5"
+      >
           {debtors.length === 0 && (
             <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
               No debtors exist yet. Ask your factor admin to add one in the Debtors tab.
@@ -966,24 +1002,24 @@ function NewInvoiceModal({
               Invoice header
             </legend>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              <L label="Invoice number (auto if blank)">
+              <Field label="Invoice number (auto if blank)">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={form.invoice_number}
                   onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
                   placeholder="INV-XXXXXXXX"
                 />
-              </L>
-              <L label="Invoice date">
+              </Field>
+              <Field label="Invoice date">
                 <input
                   required
                   type="date"
-                  className="inp"
+                  className={inputBase}
                   value={form.issue_date}
                   onChange={(e) => setForm({ ...form, issue_date: e.target.value })}
                 />
-              </L>
-              <L label="Debtor *">
+              </Field>
+              <Field label="Debtor *">
                 <SearchableSelect
                   value={form.debtor_id}
                   onChange={(v) => {
@@ -994,20 +1030,21 @@ function NewInvoiceModal({
                   }}
                   placeholder="Select debtor"
                   options={debtors.map((d: any) => ({ value: d.id, label: d.name }))}
+                  className={inputBase}
                 />
-              </L>
-              <L label="Customer contact">
+              </Field>
+              <Field label="Customer contact">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={form.customer_contact}
                   onChange={(e) => setForm({ ...form, customer_contact: e.target.value })}
                   placeholder="Name · email · phone"
                 />
-              </L>
-              <L label="Billing address">
+              </Field>
+              <Field label="Billing address">
                 <textarea
                   rows={2}
-                  className="inp resize-y"
+                  className={textareaBase}
                   value={form.billing_address}
                   onChange={(e) => setForm({ ...form, billing_address: e.target.value })}
                 />
@@ -1025,11 +1062,11 @@ function NewInvoiceModal({
                     </button>
                   </div>
                 )}
-              </L>
-              <L label="Delivery / shipping address">
+              </Field>
+              <Field label="Delivery / shipping address">
                 <textarea
                   rows={2}
-                  className="inp resize-y"
+                  className={textareaBase}
                   value={form.delivery_address}
                   onChange={(e) => setForm({ ...form, delivery_address: e.target.value })}
                 />
@@ -1057,8 +1094,8 @@ function NewInvoiceModal({
                     </button>
                   </div>
                 )}
-              </L>
-              <L label="Payment terms">
+              </Field>
+              <Field label="Payment terms">
                 <PaymentTermsFields
                   type={form.payment_terms_type}
                   advancePct={form.payment_terms_advance_pct}
@@ -1067,53 +1104,53 @@ function NewInvoiceModal({
                   daysLabel="Net days"
                   onChange={(patch) => setForm({ ...form, ...patch })}
                 />
-              </L>
-              <L label={`Due date${selectedDebtor ? ` (auto: ${termsDays}d net)` : ""}`}>
+              </Field>
+              <Field label={`Due date${selectedDebtor ? ` (auto: ${termsDays}d net)` : ""}`}>
                 <input
                   type="date"
-                  className="inp"
+                  className={inputBase}
                   value={effectiveDue}
                   onChange={(e) => setForm({ ...form, due_date: e.target.value })}
                 />
-              </L>
-              <L label="Expected cash receipt date">
+              </Field>
+              <Field label="Expected cash receipt date">
                 <input
                   type="date"
-                  className="inp"
+                  className={inputBase}
                   value={form.expected_date}
                   onChange={(e) => setForm({ ...form, expected_date: e.target.value })}
                 />
-              </L>
-              <L label="Expected dispatch date">
+              </Field>
+              <Field label="Expected dispatch date">
                 <input
                   type="date"
-                  className="inp"
+                  className={inputBase}
                   value={form.expected_dispatch_date}
                   onChange={(e) => setForm({ ...form, expected_dispatch_date: e.target.value })}
                 />
-              </L>
+              </Field>
               {isEdit &&
                 invoice!.status === "draft" &&
                 (
-                  <L label="Expected dispatch date">
+                  <Field label="Expected dispatch date">
                     <input
                       type="date"
-                      className="inp"
+                      className={inputBase}
                       value={form.expected_dispatch_date}
                       onChange={(e) => setForm({ ...form, expected_dispatch_date: e.target.value })}
                     />
-                  </L>
+                  </Field>
                 )}
             </div>
             <div className="mt-3">
-              <L label="Notes (shown on the printed invoice)">
+              <Field label="Notes (shown on the printed invoice)">
                 <textarea
                   rows={2}
-                  className="inp resize-y"
+                  className={textareaBase}
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 />
-              </L>
+              </Field>
             </div>
             <div className="mt-3">
               <DocumentUploader
@@ -1132,16 +1169,7 @@ function NewInvoiceModal({
               Product lines
             </legend>
             <div className="space-y-2">
-              <div className="hidden grid-cols-12 gap-2 text-[9px] uppercase tracking-widest text-muted-foreground md:grid">
-                <div className="col-span-3">SKU / Product</div>
-                <div className="col-span-1">Unit</div>
-                <div className="col-span-1">Qty</div>
-                <div className="col-span-2">Unit price</div>
-                <div className="col-span-1">Disc %</div>
-                <div className="col-span-1">GST %</div>
-                <div className="col-span-2 text-right">Line total</div>
-                <div className="col-span-1"></div>
-              </div>
+              <LineHeaders />
               {lines.map((l, i) => {
                 const lineTotal = round2(
                   (Number(l.quantity) || 0) *
@@ -1154,83 +1182,84 @@ function NewInvoiceModal({
                     className="grid grid-cols-2 items-end gap-2 rounded-md border border-border/50 p-2 md:grid-cols-12"
                   >
                     <div className="col-span-2 md:col-span-3">
-                      <L label="Product">
+                      <Field label="Product">
                         <ProductVariantPicker
                           products={productsQ.data ?? []}
                           value={l.product_id}
                           onChange={(v) => pickProduct(i, v)}
+                          className={inputBase}
                         />
-                      </L>
+                      </Field>
                       {l.name && (
                         <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
                       )}
                     </div>
                     <div>
-                      <L label="Unit">
+                      <Field label="Unit">
                         <input
-                          className="inp"
+                          className={inputBase}
                           value={l.unit}
                           onChange={(e) => setLine(i, { unit: e.target.value })}
                         />
-                      </L>
+                      </Field>
                     </div>
                     <div>
-                      <L label="Qty">
+                      <Field label="Qty">
                         <input
                           type="number"
                           min="0"
                           step="0.001"
-                          className="inp"
+                          className={inputBase}
                           value={l.quantity}
                           onChange={(e) => setLine(i, { quantity: e.target.value })}
                         />
-                      </L>
+                      </Field>
                     </div>
                     <div className="md:col-span-2">
-                      <L label="Unit price">
+                      <Field label="Unit price">
                         <input
                           type="number"
                           min="0"
                           step="0.01"
-                          className="inp"
+                          className={inputBase}
                           value={l.unit_price}
                           onChange={(e) => setLine(i, { unit_price: e.target.value })}
                         />
-                      </L>
+                      </Field>
                     </div>
                     <div>
-                      <L label="Disc %">
+                      <Field label="Disc %">
                         <input
                           list="inv-disc-rates"
                           type="number"
                           min="0"
                           max="100"
                           step="0.01"
-                          className="inp"
+                          className={inputBase}
                           value={l.discount_pct}
                           onChange={(e) => setLine(i, { discount_pct: e.target.value })}
                         />
-                      </L>
+                      </Field>
                     </div>
                     <div>
-                      <L label="GST %">
+                      <Field label="GST %">
                         <input
                           list="pf-gst-rates"
                           type="number"
                           min="0"
                           step="0.01"
-                          className="inp"
+                          className={inputBase}
                           value={l.gst_rate}
                           onChange={(e) => setLine(i, { gst_rate: e.target.value })}
                         />
-                      </L>
+                      </Field>
                     </div>
                     <div className="text-right">
-                      <L label="Line total">
+                      <Field label="Line total">
                         <div className="inp text-right font-mono tabular-nums">
                           {fmtMoney(lineTotal)}
                         </div>
-                      </L>
+                      </Field>
                     </div>
                     <div className="flex items-end justify-end pb-1">
                       <button
@@ -1244,16 +1273,9 @@ function NewInvoiceModal({
                   </div>
                 );
               })}
-              <button
-                type="button"
-                onClick={addLine}
-                className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary"
-              >
-                <Plus className="h-3.5 w-3.5" /> Add line
-              </button>
+              <AddLineButton onClick={addLine} />
             </div>
           </fieldset>
-
           {/* Totals */}
           <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
             <div className="flex items-center justify-between">
@@ -1319,7 +1341,7 @@ function NewInvoiceModal({
               <div className="grid grid-cols-3 gap-3">
                 <L label="PO / proforma number">
                   <input
-                    className="inp"
+                    className={inputBase}
                     value={form.po_number}
                     onChange={(e) => setForm({ ...form, po_number: e.target.value })}
                     placeholder="PO-2026-001"
@@ -1328,7 +1350,7 @@ function NewInvoiceModal({
                 <L label="PO date">
                   <input
                     type="date"
-                    className="inp"
+                    className={inputBase}
                     value={form.po_date}
                     onChange={(e) => setForm({ ...form, po_date: e.target.value })}
                   />
@@ -1338,7 +1360,7 @@ function NewInvoiceModal({
                     type="number"
                     step="0.01"
                     min="0"
-                    className="inp"
+                    className={inputBase}
                     value={form.po_amount}
                     onChange={(e) => setForm({ ...form, po_amount: e.target.value })}
                   />
@@ -1380,54 +1402,8 @@ function NewInvoiceModal({
               )}
             </div>
           </fieldset>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md border border-border px-4 py-2 text-sm"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => save.mutate({ issueNow: false })}
-              disabled={save.isPending}
-              className="rounded-md border border-border px-4 py-2 text-sm"
-            >
-              {isEdit ? "Save changes" : "Save draft"}
-            </button>
-            <button
-              type="submit"
-              disabled={save.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
-            >
-              {save.isPending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <FileCheck className="h-4 w-4" />
-              )}
-              {isEdit ? "Save & review" : "Create & review"}
-            </button>
-          </div>
         </form>
-        <datalist id="pf-gst-rates">
-          <option value="0" />
-          <option value="5" />
-          <option value="12" />
-          <option value="18" />
-          <option value="28" />
-        </datalist>
-        <datalist id="inv-disc-rates">
-          <option value="0" />
-          <option value="5" />
-          <option value="10" />
-          <option value="15" />
-          <option value="20" />
-        </datalist>
-        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
-      </div>
-    </div>
+      </DialogWithStickyFooter>
   );
 }
 

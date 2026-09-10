@@ -872,3 +872,29 @@ export async function notifyWorkflowTask(params: {
     return { sent: false, recipients: [] };
   }
 }
+
+/**
+ * Raw reminder/escalation email used by the workflow reminder worker.
+ * Body is pre-built by the caller (worker); this only handles transport and
+ * the shared template wrapper. Never throws.
+ */
+export async function sendWorkflowReminderEmail(params: {
+  to: string[];
+  subject: string;
+  html: string;
+}): Promise<{ sent: boolean }> {
+  try {
+    if (!isEmailConfigured() || params.to.length === 0) return { sent: false };
+    const transporter = getTransporter();
+    await transporter.sendMail({
+      from: `"Insight Factor" <${config.smtp.user}>`,
+      to: params.to.join(", "),
+      subject: params.subject,
+      html: wrapHTML(params.html, params.subject),
+    });
+    return { sent: true };
+  } catch (err) {
+    console.error(`  ❌ Failed to send reminder email "${params.subject}":`, err);
+    return { sent: false };
+  }
+}

@@ -332,6 +332,43 @@ const api = {
       status: "awaiting_pick" | "picking" | "packed" | "dispatched" | "in_transit" | "delivered",
       data?: { carrier?: string | null; trackingNumber?: string | null; notes?: string },
     ) => api.post<any>(`/goods-dispatches/${id}/shipping-status`, { status, ...data }),
+    // PDF-1 packing + transport handoff: save on draft, submit to Finance,
+    // Finance records the E-Way Bill (or marks it not required), Finance can
+    // send the order back for correction, confirm captures actuals.
+    submitToFinance: (id: string, data: any) =>
+      api.post<any>(`/goods-dispatches/${id}/submit-to-finance`, data),
+    recordEwb: (id: string, data: { ewbNumber?: string; generatedAt?: string; validUntil?: string; notRequired?: boolean; reason?: string }) =>
+      api.post<any>(`/goods-dispatches/${id}/record-ewb`, data),
+    sendBack: (id: string, reason: string) =>
+      api.post<any>(`/goods-dispatches/${id}/send-back`, { reason }),
+  },
+
+  // Unified workflow queue (PDF-3) — tasks, per-doc timelines, settings
+  workflowTasks: {
+    list: (opts?: { scope?: "all"; status?: "open" | "done" }) => {
+      const p = new URLSearchParams();
+      if (opts?.scope) p.set("scope", opts.scope);
+      if (opts?.status) p.set("status", opts.status);
+      const q = p.toString();
+      return api.get<any[]>(`/workflow-tasks${q ? `?${q}` : ""}`);
+    },
+    forDoc: (docType: string, docId: string) =>
+      api.get<any[]>(`/workflow-tasks/doc/${docType}/${docId}`),
+  },
+
+  timeline: {
+    list: (docType: string, docId: string) =>
+      api.get<{ entries: any[]; notifications: any[] }>(`/timeline/${docType}/${docId}`),
+    add: (
+      docType: string,
+      docId: string,
+      data: { text?: string; kind?: string; attachment?: { name: string; url: string } | null; mentionedUser?: string | null; docNumber?: string | null },
+    ) => api.post<any>(`/timeline/${docType}/${docId}`, data),
+  },
+
+  workflowSettings: {
+    get: () => api.get<any>("/workflow-settings"),
+    update: (data: any) => api.put<any>("/workflow-settings", data),
   },
 
   // Expenses

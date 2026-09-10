@@ -4,6 +4,17 @@ import { useState, useMemo } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
+import {
+  Dialog,
+  DialogWithStickyFooter,
+  Field,
+  inputBase,
+  textareaBase,
+  selectBase,
+  TwoFieldGrid,
+  InfoPanel,
+} from "@/components/dialog";
+import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 import { Plus, Trash2, X, Loader2, Link2, Paperclip, Receipt } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -373,7 +384,7 @@ function NewExpenseModal({
         >
           <L label="Category">
             <select
-              className="inp"
+              className={inputBase}
               value={form.category}
               onChange={(e) => setForm({ ...form, category: e.target.value })}
             >
@@ -391,7 +402,7 @@ function NewExpenseModal({
                 type="number"
                 step="0.01"
                 min="0"
-                className="inp"
+                className={inputBase}
                 value={form.amount}
                 onChange={(e) => setForm({ ...form, amount: e.target.value })}
               />
@@ -400,7 +411,7 @@ function NewExpenseModal({
               <input
                 required
                 type="date"
-                className="inp"
+                className={inputBase}
                 value={form.expense_date}
                 onChange={(e) => setForm({ ...form, expense_date: e.target.value })}
               />
@@ -408,7 +419,7 @@ function NewExpenseModal({
           </div>
           <L label="Link to transaction">
             <select
-              className="inp"
+              className={inputBase}
               value={form.link_kind}
               onChange={(e) =>
                 setForm({
@@ -440,7 +451,7 @@ function NewExpenseModal({
           <L label="Description">
             <textarea
               rows={2}
-              className="inp"
+              className={inputBase}
               value={form.description}
               onChange={(e) => setForm({ ...form, description: e.target.value })}
             />

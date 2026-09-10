@@ -56,6 +56,12 @@ export interface WorkflowTask {
   updatedAt: string;
   completedAt: string | null;
   completedBy: string | null;
+  /** Date (YYYY-MM-DD) of the last overdue reminder sent for this task —
+   *  dedupes the daily overdue reminder + reminder-before-due worker. */
+  lastReminderDate?: string | null;
+  /** Date (YYYY-MM-DD) of the last escalation notice sent to the configured
+   *  escalation recipient. Overdue tasks escalate at most once per day. */
+  lastEscalationDate?: string | null;
 }
 
 export interface OpenTaskInput {
@@ -191,4 +197,27 @@ export async function touchTask(
 
 export function isOverdue(t: Pick<WorkflowTask, "dueDate" | "status">, today = db.todayDate()): boolean {
   return t.status === "open" && !!t.dueDate && t.dueDate < today;
+}
+
+/** Mark the last overdue-reminder date on a task (fire-and-forget safe). */
+export async function markReminded(id: string, date: string): Promise<void> {
+  const { pk, sk } = taskKey(id);
+  await db.updateItem(pk, sk, { lastReminderDate: date, updatedAt: db.nowISO() });
+}
+
+/** Mark the last escalation date on a task (fire-and-forget safe). */
+export async function markEscalated(id: string, date: string): Promise<void> {
+  const { pk, sk } = taskKey(id);
+  await db.updateItem(pk, sk, { lastEscalationDate: date, updatedAt: db.nowISO() });
+}
+
+/** Recently completed tasks, newest first — for the queue's Completed filter. */
+export async function listRecentDone(limit = 100, clientId?: string): Promise<WorkflowTask[]> {
+  const items = clientId
+    ? (await db.queryByGSI1(clientId, { entityType: "WorkflowTask", limit: 500 })).items
+    : await db.scanByType("WorkflowTask", { limit: 2000 });
+  return (items as WorkflowTask[])
+    .filter((t) => t.status === "done")
+    .sort((a, b) => String(b.completedAt ?? b.updatedAt).localeCompare(String(a.completedAt ?? a.updatedAt)))
+    .slice(0, limit);
 }

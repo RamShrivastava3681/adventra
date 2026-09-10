@@ -35,8 +35,17 @@ import {
 } from "@/components/customer-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductVariantPicker } from "@/components/product-variant-picker";
-import { TableSkeleton } from "@/components/skeletons";
-import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
+import { TableSkeleton } from "@/components/skeletons";import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
+import {
+  Dialog,
+  DialogWithStickyFooter,
+  Field,
+  TwoFieldGrid,
+  inputBase,
+  selectBase,
+  textareaBase,
+} from "@/components/dialog";
+import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 
 export const Route = createFileRoute("/app/sales-orders")({
   component: SalesOrdersPage,
@@ -976,49 +985,108 @@ function SOModal({
     }
   };
 
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
-      onClick={onClose}
-    >
-      <div
-        className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <div>
-            <h3 className="font-display text-lg">
-              {isEdit ? `Sales order ${so.so_number}` : "New sales order"}
-            </h3>
-            {isEdit && (
-              <div className="mt-0.5">
-                <StatusPill
-                  status={status}
-                  label={SO_STATUS_LABELS[status] ?? status}
-                  tone={SO_STATUS_TONES[status]}
-                />
-                {so?.debtor_approval_status && (
-                  <StatusPill
-                    status={so.debtor_approval_status}
-                    label={SO_DEBTOR_LABELS[so.debtor_approval_status] ?? so.debtor_approval_status}
-                    tone={SO_DEBTOR_TONES[so.debtor_approval_status]}
-                  />
-                )}
-              </div>
-            )}
-          </div>
-          <button onClick={onClose}>
-            <X className="h-4 w-4" />
+  const footer = (
+    <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
+      <div className="flex flex-wrap gap-2">
+        {isEdit && canWrite && status === "draft" && (
+          <button
+            type="button"
+            onClick={() => changeStatus("pending_review")}
+            className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+          >
+            <Send className="h-3.5 w-3.5" /> Submit for review
           </button>
-        </div>
-
-        <form
-          onSubmit={(e) => {
-            e.preventDefault();
-            save.mutate();
-          }}
-          className="space-y-5 p-5"
+        )}
+        {isEdit && status === "pending_review" && canApprove && (
+          <>
+            <button
+              type="button"
+              onClick={() => changeStatus("warehouse_pending")}
+              className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" /> Approve and send to Warehouse
+            </button>
+            <button
+              type="button"
+              onClick={() => changeStatus("draft")}
+              className="inline-flex items-center gap-1.5 rounded-md border border-destructive/50 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+            >
+              <X className="h-3.5 w-3.5" /> Reject
+            </button>
+          </>
+        )}
+        {isEdit &&
+          canWrite &&
+          status === "confirmed" &&
+          so?.debtor_approval_status !== "rejected" && (
+            <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-primary">
+              <Mail className="h-3 w-3" /> The customer confirms via the emailed link
+              {so?.debtor_approval_email ? ` (sent to ${so.debtor_approval_email})` : ""}
+            </span>
+          )}
+        {isEdit && !["cancelled", "fully_dispatched"].includes(status) && (
+          <button
+            type="button"
+            onClick={() => changeStatus("cancelled")}
+            className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
+          >
+            <Ban className="h-3.5 w-3.5" /> Cancel order
+          </button>
+        )}
+        <p className="w-full text-[10px] text-muted-foreground md:w-auto md:self-center">
+          Dispatched quantities and the partially/fully dispatched status are updated
+          automatically from dispatch notes.
+        </p>
+      </div>
+      <div className="flex gap-2">
+        {isEdit && (
+          <button
+            type="button"
+            onClick={downloadPdf}
+            disabled={pdfBusy}
+            title="Download the Tally-style sales order PDF"
+            className="inline-flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm hover:border-primary hover:text-primary disabled:opacity-60"
+          >
+            {pdfBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
+            PDF
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md border border-border px-4 py-2 text-sm"
         >
+          Close
+        </button>
+        {editable && (
+          <button
+            type="submit"
+            disabled={save.isPending}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+          >
+            {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+            {isEdit ? "Save changes" : "Create SO"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <DialogWithStickyFooter
+      title={isEdit ? `Sales order ${so.so_number}` : "New sales order"}
+      subtitle={isEdit ? undefined : "Catalogue-backed customer order — no stock impact until a dispatch is confirmed."}
+      onClose={onClose}
+      wide
+      footer={footer}
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate();
+        }}
+        className="space-y-5"
+      >
           {/* Header */}
           <fieldset className="rounded-lg border border-border/60 p-4">
             <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
@@ -1027,7 +1095,7 @@ function SOModal({
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               <L label="SO number">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={isEdit ? so.so_number : ""}
                   disabled
                   placeholder="System-generated"
@@ -1036,7 +1104,7 @@ function SOModal({
               <L label="Order date">
                 <input
                   type="date"
-                  className="inp"
+                  className={inputBase}
                   value={f.order_date}
                   onChange={(e) => setF({ ...f, order_date: e.target.value })}
                   disabled={!editable}
@@ -1053,7 +1121,7 @@ function SOModal({
               </L>
               <L label="Contact person">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={f.contact_person}
                   onChange={(e) => setF({ ...f, contact_person: e.target.value })}
                   placeholder="Auto-filled from customer"
@@ -1084,7 +1152,7 @@ function SOModal({
                       )}
                       <textarea
                         rows={2}
-                        className="inp resize-y"
+                        className={textareaBase}
                         value={f.billing_address}
                         onChange={(e) => setF({ ...f, billing_address: e.target.value })}
                         placeholder="Auto-filled from customer — pick a saved address or type custom"
@@ -1145,7 +1213,7 @@ function SOModal({
                       )}
                       <textarea
                         rows={2}
-                        className="inp resize-y"
+                        className={textareaBase}
                         value={f.delivery_address}
                         onChange={(e) => setF({ ...f, delivery_address: e.target.value })}
                         placeholder="Auto-filled from customer — pick a saved address or type custom"
@@ -1190,7 +1258,7 @@ function SOModal({
                 </div>
               </L>
               <L label="Salesperson / owner">
-                <input className="inp" value={so?.salesperson_name ?? "You"} disabled />
+                <input className={inputBase} value={so?.salesperson_name ?? "You"} disabled />
               </L>
               <L label="Payment terms (approved)">
                 {!f.customer_id ? (
@@ -1207,7 +1275,7 @@ function SOModal({
                 ) : (
                   <div className="space-y-1.5">
                     <select
-                      className="inp"
+                      className={inputBase}
                       value={(f as any).payment_term_id ?? ""}
                       disabled={!editable}
                       onChange={(e) => pickTerm(e.target.value)}
@@ -1247,7 +1315,7 @@ function SOModal({
               <L label="Expected dispatch date">
                 <input
                   type="date"
-                  className="inp"
+                  className={inputBase}
                   value={f.expected_dispatch_date}
                   onChange={(e) => setF({ ...f, expected_dispatch_date: e.target.value })}
                   disabled={!editable}
@@ -1256,7 +1324,7 @@ function SOModal({
               <L label="Expected delivery date">
                 <input
                   type="date"
-                  className="inp"
+                  className={inputBase}
                   value={f.expected_delivery_date}
                   onChange={(e) => setF({ ...f, expected_delivery_date: e.target.value })}
                   disabled={!editable}
@@ -1267,7 +1335,7 @@ function SOModal({
               <L label="Notes">
                 <textarea
                   rows={2}
-                  className="inp resize-y"
+                  className={textareaBase}
                   value={f.notes}
                   onChange={(e) => setF({ ...f, notes: e.target.value })}
                   placeholder="Delivery instructions, pricing notes…"
@@ -1294,7 +1362,7 @@ function SOModal({
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               <L label="Buyer's order no.">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={f.buyer_order_no}
                   onChange={(e) => setF({ ...f, buyer_order_no: e.target.value })}
                   placeholder="Customer PO number"
@@ -1303,7 +1371,7 @@ function SOModal({
               </L>
               <L label="Reference no. & date">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={f.reference_no}
                   onChange={(e) => setF({ ...f, reference_no: e.target.value })}
                   placeholder="Ref no. & date"
@@ -1312,7 +1380,7 @@ function SOModal({
               </L>
               <L label="Delivery note">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={f.delivery_note}
                   onChange={(e) => setF({ ...f, delivery_note: e.target.value })}
                   placeholder="Delivery note ref"
@@ -1321,7 +1389,7 @@ function SOModal({
               </L>
               <L label="Dispatch doc no.">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={f.dispatch_doc_no}
                   onChange={(e) => setF({ ...f, dispatch_doc_no: e.target.value })}
                   placeholder="Dispatch document"
@@ -1330,7 +1398,7 @@ function SOModal({
               </L>
               <L label="Dispatched through">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={f.dispatched_through}
                   onChange={(e) => setF({ ...f, dispatched_through: e.target.value })}
                   placeholder="Transporter / courier"
@@ -1342,7 +1410,7 @@ function SOModal({
               <L label="Remarks (printed above bank details)">
                 <textarea
                   rows={2}
-                  className="inp resize-y"
+                  className={textareaBase}
                   value={f.remarks}
                   onChange={(e) => setF({ ...f, remarks: e.target.value })}
                   placeholder="Optional remarks for the PDF — leave blank to print nothing"
@@ -1419,7 +1487,7 @@ function SOModal({
                         <div>
                           <L label="Unit">
                             <input
-                              className="inp"
+                              className={inputBase}
                               value={l.unit}
                               onChange={(e) => setLine(i, { unit: e.target.value })}
                               disabled={!editable}
@@ -1448,7 +1516,7 @@ function SOModal({
                           {l.product_id ? (
                             <L label="Price tier">
                               <select
-                                className="inp"
+                                className={inputBase}
                                 value={l.price_tier ?? ""}
                                 onChange={(e) => changePriceTier(i, e.target.value)}
                                 disabled={!editable}
@@ -1468,7 +1536,7 @@ function SOModal({
                               type="number"
                               min="0"
                               step="0.01"
-                              className="inp"
+                              className={inputBase}
                               value={l.unit_price}
                               onChange={(e) => setLine(i, { unit_price: e.target.value })}
                               disabled={!editable}
@@ -1483,7 +1551,7 @@ function SOModal({
                               min="0"
                               max="100"
                               step="0.01"
-                              className="inp"
+                              className={inputBase}
                               value={l.discount_pct}
                               onChange={(e) => setLine(i, { discount_pct: e.target.value })}
                               disabled={!editable}
@@ -1498,7 +1566,7 @@ function SOModal({
                               type="number"
                               min="0"
                               step="0.01"
-                              className="inp"
+                              className={inputBase}
                               value={l.gst_rate}
                               onChange={(e) => setLine(i, { gst_rate: e.target.value })}
                               disabled={!editable}
@@ -1595,92 +1663,37 @@ function SOModal({
             </div>
           </div>
 
-          {/* Status actions + save */}
-          <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
-            <div className="flex flex-wrap gap-2">
-              {isEdit && canWrite && status === "draft" && (
-                <button
-                  type="button"
-                  onClick={() => changeStatus("pending_review")}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
-                >
-                  <Send className="h-3.5 w-3.5" /> Submit for review
-                </button>
-              )}
-              {isEdit && status === "pending_review" && canApprove && (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => changeStatus("warehouse_pending")}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10"
-                  >
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Approve and send to Warehouse
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => changeStatus("draft")}
-                    className="inline-flex items-center gap-1.5 rounded-md border border-destructive/50 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
-                  >
-                    <X className="h-3.5 w-3.5" /> Reject
-                  </button>
-                </>
-              )}
-              {isEdit &&
-                canWrite &&
-                status === "confirmed" &&
-                so?.debtor_approval_status !== "rejected" && (
-                  <span className="inline-flex items-center gap-1.5 text-[10px] font-medium text-primary">
-                    <Mail className="h-3 w-3" /> The customer confirms via the emailed link
-                    {so?.debtor_approval_email ? ` (sent to ${so.debtor_approval_email})` : ""}
-                  </span>
-                )}
-              {isEdit && !["cancelled", "fully_dispatched"].includes(status) && (
-                <button
-                  type="button"
-                  onClick={() => changeStatus("cancelled")}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
-                >
-                  <Ban className="h-3.5 w-3.5" /> Cancel order
-                </button>
-              )}
-              <p className="w-full text-[10px] text-muted-foreground md:w-auto md:self-center">
-                Dispatched quantities and the partially/fully dispatched status are updated
-                automatically from dispatch notes.
-              </p>
+          {/* Totals */}
+          <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
+            <Row
+              label="Total quantity"
+              value={lines.reduce((s, l) => s + (Number(l.ordered_qty) || 0), 0).toLocaleString()}
+            />
+            <Row label="Subtotal" value={fmtMoney(totals.subtotal)} />
+            <Row label="Total discount" value={fmtMoney(totals.totalDiscount)} />
+            <Row label="GST total" value={fmtMoney(totals.gstTotal)} />
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                Freight / charges
+              </span>
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                className="inp !w-28 !py-1 text-right"
+                value={f.freight}
+                onChange={(e) => setF({ ...f, freight: e.target.value })}
+                disabled={!editable}
+              />
             </div>
-            <div className="flex gap-2">
-              {isEdit && (
-                <button
-                  type="button"
-                  onClick={downloadPdf}
-                  disabled={pdfBusy}
-                  title="Download the Tally-style sales order PDF"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm hover:border-primary hover:text-primary disabled:opacity-60"
-                >
-                  {pdfBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileDown className="h-4 w-4" />}
-                  PDF
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-md border border-border px-4 py-2 text-sm"
-              >
-                Close
-              </button>
-              {editable && (
-                <button
-                  disabled={save.isPending}
-                  className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
-                >
-                  {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                  {isEdit ? "Save changes" : "Create SO"}
-                </button>
-              )}
+            <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                Grand total
+              </span>
+              <span className="num text-base">{fmtMoney(totals.grandTotal)}</span>
             </div>
           </div>
         </form>
-        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:disabled{opacity:.55}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
         <datalist id="so-gst-rates">
           <option value="0" />
           <option value="5" />
@@ -1688,8 +1701,7 @@ function SOModal({
           <option value="18" />
           <option value="28" />
         </datalist>
-      </div>
-    </div>
+      </DialogWithStickyFooter>
   );
 }
 

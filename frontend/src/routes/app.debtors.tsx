@@ -5,6 +5,17 @@ import {
   toFormFields as toTermsFormFields,
   toPayload as toTermsPayload,
 } from "@/components/payment-terms";
+import {
+  Dialog,
+  DialogWithStickyFooter,
+  Field,
+  inputBase,
+  textareaBase,
+  selectBase,
+  TwoFieldGrid,
+  InfoPanel,
+} from "@/components/dialog";
+import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 import { CustomerTermsManager } from "@/components/customer-terms";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -326,7 +337,7 @@ function DebtorModal({
                 <input
                   required
                   maxLength={200}
-                  className="inp"
+                  className={inputBase}
                   value={form.name}
                   onChange={set("name")}
                 />
@@ -334,7 +345,7 @@ function DebtorModal({
               <L label="Industry">
                 <input
                   maxLength={100}
-                  className="inp"
+                  className={inputBase}
                   value={form.industry}
                   onChange={set("industry")}
                 />
@@ -344,18 +355,18 @@ function DebtorModal({
                   type="url"
                   maxLength={255}
                   placeholder="https://"
-                  className="inp"
+                  className={inputBase}
                   value={form.website}
                   onChange={set("website")}
                 />
               </L>
               <L label="Phone">
-                <input maxLength={40} className="inp" value={form.phone} onChange={set("phone")} />
+                <input maxLength={40} className={inputBase} value={form.phone} onChange={set("phone")} />
               </L>
               <L label="GSTIN (for E-Way Bill)">
                 <input
                   maxLength={15}
-                  className="inp"
+                  className={inputBase}
                   placeholder="15-digit GSTIN"
                   value={form.gstin}
                   onChange={set("gstin")}
@@ -364,7 +375,7 @@ function DebtorModal({
               <L label="PAN Card No">
                 <input
                   maxLength={10}
-                  className="inp"
+                  className={inputBase}
                   placeholder="10-character PAN"
                   value={form.panCardNo}
                   onChange={set("panCardNo")}
@@ -418,7 +429,7 @@ function DebtorModal({
                   <div className="grid gap-2">
                     <input
                       maxLength={60}
-                      className="inp"
+                      className={inputBase}
                       value={a.label}
                       onChange={(e) => {
                         const next = [...form.billing_addresses];
@@ -430,7 +441,7 @@ function DebtorModal({
                     <textarea
                       rows={2}
                       maxLength={500}
-                      className="inp resize-y"
+                      className={textareaBase}
                       value={a.address}
                       onChange={(e) => {
                         const next = [...form.billing_addresses];
@@ -490,7 +501,7 @@ function DebtorModal({
                   <div className="grid gap-2">
                     <input
                       maxLength={60}
-                      className="inp"
+                      className={inputBase}
                       value={a.label}
                       onChange={(e) => {
                         const next = [...form.shipping_addresses];
@@ -502,7 +513,7 @@ function DebtorModal({
                     <textarea
                       rows={2}
                       maxLength={500}
-                      className="inp resize-y"
+                      className={textareaBase}
                       value={a.address}
                       onChange={(e) => {
                         const next = [...form.shipping_addresses];
@@ -525,12 +536,12 @@ function DebtorModal({
           <Section title="City / State / ZIP">
             <div className="grid gap-3 md:grid-cols-3">
               <L label="City">
-                <input maxLength={100} className="inp" value={form.city} onChange={set("city")} />
+                <input maxLength={100} className={inputBase} value={form.city} onChange={set("city")} />
               </L>
               <L label="State / Country">
                 <input
                   maxLength={100}
-                  className="inp"
+                  className={inputBase}
                   value={form.country}
                   onChange={set("country")}
                 />
@@ -538,7 +549,7 @@ function DebtorModal({
               <L label="PIN / Postal code">
                 <input
                   maxLength={20}
-                  className="inp"
+                  className={inputBase}
                   value={form.postal_code}
                   onChange={set("postal_code")}
                 />
@@ -551,7 +562,7 @@ function DebtorModal({
               <L label="Contact name">
                 <input
                   maxLength={120}
-                  className="inp"
+                  className={inputBase}
                   value={form.contact_name}
                   onChange={set("contact_name")}
                 />
@@ -559,7 +570,7 @@ function DebtorModal({
               <L label="Designation">
                 <input
                   maxLength={120}
-                  className="inp"
+                  className={inputBase}
                   value={form.contact_designation}
                   onChange={set("contact_designation")}
                 />
@@ -568,7 +579,7 @@ function DebtorModal({
                 <input
                   type="email"
                   maxLength={255}
-                  className="inp"
+                  className={inputBase}
                   value={form.contact_email}
                   onChange={set("contact_email")}
                 />
@@ -576,7 +587,7 @@ function DebtorModal({
               <L label="Phone">
                 <input
                   maxLength={40}
-                  className="inp"
+                  className={inputBase}
                   value={form.contact_phone}
                   onChange={set("contact_phone")}
                 />
@@ -589,7 +600,7 @@ function DebtorModal({
               <L label="Salesman name">
                 <input
                   maxLength={120}
-                  className="inp"
+                  className={inputBase}
                   value={form.salesman_name}
                   onChange={set("salesman_name")}
                 />
@@ -597,7 +608,7 @@ function DebtorModal({
               <L label="Salesman phone">
                 <input
                   maxLength={40}
-                  className="inp"
+                  className={inputBase}
                   value={form.salesman_phone}
                   onChange={set("salesman_phone")}
                 />
@@ -606,7 +617,7 @@ function DebtorModal({
                 <input
                   type="email"
                   maxLength={255}
-                  className="inp"
+                  className={inputBase}
                   value={form.salesman_email}
                   onChange={set("salesman_email")}
                 />

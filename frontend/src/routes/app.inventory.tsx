@@ -4,6 +4,17 @@ import { useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
+import {
+  Dialog,
+  DialogWithStickyFooter,
+  Field,
+  inputBase,
+  textareaBase,
+  selectBase,
+  TwoFieldGrid,
+  InfoPanel,
+} from "@/components/dialog";
+import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductThumb } from "@/components/product-thumb";
 import {
@@ -952,14 +963,14 @@ function MovementModal({
                 <input
                   required
                   type="date"
-                  className="inp"
+                  className={inputBase}
                   value={form.movementDate}
                   onChange={(e) => setForm({ ...form, movementDate: e.target.value })}
                 />
               </L>
               <L label="Warehouse / store">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={form.warehouse}
                   onChange={(e) => setForm({ ...form, warehouse: e.target.value })}
                   placeholder="e.g. Main store"
@@ -970,7 +981,7 @@ function MovementModal({
             <L label="Movement reason *">
               <select
                 required
-                className="inp"
+                className={inputBase}
                 value={form.reason}
                 onChange={(e) => handleReason(e.target.value)}
               >
@@ -1029,7 +1040,7 @@ function MovementModal({
               <div className="flex-1">
                 <L label="Scan barcode or search SKU">
                   <input
-                    className="inp"
+                    className={inputBase}
                     value={form.scan}
                     onChange={(e) => setForm({ ...form, scan: e.target.value })}
                     onKeyDown={(e) => {
@@ -1101,7 +1112,7 @@ function MovementModal({
                       type="number"
                       step="0.001"
                       min="0"
-                      className="inp"
+                      className={inputBase}
                       value={form.quantity}
                       onChange={(e) => setForm({ ...form, quantity: e.target.value })}
                     />
@@ -1122,7 +1133,7 @@ function MovementModal({
                     type="number"
                     step="0.01"
                     min="0"
-                    className="inp"
+                    className={inputBase}
                     value={form.unitCost}
                     onChange={(e) => setForm({ ...form, unitCost: e.target.value })}
                   />
@@ -1170,7 +1181,7 @@ function MovementModal({
             <div className="grid grid-cols-2 gap-3">
               <L label="Linked document type">
                 <select
-                  className="inp"
+                  className={inputBase}
                   value={form.linkedDocumentType}
                   onChange={(e) =>
                     setForm({
@@ -1190,7 +1201,7 @@ function MovementModal({
               </L>
               <L label="Linked document number">
                 <input
-                  className="inp"
+                  className={inputBase}
                   list="linked-doc-suggestions"
                   value={form.linkedDocumentNumber}
                   onChange={(e) => setForm({ ...form, linkedDocumentNumber: e.target.value })}
@@ -1215,7 +1226,7 @@ function MovementModal({
             <textarea
               required
               rows={2}
-              className="inp"
+              className={inputBase}
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
               placeholder="Required — e.g. opening stock count, damaged batch ref, sample purpose…"
@@ -1604,7 +1615,7 @@ function BulkImportModal({
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <L label="Reason">
                   <select
-                    className="inp"
+                    className={inputBase}
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                   >
@@ -1617,7 +1628,7 @@ function BulkImportModal({
                 </L>
                 <L label="Warehouse">
                   <input
-                    className="inp"
+                    className={inputBase}
                     value={warehouse}
                     onChange={(e) => setWarehouse(e.target.value)}
                     placeholder="Optional"
@@ -1625,7 +1636,7 @@ function BulkImportModal({
                 </L>
                 <L label="Notes">
                   <input
-                    className="inp"
+                    className={inputBase}
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     placeholder="Notes for all rows"

@@ -44,6 +44,7 @@ import {
   AlertTriangle,
   Warehouse,
   Gift,
+  ListTodo,
 } from "lucide-react";
 import { useTheme, type Theme } from "@/lib/theme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -81,6 +82,10 @@ const FINANCE_ITEMS: NavItem[] = [
   { to: "/app/cash-flow", label: "Cash Command", icon: Wallet },
   { to: "/app/queue", label: "Treasury", icon: Banknote },
   { to: "/app/bulk-payments", label: "Bulk Payments", icon: ArrowRightLeft },
+  { to: "/app/finance-sales-orders", label: "Sales orders", icon: ShoppingBag },
+  { to: "/app/finance-invoices", label: "Sales invoices", icon: FileText },
+  { to: "/app/finance-proformas", label: "Sales proforma", icon: FileSignature },
+  { to: "/app/finance-purchases", label: "Purchase invoices", icon: ShoppingCart },
 ];
 
 // ─── Sales items ──
@@ -152,6 +157,14 @@ function buildNavSections(roles: string[]): NavSection[] {
     label: "Dashboard",
     icon: LayoutDashboard,
     to: "/app/dashboard",
+  };
+
+  // My Queue — the unified workflow queue (PDF-3 §7); every staff role has one
+  const myQueueSection: NavSection = {
+    type: "single",
+    label: "My Queue",
+    icon: ListTodo,
+    to: "/app/tasks",
   };
 
   // Checker — visible to checker + admin
@@ -246,10 +259,11 @@ function buildNavSections(roles: string[]): NavSection[] {
       ? { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" }
       : null;
 
-  // Assemble in the desired order: Dashboard, Checker, Finance, Procurement,
-  // Sales, Warehouse Control, Reports, System
+  // Assemble in the desired order: Dashboard, My Queue, Checker, Finance,
+  // Procurement, Sales, Warehouse Control, Reports, System
   const sections = [
     dashboardSection,
+    myQueueSection,
     workspaceSection,
     checkerSection,
     financeSection,
@@ -260,8 +274,8 @@ function buildNavSections(roles: string[]): NavSection[] {
     systemSection,
   ].filter((s: any): s is NavSection => s != null) as NavSection[];
 
-  // Fallback for unknown roles — just dashboard
-  if (sections.length === 1 && sections[0] === dashboardSection) {
+  // Fallback for unknown roles — just dashboard + queue
+  if (sections.length === 2 && sections[0] === dashboardSection && sections[1] === myQueueSection) {
     return sections;
   }
 
@@ -359,6 +373,15 @@ function AppLayout() {
       "/app/notes",
       "/app/naughty-list",
     ];
+    // Finance duplicate tabs (same data/process as the Sales and Procurement
+    // tabs, just surfaced under the Finance section for treasury/ops/admin).
+    const financeRoutes: string[] = [
+      "/app/finance-sales-orders",
+      "/app/finance-invoices",
+      "/app/finance-proformas",
+      "/app/finance-purchases",
+    ];
+
     // Procurement routes (purchase side)
     const procurementRoutes: string[] = [
       "/app/suppliers",
@@ -407,6 +430,7 @@ function AppLayout() {
       ...procurementRoutes,
       ...supplierListRoutes,
       ...salesRoutes,
+      ...financeRoutes,
       ...naughtyListRoutes,
       ...warehouseControlRoutes,
     ];
@@ -420,6 +444,7 @@ function AppLayout() {
       ...procurementRoutes,
       ...supplierListRoutes,
       ...salesRoutes,
+      ...financeRoutes,
       ...naughtyListRoutes,
       ...warehouseControlRoutes,
     ];

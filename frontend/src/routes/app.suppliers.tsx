@@ -5,6 +5,17 @@ import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney } from "@/components/ledger-ui";
 import {
+  Dialog,
+  DialogWithStickyFooter,
+  Field,
+  inputBase,
+  textareaBase,
+  selectBase,
+  TwoFieldGrid,
+  InfoPanel,
+} from "@/components/dialog";
+import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
+import {
   PaymentTermsFields,
   formatPaymentTerms,
   toFormFields as toTermsFormFields,
@@ -308,14 +319,14 @@ function SuppliersPage() {
             <div className="grid gap-4 p-5 md:grid-cols-2">
               <F label="Company name *">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={form.company_name}
                   onChange={(e) => setForm({ ...form, company_name: e.target.value })}
                 />
               </F>
               <F label="Industry">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={form.industry}
                   onChange={(e) => setForm({ ...form, industry: e.target.value })}
                 />
@@ -323,7 +334,7 @@ function SuppliersPage() {
               <F label="Address" full>
                 <input
                   maxLength={300}
-                  className="inp"
+                  className={inputBase}
                   value={form.address_line}
                   onChange={(e) => setForm({ ...form, address_line: e.target.value })}
                 />
@@ -331,7 +342,7 @@ function SuppliersPage() {
               <F label="City">
                 <input
                   maxLength={100}
-                  className="inp"
+                  className={inputBase}
                   value={form.city}
                   onChange={(e) => setForm({ ...form, city: e.target.value })}
                 />
@@ -339,7 +350,7 @@ function SuppliersPage() {
               <F label="Country">
                 <input
                   maxLength={100}
-                  className="inp"
+                  className={inputBase}
                   value={form.country}
                   onChange={(e) => setForm({ ...form, country: e.target.value })}
                 />
@@ -347,14 +358,14 @@ function SuppliersPage() {
               <F label="PIN / Postal code">
                 <input
                   maxLength={20}
-                  className="inp"
+                  className={inputBase}
                   value={form.postal_code}
                   onChange={(e) => setForm({ ...form, postal_code: e.target.value })}
                 />
               </F>
               <F label="Contact name">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={form.contact_name}
                   onChange={(e) => setForm({ ...form, contact_name: e.target.value })}
                 />
@@ -362,21 +373,21 @@ function SuppliersPage() {
               <F label="Contact email">
                 <input
                   type="email"
-                  className="inp"
+                  className={inputBase}
                   value={form.contact_email}
                   onChange={(e) => setForm({ ...form, contact_email: e.target.value })}
                 />
               </F>
               <F label="Contact phone">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={form.contact_phone}
                   onChange={(e) => setForm({ ...form, contact_phone: e.target.value })}
                 />
               </F>
               <F label="Status">
                 <select
-                  className="inp"
+                  className={inputBase}
                   value={form.status}
                   onChange={(e) => setForm({ ...form, status: e.target.value as SupplierStatus })}
                 >
@@ -399,7 +410,7 @@ function SuppliersPage() {
               <F label="Notes" full>
                 <textarea
                   rows={3}
-                  className="inp"
+                  className={inputBase}
                   value={form.notes}
                   onChange={(e) => setForm({ ...form, notes: e.target.value })}
                 />

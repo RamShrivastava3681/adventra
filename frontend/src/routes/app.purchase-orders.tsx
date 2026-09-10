@@ -5,6 +5,17 @@ import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
+  Dialog,
+  DialogWithStickyFooter,
+  Field,
+  inputBase,
+  textareaBase,
+  selectBase,
+  TwoFieldGrid,
+  InfoPanel,
+} from "@/components/dialog";
+import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
+import {
   Plus,
   X,
   Loader2,
@@ -1105,7 +1116,7 @@ function POModal({
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               <L label="PO number">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={isEdit ? po.po_number : ""}
                   disabled
                   placeholder="System-generated"
@@ -1114,7 +1125,7 @@ function POModal({
               <L label="PO date">
                 <input
                   type="date"
-                  className="inp"
+                  className={inputBase}
                   value={f.po_date}
                   onChange={(e) => setF({ ...f, po_date: e.target.value })}
                   disabled={!editable}
@@ -1138,7 +1149,7 @@ function POModal({
               </L>
               <L label="Delivery warehouse / store">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={f.warehouse}
                   onChange={(e) => setF({ ...f, warehouse: e.target.value })}
                   placeholder="e.g. Main store"
@@ -1148,7 +1159,7 @@ function POModal({
               <L label="Expected delivery date">
                 <input
                   type="date"
-                  className="inp"
+                  className={inputBase}
                   value={f.expected_delivery_date}
                   onChange={(e) => setF({ ...f, expected_delivery_date: e.target.value })}
                   disabled={!editable}
@@ -1157,7 +1168,7 @@ function POModal({
               <L label="Payment due date">
                 <input
                   type="date"
-                  className="inp"
+                  className={inputBase}
                   value={f.due_date}
                   onChange={(e) => setF({ ...f, due_date: e.target.value })}
                   disabled={!editable}
@@ -1166,7 +1177,7 @@ function POModal({
               <L label="Expected cash payment date">
                 <input
                   type="date"
-                  className="inp"
+                  className={inputBase}
                   value={f.expected_date}
                   onChange={(e) => setF({ ...f, expected_date: e.target.value })}
                   disabled={!editable}
@@ -1185,7 +1196,7 @@ function POModal({
               </L>
               <L label="Buyer / created by">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={f.buyer_name}
                   onChange={(e) => setF({ ...f, buyer_name: e.target.value })}
                   placeholder="You"
@@ -1197,7 +1208,7 @@ function POModal({
               <L label="Notes">
                 <textarea
                   rows={2}
-                  className="inp resize-y"
+                  className={textareaBase}
                   value={f.notes}
                   onChange={(e) => setF({ ...f, notes: e.target.value })}
                   placeholder="Delivery instructions, pricing notes…"
@@ -1295,7 +1306,7 @@ function POModal({
                       <div>
                         <L label="Unit">
                           <input
-                            className="inp"
+                            className={inputBase}
                             value={l.unit}
                             onChange={(e) => setLine(i, { unit: e.target.value })}
                             disabled={!editable}
@@ -1324,7 +1335,7 @@ function POModal({
                         {l.product_id ? (
                           <L label="Price tier">
                             <select
-                              className="inp"
+                              className={inputBase}
                               value={l.price_tier ?? ""}
                               onChange={(e) => changePriceTier(i, e.target.value)}
                               disabled={!editable}
@@ -1344,7 +1355,7 @@ function POModal({
                             type="number"
                             min="0"
                             step="0.01"
-                            className="inp"
+                            className={inputBase}
                             value={l.unit_price}
                             onChange={(e) => setLine(i, { unit_price: e.target.value })}
                             disabled={!editable}
@@ -1363,7 +1374,7 @@ function POModal({
                             type="number"
                             min="0"
                             step="0.01"
-                            className="inp"
+                            className={inputBase}
                             value={l.gst_rate}
                             onChange={(e) => setLine(i, { gst_rate: e.target.value })}
                             disabled={!editable}
@@ -1520,7 +1531,7 @@ function POModal({
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                   <L label="Proforma invoice number *">
                     <input
-                      className="inp"
+                      className={inputBase}
                       value={pfForm.proforma_number}
                       onChange={(e) => setPfForm({ ...pfForm, proforma_number: e.target.value })}
                       placeholder="PF-2026-001"
@@ -1530,7 +1541,7 @@ function POModal({
                   <L label="Proforma invoice date">
                     <input
                       type="date"
-                      className="inp"
+                      className={inputBase}
                       value={pfForm.proforma_date}
                       onChange={(e) => setPfForm({ ...pfForm, proforma_date: e.target.value })}
                       disabled={!editable}
@@ -1552,7 +1563,7 @@ function POModal({
                   </L>
                   <L label="Supplier contact">
                     <input
-                      className="inp"
+                      className={inputBase}
                       value={pfForm.supplier_contact}
                       onChange={(e) => setPfForm({ ...pfForm, supplier_contact: e.target.value })}
                       placeholder="Name · email · phone"
@@ -1561,7 +1572,7 @@ function POModal({
                   </L>
                   <L label="Supplier GSTIN (optional)">
                     <input
-                      className="inp"
+                      className={inputBase}
                       value={pfForm.supplier_gstin}
                       onChange={(e) => setPfForm({ ...pfForm, supplier_gstin: e.target.value })}
                       placeholder="e.g. 27ABCDE1234F1Z5"
@@ -1571,7 +1582,7 @@ function POModal({
                   <L label="Valid until">
                     <input
                       type="date"
-                      className="inp"
+                      className={inputBase}
                       value={pfForm.valid_until}
                       onChange={(e) => setPfForm({ ...pfForm, valid_until: e.target.value })}
                       disabled={!editable}
@@ -1579,7 +1590,7 @@ function POModal({
                   </L>
                   <L label="Currency">
                     <select
-                      className="inp"
+                      className={inputBase}
                       value={pfForm.currency}
                       onChange={(e) => setPfForm({ ...pfForm, currency: e.target.value })}
                       disabled={!editable}
@@ -1605,7 +1616,7 @@ function POModal({
                   <L label="Expected delivery date">
                     <input
                       type="date"
-                      className="inp"
+                      className={inputBase}
                       value={pfForm.expected_delivery_date}
                       onChange={(e) =>
                         setPfForm({ ...pfForm, expected_delivery_date: e.target.value })
@@ -1616,7 +1627,7 @@ function POModal({
                   <L label="Expected cash payment date">
                     <input
                       type="date"
-                      className="inp"
+                      className={inputBase}
                       value={f.expected_date}
                       onChange={(e) => setF({ ...f, expected_date: e.target.value })}
                       disabled={!editable}
@@ -1630,7 +1641,7 @@ function POModal({
                       min="0"
                       max="100"
                       step="0.01"
-                      className="inp"
+                      className={inputBase}
                       value={pfForm.advance_pct}
                       onChange={(e) => setPfForm({ ...pfForm, advance_pct: e.target.value })}
                       placeholder="e.g. 30"
@@ -1667,7 +1678,7 @@ function POModal({
                 <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
                   <L label="Supplier invoice number *">
                     <input
-                      className="inp"
+                      className={inputBase}
                       value={piForm.invoice_number}
                       onChange={(e) => setPiForm({ ...piForm, invoice_number: e.target.value })}
                       placeholder="INV-2026-0142"
@@ -1677,7 +1688,7 @@ function POModal({
                   <L label="Invoice date *">
                     <input
                       type="date"
-                      className="inp"
+                      className={inputBase}
                       value={piForm.invoice_date}
                       onChange={(e) => setPiForm({ ...piForm, invoice_date: e.target.value })}
                       disabled={!editable}
@@ -1686,7 +1697,7 @@ function POModal({
                   <L label="Invoice received date">
                     <input
                       type="date"
-                      className="inp"
+                      className={inputBase}
                       value={piForm.received_date}
                       onChange={(e) => setPiForm({ ...piForm, received_date: e.target.value })}
                       disabled={!editable}
@@ -1695,7 +1706,7 @@ function POModal({
                   <L label="Payment due date">
                     <input
                       type="date"
-                      className="inp"
+                      className={inputBase}
                       value={piForm.due_date}
                       onChange={(e) => setPiForm({ ...piForm, due_date: e.target.value })}
                       disabled={!editable}
@@ -1704,7 +1715,7 @@ function POModal({
                   <L label="Expected cash payment date">
                     <input
                       type="date"
-                      className="inp"
+                      className={inputBase}
                       value={piForm.expected_date}
                       onChange={(e) => setPiForm({ ...piForm, expected_date: e.target.value })}
                       disabled={!editable}
@@ -1722,7 +1733,7 @@ function POModal({
                       type="number"
                       min="0"
                       step="0.01"
-                      className="inp"
+                      className={inputBase}
                       value={piForm.freight}
                       onChange={(e) => setPiForm({ ...piForm, freight: e.target.value })}
                       disabled={!editable}
@@ -1770,7 +1781,7 @@ function POModal({
                                   type="number"
                                   min="0"
                                   step="0.001"
-                                  className="inp"
+                                  className={inputBase}
                                   value={l.invoice_qty}
                                   onChange={(e) =>
                                     setPiLines((ls) =>
@@ -1789,7 +1800,7 @@ function POModal({
                                   type="number"
                                   min="0"
                                   step="0.01"
-                                  className="inp"
+                                  className={inputBase}
                                   value={l.unit_price}
                                   onChange={(e) =>
                                     setPiLines((ls) =>
@@ -1805,7 +1816,7 @@ function POModal({
                             <div className="md:col-span-1">
                               <L label="GST">
                                 <input
-                                  className="inp"
+                                  className={inputBase}
                                   value={l.gst_rate ? `${l.gst_rate}%` : "0%"}
                                   disabled
                                 />
@@ -1841,7 +1852,7 @@ function POModal({
                   <L label="Notes">
                     <textarea
                       rows={2}
-                      className="inp resize-y"
+                      className={textareaBase}
                       value={piForm.notes}
                       onChange={(e) => setPiForm({ ...piForm, notes: e.target.value })}
                       placeholder="Payment terms, delivery remarks…"
@@ -2047,13 +2058,13 @@ function GRNModal({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone
             <L label="Received date">
               <input
                 type="date"
-                className="inp"
+                className={inputBase}
                 value={receivedDate}
                 onChange={(e) => setReceivedDate(e.target.value)}
               />
             </L>
             <L label="Warehouse / store">
-              <input className="inp" value={po.warehouse ?? ""} disabled />
+              <input className={inputBase} value={po.warehouse ?? ""} disabled />
             </L>
           </div>
 
@@ -2126,7 +2137,7 @@ function GRNModal({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone
           <L label="Notes">
             <textarea
               rows={2}
-              className="inp resize-y"
+              className={textareaBase}
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Damages, short-supply remarks…"

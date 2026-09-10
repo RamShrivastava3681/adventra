@@ -433,7 +433,7 @@ function NewAdvanceModal({
                 type="number"
                 step="0.01"
                 min="0"
-                className="inp"
+                className={inputBase}
                 value={form.amount}
                 onChange={(e) => setForm({ ...form, amount: e.target.value })}
               />
@@ -442,7 +442,7 @@ function NewAdvanceModal({
               <input
                 required
                 type="date"
-                className="inp"
+                className={inputBase}
                 value={form.advance_date}
                 onChange={(e) => setForm({ ...form, advance_date: e.target.value })}
               />
@@ -450,7 +450,7 @@ function NewAdvanceModal({
           </div>
           <L label="Reference (txn id / cheque #)">
             <input
-              className="inp"
+              className={inputBase}
               value={form.reference}
               onChange={(e) => setForm({ ...form, reference: e.target.value })}
             />
@@ -458,7 +458,7 @@ function NewAdvanceModal({
           <L label="Notes">
             <textarea
               rows={2}
-              className="inp"
+              className={inputBase}
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
             />

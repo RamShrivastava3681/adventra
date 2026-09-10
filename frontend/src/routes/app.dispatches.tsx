@@ -21,10 +21,18 @@ import {
   FileText,
   ShieldCheck,
   RefreshCw,
+  FileCheck,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { TableSkeleton } from "@/components/skeletons";
+import { DocumentTimelinePanel } from "@/components/document-timeline";
+import {
+  DispatchPackingModal,
+  RecordEwbModal,
+  ConfirmDispatchModal,
+  DispatchFlowHint,
+} from "@/components/dispatch-workflow";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
@@ -82,6 +90,29 @@ type Dispatch = {
   stock_debited: boolean;
   debited_by: string | null;
   lines: DispatchLine[];
+  // PDF-1 workflow fields (details_submitted / ready_for_dispatch lifecycle)
+  final_invoice_id?: string | null;
+  final_invoice_number?: string | null;
+  irn_snapshot?: string | null;
+  submitted_at?: string | null;
+  submitted_by?: string | null;
+  carton_count?: number | null;
+  package_type?: string | null;
+  gross_weight?: number | null;
+  handling_instructions?: string | null;
+  transport_mode?: string | null;
+  transporter_id?: string | null;
+  distance_km?: number | null;
+  vehicle_number?: string | null;
+  transport_doc_type?: string | null;
+  transport_doc_number?: string | null;
+  transport_doc_date?: string | null;
+  driver_name?: string | null;
+  driver_mobile?: string | null;
+  eway_bill_number?: string | null;
+  eway_bill_valid_until?: string | null;
+  ewb_not_required?: boolean;
+  ewb_not_required_reason?: string | null;
 };
 
 type SOLine = {
@@ -139,6 +170,8 @@ const DOC_LABELS_INV: Record<string, string> = {
 
 const DISPATCH_STATUS_LABELS: Record<string, string> = {
   draft: "Draft",
+  details_submitted: "Details submitted",
+  ready_for_dispatch: "Ready for dispatch",
   confirmed: "Confirmed",
   partially_delivered: "Partially delivered",
   delivered: "Delivered",
@@ -148,6 +181,8 @@ const DISPATCH_STATUS_LABELS: Record<string, string> = {
 
 const DISPATCH_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
+  details_submitted: "bg-sem-attention/10 text-sem-attention border-sem-attention/30",
+  ready_for_dispatch: "bg-sem-success/10 text-sem-success border-sem-success/30",
   confirmed:
     "bg-sem-info/10 text-sem-info border-sem-info/30",
   partially_delivered: "bg-sem-attention/10 text-sem-attention border-sem-attention/30",
@@ -1368,7 +1403,14 @@ function DispatchDetailModal({
   }, [dispatch.customer_id, debtors]);
   const [deliverOpen, setDeliverOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
+  const [packingOpen, setPackingOpen] = useState(false);
+  const [ewbOpen, setEwbOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
+
+  // New-flow dispatches (created from a final invoice) use the PDF-1
+  // packing → EWB → confirm handoff; legacy dispatches keep direct confirm.
+  const isNewFlow = !!dispatch.final_invoice_id;
 
   const invalidate = () => {
     onChanged();
@@ -1551,14 +1593,50 @@ function DispatchDetailModal({
               </div>
             )}
 
-            {/* E-Way Bill section */}
-            {d.status !== "draft" && (
+            {/* E-Way Bill section (legacy direct integration) */}
+            {d.status !== "draft" && !isNewFlow && (
               <EwbSection dispatch={d} canWrite={canWrite} onRefresh={invalidate} />
+            )}
+
+            {/* PDF-1 flow progress (new-flow dispatches only) */}
+            {isNewFlow && (
+              <div className="rounded-md border border-border/40 p-3">
+                <DispatchFlowHint dispatch={d} />
+                {d.ewb_not_required && d.ewb_not_required_reason && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    EWB not required: {d.ewb_not_required_reason}
+                  </p>
+                )}
+              </div>
             )}
 
             {/* Actions */}
             <div className="flex flex-wrap gap-2 border-t border-border pt-3">
-              {canWrite && d.status === "draft" && (
+              {canWrite && isNewFlow && d.status === "draft" && (
+                <button
+                  onClick={() => setPackingOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+                >
+                  <Truck className="h-3.5 w-3.5" /> Prepare dispatch order
+                </button>
+              )}
+              {canWrite && isNewFlow && d.status === "details_submitted" && (
+                <button
+                  onClick={() => setEwbOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+                >
+                  <FileCheck className="h-3.5 w-3.5" /> Record E-Way Bill
+                </button>
+              )}
+              {canWrite && isNewFlow && d.status === "ready_for_dispatch" && (
+                <button
+                  onClick={() => setConfirmOpen(true)}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10"
+                >
+                  <PackageCheck className="h-3.5 w-3.5" /> Confirm physical dispatch
+                </button>
+              )}
+              {canWrite && !isNewFlow && d.status === "draft" && (
                 <button
                   onClick={() => run("confirm")}
                   disabled={!!busy}
@@ -1598,7 +1676,7 @@ function DispatchDetailModal({
                 <Printer className="h-3.5 w-3.5" /> Print delivery challan
               </Link>
               {canWrite &&
-                ["draft", "confirmed", "partially_delivered", "delivered"].includes(d.status) && (
+                ["draft", "details_submitted", "ready_for_dispatch", "confirmed", "partially_delivered", "delivered"].includes(d.status) && (
                   <button
                     onClick={() => run("cancel")}
                     disabled={!!busy}
@@ -1644,6 +1722,35 @@ function DispatchDetailModal({
           </div>
         </div>
       </div>
+
+      {packingOpen && (
+        <DispatchPackingModal
+          dispatch={d}
+          onClose={() => setPackingOpen(false)}
+          onDone={invalidate}
+        />
+      )}
+      {ewbOpen && (
+        <RecordEwbModal
+          dispatch={d}
+          onClose={() => setEwbOpen(false)}
+          onDone={invalidate}
+        />
+      )}
+      {confirmOpen && (
+        <ConfirmDispatchModal
+          dispatch={d}
+          onClose={() => setConfirmOpen(false)}
+          onDone={invalidate}
+        />
+      )}
+
+      {/* Activity timeline (PDF-3 §2) — same view for every team */}
+      <DocumentTimelinePanel
+        docType="dispatch"
+        docId={d.id}
+        docNumber={d.dispatch_number}
+      />
 
       {deliverOpen && (
         <DeliverModal

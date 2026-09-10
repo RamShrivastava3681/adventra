@@ -4,6 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
+import {
+  Dialog,
+  DialogWithStickyFooter,
+  Field,
+  inputBase,
+  textareaBase,
+  selectBase,
+  TwoFieldGrid,
+  InfoPanel,
+} from "@/components/dialog";
+import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 import { Plus, Trash2, X, Loader2, Link2, Paperclip, FileMinus, FilePlus, Eye } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -577,7 +588,7 @@ function NewNoteModal({
             <L label="Note number *">
               <input
                 required
-                className="inp"
+                className={inputBase}
                 placeholder="CN-0001 / DN-0001"
                 value={form.note_number}
                 onChange={(e) => setForm({ ...form, note_number: e.target.value })}
@@ -587,7 +598,7 @@ function NewNoteModal({
               <input
                 required
                 type="date"
-                className="inp"
+                className={inputBase}
                 value={form.note_date}
                 onChange={(e) => setForm({ ...form, note_date: e.target.value })}
               />
@@ -624,7 +635,7 @@ function NewNoteModal({
                     <tr key={idx}>
                       <td className="py-1 pr-2">
                         <input
-                          className="inp"
+                          className={inputBase}
                           placeholder="Description"
                           value={l.description}
                           onChange={(e) =>
@@ -740,7 +751,7 @@ function NewNoteModal({
             </L>
             <L label="Counterparty">
               <input
-                className="inp"
+                className={inputBase}
                 placeholder="Debtor / supplier name"
                 value={form.counterparty}
                 onChange={(e) => setForm({ ...form, counterparty: e.target.value })}
@@ -749,7 +760,7 @@ function NewNoteModal({
           </div>
           <L label="Link to invoice">
             <select
-              className="inp"
+              className={inputBase}
               value={form.link_kind}
               onChange={(e) =>
                 setForm({
@@ -781,7 +792,7 @@ function NewNoteModal({
           <L label="Reason">
             <textarea
               rows={2}
-              className="inp"
+              className={inputBase}
               placeholder="Short-shipment, pricing adjustment, quality claim…"
               value={form.reason}
               onChange={(e) => setForm({ ...form, reason: e.target.value })}

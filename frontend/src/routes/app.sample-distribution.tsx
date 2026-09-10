@@ -4,6 +4,17 @@ import { useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, EmptyState, fmtDate } from "@/components/ledger-ui";
+import {
+  Dialog,
+  DialogWithStickyFooter,
+  Field,
+  inputBase,
+  textareaBase,
+  selectBase,
+  TwoFieldGrid,
+  InfoPanel,
+} from "@/components/dialog";
+import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TableSkeleton } from "@/components/skeletons";
 import { Gift, Plus, X, Loader2 } from "lucide-react";
@@ -364,7 +375,7 @@ function IssueSampleModal({
                 type="number"
                 step="1"
                 min="1"
-                className="inp"
+                className={inputBase}
                 value={form.quantity}
                 onChange={(e) => setForm({ ...form, quantity: e.target.value })}
               />
@@ -374,7 +385,7 @@ function IssueSampleModal({
               <input
                 required
                 type="date"
-                className="inp"
+                className={inputBase}
                 value={form.movementDate}
                 onChange={(e) => setForm({ ...form, movementDate: e.target.value })}
               />
@@ -399,7 +410,7 @@ function IssueSampleModal({
             ) : (
               <input
                 required
-                className="inp"
+                className={inputBase}
                 value={form.salesmanName}
                 onChange={(e) => setForm({ ...form, salesmanName: e.target.value })}
                 placeholder="Salesman name"
@@ -413,7 +424,7 @@ function IssueSampleModal({
             </label>
             <textarea
               rows={2}
-              className="inp"
+              className={inputBase}
               value={form.notes}
               onChange={(e) => setForm({ ...form, notes: e.target.value })}
               placeholder="e.g. Diwali sampling drive"

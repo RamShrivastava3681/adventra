@@ -6,6 +6,17 @@ import { useAuth } from "@/lib/auth-context";
 import { useViewAsUserId } from "@/lib/view-as";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
+  Dialog,
+  DialogWithStickyFooter,
+  Field,
+  inputBase,
+  textareaBase,
+  selectBase,
+  TwoFieldGrid,
+  InfoPanel,
+} from "@/components/dialog";
+import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
+import {
   Plus,
   X,
   Loader2,
@@ -545,14 +556,14 @@ function LeadModal({ userId, onClose }: { userId: string; onClose: () => void })
           <L label="Name *">
             <input
               required
-              className="inp"
+              className={inputBase}
               value={f.name}
               onChange={(e) => setF({ ...f, name: e.target.value })}
             />
           </L>
           <L label="Company">
             <input
-              className="inp"
+              className={inputBase}
               value={f.company}
               onChange={(e) => setF({ ...f, company: e.target.value })}
             />
@@ -560,21 +571,21 @@ function LeadModal({ userId, onClose }: { userId: string; onClose: () => void })
           <L label="Email">
             <input
               type="email"
-              className="inp"
+              className={inputBase}
               value={f.email}
               onChange={(e) => setF({ ...f, email: e.target.value })}
             />
           </L>
           <L label="Phone">
             <input
-              className="inp"
+              className={inputBase}
               value={f.phone}
               onChange={(e) => setF({ ...f, phone: e.target.value })}
             />
           </L>
           <L label="Source">
             <select
-              className="inp"
+              className={inputBase}
               value={f.source}
               onChange={(e) => setF({ ...f, source: e.target.value })}
             >
@@ -589,7 +600,7 @@ function LeadModal({ userId, onClose }: { userId: string; onClose: () => void })
             <input
               type="number"
               step="0.01"
-              className="inp"
+              className={inputBase}
               value={f.estimated_value}
               onChange={(e) => setF({ ...f, estimated_value: e.target.value })}
             />
@@ -598,7 +609,7 @@ function LeadModal({ userId, onClose }: { userId: string; onClose: () => void })
         <L label="Notes">
           <textarea
             rows={3}
-            className="inp"
+            className={inputBase}
             value={f.notes}
             onChange={(e) => setF({ ...f, notes: e.target.value })}
           />
@@ -663,14 +674,14 @@ function OppModal({ userId, onClose }: { userId: string; onClose: () => void }) 
           <L label="Deal name *">
             <input
               required
-              className="inp"
+              className={inputBase}
               value={f.name}
               onChange={(e) => setF({ ...f, name: e.target.value })}
             />
           </L>
           <L label="Account">
             <input
-              className="inp"
+              className={inputBase}
               value={f.account_name}
               onChange={(e) => setF({ ...f, account_name: e.target.value })}
             />
@@ -692,7 +703,7 @@ function OppModal({ userId, onClose }: { userId: string; onClose: () => void }) 
           </L>
           <L label="Stage">
             <select
-              className="inp"
+              className={inputBase}
               value={f.stage}
               onChange={(e) => setF({ ...f, stage: e.target.value })}
             >
@@ -707,7 +718,7 @@ function OppModal({ userId, onClose }: { userId: string; onClose: () => void }) 
             <input
               type="number"
               step="0.01"
-              className="inp"
+              className={inputBase}
               value={f.amount}
               onChange={(e) => setF({ ...f, amount: e.target.value })}
             />
@@ -715,7 +726,7 @@ function OppModal({ userId, onClose }: { userId: string; onClose: () => void }) 
           <L label="Expected close">
             <input
               type="date"
-              className="inp"
+              className={inputBase}
               value={f.expected_close_date}
               onChange={(e) => setF({ ...f, expected_close_date: e.target.value })}
             />
@@ -724,7 +735,7 @@ function OppModal({ userId, onClose }: { userId: string; onClose: () => void }) 
         <L label="Notes">
           <textarea
             rows={3}
-            className="inp"
+            className={inputBase}
             value={f.notes}
             onChange={(e) => setF({ ...f, notes: e.target.value })}
           />
@@ -793,7 +804,7 @@ function ActivityModal({ userId, onClose }: { userId: string; onClose: () => voi
         <div className="grid grid-cols-2 gap-3">
           <L label="Type">
             <select
-              className="inp"
+              className={inputBase}
               value={f.activity_type}
               onChange={(e) => setF({ ...f, activity_type: e.target.value })}
             >
@@ -807,7 +818,7 @@ function ActivityModal({ userId, onClose }: { userId: string; onClose: () => voi
           <L label="Due date">
             <input
               type="date"
-              className="inp"
+              className={inputBase}
               value={f.due_date}
               onChange={(e) => setF({ ...f, due_date: e.target.value })}
             />
@@ -816,7 +827,7 @@ function ActivityModal({ userId, onClose }: { userId: string; onClose: () => voi
             <L label="Subject *">
               <input
                 required
-                className="inp"
+                className={inputBase}
                 value={f.subject}
                 onChange={(e) => setF({ ...f, subject: e.target.value })}
               />
@@ -848,7 +859,7 @@ function ActivityModal({ userId, onClose }: { userId: string; onClose: () => voi
         <L label="Description">
           <textarea
             rows={3}
-            className="inp"
+            className={inputBase}
             value={f.description}
             onChange={(e) => setF({ ...f, description: e.target.value })}
           />

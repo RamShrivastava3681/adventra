@@ -5,6 +5,17 @@ import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
+  Dialog,
+  DialogWithStickyFooter,
+  Field,
+  inputBase,
+  textareaBase,
+  selectBase,
+  TwoFieldGrid,
+  InfoPanel,
+} from "@/components/dialog";
+import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
+import {
   Plus,
   X,
   Loader2,
@@ -759,7 +770,7 @@ function GrnModal({
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               <L label="GRN number">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={isEdit ? grn.receipt_number : "System-generated"}
                   disabled
                 />
@@ -767,7 +778,7 @@ function GrnModal({
               <L label="GRN date">
                 <input
                   type="date"
-                  className="inp"
+                  className={inputBase}
                   value={f.received_date}
                   onChange={(e) => setF({ ...f, received_date: e.target.value })}
                 />
@@ -790,14 +801,14 @@ function GrnModal({
               </L>
               <L label="Supplier">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={selectedPo?.supplier_name ?? grn?.supplier_name ?? ""}
                   disabled
                 />
               </L>
               <L label="Receiving Location">
                 <select
-                  className="inp"
+                  className={inputBase}
                   value={f.receiving_location_id}
                   onChange={(e) => setF({ ...f, receiving_location_id: e.target.value })}
                 >
@@ -814,7 +825,7 @@ function GrnModal({
               </L>
               <L label="Delivery warehouse / store (legacy)">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={f.warehouse}
                   onChange={(e) => setF({ ...f, warehouse: e.target.value })}
                   placeholder="e.g. Main store"
@@ -822,7 +833,7 @@ function GrnModal({
               </L>
               <L label="Supplier delivery challan #">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={f.challan_number}
                   onChange={(e) => setF({ ...f, challan_number: e.target.value })}
                   placeholder="Optional"
@@ -850,14 +861,14 @@ function GrnModal({
                 />
               </L>
               <L label="Received by">
-                <input className="inp" value={userId} disabled />
+                <input className={inputBase} value={userId} disabled />
               </L>
             </div>
             <div className="mt-3">
               <L label="Notes">
                 <textarea
                   rows={2}
-                  className="inp resize-y"
+                  className={textareaBase}
                   value={f.notes}
                   onChange={(e) => setF({ ...f, notes: e.target.value })}
                   placeholder="Delivery remarks…"
@@ -882,7 +893,7 @@ function GrnModal({
                 <div className="flex items-center gap-2">
                   <ScanLine className="h-4 w-4 shrink-0 text-primary" />
                   <input
-                    className="inp"
+                    className={inputBase}
                     value={scan}
                     onChange={(e) => setScan(e.target.value)}
                     onKeyDown={(e) => {
@@ -956,12 +967,12 @@ function GrnModal({
                       </div>
                       <div>
                         <L label="Unit">
-                          <input className="inp" value={l.unit} disabled />
+                          <input className={inputBase} value={l.unit} disabled />
                         </L>
                       </div>
                       <div>
                         <L label="Ordered">
-                          <input className="inp" value={l.ordered_qty} disabled />
+                          <input className={inputBase} value={l.ordered_qty} disabled />
                         </L>
                       </div>
                       <div className="md:col-span-2">
@@ -982,7 +993,7 @@ function GrnModal({
                             type="number"
                             min="0"
                             step="0.001"
-                            className="inp"
+                            className={inputBase}
                             value={l.accepted_qty}
                             onChange={(e) => setLine(i, { accepted_qty: e.target.value })}
                           />
@@ -999,7 +1010,7 @@ function GrnModal({
                             type="number"
                             min="0"
                             step="0.001"
-                            className="inp"
+                            className={inputBase}
                             value={l.rejected_qty}
                             onChange={(e) => setLine(i, { rejected_qty: e.target.value })}
                             placeholder="0"
@@ -1008,7 +1019,7 @@ function GrnModal({
                       </div>
                       <div>
                         <L label="Unit cost">
-                          <input className="inp" value={l.unit_cost} disabled />
+                          <input className={inputBase} value={l.unit_cost} disabled />
                         </L>
                       </div>
                       <div className="text-right">

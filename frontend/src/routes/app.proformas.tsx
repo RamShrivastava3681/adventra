@@ -5,6 +5,17 @@ import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
+  Dialog,
+  DialogWithStickyFooter,
+  Field,
+  inputBase,
+  textareaBase,
+  selectBase,
+  TwoFieldGrid,
+  InfoPanel,
+} from "@/components/dialog";
+import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
+import {
   Plus,
   X,
   Loader2,
@@ -779,7 +790,7 @@ function SalesProformaModal({
             <L label="Proforma invoice number *">
               <input
                 required
-                className="inp"
+                className={inputBase}
                 value={f.proforma_number}
                 onChange={(e) => setF({ ...f, proforma_number: e.target.value })}
                 placeholder="PF-2026-001"
@@ -788,7 +799,7 @@ function SalesProformaModal({
             <L label="Proforma invoice date">
               <input
                 type="date"
-                className="inp"
+                className={inputBase}
                 value={f.proforma_date}
                 onChange={(e) => setF({ ...f, proforma_date: e.target.value })}
               />
@@ -812,7 +823,7 @@ function SalesProformaModal({
             </L>
             <L label="Debtor contact">
               <input
-                className="inp"
+                className={inputBase}
                 value={f.debtor_contact}
                 onChange={(e) => setF({ ...f, debtor_contact: e.target.value })}
                 placeholder="Name · email · phone"
@@ -820,7 +831,7 @@ function SalesProformaModal({
             </L>
             <L label="Debtor GSTIN (optional)">
               <input
-                className="inp"
+                className={inputBase}
                 value={f.debtor_gstin}
                 onChange={(e) => setF({ ...f, debtor_gstin: e.target.value })}
                 placeholder="e.g. 27ABCDE1234F1Z5"
@@ -829,14 +840,14 @@ function SalesProformaModal({
             <L label="Valid until">
               <input
                 type="date"
-                className="inp"
+                className={inputBase}
                 value={f.valid_until}
                 onChange={(e) => setF({ ...f, valid_until: e.target.value })}
               />
             </L>
             <L label="Currency">
               <select
-                className="inp"
+                className={inputBase}
                 value={f.currency}
                 onChange={(e) => setF({ ...f, currency: e.target.value })}
               >
@@ -860,7 +871,7 @@ function SalesProformaModal({
             <L label="Expected delivery date">
               <input
                 type="date"
-                className="inp"
+                className={inputBase}
                 value={f.expected_delivery_date}
                 onChange={(e) => setF({ ...f, expected_delivery_date: e.target.value })}
               />
@@ -885,7 +896,7 @@ function SalesProformaModal({
             <L label="Notes">
               <textarea
                 rows={2}
-                className="inp resize-y"
+                className={textareaBase}
                 value={f.notes}
                 onChange={(e) => setF({ ...f, notes: e.target.value })}
                 placeholder="Order remarks, delivery instructions…"
@@ -946,7 +957,7 @@ function SalesProformaModal({
                     <div>
                       <L label="Unit">
                         <input
-                          className="inp"
+                          className={inputBase}
                           value={l.unit}
                           onChange={(e) => setLine(i, { unit: e.target.value })}
                         />
@@ -958,7 +969,7 @@ function SalesProformaModal({
                           type="number"
                           min="0"
                           step="0.001"
-                          className="inp"
+                          className={inputBase}
                           value={l.quantity}
                           onChange={(e) => setLine(i, { quantity: e.target.value })}
                         />
@@ -970,7 +981,7 @@ function SalesProformaModal({
                           type="number"
                           min="0"
                           step="0.01"
-                          className="inp"
+                          className={inputBase}
                           value={l.unit_price}
                           onChange={(e) => setLine(i, { unit_price: e.target.value })}
                         />
@@ -983,7 +994,7 @@ function SalesProformaModal({
                           type="number"
                           min="0"
                           step="0.01"
-                          className="inp"
+                          className={inputBase}
                           value={l.gst_rate}
                           onChange={(e) => setLine(i, { gst_rate: e.target.value })}
                         />
@@ -1055,7 +1066,7 @@ function SalesProformaModal({
                 type="number"
                 step="0.01"
                 min="0"
-                className="inp"
+                className={inputBase}
                 value={f.amount}
                 onChange={(e) => setF({ ...f, amount: e.target.value })}
                 placeholder="Optional"
@@ -1063,7 +1074,7 @@ function SalesProformaModal({
             </L>
             <L label="PO number (funding reference)">
               <input
-                className="inp"
+                className={inputBase}
                 value={f.po_number ?? ""}
                 onChange={(e) => setF({ ...f, po_number: e.target.value })}
                 placeholder="Optional — used to match advances"
@@ -1277,7 +1288,7 @@ function PurchaseProformaModal({
             <L label="Proforma invoice number *">
               <input
                 required
-                className="inp"
+                className={inputBase}
                 value={f.proforma_number}
                 onChange={(e) => setF({ ...f, proforma_number: e.target.value })}
                 placeholder="PF-2026-001"
@@ -1286,7 +1297,7 @@ function PurchaseProformaModal({
             <L label="Proforma invoice date">
               <input
                 type="date"
-                className="inp"
+                className={inputBase}
                 value={f.proforma_date}
                 onChange={(e) => setF({ ...f, proforma_date: e.target.value })}
               />
@@ -1308,7 +1319,7 @@ function PurchaseProformaModal({
             </L>
             <L label="Supplier contact">
               <input
-                className="inp"
+                className={inputBase}
                 value={f.supplier_contact}
                 onChange={(e) => setF({ ...f, supplier_contact: e.target.value })}
                 placeholder="Name · email · phone"
@@ -1316,7 +1327,7 @@ function PurchaseProformaModal({
             </L>
             <L label="Supplier GSTIN (optional)">
               <input
-                className="inp"
+                className={inputBase}
                 value={f.supplier_gstin}
                 onChange={(e) => setF({ ...f, supplier_gstin: e.target.value })}
                 placeholder="e.g. 27ABCDE1234F1Z5"
@@ -1325,14 +1336,14 @@ function PurchaseProformaModal({
             <L label="Valid until">
               <input
                 type="date"
-                className="inp"
+                className={inputBase}
                 value={f.valid_until}
                 onChange={(e) => setF({ ...f, valid_until: e.target.value })}
               />
             </L>
             <L label="Currency">
               <select
-                className="inp"
+                className={inputBase}
                 value={f.currency}
                 onChange={(e) => setF({ ...f, currency: e.target.value })}
               >
@@ -1356,7 +1367,7 @@ function PurchaseProformaModal({
             <L label="Expected delivery date">
               <input
                 type="date"
-                className="inp"
+                className={inputBase}
                 value={f.expected_delivery_date}
                 onChange={(e) => setF({ ...f, expected_delivery_date: e.target.value })}
               />
@@ -1366,7 +1377,7 @@ function PurchaseProformaModal({
             <L label="Notes">
               <textarea
                 rows={2}
-                className="inp resize-y"
+                className={textareaBase}
                 value={f.notes}
                 onChange={(e) => setF({ ...f, notes: e.target.value })}
                 placeholder="Quotation remarks, delivery instructions…"
@@ -1427,7 +1438,7 @@ function PurchaseProformaModal({
                     <div>
                       <L label="Unit">
                         <input
-                          className="inp"
+                          className={inputBase}
                           value={l.unit}
                           onChange={(e) => setLine(i, { unit: e.target.value })}
                         />
@@ -1439,7 +1450,7 @@ function PurchaseProformaModal({
                           type="number"
                           min="0"
                           step="0.001"
-                          className="inp"
+                          className={inputBase}
                           value={l.quantity}
                           onChange={(e) => setLine(i, { quantity: e.target.value })}
                         />
@@ -1451,7 +1462,7 @@ function PurchaseProformaModal({
                           type="number"
                           min="0"
                           step="0.01"
-                          className="inp"
+                          className={inputBase}
                           value={l.unit_price}
                           onChange={(e) => setLine(i, { unit_price: e.target.value })}
                         />
@@ -1464,7 +1475,7 @@ function PurchaseProformaModal({
                           type="number"
                           min="0"
                           step="0.01"
-                          className="inp"
+                          className={inputBase}
                           value={l.gst_rate}
                           onChange={(e) => setLine(i, { gst_rate: e.target.value })}
                         />
@@ -1536,7 +1547,7 @@ function PurchaseProformaModal({
                 type="number"
                 step="0.01"
                 min="0"
-                className="inp"
+                className={inputBase}
                 value={f.amount}
                 onChange={(e) => setF({ ...f, amount: e.target.value })}
                 placeholder="Optional"
@@ -1544,7 +1555,7 @@ function PurchaseProformaModal({
             </L>
             <L label="PO number (funding reference)">
               <input
-                className="inp"
+                className={inputBase}
                 value={f.po_number}
                 onChange={(e) => setF({ ...f, po_number: e.target.value })}
                 placeholder="Optional — used to match advances"
@@ -1719,7 +1730,7 @@ function FundModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: (
             type="number"
             step="0.01"
             min="0"
-            className="inp"
+            className={inputBase}
             value={form.amount}
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
           />
@@ -1734,14 +1745,14 @@ function FundModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: (
           <input
             required
             type="date"
-            className="inp"
+            className={inputBase}
             value={form.advance_date}
             onChange={(e) => setForm({ ...form, advance_date: e.target.value })}
           />
         </L>
         <L label="Reference">
           <input
-            className="inp"
+            className={inputBase}
             value={form.reference}
             onChange={(e) => setForm({ ...form, reference: e.target.value })}
             placeholder="Wire ref / transaction id"
@@ -1858,6 +1869,13 @@ function ProformaDetailModal({
         )}
 
         <div className="flex justify-end border-t border-border pt-3">
+          <a
+            href={`/proformas/${pf.id}/pdf`}
+            download
+            className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted flex items-center gap-2"
+          >
+            <FileSignature className="h-4 w-4" /> Download PDF
+          </a>
           <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
             Close
           </button>

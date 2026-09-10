@@ -5,6 +5,17 @@ import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
+  Dialog,
+  DialogWithStickyFooter,
+  Field,
+  inputBase,
+  textareaBase,
+  selectBase,
+  TwoFieldGrid,
+  InfoPanel,
+} from "@/components/dialog";
+import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
+import {
   Plus,
   X,
   Loader2,
@@ -633,7 +644,7 @@ function AllocateModal({
           <L label="SKU / Product search">
             <div className="flex items-center gap-2">
               <input
-                className="inp"
+                className={inputBase}
                 value={f.sku_search}
                 onChange={(e) => handleSkuSearch(e.target.value)}
                 onKeyDown={(e) => {
@@ -672,14 +683,14 @@ function AllocateModal({
             <div className="grid grid-cols-2 gap-3">
               <L label="SKU">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={selectedProduct.sku ?? "—"}
                   disabled
                 />
               </L>
               <L label="Unit">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={selectedProduct.unit_of_measure ?? "unit"}
                   disabled
                 />
@@ -689,7 +700,7 @@ function AllocateModal({
 
           <L label="From location *">
             <select
-              className="inp"
+              className={inputBase}
               value={f.source_location_id}
               onChange={(e) => setF({ ...f, source_location_id: e.target.value })}
             >
@@ -704,7 +715,7 @@ function AllocateModal({
 
           <L label="To location *">
             <select
-              className="inp"
+              className={inputBase}
               value={f.destination_location_id}
               onChange={(e) => setF({ ...f, destination_location_id: e.target.value })}
             >
@@ -725,7 +736,7 @@ function AllocateModal({
                 type="number"
                 min="1"
                 step="0.001"
-                className="inp"
+                className={inputBase}
                 value={f.quantity}
                 onChange={(e) => setF({ ...f, quantity: e.target.value })}
                 placeholder="Units to transfer"
@@ -734,7 +745,7 @@ function AllocateModal({
             {selectedProduct && (
               <L label="Unit">
                 <input
-                  className="inp"
+                  className={inputBase}
                   value={selectedProduct.unit_of_measure ?? "unit"}
                   disabled
                 />
@@ -846,7 +857,7 @@ function LocationModal({
         >
           <L label="Location name *">
             <input
-              className="inp"
+              className={inputBase}
               value={f.name}
               onChange={(e) => setF({ ...f, name: e.target.value })}
               placeholder="e.g. Central Warehouse, Amazon FBA"
@@ -854,7 +865,7 @@ function LocationModal({
           </L>
           <L label="Location type">
             <select
-              className="inp"
+              className={inputBase}
               value={f.location_type}
               onChange={(e) => setF({ ...f, location_type: e.target.value })}
             >
@@ -867,7 +878,7 @@ function LocationModal({
           </L>
           <L label="Channel (optional)">
             <input
-              className="inp"
+              className={inputBase}
               value={f.channel}
               onChange={(e) => setF({ ...f, channel: e.target.value })}
               placeholder="e.g. Amazon, Flipkart"
@@ -884,7 +895,7 @@ function LocationModal({
           </L>
           <L label="Status">
             <select
-              className="inp"
+              className={inputBase}
               value={f.status}
               onChange={(e) => setF({ ...f, status: e.target.value as "active" | "inactive" })}
             >

@@ -1424,7 +1424,11 @@ router.delete("/debtors/:id/payment-terms/:termId", authMiddleware, async (req, 
 router.get("/workflow-tasks", authMiddleware, async (req, res) => {
   try {
     const scopeAll = req.query.scope === "all";
-    const tasks = await WorkflowTask.listOpen(scopeAll ? undefined : effectiveListScope(req));
+    // status=done returns recently completed tasks for the queue's Completed filter.
+    const tasks =
+      req.query.status === "done"
+        ? await WorkflowTask.listRecentDone(100, scopeAll ? undefined : effectiveListScope(req))
+        : await WorkflowTask.listOpen(scopeAll ? undefined : effectiveListScope(req));
     const withOverdue = tasks.map((t) => ({ ...t, overdue: WorkflowTask.isOverdue(t) }));
     // Personal queue first (assigned to me), then role queue, then rest.
     const me = req.user!.email;
@@ -3551,6 +3555,35 @@ router.delete("/purchase-orders/:id", authMiddleware, async (req, res) => {
   try {
     await PurchaseOrder.remove(req.params.id);
     res.json({ success: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /proformas/:id/pdf — download the Tally-style proforma PDF.
+ * Sales-side proformas print as "PROFORMA INVOICE"; purchase-side proformas
+ * (supplier quotations) print with the supplier name in the seller block.
+ */
+router.get("/proformas/:id/pdf", authMiddleware, async (req, res) => {
+  try {
+    const pf = await PurchaseOrder.get(req.params.id);
+    if (!pf) return res.status(404).json({ error: "Proforma not found" });
+    const { proformaToTallyData, buildProformaTallyPdf } = await import("../lib/document-pdf.js");
+    const { seller, bank, bankRaw, declarationRaw, logoImage } = await resolveTallySellerParts(pf.clientId);
+    const data = proformaToTallyData(pf, {
+      seller,
+      bank,
+      bankRaw,
+      declarationRaw,
+      logoImage,
+    });
+    const pdf = await buildProformaTallyPdf(data);
+    const label = pf.side === "purchase" ? "Proforma" : "ProformaInvoice";
+    const filename = `${label}_${data.number.replace(/[^A-Za-z0-9_-]/g, "_")}.pdf`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(pdf);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -6553,12 +6586,27 @@ router.put("/goods-dispatches/:id", authMiddleware, async (req, res) => {
         return res.status(400).json({ error: e.message });
       }
     }
+    // Packing + transport fields (PDF-1) may be saved on the draft alongside
+    // the base fields — they are validated strictly at submit-to-finance.
+    const PACKING_FIELDS = [
+      "cartonCount", "packageType", "grossWeight", "grossWeightUnit",
+      "handlingInstructions", "internalDispatchNotes", "plannedDispatchAt",
+      "transportMode", "transporterName", "transporterId", "distanceKm",
+      "vehicleNumber", "vehicleType", "transportDocType", "transportDocNumber",
+      "transportDocDate", "driverName", "driverMobile",
+      "deliveryCity", "deliveryState", "deliveryPincode",
+    ] as const;
+    const packing: Record<string, any> = {};
+    for (const k of PACKING_FIELDS) {
+      if (body[k] !== undefined) packing[k] = body[k];
+    }
     const updated = await GoodsDispatch.update(dispatch.id, {
       dispatchDate: body.dispatchDate ?? dispatch.dispatchDate,
       warehouse: body.warehouse ?? dispatch.warehouse,
       notes: body.notes ?? dispatch.notes,
       documents: body.documents ?? dispatch.documents,
       lines,
+      ...packing,
     });
     res.json(updated);
   } catch (err: any) {

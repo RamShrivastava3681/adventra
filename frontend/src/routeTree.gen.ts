@@ -25,6 +25,10 @@ import { Route as AppDashboardRouteImport } from './routes/app.dashboard'
 import { Route as AppDebtorsRouteImport } from './routes/app.debtors'
 import { Route as AppDispatchesRouteImport } from './routes/app.dispatches'
 import { Route as AppExpensesRouteImport } from './routes/app.expenses'
+import { Route as AppFinanceInvoicesRouteImport } from './routes/app.finance-invoices'
+import { Route as AppFinanceProformasRouteImport } from './routes/app.finance-proformas'
+import { Route as AppFinancePurchasesRouteImport } from './routes/app.finance-purchases'
+import { Route as AppFinanceSalesOrdersRouteImport } from './routes/app.finance-sales-orders'
 import { Route as AppForecastRouteImport } from './routes/app.forecast'
 import { Route as AppGrnRouteImport } from './routes/app.grn'
 import { Route as AppInventoryRouteImport } from './routes/app.inventory'
@@ -45,6 +49,7 @@ import { Route as AppSampleDistributionRouteImport } from './routes/app.sample-d
 import { Route as AppSettingsRouteImport } from './routes/app.settings'
 import { Route as AppStockAllocationRouteImport } from './routes/app.stock-allocation'
 import { Route as AppSuppliersRouteImport } from './routes/app.suppliers'
+import { Route as AppTasksRouteImport } from './routes/app.tasks'
 import { Route as AppTemplateRouteImport } from './routes/app.template'
 import { Route as AppVendorsRouteImport } from './routes/app.vendors'
 import { Route as AppWarehouseRouteImport } from './routes/app.warehouse'
@@ -135,6 +140,26 @@ const AppDispatchesRoute = AppDispatchesRouteImport.update({
 const AppExpensesRoute = AppExpensesRouteImport.update({
   id: '/expenses',
   path: '/expenses',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFinanceInvoicesRoute = AppFinanceInvoicesRouteImport.update({
+  id: '/finance-invoices',
+  path: '/finance-invoices',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFinanceProformasRoute = AppFinanceProformasRouteImport.update({
+  id: '/finance-proformas',
+  path: '/finance-proformas',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFinancePurchasesRoute = AppFinancePurchasesRouteImport.update({
+  id: '/finance-purchases',
+  path: '/finance-purchases',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFinanceSalesOrdersRoute = AppFinanceSalesOrdersRouteImport.update({
+  id: '/finance-sales-orders',
+  path: '/finance-sales-orders',
   getParentRoute: () => AppRoute,
 } as any)
 const AppForecastRoute = AppForecastRouteImport.update({
@@ -237,6 +262,11 @@ const AppSuppliersRoute = AppSuppliersRouteImport.update({
   path: '/suppliers',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTasksRoute = AppTasksRouteImport.update({
+  id: '/tasks',
+  path: '/tasks',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppTemplateRoute = AppTemplateRouteImport.update({
   id: '/template',
   path: '/template',
@@ -310,6 +340,10 @@ export interface FileRoutesByFullPath {
   '/app/debtors': typeof AppDebtorsRoute
   '/app/dispatches': typeof AppDispatchesRoute
   '/app/expenses': typeof AppExpensesRoute
+  '/app/finance-invoices': typeof AppFinanceInvoicesRoute
+  '/app/finance-proformas': typeof AppFinanceProformasRoute
+  '/app/finance-purchases': typeof AppFinancePurchasesRoute
+  '/app/finance-sales-orders': typeof AppFinanceSalesOrdersRoute
   '/app/forecast': typeof AppForecastRoute
   '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
@@ -330,6 +364,7 @@ export interface FileRoutesByFullPath {
   '/app/settings': typeof AppSettingsRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
+  '/app/tasks': typeof AppTasksRoute
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
   '/app/warehouse': typeof AppWarehouseRoute
@@ -359,6 +394,10 @@ export interface FileRoutesByTo {
   '/app/debtors': typeof AppDebtorsRoute
   '/app/dispatches': typeof AppDispatchesRoute
   '/app/expenses': typeof AppExpensesRoute
+  '/app/finance-invoices': typeof AppFinanceInvoicesRoute
+  '/app/finance-proformas': typeof AppFinanceProformasRoute
+  '/app/finance-purchases': typeof AppFinancePurchasesRoute
+  '/app/finance-sales-orders': typeof AppFinanceSalesOrdersRoute
   '/app/forecast': typeof AppForecastRoute
   '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
@@ -378,6 +417,7 @@ export interface FileRoutesByTo {
   '/app/settings': typeof AppSettingsRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
+  '/app/tasks': typeof AppTasksRoute
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
   '/app/warehouse': typeof AppWarehouseRoute
@@ -408,6 +448,10 @@ export interface FileRoutesById {
   '/app/debtors': typeof AppDebtorsRoute
   '/app/dispatches': typeof AppDispatchesRoute
   '/app/expenses': typeof AppExpensesRoute
+  '/app/finance-invoices': typeof AppFinanceInvoicesRoute
+  '/app/finance-proformas': typeof AppFinanceProformasRoute
+  '/app/finance-purchases': typeof AppFinancePurchasesRoute
+  '/app/finance-sales-orders': typeof AppFinanceSalesOrdersRoute
   '/app/forecast': typeof AppForecastRoute
   '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
@@ -428,6 +472,7 @@ export interface FileRoutesById {
   '/app/settings': typeof AppSettingsRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
+  '/app/tasks': typeof AppTasksRoute
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
   '/app/warehouse': typeof AppWarehouseRoute
@@ -459,6 +504,10 @@ export interface FileRouteTypes {
     | '/app/debtors'
     | '/app/dispatches'
     | '/app/expenses'
+    | '/app/finance-invoices'
+    | '/app/finance-proformas'
+    | '/app/finance-purchases'
+    | '/app/finance-sales-orders'
     | '/app/forecast'
     | '/app/grn'
     | '/app/inventory'
@@ -479,6 +528,7 @@ export interface FileRouteTypes {
     | '/app/settings'
     | '/app/stock-allocation'
     | '/app/suppliers'
+    | '/app/tasks'
     | '/app/template'
     | '/app/vendors'
     | '/app/warehouse'
@@ -508,6 +558,10 @@ export interface FileRouteTypes {
     | '/app/debtors'
     | '/app/dispatches'
     | '/app/expenses'
+    | '/app/finance-invoices'
+    | '/app/finance-proformas'
+    | '/app/finance-purchases'
+    | '/app/finance-sales-orders'
     | '/app/forecast'
     | '/app/grn'
     | '/app/inventory'
@@ -527,6 +581,7 @@ export interface FileRouteTypes {
     | '/app/settings'
     | '/app/stock-allocation'
     | '/app/suppliers'
+    | '/app/tasks'
     | '/app/template'
     | '/app/vendors'
     | '/app/warehouse'
@@ -556,6 +611,10 @@ export interface FileRouteTypes {
     | '/app/debtors'
     | '/app/dispatches'
     | '/app/expenses'
+    | '/app/finance-invoices'
+    | '/app/finance-proformas'
+    | '/app/finance-purchases'
+    | '/app/finance-sales-orders'
     | '/app/forecast'
     | '/app/grn'
     | '/app/inventory'
@@ -576,6 +635,7 @@ export interface FileRouteTypes {
     | '/app/settings'
     | '/app/stock-allocation'
     | '/app/suppliers'
+    | '/app/tasks'
     | '/app/template'
     | '/app/vendors'
     | '/app/warehouse'
@@ -709,6 +769,34 @@ declare module '@tanstack/react-router' {
       path: '/expenses'
       fullPath: '/app/expenses'
       preLoaderRoute: typeof AppExpensesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/finance-invoices': {
+      id: '/app/finance-invoices'
+      path: '/finance-invoices'
+      fullPath: '/app/finance-invoices'
+      preLoaderRoute: typeof AppFinanceInvoicesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/finance-proformas': {
+      id: '/app/finance-proformas'
+      path: '/finance-proformas'
+      fullPath: '/app/finance-proformas'
+      preLoaderRoute: typeof AppFinanceProformasRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/finance-purchases': {
+      id: '/app/finance-purchases'
+      path: '/finance-purchases'
+      fullPath: '/app/finance-purchases'
+      preLoaderRoute: typeof AppFinancePurchasesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/finance-sales-orders': {
+      id: '/app/finance-sales-orders'
+      path: '/finance-sales-orders'
+      fullPath: '/app/finance-sales-orders'
+      preLoaderRoute: typeof AppFinanceSalesOrdersRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/forecast': {
@@ -851,6 +939,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSuppliersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/tasks': {
+      id: '/app/tasks'
+      path: '/tasks'
+      fullPath: '/app/tasks'
+      preLoaderRoute: typeof AppTasksRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/template': {
       id: '/app/template'
       path: '/template'
@@ -959,6 +1054,10 @@ interface AppRouteChildren {
   AppDebtorsRoute: typeof AppDebtorsRoute
   AppDispatchesRoute: typeof AppDispatchesRoute
   AppExpensesRoute: typeof AppExpensesRoute
+  AppFinanceInvoicesRoute: typeof AppFinanceInvoicesRoute
+  AppFinanceProformasRoute: typeof AppFinanceProformasRoute
+  AppFinancePurchasesRoute: typeof AppFinancePurchasesRoute
+  AppFinanceSalesOrdersRoute: typeof AppFinanceSalesOrdersRoute
   AppForecastRoute: typeof AppForecastRoute
   AppGrnRoute: typeof AppGrnRoute
   AppInventoryRoute: typeof AppInventoryRoute
@@ -979,6 +1078,7 @@ interface AppRouteChildren {
   AppSettingsRoute: typeof AppSettingsRoute
   AppStockAllocationRoute: typeof AppStockAllocationRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
+  AppTasksRoute: typeof AppTasksRoute
   AppTemplateRoute: typeof AppTemplateRoute
   AppVendorsRoute: typeof AppVendorsRoute
   AppWarehouseRoute: typeof AppWarehouseRoute
@@ -1002,6 +1102,10 @@ const AppRouteChildren: AppRouteChildren = {
   AppDebtorsRoute: AppDebtorsRoute,
   AppDispatchesRoute: AppDispatchesRoute,
   AppExpensesRoute: AppExpensesRoute,
+  AppFinanceInvoicesRoute: AppFinanceInvoicesRoute,
+  AppFinanceProformasRoute: AppFinanceProformasRoute,
+  AppFinancePurchasesRoute: AppFinancePurchasesRoute,
+  AppFinanceSalesOrdersRoute: AppFinanceSalesOrdersRoute,
   AppForecastRoute: AppForecastRoute,
   AppGrnRoute: AppGrnRoute,
   AppInventoryRoute: AppInventoryRoute,
@@ -1022,6 +1126,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsRoute: AppSettingsRoute,
   AppStockAllocationRoute: AppStockAllocationRoute,
   AppSuppliersRoute: AppSuppliersRoute,
+  AppTasksRoute: AppTasksRoute,
   AppTemplateRoute: AppTemplateRoute,
   AppVendorsRoute: AppVendorsRoute,
   AppWarehouseRoute: AppWarehouseRoute,

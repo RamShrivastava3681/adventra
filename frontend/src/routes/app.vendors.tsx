@@ -4,6 +4,17 @@ import { useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
+import {
+  Dialog,
+  DialogWithStickyFooter,
+  Field,
+  inputBase,
+  textareaBase,
+  selectBase,
+  TwoFieldGrid,
+  InfoPanel,
+} from "@/components/dialog";
+import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 import { Plus, X, Loader2, Building2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -205,7 +216,7 @@ function AddVendorModal({
                 <input
                   required
                   maxLength={200}
-                  className="inp"
+                  className={inputBase}
                   value={form.name}
                   onChange={set("name")}
                 />
@@ -213,7 +224,7 @@ function AddVendorModal({
               <L label="Industry">
                 <input
                   maxLength={100}
-                  className="inp"
+                  className={inputBase}
                   value={form.industry}
                   onChange={set("industry")}
                 />
@@ -223,13 +234,13 @@ function AddVendorModal({
                   type="url"
                   maxLength={255}
                   placeholder="https://"
-                  className="inp"
+                  className={inputBase}
                   value={form.website}
                   onChange={set("website")}
                 />
               </L>
               <L label="Phone">
-                <input maxLength={40} className="inp" value={form.phone} onChange={set("phone")} />
+                <input maxLength={40} className={inputBase} value={form.phone} onChange={set("phone")} />
               </L>
             </div>
           </Section>
@@ -239,18 +250,18 @@ function AddVendorModal({
               <L label="Address" full>
                 <input
                   maxLength={300}
-                  className="inp"
+                  className={inputBase}
                   value={form.address_line}
                   onChange={set("address_line")}
                 />
               </L>
               <L label="City">
-                <input maxLength={100} className="inp" value={form.city} onChange={set("city")} />
+                <input maxLength={100} className={inputBase} value={form.city} onChange={set("city")} />
               </L>
               <L label="Country">
                 <input
                   maxLength={100}
-                  className="inp"
+                  className={inputBase}
                   value={form.country}
                   onChange={set("country")}
                 />
@@ -258,7 +269,7 @@ function AddVendorModal({
               <L label="PIN / Postal code">
                 <input
                   maxLength={20}
-                  className="inp"
+                  className={inputBase}
                   value={form.postal_code}
                   onChange={set("postal_code")}
                 />
@@ -271,7 +282,7 @@ function AddVendorModal({
               <L label="Contact name">
                 <input
                   maxLength={120}
-                  className="inp"
+                  className={inputBase}
                   value={form.contact_name}
                   onChange={set("contact_name")}
                 />
@@ -279,7 +290,7 @@ function AddVendorModal({
               <L label="Designation">
                 <input
                   maxLength={120}
-                  className="inp"
+                  className={inputBase}
                   value={form.contact_designation}
                   onChange={set("contact_designation")}
                 />
@@ -288,7 +299,7 @@ function AddVendorModal({
                 <input
                   type="email"
                   maxLength={255}
-                  className="inp"
+                  className={inputBase}
                   value={form.contact_email}
                   onChange={set("contact_email")}
                 />
@@ -296,7 +307,7 @@ function AddVendorModal({
               <L label="Phone">
                 <input
                   maxLength={40}
-                  className="inp"
+                  className={inputBase}
                   value={form.contact_phone}
                   onChange={set("contact_phone")}
                 />
@@ -311,7 +322,7 @@ function AddVendorModal({
                   required
                   type="number"
                   min="0"
-                  className="inp"
+                  className={inputBase}
                   value={form.payment_terms_days}
                   onChange={set("payment_terms_days")}
                 />

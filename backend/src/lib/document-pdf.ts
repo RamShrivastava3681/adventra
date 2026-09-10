@@ -1011,6 +1011,447 @@ export function invoiceToPdfData(
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
+// PROFORMA PDF (Tally-style, adapted from the sales-order layout)
+// ── Cream title bar · "PROFORMA INVOICE" · seller + bill-to blocks ·
+//    meta grid (proforma no, date, valid until, currency, PO ref…) ·
+//    item table (SNO/Particulars/Color/Code/Size/MRP/Selling/Qty/Offer/Total) ·
+//    totals · amount-in-words · bank/UPI · declaration · signatory.
+// ═════════════════════════════════════════════════════════════════════════════
+
+export interface ProformaPdfData {
+  number: string;
+  /** Already formatted, e.g. "5/Sep/2026". */
+  proformaDate: string;
+  validUntil: string | null;
+  currency: string;
+  debtorName: string | null;
+  debtorContact: string | null;
+  debtorGstin: string | null;
+  debtorPan: string | null;
+  debtorAddress: string;
+  /** De-duplicated "Name, address" line for the BILL TO block. */
+  billText: string;
+  paymentTerms: string | null;
+  expectedDeliveryDate: string | null;
+  poNumber: string | null;
+  linkedSoNumber: string | null;
+  advanceRequested: number;
+  advanceLabel: string;
+  seller: TallySOSeller;
+  lines: TallySOLine[];
+  totalQty: number;
+  subtotal: number;
+  gstTotal: number;
+  freight: number;
+  grandTotal: number;
+  amountWords: string;
+  bank: TallySOBank | null;
+  bankRaw: string | null;
+  upiDetails: string | null;
+  notes: string | null;
+  remarks: string | null;
+  declaration: string[];
+  jurisdiction: string;
+  logoImage: Buffer | null;
+}
+
+const PROFORMA = {
+  title: "PROFORMA INVOICE",
+};
+
+/** Map a sales proforma (PurchaseOrder with side==="sales") onto the Tally
+ *  proforma print shape, using the same seller/bank/declaration helpers as the
+ *  sales-order tally builder. */
+export function proformaToTallyData(
+  pf: any,
+  opts?: {
+    seller?: Partial<TallySOSeller> | null;
+    bank?: Partial<TallySOBank> | null;
+    bankRaw?: string | null;
+    declarationRaw?: string | null;
+    logoImage?: Buffer | null;
+  },
+): ProformaPdfData {
+  const s = opts?.seller ?? {};
+  const b = opts?.bank ?? {};
+  const bank: TallySOBank | null =
+    b.holder || b.bank || b.acNo || b.ifsc || b.branch
+      ? { holder: b.holder || "", bank: b.bank || "", acNo: b.acNo || "", ifsc: b.ifsc || "", branch: b.branch || "" }
+      : null;
+  const declaration = String(opts?.declarationRaw ?? "")
+    .split(/\r?\n/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const lines: TallySOLine[] = (pf.lines ?? []).map((l: any, i: number) => {
+    const sellingPrice = Number(l.unitPrice ?? l.unit_price ?? 0) || 0;
+    const quantity = Number(l.orderedQty ?? l.ordered_qty ?? l.quantity ?? 0) || 0;
+    const discountPct = Number(l.discountPct ?? l.discount_pct ?? 0) || 0;
+    const offerPrice = r2(sellingPrice * (1 - Math.min(100, Math.max(0, discountPct)) / 100));
+    return {
+      sno: i + 1,
+      particulars: l.name || "Item",
+      color: l.color ?? l.colour ?? "",
+      productCode: l.productCode ?? l.product_code ?? l.model ?? l.sku ?? "",
+      size: l.size ? String(l.size) : "",
+      mrp: l.mrp ?? null,
+      sellingPrice,
+      quantity,
+      offerPrice,
+      amount: r2(Number(l.lineTotal ?? l.line_total ?? quantity * offerPrice) || 0),
+    };
+  });
+  const debtorName = pf.debtorName ?? pf.debtor_name ?? pf.customerName ?? pf.customer_name ?? null;
+  const debtorAddress = [
+    pf.debtorBillingAddress ?? pf.debtor_billing_address ?? pf.billingAddress ?? pf.billing_address ?? "",
+    pf.debtorCity ?? pf.debtor_city ?? pf.city ?? pf.city ?? "",
+    pf.debtorCountry ?? pf.debtor_country ?? pf.country ?? pf.country ?? "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const startsWithName = (addr: string) =>
+    !!debtorName && addr.toLowerCase().startsWith(debtorName.toLowerCase());
+  const billText = startsWithName(debtorAddress)
+    ? debtorAddress
+    : [debtorName, debtorAddress].filter(Boolean).join(", ");
+  const advanceRequested = Number(pf.advanceAmount ?? pf.advance_amount ?? pf.amount ?? 0) || 0;
+  let advanceLabel: string;
+  if (pf.advancePct ?? pf.advance_pct) {
+    const pct = Number(pf.advancePct ?? pf.advance_pct) || 0;
+    advanceLabel = pct > 0 ? `${pct}% advance requested` : "Advance requested";
+  } else if (advanceRequested > 0) {
+    advanceLabel = "Advance requested";
+  } else {
+    advanceLabel = "";
+  }
+  const totalQty = Number(pf.totalQty ?? pf.total_qty ?? lines.reduce((x, l) => x + l.quantity, 0)) || 0;
+  return {
+    number: pf.proformaNumber || pf.proforma_number || pf.poNumber || pf.po_number || "—",
+    proformaDate: fmtTallyDate(pf.proformaDate ?? pf.proforma_date ?? pf.issueDate ?? pf.issue_date ?? ""),
+    validUntil: fmtTallyDate(pf.validUntil ?? pf.valid_until ?? null),
+    currency: pf.currency || "INR",
+    debtorName,
+    debtorContact: pf.debtorContact ?? pf.debtor_contact ?? null,
+    debtorGstin: pf.debtorGstin ?? pf.debtor_gstin ?? null,
+    debtorPan: pf.debtorPan ?? pf.debtor_pan ?? null,
+    debtorAddress,
+    billText,
+    paymentTerms: formatPaymentTerms(pf) || pf.paymentTerms ?? pf.payment_terms ?? null,
+    expectedDeliveryDate: pf.expectedDeliveryDate ?? pf.expected_delivery_date ?? null,
+    poNumber: pf.poNumber ?? pf.po_number ?? null,
+    linkedSoNumber: pf.linkedGoodsSoId ?? pf.linked_goods_so_id ?? null,
+    advanceRequested,
+    advanceLabel,
+    seller: {
+      name: s.name || "",
+      address: s.address || "",
+      gstin: s.gstin || "",
+      stateName: s.stateName || "",
+      stateCode: s.stateCode || "",
+      email: s.email || "",
+    },
+    lines,
+    totalQty,
+    subtotal: Number(pf.subtotal) || 0,
+    gstTotal: Number(pf.gstTotal) || 0,
+    freight: Number(pf.freight) || 0,
+    grandTotal: r2(Number(pf.grandTotal ?? pf.grand_total ?? lines.reduce((x, l) => x + l.amount, 0)) || 0),
+    amountWords: amountInWordsINR(r2(Number(pf.grandTotal ?? pf.grand_total ?? 0))),
+    bank,
+    bankRaw: opts?.bankRaw ?? pf.bankDetails ?? pf.bank_details ?? null,
+    upiDetails: pf.upiDetails ?? pf.upi_details ?? null,
+    notes: pf.notes ?? null,
+    remarks: null,
+    declaration,
+    jurisdiction: String(s.stateName || "").toUpperCase(),
+    logoImage: opts?.logoImage ?? null,
+  };
+}
+
+/** Render the Tally-style proforma PDF. */
+export function buildProformaTallyPdf(data: ProformaPdfData): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    try {
+      const M = 24;
+      const PW = 595.28;
+      const PH = 841.89;
+      const CW = PW - M * 2;
+      const BOT = PH - M;
+      const doc = new PDFDocument({ size: "A4", margins: { top: M, bottom: M, left: M, right: M } });
+      const chunks: Buffer[] = [];
+      doc.on("data", (c: Buffer) => chunks.push(c));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+
+      const F = "Helvetica";
+      const FB = "Helvetica-Bold";
+      const PAD = 3;
+      let y = M;
+
+      const need = (h: number) => {
+        if (y + h > BOT) {
+          doc.addPage();
+          y = M;
+        }
+      };
+
+      const cell = (
+        x: number, yy: number, w: number, h: number,
+        text: string,
+        o?: { font?: string; size?: number; align?: "left" | "center" | "right"; fill?: string },
+      ) => {
+        if (o?.fill) doc.rect(x, yy, w, h).fill(o.fill);
+        doc.rect(x, yy, w, h).strokeColor(TALLY.ink).lineWidth(0.5).stroke();
+        if (text) {
+          doc
+            .font(o?.font ?? F)
+            .fontSize(o?.size ?? 7.5)
+            .fillColor(TALLY.ink)
+            .text(text, x + PAD, yy + 2, {
+              width: Math.max(1, w - PAD * 2),
+              align: o?.align ?? "left",
+            });
+        }
+      };
+
+      const wrapH = (text: string, w: number, size: number, font?: string): number => {
+        if (!text) return 0;
+        doc.font(font ?? F).fontSize(size);
+        return doc.heightOfString(text, { width: Math.max(1, w - PAD * 2) });
+      };
+
+      // ── Title bar ──────────────────────────────────────────────────────────
+      cell(M, y, CW, 18, PROFORMA.title, { font: FB, size: 11, align: "center", fill: TALLY.cream });
+      y += 18;
+
+      // ── Header block: seller (left) + meta grid (right) + logo ──────────────
+      const LW = Math.round(CW * 0.605);
+      const RW = CW - LW;
+      const y0 = y;
+      const leftDivs: number[] = [];
+      let ly = y0;
+
+      const leftRow = (text: string, o?: { font?: string; size?: number; h?: number; fill?: string }) => {
+        const size = o?.size ?? 7.5;
+        const h = o?.h ?? Math.max(11, Math.ceil(wrapH(text, LW, size, o?.font) + 5));
+        cell(M, ly, LW, h, text, { font: o?.font, size, fill: o?.fill });
+        ly += h;
+        leftDivs.push(ly);
+      };
+
+      const sel = data.seller;
+      leftRow(sel.name, { font: FB, size: 8.5, h: 13 });
+      if (sel.address) leftRow(sel.address, { h: Math.max(22, Math.ceil(wrapH(sel.address, LW, 7.5) + 5)) });
+      leftRow(`GSTIN/UIN : ${sel.gstin}`);
+      leftRow(`State Name : ${sel.stateName}, Code : ${sel.stateCode}`);
+      leftRow(`E-Mail : ${sel.email}`);
+      leftRow("BILL TO -", { size: 7 });
+      if (data.billText) leftRow(data.billText, { h: Math.max(22, Math.ceil(wrapH(data.billText, LW, 7.5) + 5)) });
+      leftRow(`GSTIN/UIN : ${data.debtorGstin ?? ""}`);
+      leftRow(`PAN : ${data.debtorPan ?? ""}`);
+      const leftH = ly - y0;
+
+      // Right meta grid
+      const rightDivs: number[] = [];
+      let ry = y0;
+      const metaRow = (label: string, value: string | null, h = 13, valueFont?: string) => {
+        const lw = Math.round(RW * 0.52);
+        cell(M + LW, ry, lw, h, label, { size: 6.5, align: "center" });
+        cell(M + LW + lw, ry, RW - lw, h, value ?? "", { size: 7.5, align: "center", font: valueFont });
+        ry += h;
+        rightDivs.push(ry);
+      };
+      metaRow("Proforma No.", data.number, 13, FB);
+      metaRow("Proforma Date", data.proformaDate, 13, FB);
+      if (data.validUntil) metaRow("Valid Until", data.validUntil);
+      metaRow("Currency", data.currency);
+      metaRow("PO No.", data.poNumber);
+      if (data.linkedSoNumber) metaRow("Linked SO", data.linkedSoNumber);
+      metaRow("Mode/Terms of Payment", data.paymentTerms);
+      if (data.expectedDeliveryDate) metaRow("Expected Delivery", data.expectedDeliveryDate);
+      if (data.advanceLabel) metaRow("Advance", data.advanceLabel, 13, FB);
+      // Logo cell fills remaining right-column height (min 64)
+      const logoH = Math.max(64, leftH - (ry - y0));
+      const lx = M + LW;
+      doc.rect(lx, ry, RW, logoH).fill(TALLY.white);
+      doc.rect(lx, ry, RW, logoH).strokeColor(TALLY.ink).lineWidth(0.5).stroke();
+      if (data.logoImage) {
+        try {
+          doc.image(data.logoImage, lx + 6, ry + 6, {
+            fit: [RW - 12, logoH - 12],
+            align: "center",
+            valign: "center",
+          });
+        } catch {
+          doc.font(FB).fontSize(10).fillColor(TALLY.ink).text(sel.name || " ", lx + 6, ry + logoH / 2 - 8, { width: RW - 12, align: "center" });
+        }
+      }
+      ry += logoH;
+      rightDivs.push(ry);
+
+      const blockH = Math.max(leftH, ry - y0);
+      doc.rect(M, y0, CW, blockH).strokeColor(TALLY.ink).lineWidth(0.75).stroke();
+      doc.moveTo(M + LW, y0).lineTo(M + LW, y0 + blockH).strokeColor(TALLY.ink).lineWidth(0.5).stroke();
+      y = y0 + blockH;
+
+      // ── Item table ─────────────────────────────────────────────────────────
+      const C = { sno: 30, color: 56, code: 56, size: 34, mrp: 52, sell: 56, qty: 42, offer: 56, amt: 66 };
+      const partW = CW - (C.sno + C.color + C.code + C.size + C.mrp + C.sell + C.qty + C.offer + C.amt);
+      const colX = (key: keyof typeof C | "part"): number => {
+        let x = M;
+        const order: Array<keyof typeof C | "part"> = ["sno", "part", "color", "code", "size", "mrp", "sell", "qty", "offer", "amt"];
+        const widths: Record<string, number> = { ...C, part: partW };
+        for (const k of order) {
+          if (k === key) return x;
+          x += widths[k];
+        }
+        return x;
+      };
+      const colW = (key: keyof typeof C | "part"): number =>
+        key === "part" ? partW : C[key as keyof typeof C];
+
+      const HEAD_H = 26;
+      const drawTableHead = () => {
+        need(HEAD_H);
+        const heads: Array<[keyof typeof C | "part", string]> = [
+          ["sno", "SNO"], ["part", "Particulars"], ["color", "Product Color"],
+          ["code", "Product Cod"], ["size", "Size"], ["mrp", "MRP"],
+          ["sell", "Selling Price"], ["qty", "Quantity"], ["offer", "Offer Price"],
+          ["amt", "Total Amount"],
+        ];
+        for (const [k, t] of heads) {
+          cell(colX(k), y, colW(k), HEAD_H, t, { font: FB, size: 7, align: "center", fill: TALLY.headGray });
+        }
+        y += HEAD_H;
+      };
+
+      drawTableHead();
+      data.lines.forEach((l, idx) => {
+        const rowH = Math.max(
+          14,
+          Math.ceil(wrapH(l.particulars, partW, 7.5) + 6),
+        );
+        if (y + rowH > BOT) {
+          doc.addPage();
+          y = M;
+          drawTableHead();
+        }
+        const fill = idx % 2 === 1 ? TALLY.altRow : TALLY.white;
+        type TallyAlign = "left" | "center" | "right";
+        const row: Array<[keyof typeof C | "part", string, TallyAlign]> = [
+          ["sno", String(l.sno), "center"],
+          ["part", l.particulars, "left"],
+          ["color", l.color, "center"],
+          ["code", l.productCode, "center"],
+          ["size", l.size, "center"],
+          ["mrp", l.mrp != null ? tallyNum(l.mrp) : "", "right"],
+          ["sell", tallyNum(l.sellingPrice), "right"],
+          ["qty", tallyNum(l.quantity), "right"],
+          ["offer", tallyNum(l.offerPrice), "right"],
+          ["amt", tallyNum(l.amount), "right"],
+        ];
+        for (const [k, t, a] of row) {
+          cell(colX(k), y, colW(k), rowH, t, { size: 7.5, align: a ?? "left", fill });
+        }
+        y += rowH;
+      });
+
+      // Totals row
+      const TOT_H = 15;
+      need(TOT_H);
+      const spanW = C.sno + partW + C.color + C.code + C.size + C.mrp + C.sell;
+      cell(M, y, spanW, TOT_H, "Total", { font: FB, size: 8, align: "center", fill: TALLY.headGray });
+      cell(M + spanW, y, C.qty, TOT_H, tallyNum(data.totalQty), { font: FB, size: 8, align: "right", fill: TALLY.headGray });
+      cell(M + spanW + C.qty, y, C.offer, TOT_H, "", { fill: TALLY.headGray });
+      cell(M + spanW + C.qty + C.offer, y, C.amt, TOT_H, tallyNum(data.grandTotal), { font: FB, size: 8, align: "right", fill: TALLY.headGray });
+      y += TOT_H;
+
+      // ── Amount in words + currency label ───────────────────────────────────
+      const wordsW = Math.round(CW * 0.65);
+      const wordsH = Math.max(32, Math.ceil(wrapH(data.amountWords, wordsW, 7.5) + 20));
+      need(wordsH);
+      cell(M, y, wordsW, wordsH, "", {});
+      doc.font(FB).fontSize(7).fillColor(TALLY.ink).text("Amount Chargeable (in words) :", M + PAD, y + 2, { width: wordsW - PAD * 2 });
+      doc.font(F).fontSize(7.5).fillColor(TALLY.ink).text(data.amountWords, M + PAD, y + 13, { width: wordsW - PAD * 2 });
+      cell(M + wordsW, y, CW - wordsW, wordsH, `${data.currency} · E. & O.E`, { font: FB, size: 7.5, align: "center" });
+      y += wordsH;
+
+      // ── Remarks/Notes (left) + Bank details + UPI (right) ──────────────────
+      const bankW = Math.round(CW * 0.45);
+      const remW = CW - bankW;
+      const remarkText = data.remarks ? `Remarks: ${data.remarks}` : data.notes ? `Notes: ${data.notes}` : "";
+      const declText = (data.declaration ?? []).join("\n");
+      const leftTextH =
+        (remarkText ? wrapH(remarkText, remW, 7) + 6 : 0) +
+        (declText ? wrapH(`Declaration:\n${declText}`, remW, 7) : 0);
+      const bankLineCount = data.bank ? 5 : 0;
+      const upiExtra = data.upiDetails ? 1 : 0;
+      const bankInfoH = data.bank ? 12 + bankLineCount * 12 : data.bankRaw ? Math.max(36, Math.ceil(wrapH(data.bankRaw, bankW, 7) + 20)) : 18 + upiExtra * 12;
+      const rbH = Math.max(24, Math.ceil(leftTextH + 12), bankInfoH + 4);
+      need(rbH);
+      const ry0 = y;
+      cell(M, y, remW, rbH, "", {});
+      let ty = y + 2;
+      if (remarkText) {
+        doc.font(FB).fontSize(7).fillColor(TALLY.ink).text(remarkText, M + PAD, ty, { width: remW - PAD * 2 });
+        ty += Math.ceil(wrapH(remarkText, remW, 7)) + 5;
+      }
+      if (declText) {
+        doc.font(FB).fontSize(7).fillColor(TALLY.ink).text("Declaration:", M + PAD, ty, { width: remW - PAD * 2 });
+        ty += 10;
+        doc.font(F).fontSize(7).fillColor(TALLY.ink).text(declText, M + PAD, ty, { width: remW - PAD * 2 });
+      }
+      // Bank block
+      cell(M + remW, y, bankW, rbH, "", {});
+      let by = y;
+      cell(M + remW, by, bankW, 12, "Company's Bank Details:", { font: FB, size: 7, align: "center" });
+      by += 12;
+      if (data.bank) {
+        const rows: Array<[string, string]> = [
+          ["A/c Holder's Name:", data.bank.holder],
+          ["Bank Name:", data.bank.bank],
+          ["A/c No.:", data.bank.acNo],
+          ["IFSC Code:", data.bank.ifsc],
+          ["Branch :", data.bank.branch],
+        ];
+        for (const [k, v] of rows) {
+          const klw = Math.round(bankW * 0.38);
+          cell(M + remW, by, klw, 12, k, { font: FB, size: 7, align: "center" });
+          cell(M + remW + klw, by, bankW - klw, 12, v, { size: 7.5, align: "center" });
+          by += 12;
+        }
+      } else if (data.bankRaw) {
+        doc.font(F).fontSize(7).fillColor(TALLY.ink).text(data.bankRaw, M + remW + PAD, by + 2, { width: bankW - PAD * 2 });
+        by += Math.max(12, Math.ceil(wrapH(data.bankRaw, bankW, 7) + 5));
+      }
+      if (data.upiDetails) {
+        cell(M + remW, by, bankW, 12, "UPI ID:", { font: FB, size: 7, align: "center" });
+        cell(M + remW, by, bankW, 12, data.upiDetails, { size: 7.5, align: "center" });
+        by += 12;
+      }
+      y = ry0 + rbH;
+
+      // ── Sign-off lines ─────────────────────────────────────────────────────
+      const signRow = (text: string, o?: { font?: string; size?: number; h?: number }) => {
+        const h = o?.h ?? 12;
+        need(h);
+        cell(M, y, CW, h, text, { font: o?.font ?? F, size: o?.size ?? 7.5, align: "center" });
+        y += h;
+      };
+      if (data.seller.name) signRow(`ONLY ${data.seller.name}`, { font: FB, h: 13 });
+      signRow("Authorised Signatory");
+      if (data.jurisdiction) signRow(`SUBJECT TO ${data.jurisdiction} JURISDICTION`);
+      signRow("This is a Computer Generated Proforma Invoice");
+
+      doc.end();
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+
+
+// ═════════════════════════════════════════════════════════════════════════════
 // TALLY-STYLE SALES ORDER PDF (bordered grid, classic GST-invoice look)
 // ── Cream title bar · seller + ship-to + bill-to blocks · meta grid ·
 //    item table (SNO/Particulars/Color/Code/Size/MRP/Selling/Qty/Offer/Total) ·
