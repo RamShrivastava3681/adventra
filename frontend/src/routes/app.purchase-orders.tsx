@@ -674,7 +674,7 @@ function normPoAddrs(v: any): PoAddr[] {
 
 function poAddrLabel(a: PoAddr, i: number): string {
   const short = a.address.length > 60 ? `${a.address.slice(0, 60)}…` : a.address;
-  return `${a.label ? `${a.label} — ` : ""}${short}${i === 0 ? " (primary)" : ""}`;
+  return `${a.label ? `${a.label} — ` : ""}${short}`;
 }
 
 function POModal({

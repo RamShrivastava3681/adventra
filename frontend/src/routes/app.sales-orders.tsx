@@ -158,7 +158,7 @@ type CatalogueProduct = {
   status: string;
 };
 
-type CustomerAddress = { label: string | null; address: string };
+type CustomerAddress = { label: string | null; address: string; city?: string | null; state?: string | null; postalCode?: string | null };
 
 type Customer = {
   id: string;
@@ -184,16 +184,35 @@ function normAddresses(v: any): CustomerAddress[] {
       if (e.trim()) out.push({ label: null, address: e.trim() });
     } else if (e && typeof e === "object") {
       const addr = e.address ?? e.address_line ?? "";
-      if (typeof addr === "string" && addr.trim())
-        out.push({ label: e.label ?? null, address: addr.trim() });
+      const city = e.city ?? null;
+      const state = e.state ?? e.country ?? null;
+      const postalCode = e.postalCode ?? e.postal_code ?? e.pin ?? e.pincode ?? null;
+      const hasAny =
+        (typeof addr === "string" && addr.trim()) ||
+        (typeof city === "string" && city.trim()) ||
+        (state != null && String(state).trim()) ||
+        (postalCode != null && String(postalCode).trim());
+      if (hasAny)
+        out.push({
+          label: e.label ?? null,
+          address: typeof addr === "string" ? addr.trim() : "",
+          city: typeof city === "string" ? city.trim() || null : null,
+          state: state != null ? String(state).trim() || null : null,
+          postalCode: postalCode != null ? String(postalCode).trim() || null : null,
+        });
     }
   }
   return out;
 }
 
+function fullAddr(a: CustomerAddress): string {
+  return [a.address, a.city, a.state, a.postalCode].filter(Boolean).join(", ");
+}
+
 function addrLabel(a: CustomerAddress, i: number): string {
-  const short = a.address.length > 60 ? `${a.address.slice(0, 60)}…` : a.address;
-  return `${a.label ? `${a.label} — ` : ""}${short}${i === 0 ? " (primary)" : ""}`;
+  const full = fullAddr(a);
+  const short = full.length > 60 ? `${full.slice(0, 60)}…` : full;
+  return `${a.label ? `${a.label} — ` : ""}${short}`;
 }
 
 const SO_STATUSES = [
@@ -826,8 +845,8 @@ function SOModal({
           prev.customer_id === cid
             ? {
                 ...prev,
-                billing_address: billing[0]?.address ?? prev.billing_address,
-                delivery_address: shipping[0]?.address ?? billing[0]?.address ?? prev.delivery_address,
+                billing_address: billing[0] ? fullAddr(billing[0]) : prev.billing_address,
+                delivery_address: (shipping[0] ? fullAddr(shipping[0]) : null) ?? (billing[0] ? fullAddr(billing[0]) : prev.delivery_address),
               }
             : prev,
         );
@@ -1198,11 +1217,11 @@ function SOModal({
                       {editable && opts.length > 1 && (
                         <select
                           className="inp mb-1"
-                          value={opts.findIndex((a) => a.address === f.billing_address) >= 0 ? String(opts.findIndex((a) => a.address === f.billing_address)) : "custom"}
+                          value={opts.findIndex((a) => fullAddr(a) === f.billing_address) >= 0 ? String(opts.findIndex((a) => fullAddr(a) === f.billing_address)) : "custom"}
                           onChange={(e) => {
                             if (e.target.value === "custom") return;
                             const a = opts[Number(e.target.value)];
-                            if (a) setF({ ...f, billing_address: a.address });
+                            if (a) setF({ ...f, billing_address: fullAddr(a) });
                           }}
                         >
                           {opts.map((a, i) => (
@@ -1261,11 +1280,11 @@ function SOModal({
                       {editable && opts.length > 1 && (
                         <select
                           className="inp mb-1"
-                          value={opts.findIndex((a) => a.address === f.delivery_address) >= 0 ? String(opts.findIndex((a) => a.address === f.delivery_address)) : "custom"}
+                          value={opts.findIndex((a) => fullAddr(a) === f.delivery_address) >= 0 ? String(opts.findIndex((a) => fullAddr(a) === f.delivery_address)) : "custom"}
                           onChange={(e) => {
                             if (e.target.value === "custom") return;
                             const a = opts[Number(e.target.value)];
-                            if (a) setF({ ...f, delivery_address: a.address });
+                            if (a) setF({ ...f, delivery_address: fullAddr(a) });
                           }}
                         >
                           {opts.map((a, i) => (
@@ -1289,7 +1308,7 @@ function SOModal({
                   <div className="mt-1 flex flex-wrap gap-1">
                     <button
                       type="button"
-                      onClick={() => setF({ ...f, delivery_address: customers.find((c) => c.id === f.customer_id)?.shipping_addresses?.[0]?.address ?? customers.find((c) => c.id === f.customer_id)?.shipping_address ?? customers.find((c) => c.id === f.customer_id)?.billing_address ?? "" })}
+                      onClick={() => setF({ ...f, delivery_address: customers.find((c) => c.id === f.customer_id)?.shipping_addresses?.[0] ? fullAddr(customers.find((c) => c.id === f.customer_id)!.shipping_addresses[0]) : customers.find((c) => c.id === f.customer_id)?.shipping_address ?? customers.find((c) => c.id === f.customer_id)?.billing_address ?? "" })}
                       className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
                     >
                       Use customer shipping

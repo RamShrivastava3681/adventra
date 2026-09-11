@@ -2182,6 +2182,30 @@ router.post("/invoices", authMiddleware, async (req, res) => {
         return res.status(400).json({ error: e.message });
       }
     }
+    // Credit-limit gate: when the buyer has a limit AND enforcement is on,
+    // block invoices that would push unpaid exposure over the limit.
+    // Unchecked (bypass) => skip entirely.
+    try {
+      const debtor = await Debtor.get(body.debtorId);
+      const limit = Number((debtor as any)?.creditLimit);
+      const enforce = (debtor as any)?.enforceCreditLimit;
+      const enforceOn = enforce === true || enforce === "true" || enforce === 1 || enforce === "1";
+      if (debtor && enforceOn && Number.isFinite(limit) && limit > 0) {
+        const totals = Invoice.computeTotals((body.lines ?? []) as any[], Number(body.freight) || 0);
+        const advDed = Math.min(totals.grandTotal, Math.max(0, Math.round((Number(body.advanceDeducted) || 0) * 100) / 100));
+        const newAmount = Math.round(Math.max(0, totals.grandTotal - advDed) * 100) / 100;
+        const invoices = await Invoice.list(clientId).catch(() => [] as any[]);
+        const exposure = (invoices as any[])
+          .filter((i: any) => i.debtorId === body.debtorId && !["paid", "cancelled", "rejected"].includes(i.status))
+          .reduce((s: number, i: any) => s + (Number(i.amount) || 0), 0);
+        if (exposure + newAmount > limit) {
+          return res.status(400).json({ error: `Credit limit exceeded — this invoice (₹${newAmount.toLocaleString("en-IN")}) would push exposure to ₹${(exposure + newAmount).toLocaleString("en-IN")} over limit ₹${limit.toLocaleString("en-IN")}` });
+        }
+      }
+    } catch (e: any) {
+      if (e?.message?.startsWith("Credit limit exceeded")) throw e;
+      console.error("  ⚠ Credit-limit check failed:", e?.message ?? e);
+    }
     const item = await Invoice.create({
       ...body,
       clientId,
@@ -2652,6 +2676,36 @@ router.put("/invoices/:id", authMiddleware, async (req, res) => {
         }
       } catch (e: any) {
         return res.status(400).json({ error: e.message });
+      }
+    }
+    // Credit-limit gate on edits that change value/customer: exclude this
+    // invoice's own current amount from exposure, then test the new total.
+    if (body.lines !== undefined || body.freight !== undefined || body.debtorId !== undefined || body.advanceDeducted !== undefined) {
+      try {
+        const effDebtorId = body.debtorId !== undefined ? body.debtorId : (current as any).debtorId;
+        const debtor = await Debtor.get(effDebtorId);
+        const limit = Number((debtor as any)?.creditLimit);
+        const enforce = (debtor as any)?.enforceCreditLimit;
+        const enforceOn = enforce === true || enforce === "true" || enforce === 1 || enforce === "1";
+        if (debtor && enforceOn && Number.isFinite(limit) && limit > 0) {
+          const effLines = body.lines !== undefined ? body.lines : ((current as any).lines ?? []);
+          const effFreight = body.freight !== undefined ? body.freight : ((current as any).freight ?? 0);
+          const effAdv = body.advanceDeducted !== undefined ? body.advanceDeducted : ((current as any).advanceDeducted ?? 0);
+          const totals = Invoice.computeTotals(effLines as any[], Number(effFreight) || 0);
+          const advDed = Math.min(totals.grandTotal, Math.max(0, Math.round((Number(effAdv) || 0) * 100) / 100));
+          const newAmount = Math.round(Math.max(0, totals.grandTotal - advDed) * 100) / 100;
+          const invoices = await Invoice.list((current as any).clientId).catch(() => [] as any[]);
+          const exposure = (invoices as any[])
+            .filter((i: any) => i.id !== current.id && i.debtorId === effDebtorId && !["paid", "cancelled", "rejected"].includes(i.status))
+            .reduce((s: number, i: any) => s + (Number(i.amount) || 0), 0);
+          if (exposure + newAmount > limit) {
+            return res.status(400).json({ error: `Credit limit exceeded — this change would push exposure to ₹${(exposure + newAmount).toLocaleString("en-IN")} over limit ₹${limit.toLocaleString("en-IN")}` });
+          }
+        }
+      } catch (e: any) {
+        if ((e as any)?.message?.startsWith?.("Credit limit exceeded"))
+          return res.status(400).json({ error: (e as any).message });
+        console.error("  ⚠ Credit-limit check failed:", (e as any)?.message ?? e);
       }
     }
     const updated = await Invoice.update(req.params.id, body);
@@ -6239,11 +6293,14 @@ router.post(
           return res.status(400).json({ error: `Manual dispatch hold: ${(so as any).dispatchHoldReason || "no reason given"}` });
         }
         // Credit-limit check (PDF-2 §10 blocked reasons).
+        // Bypassed when the buyer's enforce flag is off.
         if (so.customerId) {
           try {
             const debtor = await Debtor.get(so.customerId);
             const limit = Number((debtor as any)?.creditLimit);
-            if (Number.isFinite(limit) && limit > 0) {
+            const enforce = (debtor as any)?.enforceCreditLimit;
+            const enforceOn = enforce === true || enforce === "true" || enforce === 1 || enforce === "1";
+            if (enforceOn && Number.isFinite(limit) && limit > 0) {
               const invoices = await Invoice.list(clientId).catch(() => [] as any[]);
               const exposure = (invoices as any[])
                 .filter((i: any) => i.debtorId === so.customerId && !["paid", "cancelled", "rejected"].includes(i.status))

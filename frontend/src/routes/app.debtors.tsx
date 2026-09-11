@@ -202,36 +202,74 @@ function DebtorsPage() {
   );
 }
 
-function toAddressList(v: any): { label: string; address: string }[] {
+type CustomerAddr = { label: string; address: string; city: string; state: string; pin: string };
+
+function emptyAddr(): CustomerAddr {
+  return { label: "", address: "", city: "", state: "", pin: "" };
+}
+
+function toAddressList(v: any): CustomerAddr[] {
   if (!v) return [];
   const arr = Array.isArray(v) ? v : [v];
-  const out: { label: string; address: string }[] = [];
+  const out: CustomerAddr[] = [];
   for (const e of arr) {
     if (typeof e === "string") {
-      if (e.trim()) out.push({ label: "", address: e.trim() });
+      if (e.trim()) out.push({ ...emptyAddr(), address: e.trim() });
     } else if (e && typeof e === "object") {
       const addr = e.address ?? e.address_line ?? "";
-      if (typeof addr === "string" && addr.trim())
-        out.push({ label: e.label ?? "", address: addr.trim() });
+      const city = e.city ?? "";
+      const state = e.state ?? e.country ?? "";
+      const pin = e.postalCode ?? e.postal_code ?? e.pin ?? e.pincode ?? e.zip ?? "";
+      const hasAny =
+        (typeof addr === "string" && addr.trim()) ||
+        (typeof city === "string" && city.trim()) ||
+        (typeof state === "string" && String(state).trim()) ||
+        String(pin ?? "").trim();
+      if (hasAny)
+        out.push({
+          label: e.label ?? "",
+          address: typeof addr === "string" ? addr.trim() : "",
+          city: typeof city === "string" ? city.trim() : "",
+          state: state != null ? String(state).trim() : "",
+          pin: pin != null ? String(pin).trim() : "",
+        });
     }
   }
   return out;
 }
 
-function addressesFromDebtor(debtor: any, kind: "billing" | "shipping"): { label: string; address: string }[] {
-  if (!debtor) return [{ label: "", address: "" }];
+function formatAddr(a: { address: string; city: string; state: string; pin: string }): string {
+  return [a.address, a.city, a.state, a.pin].filter(Boolean).join(", ");
+}
+
+function addressesFromDebtor(debtor: any, kind: "billing" | "shipping"): CustomerAddr[] {
+  if (!debtor) return [emptyAddr()];
   const list =
     kind === "billing"
       ? (debtor.billing_addresses ?? debtor.billingAddresses ?? null)
       : (debtor.shipping_addresses ?? debtor.shippingAddresses ?? null);
   const norm = toAddressList(list);
-  if (norm.length) return norm;
+  if (norm.length) {
+    // Migrate legacy top-level City/State/PIN into the first address for old records
+    if (kind === "billing" && !norm[0].city && !norm[0].state && !norm[0].pin) {
+      const c = debtor.city ?? "";
+      const s = debtor.country ?? "";
+      const p = debtor.postal_code ?? debtor.postalCode ?? "";
+      if (c || s || p) norm[0] = { ...norm[0], city: String(c ?? ""), state: String(s ?? ""), pin: String(p ?? "") };
+    }
+    return norm;
+  }
   // Legacy single-address fallback
   const single =
     kind === "billing"
       ? (debtor.billing_address ?? debtor.address_line ?? "")
       : (debtor.shipping_address ?? "");
-  return [{ label: "", address: single ?? "" }];
+  const city = kind === "billing" ? (debtor.city ?? "") : "";
+  const state = kind === "billing" ? (debtor.country ?? "") : "";
+  const pin = kind === "billing" ? (debtor.postal_code ?? debtor.postalCode ?? "") : "";
+  if (single || city || state || pin)
+    return [{ label: "", address: String(single ?? ""), city: String(city ?? ""), state: String(state ?? ""), pin: String(pin ?? "") }];
+  return [emptyAddr()];
 }
 
 function DebtorModal({
@@ -252,9 +290,15 @@ function DebtorModal({
     panCardNo: debtor?.panCardNo ?? debtor?.pan_card_no ?? "",
     billing_addresses: addressesFromDebtor(debtor, "billing"),
     shipping_addresses: addressesFromDebtor(debtor, "shipping"),
-    city: debtor?.city ?? "",
-    country: debtor?.country ?? "",
-    postal_code: debtor?.postal_code ?? "",
+    credit_limit: debtor?.creditLimit ?? debtor?.credit_limit ?? "",
+    enforce_credit_limit: (() => {
+      const v = debtor?.enforceCreditLimit ?? debtor?.enforce_credit_limit;
+      if (v === undefined || v === null || v === "") {
+        const lim = Number(debtor?.creditLimit ?? debtor?.credit_limit ?? NaN);
+        return Number.isFinite(lim) && lim > 0 ? true : true;
+      }
+      return v === true || v === "true" || v === 1 || v === "1";
+    })(),
     phone: debtor?.phone ?? "",
     website: debtor?.website ?? "",
     contact_name: debtor?.contact_name ?? "",
@@ -281,12 +325,30 @@ function DebtorModal({
       if (form.contact_email && !/^\S+@\S+\.\S+$/.test(form.contact_email))
         throw new Error("Invalid contact email");
       if (form.website && form.website.length > 255) throw new Error("Website too long");
+      let creditLimit: number | null = null;
+      if (String(form.credit_limit ?? "").trim() !== "") {
+        const n = Number(form.credit_limit);
+        if (!Number.isFinite(n) || n < 0) throw new Error("Credit limit must be zero or more");
+        creditLimit = n;
+      }
       const cleanBilling = form.billing_addresses
-        .map((a) => ({ label: a.label.trim() || null, address: a.address.trim() }))
-        .filter((a) => a.address);
+        .map((a) => ({
+          label: a.label.trim() || null,
+          address: a.address.trim(),
+          city: a.city.trim() || null,
+          state: a.state.trim() || null,
+          postalCode: a.pin.trim() || null,
+        }))
+        .filter((a) => a.address || a.city || a.state || a.postalCode);
       const cleanShipping = form.shipping_addresses
-        .map((a) => ({ label: a.label.trim() || null, address: a.address.trim() }))
-        .filter((a) => a.address);
+        .map((a) => ({
+          label: a.label.trim() || null,
+          address: a.address.trim(),
+          city: a.city.trim() || null,
+          state: a.state.trim() || null,
+          postalCode: a.pin.trim() || null,
+        }))
+        .filter((a) => a.address || a.city || a.state || a.postalCode);
       const termsPayload = toTermsPayload(form);
       // The debtor form has no balance-due-days input: delivery-based terms
       // are always due on delivery/invoice date (0 days) at master level.
@@ -303,13 +365,19 @@ function DebtorModal({
         ...termsPayload,
         gstin: form.gstin || null,
         panCardNo: form.panCardNo || null,
-        billingAddress: cleanBilling[0]?.address || null,
-        shippingAddress: cleanShipping[0]?.address || null,
+        billingAddress: cleanBilling.length
+          ? [cleanBilling[0].address, cleanBilling[0].city, cleanBilling[0].state, cleanBilling[0].postalCode].filter(Boolean).join(", ")
+          : null,
+        shippingAddress: cleanShipping.length
+          ? [cleanShipping[0].address, cleanShipping[0].city, cleanShipping[0].state, cleanShipping[0].postalCode].filter(Boolean).join(", ")
+          : null,
         billingAddresses: cleanBilling.length ? cleanBilling : null,
         shippingAddresses: cleanShipping.length ? cleanShipping : null,
-        city: form.city || null,
-        country: form.country || null,
-        postalCode: form.postal_code || null,
+        city: cleanBilling[0]?.city || null,
+        country: cleanBilling[0]?.state || null,
+        postalCode: cleanBilling[0]?.postalCode || null,
+        creditLimit,
+        enforceCreditLimit: !!form.enforce_credit_limit,
         phone: form.phone || null,
         website: form.website || null,
         contactName: form.contact_name || null,
@@ -417,7 +485,7 @@ function DebtorModal({
                 onClick={() =>
                   setForm({
                     ...form,
-                    billing_addresses: [...form.billing_addresses, { label: "", address: "" }],
+                    billing_addresses: [...form.billing_addresses, emptyAddr()],
                   })
                 }
                 className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-primary hover:text-primary"
@@ -432,7 +500,6 @@ function DebtorModal({
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
                       Billing address {i + 1}
-                      {i === 0 && <span className="ml-1 text-primary">(primary)</span>}
                     </span>
                     {form.billing_addresses.length > 1 && (
                       <button
@@ -474,6 +541,41 @@ function DebtorModal({
                       }}
                       placeholder="Street, building, landmarks…"
                     />
+                    <div className="grid gap-2 md:grid-cols-3">
+                      <input
+                        maxLength={100}
+                        className={inputBase}
+                        value={a.city}
+                        onChange={(e) => {
+                          const next = [...form.billing_addresses];
+                          next[i] = { ...next[i], city: e.target.value };
+                          setForm({ ...form, billing_addresses: next });
+                        }}
+                        placeholder="City"
+                      />
+                      <input
+                        maxLength={100}
+                        className={inputBase}
+                        value={a.state}
+                        onChange={(e) => {
+                          const next = [...form.billing_addresses];
+                          next[i] = { ...next[i], state: e.target.value };
+                          setForm({ ...form, billing_addresses: next });
+                        }}
+                        placeholder="State"
+                      />
+                      <input
+                        maxLength={20}
+                        className={inputBase}
+                        value={a.pin}
+                        onChange={(e) => {
+                          const next = [...form.billing_addresses];
+                          next[i] = { ...next[i], pin: e.target.value };
+                          setForm({ ...form, billing_addresses: next });
+                        }}
+                        placeholder="PIN / Postal code"
+                      />
+                    </div>
                   </div>
                 </div>
               ))}
@@ -489,7 +591,7 @@ function DebtorModal({
                 onClick={() =>
                   setForm({
                     ...form,
-                    shipping_addresses: [...form.shipping_addresses, { label: "", address: "" }],
+                    shipping_addresses: [...form.shipping_addresses, emptyAddr()],
                   })
                 }
                 className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-primary hover:text-primary"
@@ -504,7 +606,6 @@ function DebtorModal({
                   <div className="mb-2 flex items-center justify-between">
                     <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
                       Shipping address {i + 1}
-                      {i === 0 && <span className="ml-1 text-primary">(primary)</span>}
                     </span>
                     {form.shipping_addresses.length > 1 && (
                       <button
@@ -546,6 +647,41 @@ function DebtorModal({
                       }}
                       placeholder="Separate delivery address — leave blank to use billing address"
                     />
+                    <div className="grid gap-2 md:grid-cols-3">
+                      <input
+                        maxLength={100}
+                        className={inputBase}
+                        value={a.city}
+                        onChange={(e) => {
+                          const next = [...form.shipping_addresses];
+                          next[i] = { ...next[i], city: e.target.value };
+                          setForm({ ...form, shipping_addresses: next });
+                        }}
+                        placeholder="City"
+                      />
+                      <input
+                        maxLength={100}
+                        className={inputBase}
+                        value={a.state}
+                        onChange={(e) => {
+                          const next = [...form.shipping_addresses];
+                          next[i] = { ...next[i], state: e.target.value };
+                          setForm({ ...form, shipping_addresses: next });
+                        }}
+                        placeholder="State"
+                      />
+                      <input
+                        maxLength={20}
+                        className={inputBase}
+                        value={a.pin}
+                        onChange={(e) => {
+                          const next = [...form.shipping_addresses];
+                          next[i] = { ...next[i], pin: e.target.value };
+                          setForm({ ...form, shipping_addresses: next });
+                        }}
+                        placeholder="PIN / Postal code"
+                      />
+                    </div>
                   </div>
                 </div>
               ))}
@@ -554,30 +690,6 @@ function DebtorModal({
                   Leave blank to use the billing address. Use <Plus className="inline h-3 w-3" /> Add to save multiple delivery locations.
                 </p>
               )}
-            </div>
-          </Section>
-
-          <Section title="City / State / ZIP">
-            <div className="grid gap-3 md:grid-cols-3">
-              <L label="City">
-                <input maxLength={100} className={inputBase} value={form.city} onChange={set("city")} />
-              </L>
-              <L label="State / Country">
-                <input
-                  maxLength={100}
-                  className={inputBase}
-                  value={form.country}
-                  onChange={set("country")}
-                />
-              </L>
-              <L label="PIN / Postal code">
-                <input
-                  maxLength={20}
-                  className={inputBase}
-                  value={form.postal_code}
-                  onChange={set("postal_code")}
-                />
-              </L>
             </div>
           </Section>
 
@@ -647,6 +759,36 @@ function DebtorModal({
                 />
               </L>
             </div>
+          </Section>
+
+          <Section title="Credit limit">
+            <div className="flex flex-col gap-2 md:flex-row md:items-end">
+              <div className="flex-1">
+                <L label="Credit limit (₹) — blank = no limit">
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    className={inputBase}
+                    value={form.credit_limit as any}
+                    onChange={(e) => setForm({ ...form, credit_limit: e.target.value as any })}
+                    placeholder="e.g. 500000"
+                  />
+                </L>
+              </div>
+              <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border px-3 py-2 text-sm text-muted-foreground">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-primary"
+                  checked={!!form.enforce_credit_limit}
+                  onChange={(e) => setForm({ ...form, enforce_credit_limit: e.target.checked })}
+                />
+                <span>Enforce — block invoices over limit</span>
+              </label>
+            </div>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              When checked, invoices that would push unpaid exposure over the limit are blocked. Uncheck to bypass.
+            </p>
           </Section>
 
 <Section title="Payment terms">
@@ -723,19 +865,24 @@ function DebtorDetailModal({
 }) {  const billingList = (() => {
     const l = toAddressList(debtor.billing_addresses ?? debtor.billingAddresses);
     if (l.length) return l.map((a) => a);
-    const single = [debtor.billing_address, debtor.city, debtor.country, debtor.postal_code]
-      .filter(Boolean)
-      .join(", ");
-    return single ? [{ label: "", address: single }] : [];
+    const singleAddr = String(debtor.billing_address ?? debtor.address_line ?? "");
+    const c = String(debtor.city ?? "");
+    const s = String(debtor.country ?? "");
+    const p = String(debtor.postal_code ?? debtor.postalCode ?? "");
+    if (singleAddr || c || s || p)
+      return [{ label: "", address: singleAddr, city: c, state: s, pin: p }];
+    return [];
   })();
   const shippingList = (() => {
     const l = toAddressList(debtor.shipping_addresses ?? debtor.shippingAddresses);
     if (l.length) return l.map((a) => a);
-    const single = [debtor.shipping_address, debtor.city, debtor.country, debtor.postal_code]
-      .filter(Boolean)
-      .join(", ");
-    return single ? [{ label: "", address: single }] : [];
+    const singleAddr = String(debtor.shipping_address ?? "");
+    if (singleAddr) return [{ label: "", address: singleAddr, city: "", state: "", pin: "" }];
+    return [];
   })();
+  const creditLimitVal = debtor.creditLimit ?? debtor.credit_limit ?? null;
+  const enforceVal = debtor.enforceCreditLimit ?? debtor.enforce_credit_limit ?? false;
+  const enforceOn = enforceVal === true || enforceVal === "true" || enforceVal === 1 || enforceVal === "1";
   const termsQ = useQuery({
     queryKey: ["debtor-terms", debtor?.id ?? "none"],
     queryFn: () => api.debtors.terms.list(debtor.id),
@@ -770,6 +917,14 @@ function DebtorDetailModal({
               })}
             />
             <D label="Open exposure" value={<span className="num">{fmtMoney(exposure)}</span>} />
+            <D
+              label="Credit limit"
+              value={
+                creditLimitVal == null || creditLimitVal === ""
+                  ? "—"
+                  : `${fmtMoney(Number(creditLimitVal))}${enforceOn ? "" : " (bypassed)"}`
+              }
+            />
             <D label="PAN" value={debtor.panCardNo ?? debtor.pan_card_no ?? "—"} />
             <D label="GSTIN" value={debtor.gstin ?? "—"} />
             <D label="Website" value={debtor.website ?? "—"} />
@@ -835,8 +990,8 @@ function DebtorDetailModal({
               <div className="space-y-1.5">
                 {billingList.map((a, i) => (
                   <div key={i} className="rounded-md border border-border/60 px-2.5 py-1.5 text-sm">
-                    {a.label && <div className="text-[10px] uppercase tracking-widest text-primary">{a.label}{i === 0 ? " · primary" : ""}</div>}
-                    <div>{a.address}</div>
+                    {a.label && <div className="text-[10px] uppercase tracking-widest text-primary">{a.label}</div>}
+                    <div>{formatAddr(a) || "—"}</div>
                   </div>
                 ))}
               </div>
@@ -850,8 +1005,8 @@ function DebtorDetailModal({
               <div className="space-y-1.5">
                 {shippingList.map((a, i) => (
                   <div key={i} className="rounded-md border border-border/60 px-2.5 py-1.5 text-sm">
-                    {a.label && <div className="text-[10px] uppercase tracking-widest text-primary">{a.label}{i === 0 ? " · primary" : ""}</div>}
-                    <div>{a.address}</div>
+                    {a.label && <div className="text-[10px] uppercase tracking-widest text-primary">{a.label}</div>}
+                    <div>{formatAddr(a) || "—"}</div>
                   </div>
                 ))}
               </div>
