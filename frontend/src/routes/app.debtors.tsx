@@ -17,7 +17,7 @@ import {
 } from "@/components/dialog";
 import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 import { CustomerTermsManager } from "@/components/customer-terms";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
@@ -28,6 +28,20 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/app/debtors")({
   component: DebtorsPage,
 });
+
+// Customer master edits (new billing/shipping addresses, terms, contacts)
+// feed every order form — invalidate all derived lists, not just this page.
+export function invalidateCustomerQueries(qc: QueryClient) {
+  qc.invalidateQueries({ queryKey: ["debtors-full"] });
+  qc.invalidateQueries({
+    predicate: (q) =>
+      q.queryKey.some(
+        (k) =>
+          typeof k === "string" &&
+          /debtor|customer|bill-to|ship-to|sales-order|purchase-order|proforma|invoice/i.test(k),
+      ),
+  });
+}
 
 function DebtorsPage() {
   const { isAdmin } = useAuth();
@@ -65,7 +79,7 @@ function DebtorsPage() {
     <div>
       <PageHeader
         eyebrow="Counterparties"
-        title="Debtor book"
+        title="Customer book"
         description="Payment terms and live exposure across every payer."
         icon={<Building2 className="h-5 w-5" />}
         actions={
@@ -74,7 +88,7 @@ function DebtorsPage() {
               onClick={() => setOpen(true)}
               className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
             >
-              <Plus className="h-4 w-4" /> Add debtor
+              <Plus className="h-4 w-4" /> Add customer
             </button>
           )
         }
@@ -85,7 +99,7 @@ function DebtorsPage() {
           {(debtorsQ.data ?? []).length === 0 ? (
             <div className="py-12 text-center text-sm text-muted-foreground">
               <ShieldAlert className="mx-auto mb-3 h-6 w-6" />
-              No debtors yet.
+              No customers yet.
               {isAdmin && (
                 <div className="mt-3">
                   <button onClick={() => setOpen(true)} className="text-primary">
@@ -167,14 +181,14 @@ function DebtorsPage() {
       {open && (
         <DebtorModal
           onClose={() => setOpen(false)}
-          onSaved={() => qc.invalidateQueries({ queryKey: ["debtors-full"] })}
+          onSaved={() => invalidateCustomerQueries(qc)}
         />
       )}
       {editing && (
         <DebtorModal
           debtor={editing}
           onClose={() => setEditing(null)}
-          onSaved={() => qc.invalidateQueries({ queryKey: ["debtors-full"] })}
+          onSaved={() => invalidateCustomerQueries(qc)}
         />
       )}
       {viewing && (
@@ -314,7 +328,7 @@ function DebtorModal({
     },
     onSuccess: () => {
       onSaved();
-      toast.success(isEdit ? "Debtor updated" : "Debtor added");
+      toast.success(isEdit ? "Customer updated" : "Customer added");
       onClose();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -329,7 +343,7 @@ function DebtorModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">{isEdit ? "Edit debtor" : "Add debtor"}</h3>
+          <h3 className="font-display text-lg">{isEdit ? "Edit customer" : "Add customer"}</h3>
           <button onClick={onClose}>
             <X className="h-4 w-4" />
           </button>

@@ -428,7 +428,7 @@ function InvoiceReminderModal({ onClose }: { onClose: () => void }) {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input
               type="text"
-              placeholder={`Search ${mode === "sales" ? "debtor" : "vendor"} or invoice number…`}
+              placeholder={`Search ${mode === "sales" ? "customer" : "vendor"} or invoice number…`}
               value={searchInv}
               onChange={(e) => setSearchInv(e.target.value)}
               className="w-full rounded-lg border border-border bg-background pl-9 pr-3 py-2 text-sm outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition-colors"
@@ -607,7 +607,7 @@ function RemindersPage() {
       <PageHeader
         eyebrow="Invoice Reminders"
         title="Reminder History"
-        description="Audit trail of every invoice reminder sent — to admins and debtors. Reminders are also sent instantly when invoices are created or updated."
+        description="Audit trail of every invoice reminder sent — to admins and customers. Reminders are also sent instantly when invoices are created or updated."
         icon={<Mail className="h-5 w-5" />}
         actions={
           <div className="flex items-center gap-2">
@@ -651,7 +651,7 @@ function RemindersPage() {
           />
           <StatCard
             icon={Send}
-            label="To Debtors"
+            label="To Customers"
             value={stats.debtors}
             color="bg-sem-attention/10 text-sem-attention"
           />
@@ -677,7 +677,7 @@ function RemindersPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <input
               type="text"
-              placeholder="Search invoices, debtors, emails…"
+              placeholder="Search invoices, customers, emails…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="w-full rounded-lg border border-border bg-background pl-9 pr-3 py-2 text-sm outline-none focus:border-foreground/30 focus:ring-1 focus:ring-foreground/10 transition-colors"
@@ -701,7 +701,7 @@ function RemindersPage() {
           >
             <option value="all">All recipients</option>
             <option value="admin">Admin only</option>
-            <option value="debtor">Debtor only</option>
+            <option value="debtor">Customer only</option>
           </select>
 
           <select
@@ -808,7 +808,7 @@ function RemindersPage() {
                       <td className="px-5 py-3 whitespace-nowrap">
                         <div className="flex items-center gap-2">
                           <Badge variant={log.recipient}>
-                            {log.recipient === "admin" ? "Admin" : "Debtor"}
+                            {log.recipient === "admin" ? "Admin" : "Customer"}
                           </Badge>
                         </div>
                         <div className="text-[10px] text-muted-foreground mt-0.5 truncate max-w-[180px]">

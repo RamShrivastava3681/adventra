@@ -461,13 +461,13 @@ function QueuePage() {
             <div className="num text-3xl text-primary">{fmtMoney(advancesAppliedOut)}</div>
             <div className="mt-1 text-xs text-muted-foreground">Already paid to suppliers</div>
           </Card>
-          <Card title="Debtor balance expected">
+          <Card title="Customer balance expected">
             <div className="num text-3xl text-primary">{fmtMoney(balanceToReceive)}</div>
             <div className="mt-1 text-xs text-muted-foreground">Net of advances against PO</div>
           </Card>
           <Card title="Advances applied (AR)">
             <div className="num text-3xl text-sem-success">{fmtMoney(advancesAppliedIn)}</div>
-            <div className="mt-1 text-xs text-muted-foreground">Already received from debtors</div>
+            <div className="mt-1 text-xs text-muted-foreground">Already received from customers</div>
           </Card>
         </div>
 

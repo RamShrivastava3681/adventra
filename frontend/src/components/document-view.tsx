@@ -221,7 +221,7 @@ export function InvoiceDetailModal({
         />
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-          <D label={isSale ? "Debtor" : "Supplier"} value={party} />
+          <D label={isSale ? "Customer" : "Supplier"} value={party} />
           {poNumber && <D label="PO #" value={<span className="font-mono">{poNumber}</span>} />}
           {i.po_date && <D label="PO date" value={fmtDate(i.po_date)} />}
           {i.po_amount != null && Number(i.po_amount) > 0 && (
@@ -422,11 +422,11 @@ export function ProformaDetailModal({ pf, onClose }: { pf: any; onClose: () => v
             <D label="Supplier GSTIN" value={p.supplier_gstin} />
           )}
           {p.side === "sales" && p.debtor_gstin && (
-            <D label="Debtor GSTIN" value={p.debtor_gstin} />
+            <D label="Customer GSTIN" value={p.debtor_gstin} />
           )}
           {p.side === "sales" && p.debtor_contact && (
             <div className="col-span-2">
-              <D label="Debtor contact" value={p.debtor_contact} />
+              <D label="Customer contact" value={p.debtor_contact} />
             </div>
           )}
           {p.proforma_review_comments && (

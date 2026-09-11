@@ -149,7 +149,7 @@ function esc(value: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
-// Send admin reminder email (with full invoice details + debtor forward link)
+// Send admin reminder email (with full invoice details + customer forward link)
 // ---------------------------------------------------------------------------
 
 export async function sendInvoiceReminder(params: {
@@ -182,7 +182,7 @@ export async function sendInvoiceReminder(params: {
   const overdueLabel = params.isOverdue ? "OVERDUE" : "UPCOMING";
   const subject = `[${overdueLabel}] ${params.type === "sales" ? "Sales" : "Purchase"} Invoice ${params.invoiceNumber} — ${daysLabel(params.daysUntilDue)}`;
 
-  // Build debtor-forwarding link (only for sales invoices with a valid token)
+  // Build customer-forwarding link (only for sales invoices with a valid token)
   const forwardLink = params.type === "sales" && params.debtorReminderToken
     ? `${config.appUrl}/api/invoices/${params.invoiceId}/remind-debtor/${params.debtorReminderToken}`
     : null;
@@ -213,7 +213,7 @@ export async function sendInvoiceReminder(params: {
       ${invoiceTableRow("Amount", `<strong>$${params.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>`)}
       ${params.subtotal != null ? invoiceTableRow("Subtotal", `$${params.subtotal.toLocaleString()}`) : ""}
       ${params.taxRate > 0 ? invoiceTableRow("Tax", `${(params.taxRate * 100).toFixed(1)}% ($${params.taxAmount.toFixed(2)})`) : ""}
-      ${invoiceTableRow(params.type === "sales" ? "Debtor" : "Vendor", params.counterpartyName)}
+      ${invoiceTableRow(params.type === "sales" ? "Customer" : "Vendor", params.counterpartyName)}
       ${params.counterpartyEmail ? invoiceTableRow("Contact email", params.counterpartyEmail) : ""}
       ${params.clientName ? invoiceTableRow("Client", params.clientName) : ""}
     </table>
@@ -237,10 +237,10 @@ export async function sendInvoiceReminder(params: {
     </div>
 
     ${forwardLink ? `
-    <!-- Forward to debtor -->
+    <!-- Forward to customer -->
     <div style="margin-top:16px;text-align:center;">
       <a href="${forwardLink}" style="display:inline-block;background:#1e293b;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">
-        📨 Send Reminder to Debtor
+        📨 Send Reminder to Customer
       </a>
       <p style="margin:8px 0 0;font-size:11px;color:#94a3b8;">Click to forward this reminder to ${params.counterpartyName} (${params.counterpartyEmail || "no email on file"})</p>
     </div>` : ""}
@@ -263,7 +263,7 @@ export async function sendInvoiceReminder(params: {
 }
 
 // ---------------------------------------------------------------------------
-// Send debtor reminder email (simpler version sent to debtor)
+// Send customer reminder email (simpler version sent to customer)
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -410,7 +410,7 @@ export async function sendDebtorReminder(params: {
   notes: string | null;
 }): Promise<boolean> {
   if (!isEmailConfigured()) {
-    console.log(`  ⚠ Email not configured — skipping debtor reminder for ${params.invoiceNumber}`);
+    console.log(`  ⚠ Email not configured — skipping customer reminder for ${params.invoiceNumber}`);
     return false;
   }
 
@@ -470,29 +470,29 @@ export async function sendDebtorReminder(params: {
       subject,
       html: wrapHTML(body),
     });
-    console.log(`  ✅ Debtor reminder sent: ${params.invoiceNumber} → ${params.counterpartyEmail}`);
+    console.log(`  ✅ Customer reminder sent: ${params.invoiceNumber} → ${params.counterpartyEmail}`);
     return true;
   } catch (err) {
-    console.error(`  ❌ Failed to send debtor reminder for ${params.invoiceNumber}:`, err);
+    console.error(`  ❌ Failed to send customer reminder for ${params.invoiceNumber}:`, err);
     return false;
   }
 }
 
 // ---------------------------------------------------------------------------
-// Sales Order PDF approval email (sent to the debtor)
+// Sales Order PDF approval email (sent to the customer)
 // ---------------------------------------------------------------------------
 
 /**
- * Email a sales order PDF to the debtor with Approve / Reject
- * buttons. The debtor's decision is recorded via the public approval page
+ * Email a sales order PDF to the customer with Approve / Reject
+ * buttons. The customer's decision is recorded via the public approval page
  * (linked by a one-time token) and reflected back in the app tabs.
  */
 // ---------------------------------------------------------------------------
-// NOA email (sent to the buyer/debtor with the invoice PDF attached)
+// NOA email (sent to the buyer/customer with the invoice PDF attached)
 // ---------------------------------------------------------------------------
 
 /**
- * Email the Notice of Assignment to the debtor (buyer). The invoice PDF is
+ * Email the Notice of Assignment to the customer (buyer). The invoice PDF is
  * attached so the buyer can verify the details directly, and the link opens
  * the public NOA page where they can accept / reject / comment.
  */

@@ -16,7 +16,7 @@ export const Route = createFileRoute("/")({
       { title: "Whizunik Command — The Executive Control System" },
       {
         name: "description",
-        content: "Submit invoices, advance capital in hours, and monitor debtor risk in real time.",
+        content: "Submit invoices, advance capital in hours, and monitor customer risk in real time.",
       },
       { property: "og:title", content: "Whizunik Command — The Executive Control System" },
       {
@@ -108,7 +108,7 @@ function Landing() {
             </h1>
             <p className="mt-6 max-w-xl text-lg text-muted-foreground">
               Whizunik Command is the executive control system for receivables factoring and
-              debtor monitoring — submit invoices, advance capital, and watch risk in real time.
+              customer monitoring — submit invoices, advance capital, and watch risk in real time.
             </p>
             <div className="mt-8 flex flex-wrap items-center gap-3">
               <Link
@@ -234,7 +234,7 @@ function Landing() {
             Put your receivables to work.
           </h2>
           <p className="mx-auto mt-4 max-w-xl text-muted-foreground">
-            Create your workspace in minutes — import your debtors, submit your first invoice, and
+            Create your workspace in minutes — import your customers, submit your first invoice, and
             watch the funding pipeline move.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">

@@ -568,7 +568,7 @@ function BulkPaymentsPage() {
                   <Users className="h-5 w-5" />
                 </div>
                 <div>
-                  <div className="font-semibold text-sm">Debtor (AR)</div>
+                  <div className="font-semibold text-sm">Customer (AR)</div>
                   <div className="text-xs text-muted-foreground mt-0.5">Receive payments from customers</div>
                 </div>
               </div>
@@ -1039,7 +1039,7 @@ function BulkPaymentsPage() {
               <ArrowRightLeft className="mb-4 h-12 w-12 text-muted-foreground/40" />
               <h3 className="text-lg font-medium">Select a party to begin</h3>
               <p className="mt-2 max-w-md text-sm text-muted-foreground">
-                Choose <strong>Debtor (AR)</strong> to receive payments from customers, or{" "}
+                Choose <strong>Customer (AR)</strong> to receive payments from customers, or{" "}
                 <strong>Supplier (AP)</strong> to pay purchase invoices to suppliers.
                 Then enter the payment amount, optionally apply past balance or credit,
                 then choose FIFO (strict), Two-Pass FIFO (future pre-closing), or manual selection.

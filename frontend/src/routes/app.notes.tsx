@@ -752,7 +752,7 @@ function NewNoteModal({
             <L label="Counterparty">
               <input
                 className={inputBase}
-                placeholder="Debtor / supplier name"
+                placeholder="Customer / supplier name"
                 value={form.counterparty}
                 onChange={(e) => setForm({ ...form, counterparty: e.target.value })}
               />

@@ -90,7 +90,7 @@ const FINANCE_ITEMS: NavItem[] = [
 
 // ─── Sales items ──
 const SALES_ITEMS: NavItem[] = [
-  { to: "/app/debtors", label: "Debtors", icon: Building2 },
+  { to: "/app/debtors", label: "Customers", icon: Building2 },
   { to: "/app/suppliers", label: "Suppliers", icon: Truck },
   { to: "/app/sales-orders", label: "Sales orders", icon: ShoppingBag },
   { to: "/app/invoices", label: "Sales invoices", icon: FileText },
@@ -107,7 +107,7 @@ const PROCUREMENT_ITEMS: NavItem[] = [
   { to: "/app/purchase-orders", label: "Purchase orders", icon: ClipboardList },
   { to: "/app/advances", label: "Advances (purchase)", icon: Wallet },
   { to: "/app/notes", label: "Credit / Debit notes", icon: FileMinus },
-  { to: "/app/debtors", label: "Debtors", icon: Building2 },
+  { to: "/app/debtors", label: "Customers", icon: Building2 },
 ];
 
 // ─── (admin) quick-action item buckets ──
@@ -115,7 +115,7 @@ export const QUICK_SUPPLIER_ITEMS: NavItem[] = [
   { to: "/app/suppliers", label: "Suppliers", icon: Truck },
 ];
 export const QUICK_DEBTOR_ITEMS: NavItem[] = [
-  { to: "/app/debtors", label: "Debtors", icon: Building2 },
+  { to: "/app/debtors", label: "Customers", icon: Building2 },
 ];
 
 // ─── Naughty list nav item constants ──
@@ -125,7 +125,7 @@ const NAUGHTY_LIST_ITEMS: NavItem[] = [
 
 // ─── Debtors list nav item constants ──
 const DEBTORS_ITEMS: NavItem[] = [
-  { to: "/app/debtors", label: "Debtors", icon: Building2 },
+  { to: "/app/debtors", label: "Customers", icon: Building2 },
 ];
 
 // ─── Warehouse Control items ──
@@ -200,7 +200,7 @@ function buildNavSections(roles: string[]): NavSection[] {
     isSalesRep
       ? [
           { to: "/app/crm", label: "Leads", icon: Users },
-          { to: "/app/debtors", label: "Debtors", icon: Building2 },
+          { to: "/app/debtors", label: "Customers", icon: Building2 },
           { to: "/app/suppliers", label: "Suppliers", icon: Truck },
           { to: "/app/naughty-list", label: "Naughty List", icon: AlertTriangle },
         ]

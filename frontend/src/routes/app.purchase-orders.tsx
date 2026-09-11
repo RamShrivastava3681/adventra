@@ -47,7 +47,6 @@ import { ClauseCombobox } from "@/components/clause-select";
 import { ProductVariantPicker } from "@/components/product-variant-picker";
 import {
   QuickAddVariantModal,
-  QuickCreateProductModal,
   type QuickCreatedProduct,
 } from "@/components/product-quick-create";
 import { TableSkeleton } from "@/components/skeletons";
@@ -655,6 +654,29 @@ type PiLineDraft = {
   gst_rate: string;
 };
 
+type PoAddr = { label: string | null; address: string };
+
+function normPoAddrs(v: any): PoAddr[] {
+  if (!v) return [];
+  const arr = Array.isArray(v) ? v : [v];
+  const out: PoAddr[] = [];
+  for (const e of arr) {
+    if (typeof e === "string") {
+      if (e.trim()) out.push({ label: null, address: e.trim() });
+    } else if (e && typeof e === "object") {
+      const addr = e.address ?? e.address_line ?? "";
+      if (typeof addr === "string" && addr.trim())
+        out.push({ label: e.label ?? null, address: addr.trim() });
+    }
+  }
+  return out;
+}
+
+function poAddrLabel(a: PoAddr, i: number): string {
+  const short = a.address.length > 60 ? `${a.address.slice(0, 60)}…` : a.address;
+  return `${a.label ? `${a.label} — ` : ""}${short}${i === 0 ? " (primary)" : ""}`;
+}
+
 function POModal({
   userId,
   email,
@@ -771,80 +793,107 @@ function POModal({
     />
   );
 
-  // Bill-to debtors + ship-to suppliers: picking one fetches ONLY its address
-  // into the matching field (everything else on the PO stays untouched).
-  const billDebtorsQ = useQuery({
-    queryKey: ["po-bill-to-debtors"],
+  // Bill-to / ship-to come from ONE customer pick: the customer's saved
+  // billing addresses feed Bill-to, the saved shipping addresses feed
+  // Ship-to. When the customer has several of either, a dropdown offers
+  // the choice — the text box always stays manually editable.
+  const billCustomersQ = useQuery({
+    queryKey: ["po-bill-to-customers"],
     queryFn: async () => {
       const data = await api.debtors.list();
       return (data ?? [])
         .map((d: any) => {
-          const addrs = Array.isArray(d.billingAddresses)
-            ? d.billingAddresses
-            : Array.isArray(d.billing_addresses)
-              ? d.billing_addresses
-              : [];
-          const primary =
-            addrs.find((a: any) => (a?.address ?? "").trim())?.address ??
-            d.billingAddress ??
-            d.billing_address ??
-            "";
-          const address = [primary, d.city, d.country].filter(Boolean).join(", ");
-          return { id: d.id, name: d.name ?? d.id, address };
+          let billing = normPoAddrs(d.billing_addresses ?? d.billingAddresses);
+          const primaryBilling = d.billing_address ?? d.billingAddress ?? d.address_line ?? d.addressLine ?? "";
+          if (!billing.length && primaryBilling) billing = [{ label: null, address: primaryBilling }];
+          let shipping = normPoAddrs(d.shipping_addresses ?? d.shippingAddresses);
+          const primaryShipping = d.shipping_address ?? d.shippingAddress ?? "";
+          if (!shipping.length && primaryShipping) shipping = [{ label: null, address: primaryShipping }];
+          const address = [billing[0]?.address ?? "", d.city, d.country].filter(Boolean).join(", ");
+          return {
+            id: d.id,
+            name: d.name ?? d.id,
+            address,
+            billing,
+            shipping,
+          };
         })
         .sort((a: any, b: any) => a.name.localeCompare(b.name));
     },
   });
-  const shipSuppliersQ = useQuery({
-    queryKey: ["po-ship-to-suppliers"],
-    queryFn: async () => {
-      const [suppliers, vendors] = await Promise.all([api.suppliers.list(), api.vendors.list()]);
-      const rows = [
-        ...(suppliers ?? []).map((s: any) => ({
-          id: s.id,
-          name: s.company_name ?? s.companyName ?? s.name ?? s.id,
-          address: [s.address_line ?? s.addressLine, s.city, s.country].filter(Boolean).join(", "),
-        })),
-        ...(vendors ?? []).map((v: any) => ({
-          id: v.id,
-          name: v.name ?? v.id,
-          address: [v.address_line ?? v.addressLine, v.city, v.country].filter(Boolean).join(", "),
-        })),
-      ];
-      return rows.sort((a: any, b: any) => a.name.localeCompare(b.name));
-    },
-  });
-  const pickBillToDebtor = (id: string) => {
+
+  // Fresh address book for the selected customer (fetched live so newly
+  // added master addresses are always choosable, even with a cached list).
+  const [addrBook, setAddrBook] = useState<{ billing: PoAddr[]; shipping: PoAddr[] } | null>(null);
+  const [addrFor, setAddrFor] = useState<string>("");
+
+  const applyCustomerAddrs = (id: string, billing: PoAddr[], shipping: PoAddr[], overwrite: boolean) => {
+    setAddrBook({ billing, shipping });
+    setAddrFor(id);
+    if (!overwrite) return;
+    setF((prev) =>
+      (prev as any).bill_to_debtor_id === id
+        ? ({
+            ...prev,
+            bill_to_address: billing[0]?.address ?? (prev as any).bill_to_address,
+            ship_to_address: shipping[0]?.address ?? billing[0]?.address ?? (prev as any).ship_to_address,
+          } as any)
+        : prev,
+    );
+  };
+
+  const loadCustomerAddrs = async (id: string, overwrite: boolean) => {
+    if (!id) return;
+    try {
+      const d = await api.debtors.get(id);
+      let billing = normPoAddrs(d?.billing_addresses ?? d?.billingAddresses);
+      const primaryBilling = d?.billing_address ?? d?.billingAddress ?? d?.address_line ?? d?.addressLine ?? "";
+      if (!billing.length && primaryBilling) billing = [{ label: null, address: String(primaryBilling) }];
+      let shipping = normPoAddrs(d?.shipping_addresses ?? d?.shippingAddresses);
+      const primaryShipping = d?.shipping_address ?? d?.shippingAddress ?? "";
+      if (!shipping.length && primaryShipping) shipping = [{ label: null, address: String(primaryShipping) }];
+      if (!billing.length && !shipping.length) {
+        const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
+        billing = c?.billing ?? [];
+        shipping = c?.shipping ?? [];
+      }
+      applyCustomerAddrs(id, billing, shipping, overwrite);
+      if (overwrite && (billing.length + shipping.length > 0)) {
+        const n = Math.max(billing.length, shipping.length);
+        toast.success(`Fetched ${n} address${n === 1 ? "" : "es"} from ${d?.name ?? "customer"}`);
+      }
+    } catch {
+      const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
+      if (c) applyCustomerAddrs(id, c.billing ?? [], c.shipping ?? [], overwrite);
+    }
+  };
+
+  // Edit mode: load the linked customer's address options (no overwrite —
+  // the saved addresses on the PO win).
+  useEffect(() => {
+    const id = ((f as any).bill_to_debtor_id ?? "") as string;
+    if (isEdit && id && addrFor !== id) loadCustomerAddrs(id, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit, (f as any).bill_to_debtor_id]);
+
+  const pickBillCustomer = (id: string) => {
+    setAddrBook(null);
+    setAddrFor("");
     if (!id) {
       setF((prev) => ({ ...prev, bill_to_debtor_id: "" }) as any);
       return;
     }
-    const d = (billDebtorsQ.data ?? []).find((x: any) => x.id === id);
-    // Only the address is fetched — nothing else on the PO changes.
-    setF((prev) => ({
-      ...prev,
-      bill_to_debtor_id: id,
-      bill_to_address: d?.address ?? (prev as any).bill_to_address,
-    }) as any);
-  };
-  const pickShipToSupplier = (id: string) => {
-    if (!id) {
-      setF((prev) => ({ ...prev, ship_to_supplier_id: "" }) as any);
-      return;
-    }
-    const s = (shipSuppliersQ.data ?? []).find((x: any) => x.id === id);
-    // Only the address is fetched — nothing else on the PO changes.
-    setF((prev) => ({
-      ...prev,
-      ship_to_supplier_id: id,
-      ship_to_address: s?.address ?? (prev as any).ship_to_address,
-    }) as any);
+    // The supplier-picker era is over: one customer drives both addresses.
+    setF((prev) => ({ ...prev, bill_to_debtor_id: id, ship_to_supplier_id: "" }) as any);
+    const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
+    if (c) applyCustomerAddrs(id, c.billing ?? [], c.shipping ?? [], true);
+    loadCustomerAddrs(id, true);
   };
 
-  // Inline catalogue creation from the line editor: "New item" opens the
-  // quick product popup, "Add variant" opens the colour/size popup — both
-  // snapshot the created SKU straight into the originating line.
-  const [newItemLine, setNewItemLine] = useState<number | null>(null);
+  // Inline variant creation from the line editor: "Add variant" opens the
+  // colour/size popup and snapshots the created SKU into the originating
+  // line. New products cannot be created here — only variants of catalogue
+  // products.
   const [variantLine, setVariantLine] = useState<number | null>(null);
 
   // ── "Create document from this PO" section ──
@@ -965,13 +1014,6 @@ function POModal({
   });
 
   const addLine = () => setLines((ls) => [...ls, emptyLine()]);
-
-  // Footer "New item": append a blank line and open the quick product popup
-  // targeted at it in one step.
-  const addLineWithNewItem = () => {
-    setNewItemLine(lines.length);
-    setLines((ls) => [...ls, emptyLine()]);
-  };
 
   const removeLine = (i: number) => {
     const l = lines[i];
@@ -1438,61 +1480,110 @@ function POModal({
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <div className="rounded-md border border-border/60 p-3">
                 <div className="mb-2 text-xs uppercase tracking-widest text-primary">Bill to</div>
-                <L label="Debtor (fetches address only)">
+                <L label="Customer">
                   <SearchableSelect
                     value={(f as any).bill_to_debtor_id}
-                    onChange={pickBillToDebtor}
-                    placeholder="Select debtor…"
+                    onChange={pickBillCustomer}
+                    placeholder="Select customer…"
                     disabled={!editable}
                     options={[
                       { value: "", label: "None" },
-                      ...((billDebtorsQ.data ?? []).map((d: any) => ({
+                      ...((billCustomersQ.data ?? []).map((d: any) => ({
                         value: d.id,
                         label: d.name,
                       }))),
                     ]}
                   />
+                  {(f as any).bill_to_debtor_id ? (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                      Billing + shipping addresses auto-filled from this customer — editable.
+                    </p>
+                  ) : null}
                 </L>
                 <div className="mt-2">
                   <L label="Bill to address">
-                    <textarea
-                      rows={2}
-                      className={textareaBase}
-                      value={(f as any).bill_to_address}
-                      onChange={(e) => setF({ ...f, bill_to_address: e.target.value } as any)}
-                      placeholder="Pick a debtor to fetch, or type manually"
-                      disabled={!editable}
-                    />
+                    {(() => {
+                      const id = (f as any).bill_to_debtor_id as string;
+                      const fromBook = addrFor === id ? (addrBook?.billing ?? []) : [];
+                      const fromList = ((billCustomersQ.data ?? []).find((x: any) => x.id === id) as any)?.billing ?? [];
+                      const opts = fromBook.length ? fromBook : fromList;
+                      return (
+                        <>
+                          {editable && opts.length > 1 && (
+                            <select
+                              className="inp mb-1"
+                              value={(() => {
+                                const ix = opts.findIndex((a: PoAddr) => a.address === (f as any).bill_to_address);
+                                return ix >= 0 ? String(ix) : "custom";
+                              })()}
+                              onChange={(e) => {
+                                if (e.target.value === "custom") return;
+                                const a = opts[Number(e.target.value)];
+                                if (a) setF({ ...f, bill_to_address: a.address } as any);
+                              }}
+                            >
+                              {opts.map((a: PoAddr, i: number) => (
+                                <option key={i} value={String(i)}>{poAddrLabel(a, i)}</option>
+                              ))}
+                              <option value="custom">Custom / edited…</option>
+                            </select>
+                          )}
+                          <textarea
+                            rows={2}
+                            className={textareaBase}
+                            value={(f as any).bill_to_address}
+                            onChange={(e) => setF({ ...f, bill_to_address: e.target.value } as any)}
+                            placeholder="Pick a customer to fetch, or type manually"
+                            disabled={!editable}
+                          />
+                        </>
+                      );
+                    })()}
                   </L>
                 </div>
               </div>
               <div className="rounded-md border border-border/60 p-3">
                 <div className="mb-2 text-xs uppercase tracking-widest text-primary">Ship to</div>
-                <L label="Supplier (fetches address only)">
-                  <SearchableSelect
-                    value={(f as any).ship_to_supplier_id}
-                    onChange={pickShipToSupplier}
-                    placeholder="Select supplier…"
-                    disabled={!editable}
-                    options={[
-                      { value: "", label: "None" },
-                      ...((shipSuppliersQ.data ?? []).map((s: any) => ({
-                        value: s.id,
-                        label: s.name,
-                      }))),
-                    ]}
-                  />
-                </L>
                 <div className="mt-2">
                   <L label="Ship to address">
-                    <textarea
-                      rows={2}
-                      className={textareaBase}
-                      value={(f as any).ship_to_address}
-                      onChange={(e) => setF({ ...f, ship_to_address: e.target.value } as any)}
-                      placeholder="Pick a supplier to fetch, or type manually"
-                      disabled={!editable}
-                    />
+                    {(() => {
+                      const id = (f as any).bill_to_debtor_id as string;
+                      const fromBook = addrFor === id ? (addrBook?.shipping ?? []) : [];
+                      const listEntry = ((billCustomersQ.data ?? []).find((x: any) => x.id === id) as any);
+                      const fromList = listEntry?.shipping?.length ? listEntry.shipping : (listEntry?.billing ?? []);
+                      const opts = fromBook.length ? fromBook : fromList;
+                      return (
+                        <>
+                          {editable && opts.length > 1 && (
+                            <select
+                              className="inp mb-1"
+                              value={(() => {
+                                const ix = opts.findIndex((a: PoAddr) => a.address === (f as any).ship_to_address);
+                                return ix >= 0 ? String(ix) : "custom";
+                              })()}
+                              onChange={(e) => {
+                                if (e.target.value === "custom") return;
+                                const a = opts[Number(e.target.value)];
+                                if (a) setF({ ...f, ship_to_address: a.address } as any);
+                              }}
+                            >
+                              {opts.map((a: PoAddr, i: number) => (
+                                <option key={i} value={String(i)}>{poAddrLabel(a, i)}</option>
+                              ))}
+                              <option value="custom">Custom / edited…</option>
+                            </select>
+                          )}
+                          <textarea
+                            rows={2}
+                            className={textareaBase}
+                            value={(f as any).ship_to_address}
+                            onChange={(e) => setF({ ...f, ship_to_address: e.target.value } as any)}
+                            placeholder="Pick a customer to fetch, or type manually"
+                            disabled={!editable}
+                          />
+                        </>
+                      );
+                    })()}
                   </L>
                 </div>
               </div>
@@ -1735,25 +1826,16 @@ function POModal({
                             />
                           </L>
                         </div>
-                        {editable && (
+                        {editable && variantTargetFor(i) && (
                           <div className="mt-1 flex flex-wrap items-center gap-3">
                             <button
                               type="button"
-                              onClick={() => setNewItemLine(i)}
+                              onClick={() => setVariantLine(i)}
                               className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
+                              title="Add a colour/size variant SKU under this product"
                             >
-                              <Plus className="h-3 w-3" /> New item
+                              <Layers className="h-3 w-3" /> Add variant
                             </button>
-                            {variantTargetFor(i) && (
-                              <button
-                                type="button"
-                                onClick={() => setVariantLine(i)}
-                                className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
-                                title="Add a colour/size variant SKU under this product"
-                              >
-                                <Layers className="h-3 w-3" /> Add variant
-                              </button>
-                            )}
                           </div>
                         )}
                       </div>
@@ -1874,14 +1956,6 @@ function POModal({
                       className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary"
                     >
                       <Plus className="h-3.5 w-3.5" /> Add line
-                    </button>
-                    <button
-                      type="button"
-                      onClick={addLineWithNewItem}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-primary/50 px-3 py-1.5 text-xs text-primary hover:border-primary hover:bg-primary/5"
-                      title="Create a brand-new catalogue item without leaving this PO"
-                    >
-                      <Plus className="h-3.5 w-3.5" /> New item
                     </button>
                   </div>
                 )}
@@ -2414,20 +2488,9 @@ function POModal({
           <option value="28" />
         </datalist>
 
-        {/* Inline catalogue popups — stopPropagation keeps clicks inside them
-            from closing the PO modal behind them. */}
-        {newItemLine !== null && (
-          <div onClick={(e) => e.stopPropagation()}>
-            <QuickCreateProductModal
-              userId={userId}
-              onClose={() => setNewItemLine(null)}
-              onCreated={(created) => {
-                if (newItemLine !== null) applyProductToLine(newItemLine, created);
-                setNewItemLine(null);
-              }}
-            />
-          </div>
-        )}
+        {/* Inline variant popup — stopPropagation keeps clicks inside it
+            from closing the PO modal behind it. New products cannot be
+            created here — only colour/size variants. */}
         {variantLine !== null && variantTargetFor(variantLine) !== null && (
           <div onClick={(e) => e.stopPropagation()}>
             <QuickAddVariantModal

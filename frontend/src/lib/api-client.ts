@@ -172,7 +172,7 @@ const api = {
       api.post<any>(`/stock-transfers/${transferId}/receive`, data),
   },
 
-  // Debtors
+  // Customers
   debtors: {
     list: () => api.get<any[]>("/debtors"),
     get: (id: string) => api.get<any>(`/debtors/${id}`),
@@ -334,7 +334,7 @@ const api = {
       api.post<any>(`/goods-sales-orders/${id}/checker-approve`, { action }),
   },
 
-  // Debtor document approvals (public, token-authenticated — no login)
+  // Customer document approvals (public, token-authenticated — no login)
   approvals: {
     get: (token: string) => api.get<any>(`/approvals/${token}`),
     respond: (token: string, decision: "approved" | "rejected", comments?: string) =>

@@ -490,7 +490,8 @@ router.post("/products/create-hierarchy", authMiddleware, async (req, res) => {
       retailerPrice: body.retailerPrice === "" ? null : validPrice(body.retailerPrice, "Retailer price"),
       distributorPrice: body.distributorPrice === "" ? null : validPrice(body.distributorPrice, "Distributor price"),
       unitOfMeasure: body.unitOfMeasure || "piece", categoryMasterId: category.id, genderMasterId: gender.id, status: "active",
-      hsnCode: String(body.hsnCode ?? "").trim() || null };
+      hsnCode: String(body.hsnCode ?? "").trim() || null,
+      imageUrl: String(body.imageUrl ?? "").trim() || null };
     const parent = await Product.create({ ...common, clientId, sku: parentSku, skuLevel: "parent" });
     const colourProducts: any[] = []; const variants: any[] = [];
     // Variant-matrix opt-outs: frontend sends ["<colorId>:<sizeId>"] for disabled cells.
@@ -2041,7 +2042,7 @@ router.post("/invoices/:id/send-noa", authMiddleware, async (req, res) => {
     const email = debtor?.contactEmail?.trim() || null;
     if (!email) {
       return res.status(400).json({
-        error: `No contact email on file for "${debtor?.name || "the debtor"}" — add one in the Debtors tab first`,
+        error: `No contact email on file for "${debtor?.name || "the customer"}" — add one in the Customers tab first`,
       });
     }
 
@@ -5447,7 +5448,7 @@ async function sendDocumentToDebtor(
   const email = debtor?.contactEmail?.trim() || null;
   if (!email) {
     throw new Error(
-      `No contact email on file for "${debtor?.name || "the customer"}" — add one in the Debtors tab first`,
+        `No contact email on file for "${debtor?.name || "the customer"}" — add one in the Customers tab first`,
     );
   }
   const { isEmailConfigured } = await import("../email.js");
@@ -5596,7 +5597,7 @@ router.post(
       if (so.status !== "confirmed") {
         return res.status(400).json({
           error:
-            "Only checker-confirmed sales orders can be sent to the debtor",
+            "Only checker-confirmed sales orders can be sent to the customer",
         });
       }
       const sent = await sendDocumentToDebtor(

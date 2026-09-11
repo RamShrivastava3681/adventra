@@ -235,9 +235,9 @@ const SO_STATUS_TONES: Record<string, string> = {
 
 // Debtor approval (PDF sent by email — Approve/Reject from the email link).
 const SO_DEBTOR_LABELS: Record<string, string> = {
-  pending: "Awaiting debtor",
-  approved: "Approved by debtor",
-  rejected: "Rejected by debtor",
+  pending: "Awaiting customer",
+  approved: "Approved by customer",
+  rejected: "Rejected by customer",
 };
 
 const SO_DEBTOR_TONES: Record<string, string> = {
@@ -767,8 +767,14 @@ function SOModal({
     });
   };
 
+  // Live address book for the selected customer (see loadSoAddrs below).
+  const [addrBook, setAddrBook] = useState<{ billing: CustomerAddress[]; shipping: CustomerAddress[] } | null>(null);
+  const [addrFor, setAddrFor] = useState<string>("");
+
   const pickCustomer = (id: string) => {
     const c = customers.find((x) => x.id === id);
+    setAddrBook(null);
+    setAddrFor("");
     setF((prev) => ({
       ...prev,
       customer_id: id,
@@ -783,13 +789,62 @@ function SOModal({
       // Reset the approved-term selection; the effect above auto-selects the
       // new customer's default once its terms load.
       payment_term_id: "",
-      // Pre-fill legacy display fields from the debtor master (still editable
+      // Pre-fill legacy display fields from the customer master (still editable
       // until the approved terms load and override).
       ...(id
         ? toTermsFormFields(c)
         : { payment_terms_type: "credit" as const, payment_terms_advance_pct: "", payment_terms_days: "30" }),
     }));
+    if (id) {
+      if (c && ((c.billing_addresses?.length ?? 0) > 1 || (c.shipping_addresses?.length ?? 0) > 1)) {
+        setAddrBook({ billing: c.billing_addresses ?? [], shipping: c.shipping_addresses ?? [] });
+        setAddrFor(id);
+      }
+      loadSoAddrs(id, true);
+    }
   };
+
+  // Live address book for the selected customer — fetched from the master so
+  // newly added billing/shipping addresses are always choosable, even when
+  // the cached customer list is stale.
+  const loadSoAddrs = async (id: string, overwrite: boolean) => {
+    if (!id) return;
+    try {
+      const d = await api.debtors.get(id);
+      let billing = normAddresses(d?.billing_addresses ?? d?.billingAddresses);
+      const primaryBilling = d?.billing_address ?? d?.billingAddress ?? d?.address_line ?? d?.addressLine ?? "";
+      if (!billing.length && primaryBilling) billing = [{ label: null, address: String(primaryBilling) }];
+      let shipping = normAddresses(d?.shipping_addresses ?? d?.shippingAddresses);
+      const primaryShipping = d?.shipping_address ?? d?.shippingAddress ?? "";
+      if (!shipping.length && primaryShipping) shipping = [{ label: null, address: String(primaryShipping) }];
+      if (!billing.length && !shipping.length) return;
+      const cid = id;
+      setAddrBook({ billing, shipping });
+      setAddrFor(cid);
+      if (overwrite) {
+        setF((prev) =>
+          prev.customer_id === cid
+            ? {
+                ...prev,
+                billing_address: billing[0]?.address ?? prev.billing_address,
+                delivery_address: shipping[0]?.address ?? billing[0]?.address ?? prev.delivery_address,
+              }
+            : prev,
+        );
+        const n = Math.max(billing.length, shipping.length);
+        if (n > 1) toast.success(`Fetched ${n} addresses from ${d?.name ?? "customer"}`);
+      }
+    } catch {
+      // Fall back to the cached list — dropdowns keep working off it.
+    }
+  };
+
+  // Edit mode: load the linked customer's address options (no overwrite —
+  // the saved addresses on the order win).
+  useEffect(() => {
+    if (isEdit && f.customer_id && addrFor !== f.customer_id) loadSoAddrs(f.customer_id, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit, f.customer_id]);
 
   const pickTerm = (termId: string) => {
     const t = soTerms.find((x) => x.id === termId) ?? null;
@@ -1136,7 +1191,8 @@ function SOModal({
               <L label="Billing address">
                 {(() => {
                   const c = customers.find((x) => x.id === f.customer_id);
-                  const opts = c?.billing_addresses ?? [];
+                  const listed = c?.billing_addresses ?? [];
+                  const opts = addrFor === f.customer_id && addrBook ? addrBook.billing : listed;
                   return (
                     <>
                       {editable && opts.length > 1 && (
@@ -1197,7 +1253,9 @@ function SOModal({
               <L label="Delivery / shipping address">
                 {(() => {
                   const c = customers.find((x) => x.id === f.customer_id);
-                  const opts = c?.shipping_addresses?.length ? c.shipping_addresses : (c?.billing_addresses ?? []);
+                  const listed = c?.shipping_addresses?.length ? c.shipping_addresses : (c?.billing_addresses ?? []);
+                  const live = addrFor === f.customer_id && addrBook ? (addrBook.shipping.length ? addrBook.shipping : addrBook.billing) : [];
+                  const opts = live.length ? live : listed;
                   return (
                     <>
                       {editable && opts.length > 1 && (
@@ -1274,7 +1332,7 @@ function SOModal({
                   <div className="text-xs text-muted-foreground">Loading approved terms…</div>
                 ) : soTerms.length === 0 ? (
                   <div className="text-xs text-destructive">
-                    No approved terms for this customer. Add one in Debtors → Edit before
+                    No approved terms for this customer. Add one in Customers → Edit before
                     creating the order.
                   </div>
                 ) : (

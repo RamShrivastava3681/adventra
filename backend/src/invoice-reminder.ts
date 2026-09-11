@@ -364,7 +364,7 @@ export async function runDueDateReminders(): Promise<{ checked: number; sent: nu
 }
 
 // ---------------------------------------------------------------------------
-// Send a one-off reminder to debtor (triggered by clicking the admin email link)
+// Send a one-off reminder to customer (triggered by clicking the admin email link)
 // ---------------------------------------------------------------------------
 
 export async function sendReminderToDebtor(invoiceId: string, token: string): Promise<{ success: boolean; message: string }> {
@@ -377,7 +377,7 @@ export async function sendReminderToDebtor(invoiceId: string, token: string): Pr
   const isOverdue = dud < 0;
 
   const cp = await resolveCounterparty(inv.debtorId, "debtor");
-  if (!cp.email) return { success: false, message: `Debtor ${cp.name} has no email address on file` };
+  if (!cp.email) return { success: false, message: `Customer ${cp.name} has no email address on file` };
 
   const sent = await sendDebtorReminder({
     invoiceNumber: inv.invoiceNumber,
@@ -406,7 +406,7 @@ export async function sendReminderToDebtor(invoiceId: string, token: string): Pr
       isOverdue,
       status: "sent",
       counterpartyName: cp.name,
-    }).catch((err) => console.error(`  ❌ Failed to create debtor reminder log:`, err));
+    }).catch((err) => console.error(`  ❌ Failed to create customer reminder log:`, err));
     return { success: true, message: `Reminder sent to ${cp.name} at ${cp.email}` };
   }
 

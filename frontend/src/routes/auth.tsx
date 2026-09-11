@@ -22,7 +22,7 @@ export const Route = createFileRoute("/auth")({
 
 const PERKS = [
   "Advance against approved invoices in hours",
-  "Live debtor risk, aging and alerts in real time",
+  "Live customer risk, aging and alerts in real time",
   "Audit-ready accounting built in",
 ];
 

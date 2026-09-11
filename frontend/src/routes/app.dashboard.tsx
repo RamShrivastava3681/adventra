@@ -902,7 +902,7 @@ function Dashboard() {
                   <thead>
                     <tr>
                       <th>Invoice</th>
-                      <th>Debtor</th>
+                      <th>Customer</th>
                       <th className="text-right">Amount</th>
                       <th>Due</th>
                       <th className="text-right">Short pay</th>
@@ -1023,7 +1023,7 @@ function Dashboard() {
 
             {(debtorsQ.data ?? []).length > 0 && (
               <Card
-                title="Debtor concentration"
+                title="Customer concentration"
                 className="lg:col-span-2"
                 action={
                   <Link to="/app/debtors" className="text-xs font-medium text-primary hover:underline">

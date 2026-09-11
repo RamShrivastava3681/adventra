@@ -778,7 +778,7 @@ function SalesProformaModal({
   const save = useMutation({
     mutationFn: async () => {
       if (!f.proforma_number.trim()) throw new Error("Proforma invoice number is required");
-      if (!f.party_id) throw new Error("Pick a debtor");
+      if (!f.party_id) throw new Error("Pick a customer");
       const payloadLines = lines.map((l) => ({
         product_id: l.product_id,
         sku: l.sku,
@@ -871,7 +871,7 @@ function SalesProformaModal({
                 onChange={(e) => setF({ ...f, proforma_date: e.target.value })}
               />
             </L>
-            <L label="Debtor *">
+            <L label="Customer *">
               <SearchableSelect
                 value={f.party_id}
                 onChange={(v) => {
@@ -884,11 +884,11 @@ function SalesProformaModal({
                     ...(d ? toTermsFormFields(d) : {}),
                   }));
                 }}
-                placeholder="Select debtor…"
+                placeholder="Select customer…"
                 options={(partiesQ.data ?? []).map((p) => ({ value: p.id, label: p.name }))}
               />
             </L>
-            <L label="Debtor contact">
+            <L label="Customer contact">
               <input
                 className={inputBase}
                 value={f.debtor_contact}
@@ -896,7 +896,7 @@ function SalesProformaModal({
                 placeholder="Name · email · phone"
               />
             </L>
-            <L label="Debtor GSTIN (optional)">
+            <L label="Customer GSTIN (optional)">
               <input
                 className={inputBase}
                 value={f.debtor_gstin}
@@ -1208,7 +1208,7 @@ function PurchaseProformaModal({
   userId: string;
   pf?: PF;
   products: CatalogueProduct[];
-  suppliers: Array<{ id: string; name: string; contact: string }>;
+  suppliers: Array<{ id: string; name: string; contact: string; gstin?: string | null }>;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
@@ -1226,6 +1226,7 @@ function PurchaseProformaModal({
     ...toTermsFormFields(pf),
     expected_delivery_date: (pf?.expected_delivery_date ?? "")?.slice(0, 10) ?? "",
     notes: pf?.notes ?? "",
+    linked_po_id: pf?.linked_goods_po_id ?? "",
     po_number: pf?.po_number ?? "",
     amount: pf?.amount != null && pf.amount > 0 ? String(pf.amount) : "",
     freight: pf?.freight != null ? String(pf.freight) : "",
@@ -1243,6 +1244,72 @@ function PurchaseProformaModal({
     })),
   );
   const [docs, setDocs] = useState<DocMeta[]>(pf?.documents ?? []);
+
+  // Existing purchase orders to optionally link this proforma to.
+  const posQ = useQuery({
+    queryKey: ["pf-purchase-orders"],
+    queryFn: async () => api.goodsPurchaseOrders.list(),
+  });
+
+  // Pick a purchase order → auto-fill supplier + contact + GSTIN + terms +
+  // dates + freight + lines. Everything stays editable after the fetch.
+  const pickPo = (id: string) => {
+    if (!id) {
+      setF((prev) => ({ ...prev, linked_po_id: "" }));
+      return;
+    }
+    const po = (posQ.data ?? []).find((x: any) => x.id === id) as any;
+    if (!po) {
+      setF((prev) => ({ ...prev, linked_po_id: id }));
+      return;
+    }
+    const supplierId = po.supplier_id ?? po.supplierId ?? f.supplier_id;
+    const master = (suppliers ?? []).find((x: any) => x.id === supplierId) as any;
+    const poContact =
+      [po.contact_person ?? po.contactPerson, po.contact_person_contact ?? po.contactPersonContact]
+        .filter(Boolean)
+        .join(" · ") || master?.contact || "";
+    setF((prev) => ({
+      ...prev,
+      linked_po_id: id,
+      supplier_id: supplierId ?? prev.supplier_id,
+      supplier_contact: poContact || prev.supplier_contact,
+      supplier_gstin:
+        po.vendor_gstin ?? po.vendorGstin ?? master?.gstin ?? prev.supplier_gstin,
+      ...toTermsFormFields(po),
+      expected_delivery_date:
+        (po.expected_delivery_date ?? po.expectedDeliveryDate ?? "").slice(0, 10) ||
+        prev.expected_delivery_date,
+      po_number: po.po_number ?? po.poNumber ?? prev.po_number,
+      freight:
+        prev.freight || (po.freight != null ? String(po.freight) : prev.freight),
+    }));
+    const poLines = (po.lines ?? []).filter(
+      (l: any) => Number(l.ordered_qty ?? l.quantity ?? 0) > 0,
+    );
+    if (poLines.length) {
+      setLines(
+        poLines.map((l: any) => {
+          const cat = (products ?? []).find((x: any) => x.id === l.product_id) as any;
+          return {
+            product_id: l.product_id,
+            sku: l.sku ?? null,
+            name: l.name,
+            hsn_code: String(
+              l.hsn_code ?? l.hsnCode ?? cat?.hsn_code ?? cat?.hsnCode ?? "",
+            ),
+            unit: l.unit || "piece",
+            quantity: String(l.ordered_qty ?? l.quantity ?? ""),
+            unit_price: String(l.unit_price ?? l.unitPrice ?? ""),
+            gst_rate: (l.gst_rate ?? l.gstRate) != null ? String(l.gst_rate ?? l.gstRate) : "",
+          };
+        }),
+      );
+      toast.success(`Fetched ${poLines.length} line${poLines.length === 1 ? "" : "s"} from ${po.po_number ?? po.poNumber ?? "purchase order"}`);
+    } else {
+      toast.success(`Linked ${po.po_number ?? po.poNumber ?? "purchase order"} — supplier details fetched`);
+    }
+  };
 
   const setLine = (i: number, patch: Partial<LineDraft>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
@@ -1323,6 +1390,7 @@ function PurchaseProformaModal({
         paymentTerms: formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }),
         expectedDeliveryDate: f.expected_delivery_date || null,
         notes: f.notes.trim() || null,
+        linkedGoodsPoId: (f as any).linked_po_id || null,
         poNumber: (() => {
           const manual = f.po_number.trim();
           if (manual) return manual;
@@ -1457,6 +1525,26 @@ function PurchaseProformaModal({
                  value={f.expected_delivery_date}
                  onChange={(e) => setF({ ...f, expected_delivery_date: e.target.value })}
                />
+             </L>
+             <L label="Linked purchase order (optional)">
+               <SearchableSelect
+                 value={(f as any).linked_po_id}
+                 onChange={pickPo}
+                 placeholder="None"
+                 options={[
+                   { value: "", label: "None" },
+                   ...(posQ.data ?? []).map((po: any) => ({
+                     value: po.id,
+                     label: po.po_number ?? po.poNumber ?? po.id,
+                     hint: po.supplier_name ?? po.supplierName ?? undefined,
+                   })),
+                 ]}
+               />
+               {(f as any).linked_po_id ? (
+                 <p className="mt-1 text-[11px] text-muted-foreground">
+                   Supplier, terms, dates and lines auto-filled from the purchase order — editable.
+                 </p>
+               ) : null}
              </L>
            </div>
            <div className="mt-3">
@@ -1884,10 +1972,10 @@ function ProformaDetailModal({
             <D label="GSTIN" value={pf.supplier_gstin} />
           )}
           {pf.side === "sales" && pf.debtor_gstin && (
-            <D label="Debtor GSTIN" value={pf.debtor_gstin} />
+            <D label="Customer GSTIN" value={pf.debtor_gstin} />
           )}
           {pf.side === "sales" && pf.debtor_contact && (
-            <D label="Debtor contact" value={pf.debtor_contact} />
+            <D label="Customer contact" value={pf.debtor_contact} />
           )}
           {pf.valid_until && <D label="Valid until" value={fmtDate(pf.valid_until)} />}
           {pf.expected_delivery_date && (

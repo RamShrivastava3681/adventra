@@ -73,7 +73,59 @@ type Product = {
 };
 type SkuMaster = { id: string; name: string; code: string; active: boolean; size_system?: string | null };
 
-const GENDERS = ["mens", "womens", "kids", "unisex"];
+// Standard colour palette — fixed codes flow into SKUs as MASTER-COLOUR.
+// Users pick from this searchable list; no manual code entry.
+const STANDARD_COLOURS: Array<{ name: string; code: string }> = [
+  { name: "Black", code: "BLK" },
+  { name: "White", code: "WHT" },
+  { name: "Grey", code: "GRY" },
+  { name: "Charcoal", code: "CHR" },
+  { name: "Silver", code: "SLV" },
+  { name: "Blue", code: "BLU" },
+  { name: "Navy Blue", code: "NVY" },
+  { name: "Royal Blue", code: "RYL" },
+  { name: "Sky Blue", code: "SKY" },
+  { name: "Ice Blue", code: "IBL" },
+  { name: "Teal", code: "TEL" },
+  { name: "Turquoise", code: "TRQ" },
+  { name: "Green", code: "GRN" },
+  { name: "Olive Green", code: "OLV" },
+  { name: "Forest Green", code: "FGR" },
+  { name: "Khaki", code: "KHK" },
+  { name: "Red", code: "RED" },
+  { name: "Maroon", code: "MAR" },
+  { name: "Burgundy", code: "BRG" },
+  { name: "Orange", code: "ORG" },
+  { name: "Yellow", code: "YLW" },
+  { name: "Purple", code: "PUR" },
+  { name: "Pink", code: "PNK" },
+  { name: "Brown", code: "BRN" },
+  { name: "Coyote Brown", code: "CYB" },
+  { name: "Tan", code: "TAN" },
+  { name: "Beige", code: "BEI" },
+  { name: "Sand", code: "SND" },
+  { name: "Stone", code: "STN" },
+  { name: "Desert Sand", code: "DST" },
+  { name: "Gold", code: "GLD" },
+  { name: "Copper", code: "CPR" },
+  { name: "Camouflage", code: "CAM" },
+  { name: "Multi Colour", code: "MLT" },
+  { name: "Assorted", code: "AST" },
+  { name: "Transparent", code: "CLR" },
+];
+
+// Standard gender palette — fixed codes flow into Master SKUs as AD-GENDER-….
+// Users pick from this searchable list; no manual code entry.
+const STANDARD_GENDERS: Array<{ name: string; code: string }> = [
+  { name: "Men", code: "MEN" },
+  { name: "Women", code: "WOM" },
+  { name: "Unisex", code: "UNI" },
+  { name: "Kids", code: "KID" },
+  { name: "Boys", code: "BOY" },
+  { name: "Girls", code: "GRL" },
+];
+
+const GENDERS = ["Men", "Women", "Unisex", "Kids", "Boys", "Girls"];
 const SEASONS = ["all", "spring", "summer", "fall", "winter"];
 const CATEGORIES = ["Footwear", "Apparel", "Accessories", "Equipment", "Nutrition"];
 const UNITS_OF_MEASURE = [
@@ -95,14 +147,15 @@ const BARCODE_TYPES = ["", "EAN-13", "UPC-A", "EAN-8", "Code 128", "QR", "ITF-14
 const GST_RATES = ["", "0", "5", "12", "18", "28"];
 
 function ProductsPage() {
-  const { user, isAdmin, isSalesRep } = useAuth();
+  const { user, isSalesRep } = useAuth();
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [skuWizard, setSkuWizard] = useState(false);
-  const [mastersOpen, setMastersOpen] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
   const [variantFor, setVariantFor] = useState<{ parent: Product; child?: Product } | null>(null);
+  // Price-only edit — the only edit allowed on SKUs (master + variants).
+  const [priceFor, setPriceFor] = useState<Product | null>(null);
   const [detailFor, setDetailFor] = useState<Product | null>(null);
   // Staged child-SKU creation from the Master SKU drawer: "color" adds a
   // colour-coded SKU under a master, "size" a size-coded SKU under a colour.
@@ -322,7 +375,6 @@ function ProductsPage() {
         actions={
           canWrite ? (
             <div className="flex gap-2">
-            {isAdmin && <button onClick={() => setMastersOpen(true)} className="rounded-md border border-border px-3 py-2 text-sm font-medium hover:border-primary hover:text-primary">SKU Masters</button>}
             <button
               onClick={() => {
                 setSkuWizard(true);
@@ -567,15 +619,8 @@ function ProductsPage() {
                                 );
                               })()}
                               <button
-                                onClick={() => {
-                                  if (isVariant) {
-                                    const parent = parentOf(p);
-                                    if (parent) setVariantFor({ parent, child: p });
-                                  } else {
-                                    setEditing(p);
-                                    setOpen(true);
-                                  }
-                                }}
+                                onClick={() => setPriceFor(p)}
+                                title="Edit prices only"
                                 className="text-muted-foreground hover:text-foreground"
                               >
                                 <Pencil className="h-3.5 w-3.5" />
@@ -604,34 +649,25 @@ function ProductsPage() {
         </Card>
       </div>
 
-      {open && user && (
-        <ProductModal
-          userId={user.id}
-          product={editing}
-          defaultMargin={defaultMargin}
-          suppliers={suppliersQ.data ?? []}
-          onClose={() => setOpen(false)}
+      {priceFor && (
+        <PriceEditModal
+          product={(productsQ.data ?? []).find((p) => p.id === priceFor.id) ?? priceFor}
+          onClose={() => setPriceFor(null)}
+          onSaved={() => {
+            qc.invalidateQueries({ queryKey: ["products"] });
+            qc.invalidateQueries({ queryKey: ["products-forecast"] });
+            qc.invalidateQueries({ queryKey: ["products-inventory"] });
+            setPriceFor(null);
+          }}
         />
       )}
       {skuWizard && user && (
         <SkuBuilderModal
           categories={(categoriesQ.data ?? []).filter((x: SkuMaster) => x.active)}
           genders={(gendersQ.data ?? []).filter((x: SkuMaster) => x.active)}
+          userId={user.id}
           onClose={() => setSkuWizard(false)}
           onSaved={() => { qc.invalidateQueries({ queryKey: ["products"] }); setSkuWizard(false); }}
-        />
-      )}
-      {mastersOpen && (
-        <SkuMastersModal
-          onClose={() => setMastersOpen(false)}
-          onSaved={() => { ["category", "gender", "color", "size"].forEach((type) => qc.invalidateQueries({ queryKey: ["sku-masters", type] })); }}
-        />
-      )}
-      {variantFor && (
-        <VariantModal
-          parent={variantFor.parent}
-          child={variantFor.child}
-          onClose={() => setVariantFor(null)}
         />
       )}
       {detailFor && (
@@ -653,6 +689,7 @@ function ProductsPage() {
           takenNames={(childrenByParent.get(stageFor.parent.id) ?? []).map((p) =>
             stageFor.level === "color" ? (p.color ?? "") : (p.size ?? ""),
           )}
+          userId={user.id}
           onClose={() => setStageFor(null)}
           onSaved={() => {
             qc.invalidateQueries({ queryKey: ["products"] });
@@ -808,6 +845,163 @@ function ConfirmProductDelete({
   );
 }
 
+// Price-only edit — the sole edit allowed on SKUs (master + colour + size).
+// Name, SKU, colour, size, category, gender, image etc. are read-only here;
+// only commercial prices can be changed.
+function PriceEditModal({
+  product,
+  onClose,
+  onSaved,
+}: {
+  product: Product;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const str = (v: number | null | undefined) =>
+    v === null || v === undefined ? "" : String(v);
+  const [prices, setPrices] = useState({
+    unit_cost: str(product.unit_cost),
+    unit_price: str(product.unit_price),
+    mrp: str(product.mrp),
+    ecommerce_price: str(product.ecommerce_price),
+    retailer_price: str(product.retailer_price),
+    distributor_price: str(product.distributor_price),
+    gst_rate: str(product.gst_rate),
+  });
+  useEffect(() => {
+    setPrices({
+      unit_cost: str(product.unit_cost),
+      unit_price: str(product.unit_price),
+      mrp: str(product.mrp),
+      ecommerce_price: str(product.ecommerce_price),
+      retailer_price: str(product.retailer_price),
+      distributor_price: str(product.distributor_price),
+      gst_rate: str(product.gst_rate),
+    });
+  }, [product.id]);
+  const setP = (k: keyof typeof prices) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setPrices({ ...prices, [k]: e.target.value });
+  const priceError = (() => {
+    for (const [label, v] of [
+      ["Cost", prices.unit_cost],
+      ["Selling price", prices.unit_price],
+      ["MRP", prices.mrp],
+      ["Retailer price", prices.retailer_price],
+      ["Distributor price", prices.distributor_price],
+      ["E-commerce price", prices.ecommerce_price],
+    ] as Array<[string, string]>) {
+      if (v !== "" && !(Number(v) >= 0)) return `${label} cannot be negative`;
+    }
+    if (prices.gst_rate !== "" && !(Number(prices.gst_rate) >= 0))
+      return "GST rate cannot be negative";
+    if (
+      prices.mrp !== "" &&
+      prices.unit_price !== "" &&
+      Number(prices.mrp) < Number(prices.unit_price)
+    )
+      return "MRP should not be lower than Selling price";
+    return null;
+  })();
+  const save = useMutation({
+    mutationFn: async () => {
+      await api.products.update(product.id, {
+        unit_cost: numOrNull(prices.unit_cost) ?? 0,
+        unit_price: numOrNull(prices.unit_price) ?? 0,
+        mrp: numOrNull(prices.mrp),
+        ecommerce_price: numOrNull(prices.ecommerce_price),
+        retailer_price: numOrNull(prices.retailer_price),
+        distributor_price: numOrNull(prices.distributor_price),
+        gst_rate: numOrNull(prices.gst_rate),
+      });
+    },
+    onSuccess: () => {
+      toast.success(`Prices updated for ${product.sku}`);
+      onSaved();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to update prices"),
+  });
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card p-5"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border pb-3">
+          <div>
+            <h3 className="font-display text-lg">Edit prices — {product.sku}</h3>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              {product.name} · only prices can be changed here
+            </p>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            save.mutate();
+          }}
+          className="mt-4 space-y-4"
+        >
+          <div className="rounded-lg border border-border/60 bg-muted/20 p-3 text-xs text-muted-foreground">
+            <p className="font-mono font-semibold text-foreground">{product.sku}</p>
+            <p className="mt-0.5">
+              {[product.category, product.gender, product.color, product.size]
+                .filter(Boolean)
+                .join(" · ") || "—"}
+            </p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <L label="Cost">
+              <input type="number" min="0" step="0.01" className="inp" value={prices.unit_cost} onChange={setP("unit_cost")} />
+            </L>
+            <L label="Selling price">
+              <input type="number" min="0" step="0.01" className="inp" value={prices.unit_price} onChange={setP("unit_price")} />
+            </L>
+            <L label="MRP">
+              <input type="number" min="0" step="0.01" className="inp" value={prices.mrp} onChange={setP("mrp")} />
+            </L>
+            <L label="Retailer price">
+              <input type="number" min="0" step="0.01" className="inp" value={prices.retailer_price} onChange={setP("retailer_price")} />
+            </L>
+            <L label="Distributor price">
+              <input type="number" min="0" step="0.01" className="inp" value={prices.distributor_price} onChange={setP("distributor_price")} />
+            </L>
+            <L label="E-commerce price">
+              <input type="number" min="0" step="0.01" className="inp" value={prices.ecommerce_price} onChange={setP("ecommerce_price")} />
+            </L>
+            <L label="GST %">
+              <input type="number" min="0" step="0.01" className="inp" value={prices.gst_rate} onChange={setP("gst_rate")} />
+            </L>
+          </div>
+          {priceError && <p className="text-xs font-medium text-destructive">{priceError}</p>}
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm"
+            >
+              Cancel
+            </button>
+            <button
+              disabled={save.isPending || !!priceError}
+              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+            >
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              {save.isPending ? "Saving…" : "Save prices"}
+            </button>
+          </div>
+        </form>
+        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+      </div>
+    </div>
+  );
+}
+
 // Variant-name builder — mirrors the backend rule so an edited variant keeps
 // the same readable name ("Parent name — BLACK / 42").
 function variantDisplayName(parentName: string, color?: string | null, size?: string | null): string {
@@ -833,6 +1027,7 @@ function StagedSkuModal({
   colors,
   sizes,
   takenNames,
+  userId,
   onClose,
   onSaved,
 }: {
@@ -842,6 +1037,7 @@ function StagedSkuModal({
   sizes: SkuMaster[];
   /** Colour names (level color) or size names (level size) already used under this parent. */
   takenNames: string[];
+  userId: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -849,7 +1045,9 @@ function StagedSkuModal({
   const isColour = level === "color";
   const [masterId, setMasterId] = useState("");
   const [sku, setSku] = useState("");
-  const [quick, setQuick] = useState({ name: "", code: "", system: "International" });
+  const [imageUrl, setImageUrl] = useState(parent.image_url ?? "");
+  // Size is the code — single box, no sizing system (International/EU/UK… removed).
+  const [quickSize, setQuickSize] = useState("");
   const [localColors, setLocalColors] = useState<SkuMaster[]>(colors);
   const [localSizes, setLocalSizes] = useState<SkuMaster[]>(sizes);
   useEffect(() => setLocalColors(colors), [colors]);
@@ -868,12 +1066,29 @@ function StagedSkuModal({
   const setP = (k: keyof typeof prices) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setPrices({ ...prices, [k]: e.target.value });
 
-  const options = isColour ? localColors : localSizes;
-  const selected = options.find((x) => x.id === masterId);
-  const preview = sku.trim() || (selected ? `${parent.sku}-${selected.code}` : "");
-  const dupName =
-    !!selected &&
-    takenNames.some((n) => !!n && n.toLowerCase() === selected.name.toLowerCase());
+  // Colour level uses fixed STANDARD_COLOURS (value = code). Size level uses
+  // master ids from the API.
+  const selectedColour = isColour
+    ? STANDARD_COLOURS.find((c) => c.code === masterId)
+    : undefined;
+  const selectedSize = !isColour
+    ? localSizes.find((x) => x.id === masterId)
+    : undefined;
+  const selected = isColour ? selectedColour : selectedSize;
+  const preview =
+    sku.trim() ||
+    (isColour
+      ? selectedColour
+        ? `${parent.sku}-${selectedColour.code}`
+        : ""
+      : selectedSize
+        ? `${parent.sku}-${selectedSize.code}`
+        : "");
+  const dupName = isColour
+    ? !!selectedColour &&
+      takenNames.some((n) => !!n && n.toLowerCase() === selectedColour.name.toLowerCase())
+    : !!selectedSize &&
+      takenNames.some((n) => !!n && n.toLowerCase() === selectedSize.name.toLowerCase());
 
   const checkQ = useQuery({
     queryKey: ["check-sku", preview],
@@ -910,7 +1125,8 @@ function StagedSkuModal({
 
   const save = useMutation({
     mutationFn: async () => {
-      if (!selected) throw new Error(isColour ? "Pick a colour" : "Pick a size");
+      if (isColour && !selectedColour) throw new Error("Pick a colour");
+      if (!isColour && !selectedSize) throw new Error("Pick a size");
       if (dupName)
         throw new Error(
           `${isColour ? "This colour already exists" : "This size already exists"} under ${parent.sku}`,
@@ -924,21 +1140,40 @@ function StagedSkuModal({
         distributor_price: numOrNull(prices.distributor_price),
         gst_rate: numOrNull(prices.gst_rate),
       };
-      if (isColour) {
+      if (isColour && selectedColour) {
+        // Ensure a colour master exists for this standard code (auto-create on
+        // first use so SKUs always carry the fixed code).
+        let master = localColors.find((x) => x.code === selectedColour.code);
+        if (!master) {
+          const created: any = await api.skuMasters.create("color", {
+            name: selectedColour.name,
+            code: selectedColour.code,
+          });
+          master = {
+            id: created.id ?? created._id ?? String(Date.now()),
+            name: created.name ?? selectedColour.name,
+            code: created.code ?? selectedColour.code,
+            active: true,
+          } as SkuMaster;
+          setLocalColors((prev) => [...prev, master!]);
+          qc.invalidateQueries({ queryKey: ["sku-masters", "color"] });
+        }
         await api.products.create({
           parent_id: parent.id,
           sku_level: "color",
-          color: selected.name,
-          color_master_id: selected.id,
+          color: selectedColour.name,
+          color_master_id: master!.id,
           sku: sku.trim() || undefined,
+          image_url: imageUrl.trim() || null,
+          imageUrl: imageUrl.trim() || null,
           ...pricePayload,
         });
-      } else {
+      } else if (selectedSize) {
         await api.products.create({
           parent_id: parent.id,
           sku_level: "variant",
-          size: selected.name,
-          size_master_id: selected.id,
+          size: selectedSize.name,
+          size_master_id: selectedSize.id,
           color: parent.color,
           color_master_id:
             (parent as any).color_master_id ?? (parent as any).colorMasterId ?? null,
@@ -958,53 +1193,31 @@ function StagedSkuModal({
 
   const quickCreate = useMutation({
     mutationFn: async () => {
-      if (isColour) {
-        const created: any = await api.skuMasters.create("color", {
-          name: quick.name.trim(),
-          code: quick.code,
-        });
-        const entry = {
-          id: created.id ?? String(Date.now()),
-          name: created.name,
-          code: created.code,
-          active: true,
-        } as SkuMaster;
-        setLocalColors((prev) => [...prev, entry]);
-        setMasterId(entry.id);
-      } else {
-        const created: any = await api.skuMasters.create("size", {
-          name: quick.name.trim(),
-          code: quick.code,
-          sizeSystem: quick.system,
-        });
-        const entry = {
-          id: created.id ?? String(Date.now()),
-          name: created.name,
-          code: created.code,
-          active: true,
-          size_system: created.sizeSystem ?? quick.system,
-        } as SkuMaster;
-        setLocalSizes((prev) => [...prev, entry]);
-        setMasterId(entry.id);
-      }
-      setQuick({ name: "", code: "", system: "International" });
+      // Size = code — single box. Code is derived from the typed size.
+      const name = quickSize.trim();
+      if (!name) throw new Error("Enter a size");
+      const code = name.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 10) || name.toUpperCase().slice(0, 10);
+      const created: any = await api.skuMasters.create("size", {
+        name,
+        code,
+      });
+      const entry = {
+        id: created.id ?? String(Date.now()),
+        name: created.name ?? name,
+        code: created.code ?? code,
+        active: true,
+      } as SkuMaster;
+      setLocalSizes((prev) => [...prev, entry]);
+      setMasterId(entry.id);
+      setQuickSize("");
     },
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["sku-masters", isColour ? "color" : "size"] });
+      qc.invalidateQueries({ queryKey: ["sku-masters", "size"] });
       toast.success("Master created & selected");
     },
     onError: (e) =>
       toast.error(e instanceof Error ? e.message : "Could not create master — code may exist"),
   });
-
-  const sizeGroups = (["International", "EU", "UK", "US", "Custom"] as const)
-    .map((sys) => ({
-      sys,
-      list: localSizes.filter(
-        (x: any) => (x.size_system ?? x.sizeSystem ?? "Custom") === sys,
-      ),
-    }))
-    .filter((g) => g.list.length > 0);
 
   return (
     <div
@@ -1043,80 +1256,62 @@ function StagedSkuModal({
               {isColour ? "Colour *" : "Size *"}
             </p>
             {isColour ? (
-              <div className="flex flex-wrap gap-2">
-                {localColors.map((x) => (
-                  <button
-                    key={x.id}
-                    type="button"
-                    onClick={() => setMasterId(x.id)}
-                    className={`rounded-md border px-3 py-1.5 text-xs ${masterId === x.id ? "border-primary bg-primary/10 text-primary" : "border-border"}`}
-                  >
-                    {masterId === x.id && <Check className="mr-1 inline h-3 w-3" />}
-                    {x.name} <span className="font-mono">({x.code})</span>
-                  </button>
-                ))}
+              <div>
+                <SearchableSelect
+                  value={masterId}
+                  onChange={setMasterId}
+                  placeholder="Search colour — e.g. Black, Navy, BLK…"
+                  searchPlaceholder="Type colour name or code…"
+                  emptyText="No colour matches — try another name or code"
+                  options={STANDARD_COLOURS.map((c) => ({
+                    value: c.code,
+                    label: `${c.name} (${c.code})`,
+                    hint: `Code: ${c.code}`,
+                  }))}
+                />
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  {STANDARD_COLOURS.length} standard colours · codes are fixed and flow into the SKU as{" "}
+                  <span className="font-mono">{parent.sku}-CODE</span> (e.g. {parent.sku}-BLK).
+                </p>
               </div>
             ) : (
               <div>
-                {sizeGroups.map((g) => (
-                  <div key={g.sys} className="mb-2">
-                    <p className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-                      {g.sys}
-                    </p>
-                    <div className="flex flex-wrap gap-2">
-                      {g.list.map((x) => (
-                        <button
-                          key={x.id}
-                          type="button"
-                          onClick={() => setMasterId(x.id)}
-                          className={`rounded-md border px-3 py-1.5 text-xs ${masterId === x.id ? "border-primary bg-primary/10 text-primary" : "border-border"}`}
-                        >
-                          {masterId === x.id && <Check className="mr-1 inline h-3 w-3" />}
-                          {x.name} <span className="font-mono">({x.code})</span>
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+                <SearchableSelect
+                  value={masterId}
+                  onChange={setMasterId}
+                  placeholder="Search size — e.g. S, M, L, 42…"
+                  searchPlaceholder="Type size…"
+                  emptyText="No size matches — add it below"
+                  options={localSizes.map((x) => ({
+                    value: x.id,
+                    label: x.name === x.code ? x.name : `${x.name} (${x.code})`,
+                    hint: `Code: ${x.code}`,
+                  }))}
+                />
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  Size is the code — flows into the SKU as{" "}
+                  <span className="font-mono">{parent.sku}-SIZE</span> (e.g. {parent.sku}-M).
+                </p>
               </div>
             )}
-            <div
-              className={`mt-3 grid gap-2 rounded-lg border border-dashed border-border p-3 ${isColour ? "md:grid-cols-[1fr_120px_auto]" : "md:grid-cols-[1fr_100px_130px_auto]"}`}
-            >
-              <input
-                className="inp !py-1.5"
-                value={quick.name}
-                onChange={(e) => setQuick({ ...quick, name: e.target.value })}
-                placeholder={isColour ? "New colour — Aqua Blue" : "New size — UK 9"}
-              />
-              <input
-                className="inp !py-1.5 font-mono uppercase"
-                value={quick.code}
-                onChange={(e) =>
-                  setQuick({ ...quick, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })
-                }
-                placeholder={isColour ? "AQB" : "UK9"}
-              />
-              {!isColour && (
-                <select
-                  className="inp !py-1.5"
-                  value={quick.system}
-                  onChange={(e) => setQuick({ ...quick, system: e.target.value })}
+            {!isColour && (
+              <div className="mt-3 grid gap-2 rounded-lg border border-dashed border-border p-3 md:grid-cols-[1fr_auto]">
+                <input
+                  className="inp !py-1.5 font-mono uppercase"
+                  value={quickSize}
+                  onChange={(e) => setQuickSize(e.target.value.toUpperCase().slice(0, 10))}
+                  placeholder="New size — e.g. M, XL, 42"
+                />
+                <button
+                  type="button"
+                  disabled={quickCreate.isPending || !quickSize.trim()}
+                  onClick={() => quickCreate.mutate()}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-50"
                 >
-                  {["International", "EU", "UK", "US", "Custom"].map((x) => (
-                    <option key={x}>{x}</option>
-                  ))}
-                </select>
-              )}
-              <button
-                type="button"
-                disabled={quickCreate.isPending || !quick.name.trim() || !quick.code.trim()}
-                onClick={() => quickCreate.mutate()}
-                className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-50"
-              >
-                + Add & select
-              </button>
-            </div>
+                  + Add & select
+                </button>
+              </div>
+            )}
             {dupName && selected && (
               <p className="mt-2 text-xs font-medium text-destructive">
                 {selected.name} already exists under {parent.sku} — pick another.
@@ -1151,6 +1346,14 @@ function StagedSkuModal({
               </div>
             ) : null}
           </div>
+
+          {isColour && (
+            <div>
+              <L label="Colour image (optional — defaults to Master image)">
+                <ImageField userId={userId} value={imageUrl} onChange={setImageUrl} />
+              </L>
+            </div>
+          )}
 
           <div>
             <p className="mb-1.5 text-xs uppercase tracking-widest text-muted-foreground">
@@ -1314,12 +1517,22 @@ function VariantModal({
         >
           <div className="grid grid-cols-2 gap-3">
             <L label="Colour">
-              <input
-                className="inp"
+              <SearchableSelect
                 value={f.color}
-                onChange={(e) => setF({ ...f, color: e.target.value })}
-                placeholder="e.g. Black"
-                autoFocus
+                onChange={(v) => setF({ ...f, color: v })}
+                placeholder="Search colour…"
+                searchPlaceholder="Type colour name or code…"
+                emptyText="No colour matches"
+                options={[
+                  ...STANDARD_COLOURS.map((c) => ({
+                    value: c.name,
+                    label: `${c.name} (${c.code})`,
+                    hint: `Code: ${c.code}`,
+                  })),
+                  ...(f.color && !STANDARD_COLOURS.some((c) => c.name === f.color)
+                    ? [{ value: f.color, label: f.color, hint: "Custom" }]
+                    : []),
+                ]}
               />
             </L>
             <L label="Size">
@@ -1433,7 +1646,16 @@ function ProductModal({
     description: product?.description ?? "",
     category: product?.category ?? "",
     subcategory: product?.subcategory ?? "",
-    gender: product?.gender ?? "unisex",
+    gender: (() => {
+      const g = String(product?.gender ?? "Unisex").trim().toLowerCase();
+      if (g === "mens" || g === "men") return "Men";
+      if (g === "womens" || g === "women") return "Women";
+      if (g === "unisex") return "Unisex";
+      if (g === "kids" || g === "kid") return "Kids";
+      if (g === "boys" || g === "boy") return "Boys";
+      if (g === "girls" || g === "girl") return "Girls";
+      return product?.gender ?? "Unisex";
+    })(),
     brand: product?.brand ?? "",
     size: product?.size ?? "",
     color: product?.color ?? "",
@@ -1679,6 +1901,9 @@ function ProductModal({
                       {g}
                     </option>
                   ))}
+                  {!GENDERS.includes(f.gender) && (
+                    <option value={f.gender}>{f.gender}</option>
+                  )}
                 </select>
               </L>
               <L label="Season">
@@ -2227,64 +2452,29 @@ function Pill({
   );
 }
 
-function SkuMastersModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
-  const [type, setType] = useState<"category" | "gender" | "color" | "size">("category");
-  const [name, setName] = useState(""); const [code, setCode] = useState(""); const [sizeSystem, setSizeSystem] = useState("International");
-  const [search, setSearch] = useState(""); const [statusFilter, setStatusFilter] = useState<"all" | "active" | "inactive">("all");
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editName, setEditName] = useState(""); const [editCode, setEditCode] = useState(""); const [editSystem, setEditSystem] = useState("International");
-  const [confirmTarget, setConfirmTarget] = useState<SkuMaster | null>(null);
-  const mastersQ = useQuery({ queryKey: ["sku-masters", type], queryFn: () => api.skuMasters.list(type) });
-  const productsQ = useQuery({ queryKey: ["products"], queryFn: async () => api.products.list() });
-  const usageCount = (m: SkuMaster) => {
-    const key = type === "category" ? "categoryMasterId" : type === "gender" ? "genderMasterId" : type === "color" ? "colorMasterId" : "sizeMasterId";
-    return ((productsQ.data as any[]) ?? []).filter((p) => (p as any)[key] === m.id || (p as any)[key.replace("MasterId", "_master_id")] === m.id).length;
-  };
-  const save = useMutation({ mutationFn: () => api.skuMasters.create(type, { name: name.trim(), code, sizeSystem }), onSuccess: () => { toast.success("SKU master added"); setName(""); setCode(""); mastersQ.refetch(); onSaved(); }, onError: (e) => toast.error(e instanceof Error ? e.message : "Could not save master — code may already exist") });
-  const toggle = useMutation({ mutationFn: (m: any) => api.skuMasters.update(m.id, { active: !((m as any).active ?? (m as any).is_active ?? true) }), onSuccess: () => { setConfirmTarget(null); mastersQ.refetch(); onSaved(); }, onError: (e) => toast.error(e instanceof Error ? e.message : "Could not update master") });
-  const startEdit = (m: any) => { setEditingId(m.id); setEditName(m.name); setEditCode(m.code); setEditSystem(m.size_system ?? m.sizeSystem ?? "International"); };
-  const saveEdit = useMutation({
-    mutationFn: () => api.skuMasters.update(editingId!, { name: editName.trim(), code: editCode, ...(type === "size" ? { sizeSystem: editSystem } : {}) }),
-    onSuccess: () => { toast.success("Master updated"); setEditingId(null); mastersQ.refetch(); onSaved(); },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Could not update — code may be in use or duplicated"),
-  });
-  const filtered = ((mastersQ.data as any[]) ?? []).filter((m: any) => {
-    const active = m.active ?? m.is_active ?? true;
-    const q = search.trim().toLowerCase();
-    const matchQ = !q || String(m.name ?? "").toLowerCase().includes(q) || String(m.code ?? "").toLowerCase().includes(q);
-    const matchS = statusFilter === "all" || (statusFilter === "active" ? active : !active);
-    return matchQ && matchS;
-  });
-  return <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={onClose}><div className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card p-6" onClick={(e) => e.stopPropagation()}>
-    <div className="flex items-center justify-between"><div><h3 className="font-display text-xl">SKU Masters</h3><p className="text-xs text-muted-foreground">Codes flow into SKUs as <span className="font-mono">AD-GENDER-CATEGORY-MODEL-COLOUR-SIZE</span>. Deactivating or renaming a code used by products needs confirmation.</p></div><button onClick={onClose}><X className="h-4 w-4" /></button></div>
-    <div className="mt-5 flex flex-wrap gap-2">{(["category", "gender", "color", "size"] as const).map((x) => <button key={x} onClick={() => { setType(x); setSearch(""); setEditingId(null); }} className={`rounded-md px-3 py-2 text-xs capitalize ${type === x ? "bg-primary text-primary-foreground" : "bg-muted"}`}>{x === "color" ? "Colours" : `${x}s`}</button>)}</div>
-    <div className="mt-5 grid gap-3 md:grid-cols-[1fr_140px_160px_auto]"><input className="inp" value={name} onChange={(e) => setName(e.target.value)} placeholder={`${type} name — e.g. ${type === "category" ? "T-Shirts" : type === "gender" ? "Unisex" : type === "color" ? "Aqua Blue" : "EU 38"}`} /><input className="inp font-mono uppercase" value={code} onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} placeholder="Code — e.g. TN" />{type === "size" ? <select className="inp" value={sizeSystem} onChange={(e) => setSizeSystem(e.target.value)}>{["International", "EU", "UK", "US", "Custom"].map((x) => <option key={x}>{x}</option>)}</select> : <span className="hidden md:block" />}<button disabled={save.isPending || !name.trim() || !code.trim()} onClick={() => save.mutate()} className="rounded-md bg-primary px-4 py-2 text-sm text-primary-foreground disabled:opacity-50">{save.isPending ? "Adding…" : `Add ${type}`}</button></div>
-    <div className="mt-4 flex flex-wrap items-center gap-2"><div className="relative min-w-[200px] flex-1"><Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" /><input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search name or code…" className="w-full rounded-md border border-border bg-input py-2 pl-9 pr-3 text-sm" /></div><div className="flex gap-1.5">{(["all", "active", "inactive"] as const).map((s) => <button key={s} onClick={() => setStatusFilter(s)} className={`rounded-full border px-3 py-1 text-xs capitalize ${statusFilter === s ? "border-primary bg-primary/10 text-primary" : "border-border text-muted-foreground"}`}>{s}</button>)}</div><span className="ml-auto text-xs text-muted-foreground">{filtered.length} shown</span></div>
-    <div className="mt-3 max-h-80 overflow-y-auto rounded-lg border border-border"><table className="w-full text-sm"><thead className="sticky top-0 bg-muted/80 text-left text-xs backdrop-blur"><tr><th className="p-3">Name</th><th>Code</th>{type === "size" && <th>System</th>}<th className="text-right">Used by</th><th>Status</th><th className="text-right">Actions</th></tr></thead><tbody>{mastersQ.isLoading ? <tr><td colSpan={6} className="p-6 text-center text-sm text-muted-foreground">Loading…</td></tr> : filtered.length === 0 ? <tr><td colSpan={6} className="p-6 text-center text-sm text-muted-foreground">No masters match. Add one above.</td></tr> : filtered.map((m: any) => {
-      const active = m.active ?? true; const used = usageCount(m); const isEditing = editingId === m.id;
-      return <tr key={m.id} className="border-t border-border">{isEditing ? (<><td className="p-2"><input className="inp !py-1.5" value={editName} onChange={(e) => setEditName(e.target.value)} /></td><td className="p-2"><input className="inp !py-1.5 font-mono uppercase" value={editCode} onChange={(e) => setEditCode(e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ""))} /></td>{type === "size" && <td className="p-2"><select className="inp !py-1.5" value={editSystem} onChange={(e) => setEditSystem(e.target.value)}>{["International", "EU", "UK", "US", "Custom"].map((x) => <option key={x}>{x}</option>)}</select></td>}<td className="p-2 text-right text-xs text-muted-foreground">{used}</td><td className="p-2"><span className={`rounded-full px-2 py-1 text-xs ${active ? "bg-sem-success/10 text-sem-success" : "bg-muted text-muted-foreground"}`}>{active ? "Active" : "Inactive"}</span></td><td className="p-2"><div className="flex justify-end gap-1"><button disabled={saveEdit.isPending} onClick={() => saveEdit.mutate()} className="rounded-md p-1.5 text-sem-success hover:bg-sem-success/10"><Check className="h-3.5 w-3.5" /></button><button onClick={() => setEditingId(null)} className="rounded-md p-1.5 text-muted-foreground hover:bg-muted"><X className="h-3.5 w-3.5" /></button></div></td></> ) : (<><td className="p-3 font-medium">{m.name}</td><td className="font-mono text-xs">{m.code}</td>{type === "size" && <td className="text-xs text-muted-foreground">{m.size_system ?? m.sizeSystem ?? "—"}</td>}<td className="p-3 text-right text-xs text-muted-foreground">{used ? `${used} product${used === 1 ? "" : "s"}` : "—"}</td><td><button title={used > 0 && active ? "Used by products — confirmation required" : "Toggle status"} onClick={() => { if (used > 0 && active) setConfirmTarget(m); else toggle.mutate(m); }} className={`rounded-full px-2 py-1 text-xs ${active ? "bg-sem-success/10 text-sem-success" : "bg-muted text-muted-foreground"}`}>{active ? "Active" : "Inactive"}</button></td><td className="p-3"><div className="flex justify-end gap-1"><button onClick={() => startEdit(m)} className="rounded-md p-1.5 text-muted-foreground hover:bg-primary/10 hover:text-primary"><Pencil className="h-3.5 w-3.5" /></button></div></td></>)}
-      </tr>;
-    })}</tbody></table></div>
-    {confirmTarget && <div className="mt-4 rounded-lg border border-sem-attention/40 bg-sem-attention/5 p-4 text-sm"><p className="font-medium">Deactivate “{(confirmTarget as any).name} ({(confirmTarget as any).code})”?</p><p className="mt-1 text-xs text-muted-foreground">This code is used by {usageCount(confirmTarget)} product(s). Existing SKUs keep their text, but new variants can no longer use it. History is preserved in the audit log.</p><div className="mt-3 flex justify-end gap-2"><button onClick={() => setConfirmTarget(null)} className="rounded-md border border-border px-3 py-1.5 text-xs">Keep active</button><button disabled={toggle.isPending} onClick={() => toggle.mutate(confirmTarget)} className="rounded-md bg-sem-attention px-3 py-1.5 text-xs font-medium text-white">{toggle.isPending ? "Updating…" : "Deactivate anyway"}</button></div></div>}
-    <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
-  </div></div>;
-}
-
 const WIZARD_STEPS = ["Master SKU details", "Pricing", "Review & create"] as const;
 
 function sanitizeModel(v: string) { return v.trim().toUpperCase().replace(/[^A-Z0-9]+/g, ""); }
 
 function SkuBuilderModal({
-  categories, genders, onClose, onSaved,
+  categories, genders, userId, onClose, onSaved,
 }: {
   categories: SkuMaster[]; genders: SkuMaster[];
+  userId: string;
   onClose: () => void; onSaved: () => void;
 }) {
   const qc = useQueryClient();
   const [step, setStep] = useState(0);
-  const [f, setF] = useState({ name: "", categoryMasterId: "", genderMasterId: "", model: "", hsnCode: "", unitCost: "", unitPrice: "", mrp: "", retailerPrice: "", distributorPrice: "", ecommercePrice: "", gstRate: "", unitOfMeasure: "piece" });
-  const category = categories.find((x) => x.id === f.categoryMasterId);
-  const gender = genders.find((x) => x.id === f.genderMasterId);
+  const [f, setF] = useState({ name: "", categoryMasterId: "", genderMasterId: "", model: "", hsnCode: "", unitCost: "", unitPrice: "", mrp: "", retailerPrice: "", distributorPrice: "", ecommercePrice: "", gstRate: "", unitOfMeasure: "piece", image_url: "" });
+  // Category stays on the Master SKU — pick an existing one or create a new
+  // name + code inline.
+  const [localCategories, setLocalCategories] = useState<SkuMaster[]>(categories);
+  useEffect(() => setLocalCategories(categories), [categories]);
+  const [quickCat, setQuickCat] = useState({ name: "", code: "" });
+  const category = localCategories.find((x) => x.id === f.categoryMasterId);
+  // Gender uses fixed STANDARD_GENDERS (stored value = code, e.g. MEN).
+  // Resolved to a master id at save time (auto-created on first use).
+  const gender = STANDARD_GENDERS.find((x) => x.code === f.genderMasterId);
   const model = sanitizeModel(f.model);
   const parentSku = category && gender && model ? `AD-${gender.code}-${category.code}-${model}` : "";
   const skuCheckQ = useQuery({
@@ -2308,18 +2498,64 @@ function SkuBuilderModal({
     if (s === 1) return !priceError;
     return true;
   };
+  const quickCreateCategory = useMutation({
+    mutationFn: async () => {
+      const created: any = await api.skuMasters.create("category", {
+        name: quickCat.name.trim(),
+        code: quickCat.code,
+      });
+      const entry = {
+        id: created.id ?? created._id ?? String(Date.now()),
+        name: created.name ?? quickCat.name.trim(),
+        code: created.code ?? quickCat.code,
+        active: true,
+      } as SkuMaster;
+      setLocalCategories((prev) => [...prev, entry]);
+      setF((prev) => ({ ...prev, categoryMasterId: entry.id }));
+      setQuickCat({ name: "", code: "" });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["sku-masters", "category"] });
+      toast.success("Category created & selected");
+    },
+    onError: (e) =>
+      toast.error(e instanceof Error ? e.message : "Could not create category — code may exist"),
+  });
   const save = useMutation({
-    mutationFn: () => api.products.createHierarchy({
-      ...f, model,
+    mutationFn: async () => {
+      if (!gender) throw new Error("Pick a gender");
+      // Ensure a gender master exists for this standard code (auto-create on
+      // first use so Master SKUs always carry the fixed code).
+      let genderMaster = genders.find((x) => x.code === gender.code);
+      if (!genderMaster) {
+        const created: any = await api.skuMasters.create("gender", {
+          name: gender.name,
+          code: gender.code,
+        });
+        genderMaster = {
+          id: created.id ?? created._id ?? String(Date.now()),
+          name: created.name ?? gender.name,
+          code: created.code ?? gender.code,
+          active: true,
+        } as SkuMaster;
+        qc.invalidateQueries({ queryKey: ["sku-masters", "gender"] });
+      }
+      return api.products.createHierarchy({
+        ...f,
+        genderMasterId: genderMaster!.id,
+        model,
       hsnCode: f.hsnCode.trim() || null,
       unitCost: Number(f.unitCost || 0), unitPrice: Number(f.unitPrice || 0),
       mrp: f.mrp === "" ? "" : Number(f.mrp), ecommercePrice: f.ecommercePrice === "" ? "" : Number(f.ecommercePrice),
       retailerPrice: f.retailerPrice === "" ? "" : Number(f.retailerPrice), distributorPrice: f.distributorPrice === "" ? "" : Number(f.distributorPrice),
       gstRate: f.gstRate === "" ? "" : Number(f.gstRate),
+      image_url: f.image_url.trim() || null,
+      imageUrl: f.image_url.trim() || null,
       // Master-only creation: variants are added later from the Master SKU
       // detail drawer ("Add colour" / size), never in this wizard.
       colorMasterIds: [], sizeMasterIds: [], disabledKeys: [],
-    }),
+      });
+    },
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["products"] }); toast.success(`Master SKU ${parentSku} created — add colours & sizes from its detail view`); onSaved(); },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Could not create Master SKU"),
   });
@@ -2341,11 +2577,19 @@ function SkuBuilderModal({
           {step === 0 && <Card title="Step 1 — Master SKU details"><div className="grid gap-4 md:grid-cols-2">
             <L label="Master SKU name *"><input className="inp" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} placeholder="e.g. Essential T-Shirt" /></L>
             <L label="Model number *"><input className="inp font-mono uppercase" value={f.model} onChange={(e) => setF({ ...f, model: e.target.value.toUpperCase() })} placeholder="ET1100" /><span className="mt-1 block text-[10px] text-muted-foreground">Letters + digits only · becomes the MODEL part of the Master SKU</span></L>
-            <L label="Category *"><SearchableSelect value={f.categoryMasterId} onChange={(v) => setF({ ...f, categoryMasterId: v })} placeholder="Select category…" options={categories.map((x) => ({ value: x.id, label: `${x.name} (${x.code})`, hint: x.code }))} /></L>
-            <L label="Gender *"><SearchableSelect value={f.genderMasterId} onChange={(v) => setF({ ...f, genderMasterId: v })} placeholder="Select gender…" options={genders.map((x) => ({ value: x.id, label: `${x.name} (${x.code})`, hint: x.code }))} /></L>
+            <L label="Category *">
+              <SearchableSelect value={f.categoryMasterId} onChange={(v) => setF({ ...f, categoryMasterId: v })} placeholder="Select category…" searchPlaceholder="Search categories…" emptyText="No category matches" options={localCategories.map((x) => ({ value: x.id, label: `${x.name} (${x.code})`, hint: x.code }))} />
+              <div className="mt-2 grid grid-cols-[1fr_90px_auto] gap-1.5">
+                <input className="inp !py-1.5 text-xs" value={quickCat.name} onChange={(e) => setQuickCat({ ...quickCat, name: e.target.value })} placeholder="New category — Hoodies" />
+                <input className="inp !py-1.5 font-mono text-xs uppercase" value={quickCat.code} onChange={(e) => setQuickCat({ ...quickCat, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6) })} placeholder="HD" />
+                <button type="button" disabled={quickCreateCategory.isPending || !quickCat.name.trim() || !quickCat.code.trim()} onClick={() => quickCreateCategory.mutate()} className="rounded-md border border-border px-2 py-1.5 text-[11px] hover:border-primary hover:text-primary disabled:opacity-50">+ Add</button>
+              </div>
+            </L>
+            <L label="Gender *"><SearchableSelect value={f.genderMasterId} onChange={(v) => setF({ ...f, genderMasterId: v })} placeholder="Search gender — e.g. Men, Women, MEN…" searchPlaceholder="Type gender name or code…" emptyText="No gender matches" options={STANDARD_GENDERS.map((x) => ({ value: x.code, label: `${x.name} (${x.code})`, hint: `Code: ${x.code}` }))} /></L>
             <L label="HSN code"><input className="inp font-mono" value={f.hsnCode} onChange={(e) => setF({ ...f, hsnCode: e.target.value.replace(/[^0-9]/g, "").slice(0, 8) })} placeholder="e.g. 64041990" inputMode="numeric" /><span className="mt-1 block text-[10px] text-muted-foreground">Printed on tax invoices · inherited by every variant</span></L>
+            <L label="Product image (optional)"><ImageField userId={userId} value={f.image_url} onChange={(url) => setF({ ...f, image_url: url })} /></L>
           </div>
-          {parentSku ? <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-3"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Generated Master SKU</p><p className="mt-1 font-mono text-lg font-semibold text-primary">{parentSku}</p>{skuCheckQ.isFetching ? <p className="mt-1 text-xs text-muted-foreground">Checking uniqueness…</p> : skuTaken ? <p className="mt-1 text-xs font-medium text-destructive">Master SKU already exists: {parentSku} — change model / category / gender.</p> : <p className="mt-1 text-xs text-sem-success">Available ✓</p>}</div> : <p className="mt-4 text-xs text-muted-foreground">Pick a category, gender and model number to generate your Master SKU, e.g. <span className="font-mono">AD-U-TN-ET1100</span>. Pricing comes next. Colours and sizes are added later from the Master SKU detail view.</p>}
+          {parentSku ? <div className="mt-4 rounded-lg border border-primary/25 bg-primary/5 p-3"><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Generated Master SKU</p><p className="mt-1 font-mono text-lg font-semibold text-primary">{parentSku}</p>{skuCheckQ.isFetching ? <p className="mt-1 text-xs text-muted-foreground">Checking uniqueness…</p> : skuTaken ? <p className="mt-1 text-xs font-medium text-destructive">Master SKU already exists: {parentSku} — change model / category / gender.</p> : <p className="mt-1 text-xs text-sem-success">Available ✓</p>}</div> : <p className="mt-4 text-xs text-muted-foreground">Pick a category, gender and model number to generate your Master SKU, e.g. <span className="font-mono">AD-MEN-TN-ET1100</span>. Pricing comes next. Colours and sizes are added later from the Master SKU detail view.</p>}
           </Card>}
           {step === 1 && <Card title="Step 2 — Master SKU pricing (₹ INR)"><div className="grid gap-4 md:grid-cols-3">
             {[["Unit Price (cost)", "unitCost"], ["Selling Price", "unitPrice"], ["MRP", "mrp"], ["Retailer Price", "retailerPrice"], ["Distributor Price", "distributorPrice"], ["E-commerce Price", "ecommercePrice"]].map(([label, key]) => (

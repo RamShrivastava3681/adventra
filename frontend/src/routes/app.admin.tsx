@@ -74,7 +74,7 @@ const SALES_TABS: { id: SalesTab; label: string; icon: any }[] = [
   { id: "sales-overview", label: "Overview", icon: LayoutDashboard },
   { id: "crm", label: "CRM", icon: UsersIcon },
   { id: "sales-orders", label: "Sales Orders", icon: ShoppingBag },
-  { id: "debtors", label: "Debtors", icon: Building2 },
+  { id: "debtors", label: "Customers", icon: Building2 },
   { id: "suppliers", label: "Suppliers", icon: Truck },
 ];
 
@@ -296,7 +296,7 @@ function AdminPage() {
             debtor_id: i.debtor_id,
             type: "large_invoice",
             severity: "info",
-            message: `Large invoice received: ${fmtMoney(i.amount)} from ${(i as any).debtor?.name ?? "debtor"}`,
+            message: `Large invoice received: ${fmtMoney(i.amount)} from ${(i as any).debtor?.name ?? "customer"}`,
           });
         }
       }
@@ -394,7 +394,7 @@ function AdminPage() {
         <Card
           title="Sales console"
         >
-          <div className="text-[11px] text-muted-foreground mb-3">CRM pipeline, sales orders, debtors and suppliers — full portfolio view.</div>
+          <div className="text-[11px] text-muted-foreground mb-3">CRM pipeline, sales orders, customers and suppliers — full portfolio view.</div>
           {/* Sales sub-tab nav */}
           <div className="flex flex-wrap gap-1 border-b border-border pb-3 mb-4">
             {SALES_TABS.map((t) => (
@@ -419,7 +419,7 @@ function AdminPage() {
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mb-6">
                 <StatTileSmall label="Open pipeline" value={fmtMoney((opportunitiesQ.data ?? []).filter((o: any) => o.stage !== "closed_won" && o.stage !== "closed_lost").reduce((s: number, o: any) => s + Number(o.amount), 0))} sub={(opportunitiesQ.data ?? []).filter((o: any) => o.stage !== "closed_won" && o.stage !== "closed_lost").length + " deals"} />
                 <StatTileSmall label="Sales orders" value={(salesOrdersQ.data ?? []).length} sub={fmtMoney((salesOrdersQ.data ?? []).reduce((s: number, sO: any) => s + Number(sO.grand_total || 0), 0))} />
-                <StatTileSmall label="Debtors" value={debtorsQ.data?.length ?? 0} sub={fmtMoney((debtorsQ.data ?? []).reduce((s: number, d: any) => s + exposureForDebtor(d.id), 0))} />
+                <StatTileSmall label="Customers" value={debtorsQ.data?.length ?? 0} sub={fmtMoney((debtorsQ.data ?? []).reduce((s: number, d: any) => s + exposureForDebtor(d.id), 0))} />
               </div>
 
               {/* Recent pipeline */}
@@ -627,7 +627,7 @@ function AdminPage() {
             </div>
           )}
 
-          {/* ── Debtors ── */}
+          {/* ── Customers ── */}
           {salesTab === "debtors" && (
             <div>
               <div className="mb-4 flex items-center gap-2">
@@ -635,16 +635,16 @@ function AdminPage() {
               </div>
 
               <div className="grid grid-cols-2 gap-3 md:grid-cols-4 mb-6">
-                <StatTileSmall label="Total debtors" value={debtorsQ.data?.length ?? 0} />
+                <StatTileSmall label="Total customers" value={debtorsQ.data?.length ?? 0} />
                 <StatTileSmall label="Total exposure" value={fmtMoney((debtorsQ.data ?? []).reduce((s: number, d: any) => s + exposureForDebtor(d.id), 0))} tone="warning" />
                 <StatTileSmall label="Avg terms" value={debtorsQ.data?.length ? `Net ${Math.round((debtorsQ.data ?? []).reduce((s: number, d: any) => s + Number(d.payment_terms_days ?? 30), 0) / (debtorsQ.data ?? []).length)}` : "—"} />
-                <StatTileSmall label="Avg exposure/debtor" value={fmtMoney((debtorsQ.data ?? []).length ? (debtorsQ.data ?? []).reduce((s: number, d: any) => s + exposureForDebtor(d.id), 0) / (debtorsQ.data ?? []).length : 0)} />
+                <StatTileSmall label="Avg exposure/customer" value={fmtMoney((debtorsQ.data ?? []).length ? (debtorsQ.data ?? []).reduce((s: number, d: any) => s + exposureForDebtor(d.id), 0) / (debtorsQ.data ?? []).length : 0)} />
               </div>
 
               {debtorsQ.isLoading ? (
                 <TableSkeleton rows={6} cols={6} />
               ) : (debtorsQ.data ?? []).length === 0 ? (
-                <div className="py-10 text-center text-sm text-muted-foreground"><Building2 className="mx-auto mb-2 h-8 w-8 opacity-40" />No debtors yet.</div>
+                <div className="py-10 text-center text-sm text-muted-foreground"><Building2 className="mx-auto mb-2 h-8 w-8 opacity-40" />No customers yet.</div>
               ) : (
                 <div className="-mx-5 overflow-x-auto">
                   <table className="table-premium w-full text-sm">
@@ -1059,7 +1059,7 @@ function AdminPage() {
           <p className="mt-3 text-[10px] text-muted-foreground">
             Checkers approve newly submitted invoices into the funding queue (maker–checker).
             Treasury then pays supplier advances on approval, settles balances on the due date, and
-            records debtor receipts. Marking an invoice paid closes it and removes it from the
+            records customer receipts. Marking an invoice paid closes it and removes it from the
             queue. New roles (Operations, Reporting Manager) are placeholders — working permissions
             can be configured later. Creating and deleting users is restricted to the super admin.
           </p>

@@ -238,7 +238,7 @@ export function InvoicesPage() {
   });
 
   const invConfig: TxFiltersConfig<Inv> = {
-    searchPlaceholder: "Search by invoice number, debtor, PO / SO…",
+    searchPlaceholder: "Search by invoice number, customer, PO / SO…",
     search: (i) => [
       i.invoice_number,
       i.debtor?.name ?? debtorName(i.debtor_id),
@@ -308,7 +308,7 @@ export function InvoicesPage() {
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
                         <th className="px-5 py-2 text-left font-normal">Invoice</th>
-                        <th className="px-5 py-2 text-left font-normal">Debtor</th>
+                        <th className="px-5 py-2 text-left font-normal">Customer</th>
                         <th className="px-5 py-2 text-right font-normal">Grand total</th>
                         <th className="px-5 py-2 text-right font-normal">Received</th>
                         <th className="px-5 py-2 text-right font-normal">Balance</th>
@@ -860,7 +860,7 @@ function NewInvoiceModal({
     // `issueNow` only applies when CREATING — an edit preserves the current
     // status (never sends status back, so an issued invoice can't be reset).
     mutationFn: async ({ issueNow }: { issueNow: boolean }) => {
-      if (!form.debtor_id) throw new Error("Please add a debtor first.");
+      if (!form.debtor_id) throw new Error("Please add a customer first.");
       if (lines.length === 0) throw new Error("Add at least one product line");
       const payloadLines = lines.map((l) => ({
         product_id: l.product_id,
@@ -1033,7 +1033,7 @@ function NewInvoiceModal({
       >
           {debtors.length === 0 && (
             <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
-              No debtors exist yet. Ask your factor admin to add one in the Debtors tab.
+              No customers exist yet. Ask your factor admin to add one in the Customers tab.
             </div>
           )}
 
@@ -1087,7 +1087,7 @@ function NewInvoiceModal({
                   onChange={(e) => setForm({ ...form, issue_date: e.target.value })}
                 />
               </Field>
-              <Field label="Debtor *">
+              <Field label="Customer *">
                 <SearchableSelect
                   value={form.debtor_id}
                   onChange={(v) => {
@@ -1096,7 +1096,7 @@ function NewInvoiceModal({
                     const d = debtors.find((x: any) => x.id === v);
                     if (d) setForm((prev) => ({ ...prev, ...toTermsFormFields(d) }));
                   }}
-                  placeholder="Select debtor"
+                  placeholder="Select customer"
                   options={debtors.map((d: any) => ({ value: d.id, label: d.name }))}
                   className={inputBase}
                 />
@@ -1126,7 +1126,7 @@ function NewInvoiceModal({
                       }}
                       className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
                     >
-                      Use debtor billing
+                      Use customer billing
                     </button>
                   </div>
                 )}
@@ -1148,7 +1148,7 @@ function NewInvoiceModal({
                       }}
                       className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
                     >
-                      Use debtor shipping
+                      Use customer shipping
                     </button>
                     <button
                       type="button"
@@ -1158,7 +1158,7 @@ function NewInvoiceModal({
                       }}
                       className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
                     >
-                      Use debtor billing
+                      Use customer billing
                     </button>
                   </div>
                 )}
@@ -1553,7 +1553,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
         </div>
         <div className="space-y-4 p-5 text-sm">
           <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-            <D label="Debtor" value={invoice.debtor?.name ?? "—"} />
+            <D label="Customer" value={invoice.debtor?.name ?? "—"} />
             <D
               label="Status"
               value={<StatusPill status={invoice.status} label={DOC_LABELS[invoice.status]} />}
@@ -1642,7 +1642,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
             {invoice.delivery_address && (
               <D label="Delivery address" value={invoice.delivery_address} />
             )}
-            {address && <D label="Debtor address" value={address} />}
+            {address && <D label="Customer address" value={address} />}
             <div className="col-span-2 md:col-span-3">
               <D label="Notes" value={invoice.notes ?? "—"} />
             </div>
@@ -1772,7 +1772,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
                         )}
                       </div>
                       <div className="mt-0.5 text-muted-foreground">
-                        {l.counterpartyName || "Debtor"}
+                        {l.counterpartyName || "Customer"}
                         {l.recipientEmail ? ` · ${l.recipientEmail}` : ""}
                       </div>
                     </div>
@@ -1850,7 +1850,7 @@ function UtrModal({  invoice,
         </h3>
         <div className="space-y-3 text-sm">
           <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground space-y-1">
-            <div>Debtor: <span className="text-foreground">{invoice.debtor?.name ?? "—"}</span></div>
+            <div>Customer: <span className="text-foreground">{invoice.debtor?.name ?? "—"}</span></div>
             <div>Grand total: <span className="num text-foreground">{fmtMoney(invoice.grand_total ?? invoice.amount)}</span></div>
             <div>Status: <span className="text-foreground">{DOC_LABELS[invoice.status]}</span></div>
           </div>
@@ -1945,7 +1945,7 @@ function IrnModal({
         </h3>
         <div className="space-y-3 text-sm">
           <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground space-y-1">
-            <div>Debtor: <span className="text-foreground">{invoice.debtor?.name ?? "—"}</span></div>
+            <div>Customer: <span className="text-foreground">{invoice.debtor?.name ?? "—"}</span></div>
             <div>Grand total: <span className="num text-foreground">{fmtMoney(invoice.grand_total ?? invoice.amount)}</span></div>
             <div className="text-sem-attention">Recording the IRN locks this invoice — further edits need a cancellation or credit note.</div>
           </div>

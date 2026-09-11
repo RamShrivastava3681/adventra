@@ -183,7 +183,7 @@ function SettingsPage() {
               <div className="font-medium">{isAdmin ? "Factor admin" : "Client"}</div>
               <p className="mt-1 text-sm text-muted-foreground">
                 {isAdmin
-                  ? "You can view every client's invoices, manage debtors, approve advances, and issue alerts."
+                  ? "You can view every client's invoices, manage customers, approve advances, and issue alerts."
                   : "You can submit invoices for your company and monitor their status."}
               </p>
             </div>

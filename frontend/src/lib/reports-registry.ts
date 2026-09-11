@@ -105,7 +105,7 @@ export const CATEGORY_META: Array<{ id: CategoryId; label: string; description: 
     label: "Invoice reports",
     description: "Sales, purchase and proforma documents",
   },
-  { id: "customers", label: "Customer reports", description: "Aging, debtors and suppliers" },
+  { id: "customers", label: "Customer reports", description: "Aging, customers and suppliers" },
   { id: "other", label: "Other reports", description: "Advances, expenses and inventory" },
 ];
 
@@ -205,7 +205,7 @@ export const REPORTS: ReportDef[] = [
       buyer: true,
       paymentTypes: true,
       search: true,
-      searchPlaceholder: "Invoice #, debtor, client or PO…",
+      searchPlaceholder: "Invoice #, customer, client or PO…",
       dateRange: true,
       dateLabel: "Issue date",
     },
@@ -214,7 +214,7 @@ export const REPORTS: ReportDef[] = [
     columns: [
       { key: "id", label: "ID", kind: "mono", hiddenByDefault: true },
       { key: "invoice_number", label: "Invoice #", kind: "mono" },
-      { key: "debtor", label: "Debtor", kind: "text" },
+      { key: "debtor", label: "Customer", kind: "text" },
       { key: "client", label: "Client", kind: "text" },
       { key: "amount", label: "Amount", kind: "money" },
       { key: "outstanding", label: "Outstanding", kind: "money" },
@@ -337,7 +337,7 @@ export const REPORTS: ReportDef[] = [
         labelFor: (v) => SIDE_LABELS[v] ?? v,
         get: (r) => r.side,
       },
-      { key: "party", label: "Debtor / Vendor", kind: "text" },
+      { key: "party", label: "Customer / Vendor", kind: "text" },
       { key: "client", label: "Client", kind: "text" },
       { key: "amount", label: "Amount", kind: "money" },
       { key: "currency", label: "Currency", kind: "text" },
@@ -397,8 +397,8 @@ export const REPORTS: ReportDef[] = [
   },
   {
     id: "debtors",
-    title: "Debtors",
-    cardTitle: "Debtors",
+    title: "Customers",
+    cardTitle: "Customers",
     description: "Buyer master with invoicing, payment-speed and contact detail.",
     icon: Building2,
     accent: {
@@ -509,7 +509,7 @@ export const REPORTS: ReportDef[] = [
         get: (r) => r.side,
       },
       { key: "ref", label: "Linked invoice / PO", kind: "mono" },
-      { key: "party", label: "Debtor / Vendor", kind: "text" },
+      { key: "party", label: "Customer / Vendor", kind: "text" },
       { key: "client", label: "Client", kind: "text" },
       { key: "amount", label: "Amount", kind: "money" },
       { key: "date", label: "Date", kind: "date" },

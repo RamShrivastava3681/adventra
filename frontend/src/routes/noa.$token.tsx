@@ -82,7 +82,7 @@ function NoaPage() {
 
         <dl className="mt-6 grid grid-cols-2 gap-4 text-sm">
           <div>
-            <dt className="text-xs uppercase tracking-widest text-muted-foreground">Debtor</dt>
+            <dt className="text-xs uppercase tracking-widest text-muted-foreground">Customer</dt>
             <dd>{debtorName}</dd>
           </div>
           <div>
