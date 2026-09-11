@@ -29,6 +29,7 @@ import {
   Pencil,
   Truck,
   FileDown,
+  Download,
   CircleDollarSign,
   Layers,
   type LucideIcon,
@@ -42,6 +43,7 @@ import {
   toPayload as toTermsPayload,
 } from "@/components/payment-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { ClauseCombobox } from "@/components/clause-select";
 import { ProductVariantPicker } from "@/components/product-variant-picker";
 import {
   QuickAddVariantModal,
@@ -82,6 +84,10 @@ type PO = {
   payment_terms: string | null;
   buyer_id: string | null;
   buyer_name: string | null;
+  bill_to_debtor_id?: string | null;
+  bill_to_address?: string | null;
+  ship_to_supplier_id?: string | null;
+  ship_to_address?: string | null;
   notes: string | null;
   documents: DocMeta[];
   status: string;
@@ -229,6 +235,18 @@ function PurchaseOrdersPage() {
   const [editing, setEditing] = useState<PO | null>(null);
   const [receiving, setReceiving] = useState<PO | null>(null);
   const [grnView, setGrnView] = useState<PO | null>(null);
+  const [pdfId, setPdfId] = useState<string | null>(null);
+
+  const downloadRowPdf = async (p: PO) => {
+    setPdfId(p.id);
+    try {
+      await api.goodsPurchaseOrders.downloadPdf(p.id, p.po_number);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not download PDF");
+    } finally {
+      setPdfId(null);
+    }
+  };
 
   const posQ = useQuery({
     queryKey: ["goods-pos"],
@@ -527,6 +545,14 @@ function PurchaseOrdersPage() {
                                     <FileDown className="h-3 w-3" /> Review
                                   </button>
                                 )}
+                                <button
+                                  onClick={() => downloadRowPdf(p)}
+                                  disabled={pdfId === p.id}
+                                  className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary disabled:opacity-50"
+                                  title="Download purchase order PDF"
+                                >
+                                  <Download className="h-3 w-3" />
+                                </button>
                                 {canWrite && !["cancelled", "fully_received"].includes(p.status) && (
                                   <button
                                     onClick={() => cancel.mutate(p.id)}
@@ -605,6 +631,10 @@ type LineDraft = {
   product_id: string;
   sku: string | null;
   name: string;
+  color: string;
+  size: string;
+  fabric: string;
+  hsn_code: string;
   unit: string;
   ordered_qty: string;
   unit_price: string;
@@ -664,14 +694,47 @@ function POModal({
     // Free-text "Buyer / created by" — new POs default to the signed-in
     // user's email (what the backend used to store); the user can type anything.
     buyer_name: po ? (po.buyer_name ?? "") : email,
+    buyer_address: (po as any)?.buyer_address ?? (po as any)?.buyerAddress ?? "",
+    buyer_gstin: (po as any)?.buyer_gstin ?? (po as any)?.buyerGstin ?? "",
+    bill_to_debtor_id: (po as any)?.bill_to_debtor_id ?? (po as any)?.billToDebtorId ?? "",
+    bill_to_address: (po as any)?.bill_to_address ?? (po as any)?.billToAddress ?? "",
+    ship_to_supplier_id: (po as any)?.ship_to_supplier_id ?? (po as any)?.shipToSupplierId ?? "",
+    ship_to_address: (po as any)?.ship_to_address ?? (po as any)?.shipToAddress ?? "",
     notes: po?.notes ?? "",
     freight: po?.freight != null ? String(po.freight) : "",
+    // ── Garment PO print details (all optional — blank prints blank) ──
+    quotation_no: (po as any)?.quotation_no ?? (po as any)?.quotationNo ?? "",
+    quotation_date: ((po as any)?.quotation_date ?? (po as any)?.quotationDate ?? "").slice(0, 10) ?? "",
+    contact_person: (po as any)?.contact_person ?? (po as any)?.contactPerson ?? "",
+    contact_person_contact: (po as any)?.contact_person_contact ?? (po as any)?.contactPersonContact ?? "",
+    vendor_address: (po as any)?.vendor_address ?? (po as any)?.vendorAddress ?? "",
+    vendor_gstin: (po as any)?.vendor_gstin ?? (po as any)?.vendorGstin ?? "",
+    vendor_pan: (po as any)?.vendor_pan ?? (po as any)?.vendorPan ?? "",
+    vendor_state: (po as any)?.vendor_state ?? (po as any)?.vendorState ?? "",
+    payment_terms_note: (po as any)?.payment_terms_note ?? (po as any)?.paymentTermsNote ?? "",
+    delivery_note_date: ((po as any)?.delivery_note_date ?? (po as any)?.deliveryNoteDate ?? "").slice(0, 10) ?? "",
+    dispatched_through: (po as any)?.dispatched_through ?? (po as any)?.dispatchedThrough ?? "",
+    destination: (po as any)?.destination ?? "",
+    packaging: (po as any)?.packaging ?? "",
+    delivery_time: (po as any)?.delivery_time ?? (po as any)?.deliveryTime ?? "",
+    partial_ship: (po as any)?.partial_ship ?? (po as any)?.partialShip ?? "",
+    delivery_standard: (po as any)?.delivery_standard ?? (po as any)?.deliveryStandard ?? "",
+    notification_clause: (po as any)?.notification_clause ?? (po as any)?.notificationClause ?? "",
+    cancellation_clause: (po as any)?.cancellation_clause ?? (po as any)?.cancellationClause ?? "",
+    delay_clause: (po as any)?.delay_clause ?? (po as any)?.delayClause ?? "",
+    other_terms: (po as any)?.other_terms ?? (po as any)?.otherTerms ?? "",
+    delivery_terms_line: (po as any)?.delivery_terms_line ?? (po as any)?.deliveryTermsLine ?? "",
+    place_of_supply: (po as any)?.place_of_supply ?? (po as any)?.placeOfSupply ?? "",
   });
   const [lines, setLines] = useState<LineDraft[]>(
-    (po?.lines ?? []).map((l) => ({
+    (po?.lines ?? []).map((l: any) => ({
       product_id: l.product_id,
       sku: l.sku,
       name: l.name,
+      color: l.color ?? l.colour ?? "",
+      size: l.size != null ? String(l.size) : "",
+      fabric: l.fabric ?? "",
+      hsn_code: String(l.hsn_code ?? l.hsnCode ?? ""),
       unit: l.unit,
       ordered_qty: String(l.ordered_qty),
       unit_price: String(l.unit_price),
@@ -681,6 +744,102 @@ function POModal({
     })),
   );
   const [docs, setDocs] = useState<DocMeta[]>(po?.documents ?? []);
+
+  // Reusable clause library (packaging, delivery terms, …). Saved texts show
+  // in the print-detail dropdowns; new texts are stored on PO save.
+  const clausesQ = useQuery({
+    queryKey: ["po-clauses"],
+    queryFn: () => api.poClauses.list(),
+  });
+  const clauseOptions = useMemo(() => {
+    const m: Record<string, string[]> = {};
+    for (const c of (clausesQ.data ?? []) as any[]) {
+      const kind = String(c.kind ?? "");
+      const text = String(c.value ?? "");
+      if (!kind || !text) continue;
+      if (!(m[kind] ??= [] as string[]).includes(text)) m[kind].push(text);
+    }
+    return m;
+  }, [clausesQ.data]);
+  const clauseBox = (formKey: string, kind: string, placeholder?: string) => (
+    <ClauseCombobox
+      value={String((f as any)[formKey] ?? "")}
+      onChange={(v) => setF({ ...f, [formKey]: v } as any)}
+      options={clauseOptions[kind] ?? []}
+      placeholder={placeholder}
+      disabled={!editable}
+    />
+  );
+
+  // Bill-to debtors + ship-to suppliers: picking one fetches ONLY its address
+  // into the matching field (everything else on the PO stays untouched).
+  const billDebtorsQ = useQuery({
+    queryKey: ["po-bill-to-debtors"],
+    queryFn: async () => {
+      const data = await api.debtors.list();
+      return (data ?? [])
+        .map((d: any) => {
+          const addrs = Array.isArray(d.billingAddresses)
+            ? d.billingAddresses
+            : Array.isArray(d.billing_addresses)
+              ? d.billing_addresses
+              : [];
+          const primary =
+            addrs.find((a: any) => (a?.address ?? "").trim())?.address ??
+            d.billingAddress ??
+            d.billing_address ??
+            "";
+          const address = [primary, d.city, d.country].filter(Boolean).join(", ");
+          return { id: d.id, name: d.name ?? d.id, address };
+        })
+        .sort((a: any, b: any) => a.name.localeCompare(b.name));
+    },
+  });
+  const shipSuppliersQ = useQuery({
+    queryKey: ["po-ship-to-suppliers"],
+    queryFn: async () => {
+      const [suppliers, vendors] = await Promise.all([api.suppliers.list(), api.vendors.list()]);
+      const rows = [
+        ...(suppliers ?? []).map((s: any) => ({
+          id: s.id,
+          name: s.company_name ?? s.companyName ?? s.name ?? s.id,
+          address: [s.address_line ?? s.addressLine, s.city, s.country].filter(Boolean).join(", "),
+        })),
+        ...(vendors ?? []).map((v: any) => ({
+          id: v.id,
+          name: v.name ?? v.id,
+          address: [v.address_line ?? v.addressLine, v.city, v.country].filter(Boolean).join(", "),
+        })),
+      ];
+      return rows.sort((a: any, b: any) => a.name.localeCompare(b.name));
+    },
+  });
+  const pickBillToDebtor = (id: string) => {
+    if (!id) {
+      setF((prev) => ({ ...prev, bill_to_debtor_id: "" }) as any);
+      return;
+    }
+    const d = (billDebtorsQ.data ?? []).find((x: any) => x.id === id);
+    // Only the address is fetched — nothing else on the PO changes.
+    setF((prev) => ({
+      ...prev,
+      bill_to_debtor_id: id,
+      bill_to_address: d?.address ?? (prev as any).bill_to_address,
+    }) as any);
+  };
+  const pickShipToSupplier = (id: string) => {
+    if (!id) {
+      setF((prev) => ({ ...prev, ship_to_supplier_id: "" }) as any);
+      return;
+    }
+    const s = (shipSuppliersQ.data ?? []).find((x: any) => x.id === id);
+    // Only the address is fetched — nothing else on the PO changes.
+    setF((prev) => ({
+      ...prev,
+      ship_to_supplier_id: id,
+      ship_to_address: s?.address ?? (prev as any).ship_to_address,
+    }) as any);
+  };
 
   // Inline catalogue creation from the line editor: "New item" opens the
   // quick product popup, "Add variant" opens the colour/size popup — both
@@ -749,12 +908,17 @@ function POModal({
     p: Pick<
       QuickCreatedProduct,
       "id" | "sku" | "name" | "unit_of_measure" | "unit_cost" | "gst_rate"
-    >,
+    > & { color?: string | null; size?: string | null; hsn_code?: string | null; hsnCode?: string | null; subcategory?: string | null },
   ) => {
+    const pa = p as any;
     setLine(i, {
       product_id: p.id,
       name: p.name ?? "",
       sku: p.sku ?? null,
+      color: pa.color ?? "",
+      size: pa.size != null ? String(pa.size) : "",
+      fabric: "",
+      hsn_code: String(pa.hsn_code ?? pa.hsnCode ?? ""),
       unit: p.unit_of_measure || "piece",
       unit_price: lastPrices.has(p.id)
         ? String(lastPrices.get(p.id))
@@ -788,6 +952,10 @@ function POModal({
     product_id: "",
     sku: null,
     name: "",
+    color: "",
+    size: "",
+    fabric: "",
+    hsn_code: "",
     unit: "piece",
     ordered_qty: "",
     unit_price: "",
@@ -883,6 +1051,10 @@ function POModal({
         product_id: l.product_id,
         sku: l.sku,
         name: l.name,
+        color: l.color.trim() || null,
+        size: l.size.trim() || null,
+        fabric: l.fabric.trim() || null,
+        hsn_code: l.hsn_code.trim() || null,
         unit: l.unit || "piece",
         ordered_qty: Number(l.ordered_qty) || 0,
         unit_price: Number(l.unit_price) || 0,
@@ -931,8 +1103,36 @@ function POModal({
         ...toTermsPayload(f),
         payment_terms: formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }),
         buyer_name: f.buyer_name.trim() || null,
+        buyer_address: (f as any).buyer_address.trim() || null,
+        buyer_gstin: (f as any).buyer_gstin.trim() || null,
+        bill_to_debtor_id: (f as any).bill_to_debtor_id || null,
+        bill_to_address: (f as any).bill_to_address.trim() || null,
+        ship_to_supplier_id: (f as any).ship_to_supplier_id || null,
+        ship_to_address: (f as any).ship_to_address.trim() || null,
         notes: f.notes.trim() || null,
         freight: Number(f.freight) || 0,
+        quotation_no: (f as any).quotation_no.trim() || null,
+        quotation_date: (f as any).quotation_date || null,
+        contact_person: (f as any).contact_person.trim() || null,
+        contact_person_contact: (f as any).contact_person_contact.trim() || null,
+        vendor_address: (f as any).vendor_address.trim() || null,
+        vendor_gstin: (f as any).vendor_gstin.trim() || null,
+        vendor_pan: (f as any).vendor_pan.trim() || null,
+        vendor_state: (f as any).vendor_state.trim() || null,
+        payment_terms_note: (f as any).payment_terms_note.trim() || null,
+        delivery_note_date: (f as any).delivery_note_date || null,
+        dispatched_through: (f as any).dispatched_through.trim() || null,
+        destination: (f as any).destination.trim() || null,
+        packaging: (f as any).packaging.trim() || null,
+        delivery_time: (f as any).delivery_time.trim() || null,
+        partial_ship: (f as any).partial_ship.trim() || null,
+        delivery_standard: (f as any).delivery_standard.trim() || null,
+        notification_clause: (f as any).notification_clause.trim() || null,
+        cancellation_clause: (f as any).cancellation_clause.trim() || null,
+        delay_clause: (f as any).delay_clause.trim() || null,
+        other_terms: (f as any).other_terms.trim() || null,
+        delivery_terms_line: (f as any).delivery_terms_line.trim() || null,
+        place_of_supply: (f as any).place_of_supply.trim() || null,
         documents: docs,
         lines: payloadLines,
       };
@@ -1023,6 +1223,24 @@ function POModal({
     },
     onSuccess: (docError: string) => {
       onSaved();
+      // Persist any new clause texts to the library so they appear in the
+      // print-detail dropdowns next time (best-effort — never blocks the save).
+      const clausePairs: Array<[string, string]> = [
+        ["packaging", String((f as any).packaging ?? "")],
+        ["delivery_time", String((f as any).delivery_time ?? "")],
+        ["partial_ship", String((f as any).partial_ship ?? "")],
+        ["delivery_standard", String((f as any).delivery_standard ?? "")],
+        ["notification", String((f as any).notification_clause ?? "")],
+        ["cancellation", String((f as any).cancellation_clause ?? "")],
+        ["delay", String((f as any).delay_clause ?? "")],
+        ["other", String((f as any).other_terms ?? "")],
+        ["delivery_terms", String((f as any).delivery_terms_line ?? "")],
+      ].filter(([, v]) => v.trim() !== "") as Array<[string, string]>;
+      if (clausePairs.length) {
+        Promise.allSettled(clausePairs.map(([kind, v]) => api.poClauses.create(kind, v))).then(
+          () => qc.invalidateQueries({ queryKey: ["po-clauses"] }),
+        );
+      }
       qc.invalidateQueries({ queryKey: ["goods-receipts"] }); // last-price lookup
       qc.invalidateQueries({ queryKey: ["proformas"] });
       qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
@@ -1193,6 +1411,15 @@ function POModal({
                   onChange={(patch) => setF({ ...f, ...patch })}
                 />
               </L>
+              <L label="Payment terms print text (optional)">
+                <input
+                  className={inputBase}
+                  value={(f as any).payment_terms_note}
+                  onChange={(e) => setF({ ...f, payment_terms_note: e.target.value } as any)}
+                  placeholder="e.g. 25% Advance, 25% on delivery, 50% 30 days after delivery"
+                  disabled={!editable}
+                />
+              </L>
               <L label="Buyer / created by">
                 <input
                   className={inputBase}
@@ -1202,6 +1429,84 @@ function POModal({
                   disabled={!editable}
                 />
               </L>
+              <L label="Buyer address (bill to)">
+                <input
+                  className={inputBase}
+                  value={(f as any).buyer_address}
+                  onChange={(e) => setF({ ...f, buyer_address: e.target.value } as any)}
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Buyer GSTIN">
+                <input
+                  className={inputBase}
+                  value={(f as any).buyer_gstin}
+                  onChange={(e) => setF({ ...f, buyer_gstin: e.target.value } as any)}
+                  disabled={!editable}
+                />
+              </L>
+            </div>
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
+              <div className="rounded-md border border-border/60 p-3">
+                <div className="mb-2 text-xs uppercase tracking-widest text-primary">Bill to</div>
+                <L label="Debtor (fetches address only)">
+                  <SearchableSelect
+                    value={(f as any).bill_to_debtor_id}
+                    onChange={pickBillToDebtor}
+                    placeholder="Select debtor…"
+                    disabled={!editable}
+                    options={[
+                      { value: "", label: "None" },
+                      ...((billDebtorsQ.data ?? []).map((d: any) => ({
+                        value: d.id,
+                        label: d.name,
+                      }))),
+                    ]}
+                  />
+                </L>
+                <div className="mt-2">
+                  <L label="Bill to address">
+                    <textarea
+                      rows={2}
+                      className={textareaBase}
+                      value={(f as any).bill_to_address}
+                      onChange={(e) => setF({ ...f, bill_to_address: e.target.value } as any)}
+                      placeholder="Pick a debtor to fetch, or type manually"
+                      disabled={!editable}
+                    />
+                  </L>
+                </div>
+              </div>
+              <div className="rounded-md border border-border/60 p-3">
+                <div className="mb-2 text-xs uppercase tracking-widest text-primary">Ship to</div>
+                <L label="Supplier (fetches address only)">
+                  <SearchableSelect
+                    value={(f as any).ship_to_supplier_id}
+                    onChange={pickShipToSupplier}
+                    placeholder="Select supplier…"
+                    disabled={!editable}
+                    options={[
+                      { value: "", label: "None" },
+                      ...((shipSuppliersQ.data ?? []).map((s: any) => ({
+                        value: s.id,
+                        label: s.name,
+                      }))),
+                    ]}
+                  />
+                </L>
+                <div className="mt-2">
+                  <L label="Ship to address">
+                    <textarea
+                      rows={2}
+                      className={textareaBase}
+                      value={(f as any).ship_to_address}
+                      onChange={(e) => setF({ ...f, ship_to_address: e.target.value } as any)}
+                      placeholder="Pick a supplier to fetch, or type manually"
+                      disabled={!editable}
+                    />
+                  </L>
+                </div>
+              </div>
             </div>
             <div className="mt-3">
               <L label="Notes">
@@ -1223,6 +1528,141 @@ function POModal({
                 onChange={setDocs}
                 hint="Attach the supplier quotation or proforma invoice."
               />
+            </div>
+          </fieldset>
+
+          {/* PO print details (garment PO PDF header + clauses) */}
+          <fieldset className="rounded-lg border border-border/60 p-4">
+            <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+              PO print details
+            </legend>
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              <L label="Quotation No.">
+                <input
+                  className={inputBase}
+                  value={(f as any).quotation_no}
+                  onChange={(e) => setF({ ...f, quotation_no: e.target.value } as any)}
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Quotation Date">
+                <input
+                  type="date"
+                  className={inputBase}
+                  value={(f as any).quotation_date}
+                  onChange={(e) => setF({ ...f, quotation_date: e.target.value } as any)}
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Vendor contact person">
+                <input
+                  className={inputBase}
+                  value={(f as any).contact_person}
+                  onChange={(e) => setF({ ...f, contact_person: e.target.value } as any)}
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Vendor contact phone/email">
+                <input
+                  className={inputBase}
+                  value={(f as any).contact_person_contact}
+                  onChange={(e) => setF({ ...f, contact_person_contact: e.target.value } as any)}
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Vendor address">
+                <input
+                  className={inputBase}
+                  value={(f as any).vendor_address}
+                  onChange={(e) => setF({ ...f, vendor_address: e.target.value } as any)}
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Vendor GSTIN">
+                <input
+                  className={inputBase}
+                  value={(f as any).vendor_gstin}
+                  onChange={(e) => setF({ ...f, vendor_gstin: e.target.value } as any)}
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Vendor PAN">
+                <input
+                  className={inputBase}
+                  value={(f as any).vendor_pan}
+                  onChange={(e) => setF({ ...f, vendor_pan: e.target.value } as any)}
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Vendor state">
+                <input
+                  className={inputBase}
+                  value={(f as any).vendor_state}
+                  onChange={(e) => setF({ ...f, vendor_state: e.target.value } as any)}
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Place of supply">
+                <input
+                  className={inputBase}
+                  value={(f as any).place_of_supply}
+                  onChange={(e) => setF({ ...f, place_of_supply: e.target.value } as any)}
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Delivery note date">
+                <input
+                  type="date"
+                  className={inputBase}
+                  value={(f as any).delivery_note_date}
+                  onChange={(e) => setF({ ...f, delivery_note_date: e.target.value } as any)}
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Dispatched through">
+                <input
+                  className={inputBase}
+                  value={(f as any).dispatched_through}
+                  onChange={(e) => setF({ ...f, dispatched_through: e.target.value } as any)}
+                  placeholder="e.g. By Road"
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Destination">
+                <input
+                  className={inputBase}
+                  value={(f as any).destination}
+                  onChange={(e) => setF({ ...f, destination: e.target.value } as any)}
+                  disabled={!editable}
+                />
+              </L>
+              <L label="Packaging">
+                {clauseBox("packaging", "packaging", "e.g. International standard packing")}
+              </L>
+              <L label="Delivery time">
+                {clauseBox("delivery_time", "delivery_time", "e.g. 9 to 15 May, 2026")}
+              </L>
+              <L label="Partial ship">
+                {clauseBox("partial_ship", "partial_ship")}
+              </L>
+              <L label="Delivery standard">
+                {clauseBox("delivery_standard", "delivery_standard")}
+              </L>
+              <L label="Notification clause">
+                {clauseBox("notification_clause", "notification")}
+              </L>
+              <L label="Cancellation clause">
+                {clauseBox("cancellation_clause", "cancellation")}
+              </L>
+              <L label="Delay clause">
+                {clauseBox("delay_clause", "delay", "e.g. 7 days grace period…")}
+              </L>
+              <L label="Other terms">
+                {clauseBox("other_terms", "other")}
+              </L>
+              <L label="Delivery terms">
+                {clauseBox("delivery_terms_line", "delivery_terms")}
+              </L>
             </div>
           </fieldset>
 
@@ -1280,6 +1720,32 @@ function POModal({
                         {l.name && (
                           <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
                         )}
+                        {(() => {
+                          const cat = (products ?? []).find((x: any) => x.id === l.product_id) as any;
+                          const bits = [
+                            l.color || cat?.color || null,
+                            l.size ? `Size ${l.size}` : cat?.size ? `Size ${cat.size}` : null,
+                            l.hsn_code || cat?.hsn_code || cat?.hsnCode
+                              ? `HSN ${l.hsn_code || cat?.hsn_code || cat?.hsnCode}`
+                              : null,
+                          ].filter(Boolean);
+                          return bits.length ? (
+                            <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                              {bits.join(" · ")}
+                            </div>
+                          ) : null;
+                        })()}
+                        <div className="mt-1">
+                          <L label="Fabric (PO print)">
+                            <input
+                              className={inputBase}
+                              value={l.fabric}
+                              onChange={(e) => setLine(i, { fabric: e.target.value })}
+                              placeholder="e.g. Rib Stop"
+                              disabled={!editable}
+                            />
+                          </L>
+                        </div>
                         {editable && (
                           <div className="mt-1 flex flex-wrap items-center gap-3">
                             <button
@@ -1923,6 +2389,21 @@ function POModal({
               >
                 Close
               </button>
+              {isEdit && po && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await api.goodsPurchaseOrders.downloadPdf(po.id, po.po_number);
+                    } catch (e) {
+                      toast.error(e instanceof Error ? e.message : "Could not download PDF");
+                    }
+                  }}
+                  className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm"
+                >
+                  <Download className="h-4 w-4" /> PDF
+                </button>
+              )}
               {editable && (
                 <button
                   disabled={save.isPending}

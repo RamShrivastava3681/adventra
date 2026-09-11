@@ -273,10 +273,20 @@ function DebtorModal({
       const cleanShipping = form.shipping_addresses
         .map((a) => ({ label: a.label.trim() || null, address: a.address.trim() }))
         .filter((a) => a.address);
+      const termsPayload = toTermsPayload(form);
+      // The debtor form has no balance-due-days input: delivery-based terms
+      // are always due on delivery/invoice date (0 days) at master level.
+      // Per-customer variations live in the approved-terms manager.
+      if (
+        termsPayload.paymentTermsType === "on_delivery" ||
+        termsPayload.paymentTermsType === "advance_partial"
+      ) {
+        termsPayload.paymentTermsDays = 0;
+      }
       const payload = {
         name: form.name.trim(),
         industry: form.industry || null,
-        ...toTermsPayload(form),
+        ...termsPayload,
         gstin: form.gstin || null,
         panCardNo: form.panCardNo || null,
         billingAddress: cleanBilling[0]?.address || null,
@@ -631,15 +641,16 @@ function DebtorModal({
                  <CustomerTermsManager debtorId={(debtor as any).id} />
                  {!hasTerms && (
                    <div className="grid gap-3 md:grid-cols-2">
-                     <L label="Terms type (legacy — used until first approved term is added)" full>
-                       <PaymentTermsFields
-                         type={form.payment_terms_type}
-                         advancePct={form.payment_terms_advance_pct}
-                         paymentTermsDays={form.payment_terms_days}
-                         daysLabel="Net days"
-                         onChange={(patch) => setForm({ ...form, ...patch })}
-                       />
-                     </L>
+                      <L label="Terms type (legacy — used until first approved term is added)" full>
+                        <PaymentTermsFields
+                          type={form.payment_terms_type}
+                          advancePct={form.payment_terms_advance_pct}
+                          paymentTermsDays={form.payment_terms_days}
+                          daysLabel="Net days"
+                          hideBalanceDays
+                          onChange={(patch) => setForm({ ...form, ...patch })}
+                        />
+                      </L>
                    </div>
                  )}
                  {hasTerms && (
@@ -650,15 +661,16 @@ function DebtorModal({
                </div>
              ) : (
                <div className="grid gap-3 md:grid-cols-2">
-                 <L label="Terms type (becomes the default approved term)" full>
-                   <PaymentTermsFields
-                     type={form.payment_terms_type}
-                     advancePct={form.payment_terms_advance_pct}
-                     paymentTermsDays={form.payment_terms_days}
-                     daysLabel="Net days"
-                     onChange={(patch) => setForm({ ...form, ...patch })}
-                   />
-                 </L>
+                <L label="Terms type (becomes the default approved term)" full>
+                    <PaymentTermsFields
+                      type={form.payment_terms_type}
+                      advancePct={form.payment_terms_advance_pct}
+                      paymentTermsDays={form.payment_terms_days}
+                      daysLabel="Net days"
+                      hideBalanceDays
+                      onChange={(patch) => setForm({ ...form, ...patch })}
+                    />
+                  </L>
                </div>
              )}
            </Section>

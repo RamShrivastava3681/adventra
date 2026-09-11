@@ -267,6 +267,13 @@ const api = {
     convertToSO: (id: string) => api.post<any>(`/purchase-orders/${id}/convert-to-so`, {}),
   },
 
+  // Reusable purchase-order clause texts (packaging, delivery terms, …).
+  poClauses: {
+    list: (kind?: string) => api.get<any[]>(`/po-clauses${kind ? `?kind=${kind}` : ""}`),
+    create: (kind: string, value: string) => api.post<any>("/po-clauses", { kind, value }),
+    delete: (id: string) => api.delete(`/po-clauses/${id}`),
+  },
+
   // Goods Purchase Orders (catalogue-backed procurement POs)
   goodsPurchaseOrders: {
     list: () => api.get<any[]>("/goods-purchase-orders"),
@@ -276,6 +283,27 @@ const api = {
     // Email the PO PDF to the supplier for their approval.
     sendToSupplier: (id: string) =>
       api.post<any>(`/goods-purchase-orders/${id}/send-to-supplier`, {}),
+    // Garment-style purchase-order PDF download.
+    downloadPdf: async (id: string, filename: string) => {
+      const res = await fetch(`${API_URL}/goods-purchase-orders/${id}/pdf`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || "Could not download PDF");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disp = res.headers.get("content-disposition") || "";
+      const m = disp.match(/filename="?([^"]+)"?/);
+      a.download = m?.[1] ?? `${filename}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
   },
 
   // Goods Receipts (GRNs — credit inventory when goods arrive)

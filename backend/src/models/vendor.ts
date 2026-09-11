@@ -41,7 +41,12 @@ export async function create(data: Partial<Vendor> & { clientId: string; name: s
     phone: data.phone || null, website: data.website || null,
     contactName: data.contactName || null, contactEmail: data.contactEmail || null,
     contactDesignation: data.contactDesignation || null, contactPhone: data.contactPhone || null,
-    paymentTermsDays: data.paymentTermsDays || 30,
+    paymentTermsDays: (() => {
+      const raw = (data as any).paymentTermsDays;
+      if (raw === undefined || raw === null || raw === "") return 30;
+      const n = Number(raw);
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 30;
+    })(),
     paymentTermsType: normalizePaymentTermsType(data.paymentTermsType) || "credit",
     advancePct: normalizeAdvancePct(data.advancePct),
     notes: data.notes || null, vendorCode: code,

@@ -628,7 +628,6 @@ function CheckerPage() {
                                     ? setApproveFor({ row: r, utr: "", amount: String(r.amount) })
                                     : reviewPurchase.mutate({ id: r.id, decision: "approved" })
                                 }
-                                disabled={r.kind === "sale"}
                                 className="inline-flex items-center gap-1 rounded-md border border-sem-success/50 px-2.5 py-1 text-xs text-sem-success hover:bg-sem-success/10 disabled:opacity-60"
                                 title="Enter UTR and payment amount"
                               >

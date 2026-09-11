@@ -26,6 +26,14 @@ export interface GoodsPOLine {
   lineTotal: number;
   /** System-maintained: sum of received quantities from GRNs. */
   receivedQty: number;
+  /** Catalogue snapshot: variant colour (for the garment PO print). */
+  color: string | null;
+  /** Catalogue snapshot: variant size (size-breakup columns on the PO print). */
+  size: string | null;
+  /** Fabric entered per line (no fabric master — free text, e.g. "Rib Stop"). */
+  fabric: string | null;
+  /** HSN/SAC code snapshot from the catalogue (printed on the PO). */
+  hsnCode: string | null;
 }
 
 export interface GoodsPurchaseOrder {
@@ -56,6 +64,63 @@ export interface GoodsPurchaseOrder {
   buyerId: string | null;
   buyerName: string | null;
   notes: string | null;
+  // ── Garment PO print details (all optional — blank renders blank) ──
+  /** Vendor quotation number printed on the PO. */
+  quotationNo: string | null;
+  /** Vendor quotation date (YYYY-MM-DD). */
+  quotationDate: string | null;
+  /** Vendor contact person for the PO header. */
+  contactPerson: string | null;
+  /** Vendor contact phone/email line ("Contact Person Contact"). */
+  contactPersonContact: string | null;
+  /** Vendor address line printed under the vendor name. */
+  vendorAddress: string | null;
+  /** Vendor GSTIN/UIN printed on the PO. */
+  vendorGstin: string | null;
+  /** Vendor PAN/IT No printed on the PO. */
+  vendorPan: string | null;
+  /** Vendor state name printed on the PO. */
+  vendorState: string | null;
+  /** Free-text payment-terms line for the print (e.g. "25% Advance, …"). */
+  paymentTermsNote: string | null;
+  /** Delivery note date (YYYY-MM-DD). */
+  deliveryNoteDate: string | null;
+  /** How goods are dispatched (e.g. "By Road"). */
+  dispatchedThrough: string | null;
+  /** Shipment destination city. */
+  destination: string | null;
+  /** Packaging instructions line. */
+  packaging: string | null;
+  /** Delivery window (e.g. "9 to 15 May, 2026"). */
+  deliveryTime: string | null;
+  /** Partial-shipment clause line. */
+  partialShip: string | null;
+  /** Delivery-standard clause line. */
+  deliveryStandard: string | null;
+  /** Schedule-change notification clause line. */
+  notificationClause: string | null;
+  /** Cancellation clause line. */
+  cancellationClause: string | null;
+  /** Delay / penalty clause line. */
+  delayClause: string | null;
+  /** Other terms line (e.g. pre-production sample approval). */
+  otherTerms: string | null;
+  /** Delivery-terms line (e.g. landed prices incl. freight). */
+  deliveryTermsLine: string | null;
+  /** Place of supply (state name). */
+  placeOfSupply: string | null;
+  /** Bill-to buyer address (buyer name uses buyerName). */
+  buyerAddress: string | null;
+  /** Bill-to buyer GSTIN/UIN. */
+  buyerGstin: string | null;
+  /** Bill-to debtor selection (address fetched from the debtor master). */
+  billToDebtorId: string | null;
+  /** Bill-to address (defaults to the selected debtor's billing address). */
+  billToAddress: string | null;
+  /** Ship-to supplier selection (address fetched from the supplier master). */
+  shipToSupplierId: string | null;
+  /** Ship-to address (defaults to the selected supplier's address). */
+  shipToAddress: string | null;
   documents: any[];
   status: string;
   /**
@@ -206,6 +271,34 @@ export async function create(
     buyerId: data.buyerId || null,
     buyerName: data.buyerName || null,
     notes: data.notes || null,
+    quotationNo: data.quotationNo || null,
+    quotationDate: data.quotationDate || null,
+    contactPerson: data.contactPerson || null,
+    contactPersonContact: data.contactPersonContact || null,
+    vendorAddress: data.vendorAddress || null,
+    vendorGstin: data.vendorGstin || null,
+    vendorPan: data.vendorPan || null,
+    vendorState: data.vendorState || null,
+    paymentTermsNote: data.paymentTermsNote || null,
+    deliveryNoteDate: data.deliveryNoteDate || null,
+    dispatchedThrough: data.dispatchedThrough || null,
+    destination: data.destination || null,
+    packaging: data.packaging || null,
+    deliveryTime: data.deliveryTime || null,
+    partialShip: data.partialShip || null,
+    deliveryStandard: data.deliveryStandard || null,
+    notificationClause: data.notificationClause || null,
+    cancellationClause: data.cancellationClause || null,
+    delayClause: data.delayClause || null,
+    otherTerms: data.otherTerms || null,
+    deliveryTermsLine: data.deliveryTermsLine || null,
+    placeOfSupply: data.placeOfSupply || null,
+    buyerAddress: data.buyerAddress || null,
+    buyerGstin: data.buyerGstin || null,
+    billToDebtorId: data.billToDebtorId || null,
+    billToAddress: data.billToAddress || null,
+    shipToSupplierId: data.shipToSupplierId || null,
+    shipToAddress: data.shipToAddress || null,
     documents: data.documents || [],
     status,
     manualStatus: status,
@@ -243,6 +336,34 @@ export async function update(id: string, updates: Partial<GoodsPurchaseOrder>) {
     "buyerId",
     "buyerName",
     "notes",
+    "quotationNo",
+    "quotationDate",
+    "contactPerson",
+    "contactPersonContact",
+    "vendorAddress",
+    "vendorGstin",
+    "vendorPan",
+    "vendorState",
+    "paymentTermsNote",
+    "deliveryNoteDate",
+    "dispatchedThrough",
+    "destination",
+    "packaging",
+    "deliveryTime",
+    "partialShip",
+    "deliveryStandard",
+    "notificationClause",
+    "cancellationClause",
+    "delayClause",
+    "otherTerms",
+    "deliveryTermsLine",
+    "placeOfSupply",
+    "buyerAddress",
+    "buyerGstin",
+    "billToDebtorId",
+    "billToAddress",
+    "shipToSupplierId",
+    "shipToAddress",
     "documents",
     "status",
     "manualStatus",

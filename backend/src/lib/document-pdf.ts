@@ -1136,7 +1136,7 @@ export function proformaToTallyData(
     debtorPan: pf.debtorPan ?? pf.debtor_pan ?? null,
     debtorAddress,
     billText,
-    paymentTerms: formatPaymentTerms(pf) || pf.paymentTerms ?? pf.payment_terms ?? null,
+    paymentTerms: (formatPaymentTerms(pf) || pf.paymentTerms) ?? pf.payment_terms ?? null,
     expectedDeliveryDate: pf.expectedDeliveryDate ?? pf.expected_delivery_date ?? null,
     poNumber: pf.poNumber ?? pf.po_number ?? null,
     linkedSoNumber: pf.linkedGoodsSoId ?? pf.linked_goods_so_id ?? null,
@@ -2814,6 +2814,484 @@ export function buildInvoiceTallyPdf(data: TallyInvoiceData): Promise<Buffer> {
           y += h;
         }
       }
+
+      doc.end();
+    } catch (e) {
+      reject(e);
+    }
+  });
+}
+
+
+// ═════════════════════════════════════════════════════════════════════════════
+// GARMENT PURCHASE ORDER PDF (landscape, Tally-style bordered grid)
+// ── "Purchase Order" title · vendor block · consignee (Adventra) + buyer
+//    blocks · clause grid (packaging / delivery / cancellation / delay…) ·
+//    item table with size-breakup columns (28/30/32/…) + fabric + HSN +
+//    color + PP prices · totals · amount-in-words · bank · declaration ·
+//    signatory. One row per PO line; the ordered quantity lands under the
+//    line's own size column (0 elsewhere), matching the reference print.
+// ═════════════════════════════════════════════════════════════════════════════
+
+export interface GoodsPOPdfLine {
+  sno: number;
+  productCode: string;
+  description: string;
+  fabric: string;
+  hsn: string;
+  size: string;
+  color: string;
+  quantity: number;
+  unitPrice: number;
+  gstRate: number | null;
+  /** Unit price inclusive of 5% GST ("PP Price with 5% GST"). */
+  ppWith5: number;
+  /** Line amount inclusive of GST. */
+  amount: number;
+}
+
+export interface GoodsPOPdfData {
+  vendorName: string;
+  vendorAddress: string;
+  vendorGstin: string;
+  vendorPan: string;
+  vendorState: string;
+  poNumber: string;
+  poDate: string;
+  quotationNo: string;
+  quotationDate: string;
+  contactPerson: string;
+  contactPersonContact: string;
+  consigneeName: string;
+  consigneeAddress: string;
+  consigneeGstin: string;
+  consigneeState: string;
+  consigneeEmail: string;
+  deliveryNoteDate: string;
+  dispatchedThrough: string;
+  destination: string;
+  packaging: string;
+  paymentTerms: string;
+  deliveryTime: string;
+  partialShip: string;
+  deliveryStandard: string;
+  notificationClause: string;
+  cancellationClause: string;
+  delayClause: string;
+  otherTerms: string;
+  deliveryTermsLine: string;
+  buyerName: string;
+  buyerAddress: string;
+  buyerGstin: string;
+  placeOfSupply: string;
+  /** Distinct sizes across lines (numeric-aware order, capped at 8). */
+  sizes: string[];
+  lines: GoodsPOPdfLine[];
+  totalQty: number;
+  grandTotal: number;
+  amountWords: string;
+  remarks: string;
+  bank: TallySOBank | null;
+  bankRaw: string | null;
+  declaration: string[];
+  /** Company name printed above "Authorised Signatory". */
+  signatoryName: string;
+}
+
+/** Map a goods purchase order (+ seller/bank/supplier inputs) onto the garment PO print shape. */
+export function goodsPOToPdfData(
+  po: any,
+  opts?: {
+    seller?: Partial<TallySOSeller> | null;
+    bank?: Partial<TallySOBank> | null;
+    bankRaw?: string | null;
+    declarationRaw?: string | null;
+    supplier?: any | null;
+    /** Bill-to debtor master (name/GSTIN fallbacks for the Buyer block). */
+    billToDebtor?: any | null;
+    /** Ship-to supplier master (name fallback for the Consignee block). */
+    shipToSupplier?: any | null;
+  },
+): GoodsPOPdfData {
+  const s = opts?.seller ?? {};
+  const sup = opts?.supplier ?? {};
+  const billTo = opts?.billToDebtor ?? {};
+  const shipTo = opts?.shipToSupplier ?? {};
+  const g = (camel: string, snake: string) => po[camel] ?? po[snake] ?? null;
+
+  const vendorName =
+    g("supplierName", "supplier_name") ?? sup.companyName ?? sup.name ?? "";
+  const vendorAddress =
+    g("vendorAddress", "vendor_address") ??
+    [sup.addressLine ?? sup.address_line, sup.city, sup.country].filter(Boolean).join(", ") ??
+    "";
+  const sizeOf = (l: any) => String(l.size ?? l.sizeName ?? "").trim();
+
+  // Distinct sizes, numeric-aware order (28, 30, 32 …; non-numeric last).
+  const sizeSet = new Map<string, number>();
+  for (const l of (po.lines ?? []) as any[]) {
+    const sz = sizeOf(l);
+    if (sz && !sizeSet.has(sz)) {
+      const n = parseFloat(sz);
+      sizeSet.set(sz, Number.isFinite(n) ? n : Number.POSITIVE_INFINITY);
+    }
+  }
+  const sizes = [...sizeSet.entries()]
+    .sort((a, b) => (a[1] === b[1] ? a[0].localeCompare(b[0]) : a[1] - b[1]))
+    .map(([k]) => k)
+    .slice(0, 8);
+
+  const lines: GoodsPOPdfLine[] = ((po.lines ?? []) as any[]).map((l: any, i: number) => {
+    const quantity = Number(l.orderedQty ?? l.ordered_qty ?? 0) || 0;
+    const unitPrice = Number(l.unitPrice ?? l.unit_price ?? 0) || 0;
+    const gstRate = l.gstRate ?? l.gst_rate ?? null;
+    const gst = Number(gstRate) || 0;
+    return {
+      sno: i + 1,
+      productCode: l.sku ?? l.productCode ?? l.product_code ?? "",
+      description: l.name || "Item",
+      fabric: l.fabric ?? "",
+      hsn: l.hsnCode ?? l.hsn_code ?? "",
+      size: sizeOf(l),
+      color: l.color ?? l.colour ?? "",
+      quantity,
+      unitPrice,
+      gstRate,
+      ppWith5: r2(unitPrice * 1.05),
+      amount: r2(Number(l.lineTotal ?? l.line_total ?? quantity * unitPrice) * (1 + gst / 100)),
+    };
+  });
+
+  const b = opts?.bank ?? {};
+  const bank: TallySOBank | null =
+    b.holder || b.bank || b.acNo || b.ifsc || b.branch
+      ? { holder: b.holder || "", bank: b.bank || "", acNo: b.acNo || "", ifsc: b.ifsc || "", branch: b.branch || "" }
+      : null;
+  const declaration = String(opts?.declarationRaw ?? "")
+    .split(/\r?\n/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const grandTotal = r2(Number(po.grandTotal ?? po.grand_total ?? lines.reduce((x, l) => x + l.amount, 0)) || 0);
+
+  return {
+    vendorName,
+    vendorAddress: vendorAddress || "",
+    vendorGstin: g("vendorGstin", "vendor_gstin") ?? "",
+    vendorPan: g("vendorPan", "vendor_pan") ?? "",
+    vendorState: g("vendorState", "vendor_state") ?? "",
+    poNumber: po.poNumber || po.po_number || "—",
+    poDate: fmtTallyDate(po.poDate || po.po_date || ""),
+    quotationNo: g("quotationNo", "quotation_no") ?? "",
+    quotationDate: fmtTallyDate(g("quotationDate", "quotation_date") ?? ""),
+    contactPerson:
+      g("contactPerson", "contact_person") ?? sup.contactName ?? sup.contact_name ?? "",
+    contactPersonContact:
+      g("contactPersonContact", "contact_person_contact") ??
+      [sup.contactPhone ?? sup.contact_phone, sup.contactEmail ?? sup.contact_email]
+        .filter(Boolean)
+        .join(" · ") ??
+      "",
+    consigneeName: shipTo.name ?? shipTo.companyName ?? s.name ?? "",
+    consigneeAddress: g("shipToAddress", "ship_to_address") ?? s.address ?? "",
+    consigneeGstin: s.gstin || "",
+    consigneeState: [s.stateName, s.stateCode ? `Code : ${s.stateCode}` : ""].filter(Boolean).join(", "),
+    consigneeEmail: s.email || "",
+    deliveryNoteDate: fmtTallyDate(g("deliveryNoteDate", "delivery_note_date") ?? ""),
+    dispatchedThrough: g("dispatchedThrough", "dispatched_through") ?? "",
+    destination: g("destination", "destination") ?? "",
+    packaging: g("packaging", "packaging") ?? "",
+    paymentTerms:
+      g("paymentTermsNote", "payment_terms_note") ??
+      formatPaymentTerms(po) ??
+      g("paymentTerms", "payment_terms") ??
+      "",
+    deliveryTime: g("deliveryTime", "delivery_time") ?? "",
+    partialShip: g("partialShip", "partial_ship") ?? "",
+    deliveryStandard: g("deliveryStandard", "delivery_standard") ?? "",
+    notificationClause: g("notificationClause", "notification_clause") ?? "",
+    cancellationClause: g("cancellationClause", "cancellation_clause") ?? "",
+    delayClause: g("delayClause", "delay_clause") ?? "",
+    otherTerms: g("otherTerms", "other_terms") ?? "",
+    deliveryTermsLine: g("deliveryTermsLine", "delivery_terms_line") ?? "",
+    buyerName: billTo.name ?? g("buyerName", "buyer_name") ?? "",
+    buyerAddress: g("billToAddress", "bill_to_address") ?? g("buyerAddress", "buyer_address") ?? "",
+    buyerGstin: billTo.gstin ?? g("buyerGstin", "buyer_gstin") ?? "",
+    placeOfSupply: g("placeOfSupply", "place_of_supply") ?? "",
+    sizes,
+    lines,
+    totalQty: Number(po.totalQty ?? po.total_qty ?? lines.reduce((x, l) => x + l.quantity, 0)) || 0,
+    grandTotal,
+    amountWords: amountInWordsINR(grandTotal),
+    remarks: po.notes ?? "",
+    bank,
+    bankRaw: opts?.bankRaw ?? null,
+    declaration,
+    signatoryName: s.name || "",
+  };
+}
+
+/** Render the garment purchase-order PDF (landscape A4). */
+export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    try {
+      const M = 18;
+      const PW = 841.89;
+      const PH = 595.28;
+      const CW = PW - M * 2;
+      const BOT = PH - M;
+      const doc = new PDFDocument({
+        size: "A4",
+        layout: "landscape",
+        margins: { top: M, bottom: M, left: M, right: M },
+      });
+      const chunks: Buffer[] = [];
+      doc.on("data", (c: Buffer) => chunks.push(c));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+
+      const F = "Helvetica";
+      const FB = "Helvetica-Bold";
+      const PAD = 3;
+      let y = M;
+
+      const need = (h: number) => {
+        if (y + h > BOT) {
+          doc.addPage();
+          y = M;
+        }
+      };
+
+      const cell = (
+        x: number, yy: number, w: number, h: number,
+        text: string,
+        o?: { font?: string; size?: number; align?: "left" | "center" | "right"; fill?: string },
+      ) => {
+        if (o?.fill) doc.rect(x, yy, w, h).fill(o.fill);
+        doc.rect(x, yy, w, h).strokeColor(TALLY.ink).lineWidth(0.5).stroke();
+        if (text) {
+          doc
+            .font(o?.font ?? F)
+            .fontSize(o?.size ?? 7.5)
+            .fillColor(TALLY.ink)
+            .text(text, x + PAD, yy + 2, {
+              width: Math.max(1, w - PAD * 2),
+              align: o?.align ?? "left",
+            });
+        }
+      };
+
+      const wrapH = (text: string, w: number, size: number, font?: string): number => {
+        if (!text) return 0;
+        doc.font(font ?? F).fontSize(size);
+        return doc.heightOfString(text, { width: Math.max(1, w - PAD * 2) });
+      };
+
+      // ── Title ────────────────────────────────────────────────────────────
+      cell(M, y, CW, 16, "Purchase Order", { font: FB, size: 11, align: "center" });
+      y += 16;
+
+      // ── Header grid: detail | label | value ──────────────────────────────
+      const AW = Math.round(CW * 0.44);
+      const BW = Math.round(CW * 0.2);
+      const VCW = CW - AW - BW;
+      type HRow = { a: string; b: string; c: string; aFont?: string; full?: boolean };
+      const rows: HRow[] = [
+        { a: `Vendor Name - ${data.vendorName}`, b: "", c: "", aFont: FB, full: true },
+        { a: data.vendorAddress, b: "Purchase Order No.", c: data.poNumber },
+        { a: "", b: "Purchase Order Date:", c: data.poDate },
+        { a: "", b: "Quotation No.", c: data.quotationNo },
+        { a: "", b: "Mode/Terms of Payment", c: "" },
+        { a: `GSTIN/UIN: ${data.vendorGstin}`, b: "Quotation Date:", c: data.quotationDate },
+        { a: `PAN/IT No : ${data.vendorPan}`, b: "Contact Person:", c: data.contactPerson },
+        { a: `State Name : ${data.vendorState}`, b: "Contact Person Contact:", c: data.contactPersonContact },
+        { a: "Consignee (Ship to)", b: "", c: "", aFont: FB, full: true },
+        { a: data.consigneeName, b: "Delivery Note Date", c: data.deliveryNoteDate, aFont: FB },
+        { a: data.consigneeAddress, b: "Dispatched through", c: data.dispatchedThrough },
+        { a: "", b: "Destination", c: data.destination },
+        { a: `GSTIN/UIN: ${data.consigneeGstin}`, b: "Packaging", c: data.packaging },
+        { a: `State Name : ${data.consigneeState}`, b: "Payment Terms", c: data.paymentTerms },
+        { a: `E-Mail : ${data.consigneeEmail}`, b: "Delivery Time", c: data.deliveryTime },
+        { a: "Buyer (Bill to)", b: "Partial Ship", c: data.partialShip, aFont: FB },
+        { a: data.buyerName, b: "Delivery Standard", c: data.deliveryStandard, aFont: FB },
+        { a: data.buyerAddress, b: "Notification", c: data.notificationClause },
+        { a: `GSTIN/UIN: ${data.buyerGstin}`, b: "Cancellation", c: data.cancellationClause },
+        { a: "", b: "Delay Clause", c: data.delayClause },
+        { a: "", b: "Other", c: data.otherTerms },
+        { a: "", b: "Delivery Terms", c: data.deliveryTermsLine },
+        { a: `Place of Supply: ${data.placeOfSupply}`, b: "", c: "", full: true },
+      ];
+      for (const r of rows) {
+        if (r.full) {
+          const h = 12;
+          need(h);
+          cell(M, y, CW, h, r.a, { font: r.aFont, size: 7.5 });
+          y += h;
+          continue;
+        }
+        const ah = r.a ? Math.ceil(wrapH(r.a, AW, 7.5, r.aFont) + 5) : 11;
+        const bh = r.b ? 11 : 11;
+        const ch = r.c ? Math.ceil(wrapH(r.c, VCW, 7.5) + 5) : 11;
+        const h = Math.max(11, ah, bh, ch);
+        need(h);
+        cell(M, y, AW, h, r.a, { font: r.aFont, size: 7.5 });
+        cell(M + AW, y, BW, h, r.b, { size: 6.5, align: "center" });
+        cell(M + AW + BW, y, VCW, h, r.c, { size: 7.5, align: "center" });
+        y += h;
+      }
+
+      // ── Item table ───────────────────────────────────────────────────────
+      const SZW = 30;
+      const C = { sl: 24, code: 46, fabric: 52, hsn: 50, color: 52, unit: 42, ppgst: 42, pp5: 52, qty: 42, amt: 62 };
+      const fixedW = C.sl + C.code + C.fabric + C.hsn + C.color + C.unit + C.ppgst + C.pp5 + C.qty + C.amt;
+      const descW = Math.max(60, CW - fixedW - data.sizes.length * SZW);
+      const colX = (key: string): number => {
+        let x = M;
+        const order = ["sl", "code", "desc", "fabric", "hsn", ...data.sizes.map((_, i) => `sz${i}`), "color", "unit", "ppgst", "pp5", "qty", "amt"];
+        const widths: Record<string, number> = {
+          sl: C.sl, code: C.code, desc: descW, fabric: C.fabric, hsn: C.hsn,
+          color: C.color, unit: C.unit, ppgst: C.ppgst, pp5: C.pp5, qty: C.qty, amt: C.amt,
+        };
+        data.sizes.forEach((_, i) => { widths[`sz${i}`] = SZW; });
+        for (const k of order) {
+          if (k === key) return x;
+          x += widths[k];
+        }
+        return x;
+      };
+      const colW = (key: string): number => {
+        if (key === "desc") return descW;
+        if (key.startsWith("sz")) return SZW;
+        return (C as any)[key];
+      };
+
+      const HEAD_H = 30;
+      const drawTableHead = () => {
+        need(HEAD_H);
+        const heads: Array<[string, string]> = [
+          ["sl", "Sl.\nNo"], ["code", "Product\nCode"], ["desc", "Description of\nGoods / Service"],
+          ["fabric", "Fabric"], ["hsn", "HSN/SA\nC"],
+          ...data.sizes.map((s): [string, string] => [`sz${data.sizes.indexOf(s)}`, s]),
+          ["color", "Color"], ["unit", "Unit\nPrice"], ["ppgst", "PP Price\nwith GST%"],
+          ["pp5", "PP Price\nwith 5%\nGST"], ["qty", "Total\nQuantity"], ["amt", "Amount"],
+        ];
+        for (const [k, t] of heads) {
+          cell(colX(k), y, colW(k), HEAD_H, t, { font: FB, size: 6.5, align: "center", fill: TALLY.headGray });
+        }
+        y += HEAD_H;
+      };
+
+      drawTableHead();
+      data.lines.forEach((l, idx) => {
+        const rowH = Math.max(14, Math.ceil(wrapH(l.description, descW, 7) + 6));
+        if (y + rowH > BOT) {
+          doc.addPage();
+          y = M;
+          drawTableHead();
+        }
+        const fill = idx % 2 === 1 ? TALLY.altRow : TALLY.white;
+        const cells: Array<[string, string, "left" | "center" | "right"]> = [
+          ["sl", String(l.sno), "center"],
+          ["code", l.productCode, "center"],
+          ["desc", l.description, "left"],
+          ["fabric", l.fabric, "center"],
+          ["hsn", l.hsn, "center"],
+          ...data.sizes.map((s): [string, string, "left" | "center" | "right"] => [
+            `sz${data.sizes.indexOf(s)}`,
+            tallyNum(l.size === s ? l.quantity : 0),
+            "center",
+          ]),
+          ["color", l.color, "center"],
+          ["unit", tallyNum(l.unitPrice), "right"],
+          ["ppgst", l.gstRate != null ? tallyNum(l.gstRate) : "", "center"],
+          ["pp5", tallyNum(l.ppWith5), "right"],
+          ["qty", tallyNum(l.quantity), "right"],
+          ["amt", tallyNum(l.amount), "right"],
+        ];
+        for (const [k, t, a] of cells) {
+          cell(colX(k), y, colW(k), rowH, t, { size: 7, align: a, fill });
+        }
+        y += rowH;
+      });
+
+      // Totals row
+      const TOT_H = 14;
+      need(TOT_H);
+      const spanW = CW - colW("qty") - colW("amt");
+      cell(M, y, spanW, TOT_H, "Total (inclusive of Taxes)", { font: FB, size: 7.5, align: "center", fill: TALLY.headGray });
+      cell(M + spanW, y, colW("qty"), TOT_H, tallyNum(data.totalQty), { font: FB, size: 7.5, align: "right", fill: TALLY.headGray });
+      cell(M + spanW + colW("qty"), y, colW("amt"), TOT_H, tallyNum(data.grandTotal), { font: FB, size: 7.5, align: "right", fill: TALLY.headGray });
+      y += TOT_H;
+
+      // ── Amount in words + E&OE ───────────────────────────────────────────
+      const wordsW = Math.round(CW * 0.8);
+      const wordsH = Math.max(24, Math.ceil(wrapH(data.amountWords, wordsW, 7) + 18));
+      need(wordsH);
+      cell(M, y, wordsW, wordsH, "", {});
+      doc.font(FB).fontSize(7).fillColor(TALLY.ink).text("Amount Chargeable (in words)", M + PAD, y + 2, { width: wordsW - PAD * 2 });
+      doc.font(F).fontSize(7).fillColor(TALLY.ink).text(data.amountWords, M + PAD, y + 12, { width: wordsW - PAD * 2 });
+      cell(M + wordsW, y, CW - wordsW, wordsH, "E. & O.E", { font: FB, size: 7, align: "center" });
+      y += wordsH;
+
+      // ── Remarks (left) + Bank details (right) ────────────────────────────
+      const bankW = Math.round(CW * 0.45);
+      const remW = CW - bankW;
+      const remarkText = data.remarks ? `Remarks:\n${data.remarks}` : "";
+      const bankLineCount = data.bank ? 4 : 0;
+      const bankInfoH = data.bank
+        ? 12 + bankLineCount * 11
+        : data.bankRaw
+          ? Math.max(30, Math.ceil(wrapH(data.bankRaw, bankW, 7) + 18))
+          : 14;
+      const rbH = Math.max(22, Math.ceil(wrapH(remarkText, remW, 7) + 8), bankInfoH + 2);
+      need(rbH);
+      const ry0 = y;
+      cell(M, y, remW, rbH, "", {});
+      if (remarkText) {
+        doc.font(F).fontSize(7).fillColor(TALLY.ink).text(remarkText, M + PAD, y + 2, { width: remW - PAD * 2 });
+      }
+      cell(M + remW, y, bankW, rbH, "", {});
+      let by = y;
+      cell(M + remW, by, bankW, 12, "Company's Bank Details", { font: FB, size: 7, align: "center" });
+      by += 12;
+      if (data.bank) {
+        const rows: Array<[string, string]> = [
+          ["A/c Holder's Name:", data.bank.holder],
+          ["Bank Name:", data.bank.bank],
+          ["A/c No.:", data.bank.acNo],
+          ["Branch & IFSC Code:", [data.bank.branch, data.bank.ifsc].filter(Boolean).join(" & ")],
+        ];
+        for (const [k, v] of rows) {
+          const klw = Math.round(bankW * 0.36);
+          cell(M + remW, by, klw, 11, k, { font: FB, size: 6.5, align: "center" });
+          cell(M + remW + klw, by, bankW - klw, 11, v, { size: 7, align: "center" });
+          by += 11;
+        }
+      } else if (data.bankRaw) {
+        doc.font(F).fontSize(7).fillColor(TALLY.ink).text(data.bankRaw, M + remW + PAD, by + 2, { width: bankW - PAD * 2 });
+      }
+      y = ry0 + rbH;
+
+      // ── Declaration ──────────────────────────────────────────────────────
+      const declText = (data.declaration ?? []).join("\n");
+      if (declText) {
+        const dh = Math.max(20, Math.ceil(wrapH(`Declaration\n${declText}`, CW, 7) + 8));
+        need(dh);
+        cell(M, y, CW, dh, "", {});
+        doc.font(FB).fontSize(7).fillColor(TALLY.ink).text("Declaration", M + PAD, y + 2, { width: CW - PAD * 2 });
+        doc.font(F).fontSize(7).fillColor(TALLY.ink).text(declText, M + PAD, y + 12, { width: CW - PAD * 2 });
+        y += dh;
+      }
+
+      // ── Sign-off ─────────────────────────────────────────────────────────
+      const signRow = (text: string, o?: { font?: string; size?: number; h?: number }) => {
+        const h = o?.h ?? 13;
+        need(h);
+        cell(M, y, CW, h, text, { font: o?.font ?? F, size: o?.size ?? 7.5, align: "center" });
+        y += h;
+      };
+      if (data.signatoryName) signRow(data.signatoryName, { font: FB, h: 14 });
+      signRow("");
+      signRow("Authorised Signatory");
 
       doc.end();
     } catch (e) {

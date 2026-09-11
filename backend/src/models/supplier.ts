@@ -32,7 +32,12 @@ export async function create(data: Partial<Supplier> & { companyName: string }) 
     industry: data.industry || null,
     addressLine: data.addressLine || null, city: data.city || null, country: data.country || null, postalCode: data.postalCode || null,
     status: data.status || "prospect", notes: data.notes || null,
-    paymentTermsDays: data.paymentTermsDays || 30,
+    paymentTermsDays: (() => {
+      const raw = (data as any).paymentTermsDays;
+      if (raw === undefined || raw === null || raw === "") return 30;
+      const n = Number(raw);
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 30;
+    })(),
     paymentTermsType: normalizePaymentTermsType(data.paymentTermsType) || "credit",
     advancePct: normalizeAdvancePct(data.advancePct),
     supplierCode: code, createdAt: now, updatedAt: now,

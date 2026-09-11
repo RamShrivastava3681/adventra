@@ -96,7 +96,12 @@ export async function create(data: Partial<Debtor> & { name: string }) {
     salesmanName: data.salesmanName || null,
     salesmanPhone: data.salesmanPhone || null,
     salesmanEmail: data.salesmanEmail || null,
-    paymentTermsDays: data.paymentTermsDays || 30,
+    paymentTermsDays: (() => {
+      const raw = (data as any).paymentTermsDays;
+      if (raw === undefined || raw === null || raw === "") return 30;
+      const n = Number(raw);
+      return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 30;
+    })(),
     paymentTermsType: normalizePaymentTermsType(data.paymentTermsType) || "credit",
     advancePct: normalizeAdvancePct(data.advancePct),
     defaultPaymentTermId: (data as any).defaultPaymentTermId || null,

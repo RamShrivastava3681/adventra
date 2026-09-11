@@ -99,6 +99,15 @@ function SuppliersPage() {
   const save = useMutation({
     mutationFn: async () => {
       if (!form.company_name.trim()) throw new Error("Company name is required");
+      const termsPayload = toTermsPayload(form);
+      // No balance-due-days input on this form: delivery-based terms are
+      // always due on delivery/invoice date (0 days) at master level.
+      if (
+        termsPayload.paymentTermsType === "on_delivery" ||
+        termsPayload.paymentTermsType === "advance_partial"
+      ) {
+        termsPayload.paymentTermsDays = 0;
+      }
       const payload = {
         company_name: form.company_name.trim(),
         contact_name: form.contact_name || null,
@@ -110,7 +119,7 @@ function SuppliersPage() {
         country: form.country || null,
         postal_code: form.postal_code || null,
         status: form.status,
-        ...toTermsPayload(form),
+        ...termsPayload,
         notes: form.notes || null,
       };
       if (editing) {
@@ -403,6 +412,7 @@ function SuppliersPage() {
                   advancePct={form.payment_terms_advance_pct}
                   paymentTermsDays={form.payment_terms_days}
                   daysLabel="Net days"
+                  hideBalanceDays
                   onChange={(patch) => setForm({ ...form, ...patch })}
                 />
               </F>

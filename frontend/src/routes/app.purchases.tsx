@@ -26,6 +26,7 @@ import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import {
   PaymentTermsFields,
   balanceDaysFor,
+  dueDateFor,
   formatPaymentTerms,
   toFormFields as toTermsFormFields,
   toPayload as toTermsPayload,
@@ -582,19 +583,16 @@ function NewPurchaseModal({
     formDaysRaw !== undefined && formDaysRaw !== null && String(formDaysRaw) !== ""
       ? formDaysRaw
       : vendorDaysRaw;
-  const termsDays = balanceDaysFor({
+  const effectiveTerms = {
     paymentTermsType: effectiveTermsType as any,
     paymentTermsDays:
       daysRaw === undefined || daysRaw === null || daysRaw === ""
         ? null
-        : Number(daysRaw) || 0,
-  });
-  const computedDue = (() => {
-    if (!form.issue_date) return "";
-    const d = new Date(form.issue_date);
-    d.setDate(d.getDate() + termsDays);
-    return d.toISOString().slice(0, 10);
-  })();
+        : Number(daysRaw),
+  };
+  const termsDays = balanceDaysFor(effectiveTerms);
+  // Timezone-safe: pure calendar math, so 0 days === invoice date exactly.
+  const computedDue = dueDateFor(form.issue_date, effectiveTerms);
   const effectiveDue = form.due_date || computedDue;
 
   const eligiblePos = useMemo(() => {

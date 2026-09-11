@@ -66,8 +66,33 @@ export function pickTerms(row: any): PaymentTermsValue {
 export function balanceDaysFor(t: Partial<PaymentTermsValue>): number {
   const type = normalizePaymentTermsType(t.paymentTermsType);
   if (!type || type === "advance_full") return 0;
+  const raw = t.paymentTermsDays as unknown;
+  if (raw === undefined || raw === null || raw === "") {
+    // No days stored anywhere: credit defaults to Net 30, delivery-based
+    // terms default to due on delivery/invoice date.
+    return type === "credit" ? 30 : 0;
+  }
   const n = Number(t.paymentTermsDays);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : type === "credit" ? 30 : 0;
+}
+
+/**
+ * Add N days to a YYYY-MM-DD date, returning YYYY-MM-DD.
+ * Pure calendar math (UTC) — unlike `new Date(s)` + `toISOString()`, this
+ * never shifts the day across timezones. 0 days returns the same date.
+ */
+export function addDaysISO(yyyyMmDd: string, days: number): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(yyyyMmDd.trim());
+  if (!m) return "";
+  const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  d.setUTCDate(d.getUTCDate() + (Number(days) || 0));
+  return d.toISOString().slice(0, 10);
+}
+
+/** Invoice due date = invoice date + balance/net days (0 → same as invoice date). */
+export function dueDateFor(issueDate: string, t: Partial<PaymentTermsValue>): string {
+  if (!issueDate) return "";
+  return addDaysISO(issueDate, balanceDaysFor(t));
 }
 
 /**
@@ -109,6 +134,7 @@ export function PaymentTermsFields({
   onChange,
   disabled = false,
   daysLabel = "Net days",
+  hideBalanceDays = false,
 }: {
   /** Selected structured type. */
   type: PaymentTermsType;
@@ -122,6 +148,8 @@ export function PaymentTermsFields({
   disabled?: boolean;
   /** Label for the Net-days input (e.g. "Customer net days"). */
   daysLabel?: string;
+  /** Hide the balance-due-days input for on-delivery / partial terms (days stay 0). */
+  hideBalanceDays?: boolean;
 }) {
   const cls =
     "inp w-full rounded border border-border bg-background px-3 py-2 text-sm";
@@ -182,7 +210,7 @@ export function PaymentTermsFields({
         </div>
       )}
 
-      {(type === "on_delivery" || type === "advance_partial") && (
+      {!hideBalanceDays && (type === "on_delivery" || type === "advance_partial") && (
         <div className="flex items-center gap-2">
           <input
             type="number"
@@ -239,16 +267,13 @@ export function toPayload(f: {
 }) {
   const type = f.payment_terms_type;
   const days = Number(f.payment_terms_days);
+  const finiteDays = Number.isFinite(days) && days >= 0 ? Math.floor(days) : null;
   return {
     paymentTermsType: type,
     advancePct: type === "advance_partial" ? normalizeAdvancePct(f.payment_terms_advance_pct) : null,
     paymentTermsDays:
-      type === "credit"
-        ? Number(f.payment_terms_days) || 30
-        : type === "advance_full"
-          ? 0
-          : Number.isFinite(days) && days >= 0
-            ? Math.floor(days)
-            : 0,
+      type === "advance_full"
+        ? 0
+        : finiteDays ?? (type === "credit" ? 30 : 0),
   };
 }

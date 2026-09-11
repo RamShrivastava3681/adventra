@@ -167,7 +167,10 @@ function AddVendorModal({
         clientId: userId,
         name: form.name.trim(),
         industry: form.industry || null,
-        payment_terms_days: Number(form.payment_terms_days) || 30,
+        payment_terms_days: (() => {
+          const n = Number(form.payment_terms_days);
+          return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 30;
+        })(),
         address_line: form.address_line || null,
         city: form.city || null,
         country: form.country || null,

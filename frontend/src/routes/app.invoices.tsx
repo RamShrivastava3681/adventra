@@ -18,6 +18,7 @@ import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import {
   PaymentTermsFields,
   balanceDaysFor,
+  dueDateFor,
   formatPaymentTerms,
   normalizePaymentTermsType,
   toFormFields as toTermsFormFields,
@@ -193,6 +194,16 @@ export function InvoicesPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["invoices"] });
       toast.success("Invoice cancelled");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const sendNoa = useMutation({
+    mutationFn: async (id: string) => api.invoices.sendNoa(id),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["reminder-logs"] });
+      toast.success(`NOA emailed${res?.sentTo ? ` to ${res.sentTo}` : ""}`);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -452,6 +463,17 @@ export function InvoicesPage() {
                                     <Send className="h-3 w-3" /> UTR
                                   </button>
                                 )}
+                                {canCreate &&
+                                  !["draft", "cancelled", "rejected"].includes(i.status) && (
+                                    <button
+                                      onClick={() => sendNoa.mutate(i.id)}
+                                      disabled={sendNoa.isPending}
+                                      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary disabled:opacity-50"
+                                      title="Email the Notice of Assignment to the buyer with the invoice PDF attached"
+                                    >
+                                      <Mail className="h-3 w-3" /> NOA
+                                    </button>
+                                  )}
                                 {canRecordIrn && !i.irn && ["approved", "pending", "funded", "advanced"].includes(i.status) && (
                                   <button
                                     onClick={() => setIrnFor(i)}
@@ -811,19 +833,16 @@ function NewInvoiceModal({
     formDaysRaw !== undefined && formDaysRaw !== null && String(formDaysRaw) !== ""
       ? formDaysRaw
       : debtorDaysRaw;
-  const termsDays = balanceDaysFor({
+  const effectiveTerms = {
     paymentTermsType: effectiveTermsType as any,
     paymentTermsDays:
       daysRaw === undefined || daysRaw === null || daysRaw === ""
         ? null
-        : Number(daysRaw) || 0,
-  });
-  const computedDue = (() => {
-    if (!form.issue_date) return "";
-    const d = new Date(form.issue_date);
-    d.setDate(d.getDate() + termsDays);
-    return d.toISOString().slice(0, 10);
-  })();
+        : Number(daysRaw),
+  };
+  const termsDays = balanceDaysFor(effectiveTerms);
+  // Timezone-safe: pure calendar math, so 0 days === invoice date exactly.
+  const computedDue = dueDateFor(form.issue_date, effectiveTerms);
   const effectiveDue = form.due_date || computedDue;
 
   // When the customer changes on a new invoice, pull their master terms into
@@ -1467,6 +1486,16 @@ function NewInvoiceModal({
 
 // ─── Detail modal ────────────────────────────────────────────────────────
 function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () => void }) {
+  const qc = useQueryClient();
+  const sendNoa = useMutation({
+    mutationFn: async () => api.invoices.sendNoa(invoice.id),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["reminder-logs"] });
+      toast.success(`NOA emailed${res?.sentTo ? ` to ${res.sentTo}` : ""}`);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
   const grandTotal = Number(invoice.grand_total ?? invoice.amount ?? 0);
   const advance = Number(invoice.advance_deducted ?? 0);
   const netAmount = Number(invoice.amount ?? Math.max(0, grandTotal - advance));
@@ -1697,11 +1726,23 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
               <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
                 NOA send history
               </div>
-              {reminderLogsQ.isLoading && (
-                <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                  Loading…
-                </span>
-              )}
+              <div className="flex items-center gap-2">
+                {reminderLogsQ.isLoading && (
+                  <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                    Loading…
+                  </span>
+                )}
+                {!["draft", "cancelled", "rejected"].includes(invoice.status) && (
+                  <button
+                    onClick={() => sendNoa.mutate()}
+                    disabled={sendNoa.isPending}
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary disabled:opacity-50"
+                    title="Email the Notice of Assignment to the buyer with the invoice PDF attached"
+                  >
+                    <Mail className="h-3 w-3" /> Send NOA
+                  </button>
+                )}
+              </div>
             </div>
             {noaLogs.length === 0 ? (
               <div className="rounded-md border border-dashed border-border p-3 text-xs text-muted-foreground">

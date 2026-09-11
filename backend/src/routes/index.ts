@@ -123,6 +123,7 @@ import * as Invoice from "../models/invoice.js";
 import * as PurchaseInvoice from "../models/purchase-invoice.js";
 import * as PurchaseOrder from "../models/purchase-order.js";
 import * as GoodsPO from "../models/goods-purchase-order.js";
+import * as POClause from "../models/po-clause.js";
 import * as GoodsReceipt from "../models/goods-receipt.js";
 import * as GoodsSO from "../models/goods-sales-order.js";
 import * as GoodsDispatch from "../models/goods-dispatch.js";
@@ -3854,10 +3855,55 @@ async function validateGoodsPOLines(clientId: string | undefined, rawLines: any[
       throw new Error("Ordered quantity must be greater than zero");
     if (Number(l.unitPrice) < 0)
       throw new Error("Unit price must be greater than or equal to zero");
-    applyVariantSnapshot(l, productById.get(l.productId));
+    const poProduct = productById.get(l.productId) as any;
+    applyVariantSnapshot(l, poProduct);
+    // Server-owned print snapshots for the garment PO: HSN from the
+    // catalogue (kept when the client already sent one); fabric stays
+    // exactly as entered per line (no fabric master exists).
+    if (poProduct) {
+      const hsn = l.hsnCode ?? l.hsn_code ?? poProduct.hsnCode ?? poProduct.hsn_code ?? null;
+      if (hsn) l.hsnCode = hsn;
+      else delete l.hsnCode;
+      if (l.fabric !== undefined && l.fabric !== null && String(l.fabric).trim() === "") {
+        l.fabric = null;
+      }
+    }
   }
   return lines;
 }
+
+// ===================== PO CLAUSES =====================
+// Reusable purchase-order clause texts (packaging, delivery terms, …).
+// Saved automatically from the PO form; later POs pick them from a dropdown.
+router.get("/po-clauses", authMiddleware, async (req, res) => {
+  try {
+    const kind = typeof req.query.kind === "string" ? req.query.kind : undefined;
+    if (kind !== undefined && !POClause.isPOClauseKind(kind)) {
+      return res.status(400).json({ error: "Invalid clause kind" });
+    }
+    res.json(await POClause.list(effectiveListScope(req), kind as POClause.POClauseKind | undefined));
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
+router.post("/po-clauses", authMiddleware, async (req, res) => {
+  try {
+    const { kind, value } = req.body || {};
+    if (!POClause.isPOClauseKind(kind)) return res.status(400).json({ error: "Invalid clause kind" });
+    const item = await POClause.upsert(req.user!.userId, kind, value);
+    if (!item) return res.status(400).json({ error: "Clause text is required" });
+    res.status(201).json(item);
+  } catch (err: any) { res.status(400).json({ error: err.message }); }
+});
+router.delete("/po-clauses/:id", authMiddleware, async (req, res) => {
+  try {
+    const current = await POClause.get(req.params.id);
+    if (!current) return res.status(404).json({ error: "Clause not found" });
+    if (current.clientId !== req.user!.userId && !isStaffAccount(req.user?.roles)) {
+      return res.status(403).json({ error: "Forbidden" });
+    }
+    await POClause.remove(req.params.id);
+    res.json({ success: true });
+  } catch (err: any) { res.status(500).json({ error: err.message }); }
+});
 
 router.get("/goods-purchase-orders", authMiddleware, async (req, res) => {
   try {
@@ -4811,6 +4857,23 @@ router.get("/goods-sales-orders/:id/pdf", authMiddleware, async (req, res) => {
   }
 });
 
+/** GET /goods-purchase-orders/:id/pdf — download the garment-style purchase-order PDF. */
+router.get("/goods-purchase-orders/:id/pdf", authMiddleware, async (req, res) => {
+  try {
+    const po = await GoodsPO.get(req.params.id);
+    if (!po || (po.clientId !== req.user!.userId && !isStaffAccount(req.user?.roles))) {
+      return res.status(404).json({ error: "Purchase order not found" });
+    }
+    const { pdf, number } = await buildGoodsPOTallyBuffer(po, po.clientId);
+    const filename = `${(number || "purchase-order").replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(pdf);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /** Sales review: draft -> pending_review -> warehouse_pending. */
 router.post(
   "/goods-sales-orders/:id/sales-review",
@@ -5224,6 +5287,44 @@ async function buildSalesOrderTallyBuffer(
 }
 
 /**
+ * Build the garment-style purchase-order PDF for a goods PO record.
+ * Shared by download + supplier email. Resolves the supplier master for the
+ * vendor block (name/address/contact fallbacks when the PO only stores ids).
+ */
+async function buildGoodsPOTallyBuffer(
+  po: any,
+  clientId: string,
+): Promise<{ pdf: Buffer; number: string; grandTotal: number }> {
+  const { seller, bank, bankRaw, declarationRaw } = await resolveTallySellerParts(clientId);
+  const { goodsPOToPdfData, buildGoodsPOTallyPdf } =
+    await import("../lib/document-pdf.js");
+  let supplier: any = null;
+  try {
+    const sid = po.supplierId ?? po.supplier_id ?? null;
+    if (sid) {
+      supplier = await Supplier.get(sid).catch(() => null);
+      if (!supplier) supplier = await Vendor.get(sid).catch(() => null);
+    }
+  } catch { supplier = null; }
+  // Bill-to debtor + ship-to supplier masters for the Buyer/Consignee blocks
+  // (name/GSTIN fallbacks — the stored addresses always win).
+  let billToDebtor: any = null;
+  let shipToSupplier: any = null;
+  try {
+    const bid = po.billToDebtorId ?? po.bill_to_debtor_id ?? null;
+    if (bid) billToDebtor = await Debtor.get(bid).catch(() => null);
+    const stid = po.shipToSupplierId ?? po.ship_to_supplier_id ?? null;
+    if (stid) {
+      shipToSupplier = await Supplier.get(stid).catch(() => null);
+      if (!shipToSupplier) shipToSupplier = await Vendor.get(stid).catch(() => null);
+    }
+  } catch { billToDebtor = null; shipToSupplier = null; }
+  const data = goodsPOToPdfData(po, { seller, bank, bankRaw, declarationRaw, supplier, billToDebtor, shipToSupplier });
+  const pdf = await buildGoodsPOTallyPdf(data);
+  return { pdf, number: data.poNumber, grandTotal: data.grandTotal };
+}
+
+/**
  * Build the Tally-style tax-invoice PDF (+ e-Way Bill section when data is
  * present) for an invoice record. Shared by download + NOA email.
  * QR encodes the signed QR payload when pasted, else the IRN.
@@ -5417,10 +5518,8 @@ async function sendPurchaseOrderToSupplier(
   }
 
   const company = await resolveCompanyName(clientId);
-  const { purchaseOrderToPdfData, buildDocumentPdf } =
-    await import("../lib/document-pdf.js");
-  const data = purchaseOrderToPdfData(po, company.name, company.contact);
-  const pdf = await buildDocumentPdf(data);
+  const { pdf, number, grandTotal } = await buildGoodsPOTallyBuffer(po, clientId);
+  const data = { number, grandTotal, validUntil: po.expectedDeliveryDate ?? po.expected_delivery_date ?? null };
 
   const token = uuid();
   const approvalUrl = `${config.appUrl}/approve/${token}`;
