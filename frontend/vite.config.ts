@@ -12,6 +12,9 @@ export default defineConfig({
   plugins: [
     TanStackRouterVite({
       routeFileIgnorePrefix: "-",
+      // The generated route tree lives inside src/routes/ — tell the scanner
+      // to skip it so it doesn't warn that it "does not export a Route".
+      routeFileIgnorePattern: "routeTree.gen.ts",
     }),
     react(),
     tailwindcss(),

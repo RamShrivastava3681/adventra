@@ -2282,7 +2282,7 @@ function SkuBuilderModal({
 }) {
   const qc = useQueryClient();
   const [step, setStep] = useState(0);
-  const [f, setF] = useState({ name: "", categoryMasterId: "", genderMasterId: "", model: "", hsnCode: "", unitCost: "", unitPrice: "", mrp: "", retailerPrice: "", distributorPrice: "", ecommercePrice: "", unitOfMeasure: "piece" });
+  const [f, setF] = useState({ name: "", categoryMasterId: "", genderMasterId: "", model: "", hsnCode: "", unitCost: "", unitPrice: "", mrp: "", retailerPrice: "", distributorPrice: "", ecommercePrice: "", gstRate: "", unitOfMeasure: "piece" });
   const category = categories.find((x) => x.id === f.categoryMasterId);
   const gender = genders.find((x) => x.id === f.genderMasterId);
   const model = sanitizeModel(f.model);
@@ -2300,6 +2300,7 @@ function SkuBuilderModal({
       if (v !== "" && !(Number(v) >= 0)) return `${label} cannot be negative`;
     }
     if (f.mrp !== "" && f.unitPrice !== "" && Number(f.mrp) < Number(f.unitPrice)) return "MRP should not be lower than Selling price";
+    if (f.gstRate !== "" && !(Number(f.gstRate) >= 0)) return "GST rate cannot be negative";
     return null;
   })();
   const canStep = (s: number): boolean => {
@@ -2314,6 +2315,7 @@ function SkuBuilderModal({
       unitCost: Number(f.unitCost || 0), unitPrice: Number(f.unitPrice || 0),
       mrp: f.mrp === "" ? "" : Number(f.mrp), ecommercePrice: f.ecommercePrice === "" ? "" : Number(f.ecommercePrice),
       retailerPrice: f.retailerPrice === "" ? "" : Number(f.retailerPrice), distributorPrice: f.distributorPrice === "" ? "" : Number(f.distributorPrice),
+      gstRate: f.gstRate === "" ? "" : Number(f.gstRate),
       // Master-only creation: variants are added later from the Master SKU
       // detail drawer ("Add colour" / size), never in this wizard.
       colorMasterIds: [], sizeMasterIds: [], disabledKeys: [],
@@ -2349,10 +2351,11 @@ function SkuBuilderModal({
             {[["Unit Price (cost)", "unitCost"], ["Selling Price", "unitPrice"], ["MRP", "mrp"], ["Retailer Price", "retailerPrice"], ["Distributor Price", "distributorPrice"], ["E-commerce Price", "ecommercePrice"]].map(([label, key]) => (
               <L key={key} label={`₹ ${label}`}><input type="number" min="0" step="0.01" className="inp" value={(f as any)[key]} onChange={(e) => setF({ ...f, [key]: e.target.value })} placeholder="0.00" /></L>
             ))}
-          </div>{priceError ? <p className="mt-3 text-xs font-medium text-destructive">{priceError}</p> : <p className="mt-3 text-xs text-muted-foreground">Prices cannot be negative. MRP should not be lower than Selling Price. Stored at product level and inherited by every variant.</p>}</Card>}
+            <L label="GST rate (%)"><input type="number" min="0" step="0.01" className="inp" value={f.gstRate} onChange={(e) => setF({ ...f, gstRate: e.target.value })} placeholder="e.g. 5" list="gst-rates" /><datalist id="gst-rates"><option value="0" /><option value="5" /><option value="12" /><option value="18" /><option value="28" /></datalist></L>
+          </div>{priceError ? <p className="mt-3 text-xs font-medium text-destructive">{priceError}</p> : <p className="mt-3 text-xs text-muted-foreground">Prices cannot be negative. MRP should not be lower than Selling Price. Stored at product level and inherited by every variant — each colour can still set its own GST later.</p>}</Card>}
           {step === 2 && <Card title="Step 3 — Review & create"><div className="grid gap-4 text-sm md:grid-cols-2">
             <div><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Master SKU</p><p className="mt-1 font-medium">{f.name || "—"} <span className="text-muted-foreground">· {model || "—"}</span></p><p className="mt-1 text-xs text-muted-foreground">{category?.name} ({category?.code}) · {gender?.name} ({gender?.code})</p><p className="mt-1 font-mono text-xs text-muted-foreground">HSN {f.hsnCode || "—"}</p><p className="mt-2 font-mono text-sm font-semibold text-primary">{parentSku}</p></div>
-            <div><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Pricing (₹)</p><p className="mt-1 font-mono text-xs">Cost {f.unitCost || "0"} · Sell {f.unitPrice || "0"} · MRP {f.mrp || "—"}</p><p className="mt-1 font-mono text-xs text-muted-foreground">Ret {f.retailerPrice || "—"} · Dist {f.distributorPrice || "—"}</p></div>
+            <div><p className="text-[10px] uppercase tracking-widest text-muted-foreground">Pricing (₹)</p><p className="mt-1 font-mono text-xs">Cost {f.unitCost || "0"} · Sell {f.unitPrice || "0"} · MRP {f.mrp || "—"}</p><p className="mt-1 font-mono text-xs text-muted-foreground">Ret {f.retailerPrice || "—"} · Dist {f.distributorPrice || "—"} · GST {f.gstRate !== "" ? `${f.gstRate}%` : "—"}</p></div>
           </div>
           <p className="mt-4 rounded-lg border border-dashed border-border p-3 text-xs text-muted-foreground">Only the Master SKU is created here. After creation, open its “Colours & sizes” detail view to add colour and size variants one by one.</p>
           </Card>}
@@ -2360,7 +2363,7 @@ function SkuBuilderModal({
         <aside className="h-fit rounded-xl border border-primary/25 bg-primary/5 p-5 lg:sticky lg:top-0">
           <p className="text-xs uppercase tracking-widest text-muted-foreground">Live SKU Builder</p>
           <div className="mt-3 space-y-1.5 text-sm">
-            {[["Brand", "AD"], ["Gender", gender?.code ?? "—"], ["Category", category?.code ?? "—"], ["Model", model || "—"], ["HSN", f.hsnCode || "—"]].map(([k, v]) => <p key={k} className="flex items-center justify-between text-muted-foreground">{k}<span className="font-mono font-medium text-foreground">{v}</span></p>)}
+            {[["Brand", "AD"], ["Gender", gender?.code ?? "—"], ["Category", category?.code ?? "—"], ["Model", model || "—"], ["HSN", f.hsnCode || "—"], ["GST", f.gstRate !== "" ? `${f.gstRate}%` : "—"]].map(([k, v]) => <p key={k} className="flex items-center justify-between text-muted-foreground">{k}<span className="font-mono font-medium text-foreground">{v}</span></p>)}
           </div>
           <p className="mt-3 text-[10px] uppercase tracking-widest text-muted-foreground">Master SKU</p>
           <p className="mt-1 break-all font-mono text-base font-semibold text-primary">{parentSku || "AD-…"}</p>

@@ -485,7 +485,8 @@ router.post("/products/create-hierarchy", authMiddleware, async (req, res) => {
     const mrp = body.mrp === undefined || body.mrp === "" ? null : validPrice(body.mrp, "MRP");
     if (mrp !== null && mrp < unitPrice) throw new Error("MRP cannot be lower than selling price");
     const ecommercePrice = body.ecommercePrice === undefined || body.ecommercePrice === "" ? null : validPrice(body.ecommercePrice, "E-commerce price");
-    const common: any = { name, category: category.name, gender: gender.name, model, unitPrice, unitCost, mrp, ecommercePrice,
+    const gstRate = body.gstRate === undefined || body.gstRate === "" || body.gstRate === null ? null : validPrice(body.gstRate, "GST rate");
+    const common: any = { name, category: category.name, gender: gender.name, model, unitPrice, unitCost, mrp, ecommercePrice, gstRate,
       retailerPrice: body.retailerPrice === "" ? null : validPrice(body.retailerPrice, "Retailer price"),
       distributorPrice: body.distributorPrice === "" ? null : validPrice(body.distributorPrice, "Distributor price"),
       unitOfMeasure: body.unitOfMeasure || "piece", categoryMasterId: category.id, genderMasterId: gender.id, status: "active",

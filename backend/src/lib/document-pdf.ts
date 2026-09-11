@@ -2844,8 +2844,8 @@ export interface GoodsPOPdfLine {
   quantity: number;
   unitPrice: number;
   gstRate: number | null;
-  /** Unit price inclusive of 5% GST ("PP Price with 5% GST"). */
-  ppWith5: number;
+  /** Unit price inclusive of GST ("PP Price with GST%"). */
+  ppInclGst: number;
   /** Line amount inclusive of GST. */
   amount: number;
 }
@@ -2957,7 +2957,7 @@ export function goodsPOToPdfData(
       quantity,
       unitPrice,
       gstRate,
-      ppWith5: r2(unitPrice * 1.05),
+      ppInclGst: r2(unitPrice * (1 + gst / 100)),
       amount: r2(Number(l.lineTotal ?? l.line_total ?? quantity * unitPrice) * (1 + gst / 100)),
     };
   });
@@ -3141,15 +3141,15 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
 
       // ── Item table ───────────────────────────────────────────────────────
       const SZW = 30;
-      const C = { sl: 24, code: 46, fabric: 52, hsn: 50, color: 52, unit: 42, ppgst: 42, pp5: 52, qty: 42, amt: 62 };
-      const fixedW = C.sl + C.code + C.fabric + C.hsn + C.color + C.unit + C.ppgst + C.pp5 + C.qty + C.amt;
+      const C = { sl: 24, code: 46, fabric: 52, hsn: 50, color: 52, unit: 42, ppgst: 56, qty: 42, amt: 62 };
+      const fixedW = C.sl + C.code + C.fabric + C.hsn + C.color + C.unit + C.ppgst + C.qty + C.amt;
       const descW = Math.max(60, CW - fixedW - data.sizes.length * SZW);
       const colX = (key: string): number => {
         let x = M;
-        const order = ["sl", "code", "desc", "fabric", "hsn", ...data.sizes.map((_, i) => `sz${i}`), "color", "unit", "ppgst", "pp5", "qty", "amt"];
+        const order = ["sl", "code", "desc", "fabric", "hsn", ...data.sizes.map((_, i) => `sz${i}`), "color", "unit", "ppgst", "qty", "amt"];
         const widths: Record<string, number> = {
           sl: C.sl, code: C.code, desc: descW, fabric: C.fabric, hsn: C.hsn,
-          color: C.color, unit: C.unit, ppgst: C.ppgst, pp5: C.pp5, qty: C.qty, amt: C.amt,
+          color: C.color, unit: C.unit, ppgst: C.ppgst, qty: C.qty, amt: C.amt,
         };
         data.sizes.forEach((_, i) => { widths[`sz${i}`] = SZW; });
         for (const k of order) {
@@ -3172,7 +3172,7 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
           ["fabric", "Fabric"], ["hsn", "HSN/SA\nC"],
           ...data.sizes.map((s): [string, string] => [`sz${data.sizes.indexOf(s)}`, s]),
           ["color", "Color"], ["unit", "Unit\nPrice"], ["ppgst", "PP Price\nwith GST%"],
-          ["pp5", "PP Price\nwith 5%\nGST"], ["qty", "Total\nQuantity"], ["amt", "Amount"],
+          ["qty", "Total\nQuantity"], ["amt", "Amount"],
         ];
         for (const [k, t] of heads) {
           cell(colX(k), y, colW(k), HEAD_H, t, { font: FB, size: 6.5, align: "center", fill: TALLY.headGray });
@@ -3202,8 +3202,7 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
           ]),
           ["color", l.color, "center"],
           ["unit", tallyNum(l.unitPrice), "right"],
-          ["ppgst", l.gstRate != null ? tallyNum(l.gstRate) : "", "center"],
-          ["pp5", tallyNum(l.ppWith5), "right"],
+          ["ppgst", tallyNum(l.ppInclGst), "right"],
           ["qty", tallyNum(l.quantity), "right"],
           ["amt", tallyNum(l.amount), "right"],
         ];
