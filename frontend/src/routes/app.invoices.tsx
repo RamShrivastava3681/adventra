@@ -1116,20 +1116,6 @@ function NewInvoiceModal({
                   value={form.billing_address}
                   onChange={(e) => setForm({ ...form, billing_address: e.target.value })}
                 />
-                {form.debtor_id && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const d = debtors.find((x: any) => x.id === form.debtor_id);
-                        if (d) setForm({ ...form, billing_address: d.billing_address ?? "" });
-                      }}
-                      className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
-                    >
-                      Use customer billing
-                    </button>
-                  </div>
-                )}
               </Field>
               <Field label="Delivery / shipping address">
                 <textarea
@@ -1138,30 +1124,6 @@ function NewInvoiceModal({
                   value={form.delivery_address}
                   onChange={(e) => setForm({ ...form, delivery_address: e.target.value })}
                 />
-                {form.debtor_id && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const d = debtors.find((x: any) => x.id === form.debtor_id);
-                        if (d) setForm({ ...form, delivery_address: d.shipping_address ?? d.billing_address ?? "" });
-                      }}
-                      className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
-                    >
-                      Use customer shipping
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const d = debtors.find((x: any) => x.id === form.debtor_id);
-                        if (d) setForm({ ...form, delivery_address: d.billing_address ?? "" });
-                      }}
-                      className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
-                    >
-                      Use customer billing
-                    </button>
-                  </div>
-                )}
               </Field>
               <Field label="Payment terms">
                 <PaymentTermsFields

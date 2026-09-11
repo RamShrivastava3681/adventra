@@ -1241,17 +1241,6 @@ function SOModal({
                     </>
                   );
                 })()}
-                {editable && f.customer_id && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setF({ ...f, billing_address: customers.find((c) => c.id === f.customer_id)?.billing_address ?? "" })}
-                      className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
-                    >
-                      Use customer billing
-                    </button>
-                  </div>
-                )}
                 <div className="mt-1 grid grid-cols-2 gap-1.5">
                   <input
                     className="inp !py-1.5 !text-xs"
@@ -1304,24 +1293,6 @@ function SOModal({
                     </>
                   );
                 })()}
-                {editable && f.customer_id && (
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    <button
-                      type="button"
-                      onClick={() => setF({ ...f, delivery_address: customers.find((c) => c.id === f.customer_id)?.shipping_addresses?.[0] ? fullAddr(customers.find((c) => c.id === f.customer_id)!.shipping_addresses[0]) : customers.find((c) => c.id === f.customer_id)?.shipping_address ?? customers.find((c) => c.id === f.customer_id)?.billing_address ?? "" })}
-                      className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
-                    >
-                      Use customer shipping
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setF({ ...f, delivery_address: customers.find((c) => c.id === f.customer_id)?.billing_address ?? "" })}
-                      className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
-                    >
-                      Use customer billing
-                    </button>
-                  </div>
-                )}
                 <div className="mt-1 grid grid-cols-2 gap-1.5">
                   <input
                     className="inp !py-1.5 !text-xs"
