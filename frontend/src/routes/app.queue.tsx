@@ -61,10 +61,6 @@ type Row = {
   issue_date: string | null;
   status: string;
   party: string;
-  /** UTR captured by the checker at approval time. */
-  utr_reference?: string | null;
-  /** Payment amount captured by the checker at approval time. */
-  payment_amount?: number | null;
   /** Raw document from the list endpoint — powers the read-only View modal. */
   raw: any;
 };
@@ -301,8 +297,6 @@ function QueuePage() {
         status: string;
         receipt_date?: string | null;
         amountReceived?: number | null;
-        utr_reference?: string | null;
-        payment_amount?: number | null;
       }> = [];
       for (const i of sales) {
         const s = i as any;
@@ -317,8 +311,6 @@ function QueuePage() {
             status: s.status,
             receipt_date: s.receipt_date ?? null,
             amountReceived: s.amountReceived ?? null,
-            utr_reference: s.utr_reference ?? null,
-            payment_amount: s.payment_amount ?? null,
           });
         }
       }
@@ -333,8 +325,6 @@ function QueuePage() {
             amount_paid: Number(pi.amount_paid) || 0,
             paid_date: pi.paid_date ?? null,
             status: pi.status,
-            utr_reference: pi.utr_reference ?? null,
-            payment_amount: pi.payment_amount ?? null,
           });
         }
       }
@@ -392,7 +382,6 @@ function QueuePage() {
       const storedAdv = Number(i.advance_deducted ?? 0);
       const advance = storedAdv > 0 ? storedAdv : advFor("sales", i.po_number);
       const amount = Number(i.amount ?? i.grand_total ?? 0);
-      const s = i as any;
       return {
         kind: "sale",
         id: i.id,
@@ -406,8 +395,6 @@ function QueuePage() {
         issue_date: i.issue_date,
         status: i.status,
         party: partyMap[i.debtor_id] ?? i.debtor?.name ?? "—",
-        utr_reference: s.utr_reference ?? null,
-        payment_amount: s.payment_amount ?? null,
         raw: i,
       };
     }),
@@ -522,8 +509,6 @@ function QueuePage() {
                     <th className="px-5 py-2 text-left font-normal">Due</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
-                    <th className="px-5 py-2 text-left font-normal hidden md:table-cell">UTR</th>
-                    <th className="px-5 py-2 text-right font-normal hidden md:table-cell">Checker amount</th>
                     <th className="sticky right-0 hidden bg-card px-5 py-2 text-right font-normal md:table-cell">
                       Action
                     </th>
@@ -591,22 +576,12 @@ function QueuePage() {
                           <td className="px-5 py-3">
                             <StatusPill status={r.status} />
                           </td>
-                          {r.utr_reference && (
-                            <td className="px-5 py-3 text-xs font-mono text-muted-foreground hidden md:table-cell">
-                              {r.utr_reference}
-                            </td>
-                          )}
-                          {r.payment_amount != null && (
-                            <td className="px-5 py-3 text-right num text-sem-success hidden md:table-cell">
-                              {fmtMoney(r.payment_amount)}
-                            </td>
-                          )}
                           <td className="sticky right-0 hidden bg-card px-5 py-3 text-right md:table-cell">
                             {action}
                           </td>
                         </tr>
                         <tr className="border-b border-border/60 md:hidden">
-                          <td colSpan={10} className="px-5 pb-4 pt-0 text-left">
+                          <td colSpan={9} className="px-5 pb-4 pt-0 text-left">
                             <div className="flex justify-start">{action}</div>
                           </td>
                         </tr>
@@ -802,8 +777,6 @@ function QueuePage() {
                     <th className="px-5 py-2 text-right font-normal">Gross</th>
                     <th className="px-5 py-2 text-right font-normal">Paid / received</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
-                    <th className="px-5 py-2 text-left font-normal hidden md:table-cell">UTR</th>
-                    <th className="px-5 py-2 text-right font-normal hidden md:table-cell">Checker amount</th>
                     <th className="px-5 py-2 text-left font-normal">Date</th>
                   </tr>
                 </thead>
@@ -828,16 +801,6 @@ function QueuePage() {
                       <td className="px-5 py-3">
                         <StatusPill status={h.status} />
                       </td>
-                      {h.utr_reference && (
-                        <td className="px-5 py-3 text-xs font-mono text-muted-foreground hidden md:table-cell">
-                          {h.utr_reference}
-                        </td>
-                      )}
-                      {h.payment_amount != null && (
-                        <td className="px-5 py-3 text-right num text-sem-success hidden md:table-cell">
-                          {fmtMoney(h.payment_amount)}
-                        </td>
-                      )}
                       <td className="px-5 py-3 text-sm text-muted-foreground">
                         {h.paid_date ? fmtDate(h.paid_date) : "—"}
                       </td>
