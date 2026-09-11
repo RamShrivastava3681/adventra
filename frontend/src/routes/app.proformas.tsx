@@ -213,7 +213,8 @@ export function ProformasPage() {
             contactEmail?: string;
             contact_phone?: string;
             contactPhone?: string;
-          }) => ({
+            gstin?: string | null;
+          } & Record<string, any>) => ({
             id: s.id,
             name: s.company_name ?? s.companyName ?? s.name ?? s.id,
             contact: [
@@ -223,6 +224,7 @@ export function ProformasPage() {
             ]
               .filter(Boolean)
               .join(" · "),
+            gstin: (s as any).gstin ?? null,
           }),
         ),
         ...vendors.map((v: { id: string; name?: string }) => ({
@@ -1390,11 +1392,12 @@ function PurchaseProformaModal({
               <SearchableSelect
                 value={f.supplier_id}
                 onChange={(v) => {
-                  const s = suppliers.find((x) => x.id === v);
+                  const s = suppliers.find((x) => x.id === v) as any;
                   setF({
                     ...f,
                     supplier_id: v,
                     supplier_contact: s?.contact ?? f.supplier_contact,
+                    supplier_gstin: s?.gstin ?? f.supplier_gstin,
                   });
                 }}
                 placeholder="Select supplier…"

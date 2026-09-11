@@ -42,6 +42,8 @@ type Supplier = {
   city: string | null;
   country: string | null;
   postal_code: string | null;
+  gstin: string | null;
+  pan_card_no: string | null;
   status: SupplierStatus;
   notes: string | null;
   created_at: string;
@@ -57,6 +59,8 @@ const emptyForm = {
   city: "",
   country: "",
   postal_code: "",
+  gstin: "",
+  pan_card_no: "",
   status: "prospect" as SupplierStatus,
   ...toTermsFormFields(null),
   notes: "",
@@ -118,6 +122,8 @@ function SuppliersPage() {
         city: form.city || null,
         country: form.country || null,
         postal_code: form.postal_code || null,
+        gstin: form.gstin || null,
+        panCardNo: form.pan_card_no || null,
         status: form.status,
         ...termsPayload,
         notes: form.notes || null,
@@ -167,6 +173,8 @@ function SuppliersPage() {
       city: s.city ?? "",
       country: s.country ?? "",
       postal_code: s.postal_code ?? "",
+      gstin: (s as any).gstin ?? "",
+      pan_card_no: (s as any).panCardNo ?? (s as any).pan_card_no ?? "",
       status: s.status,
       ...toTermsFormFields(s),
       notes: s.notes ?? "",
@@ -372,6 +380,24 @@ function SuppliersPage() {
                   onChange={(e) => setForm({ ...form, postal_code: e.target.value })}
                 />
               </F>
+              <F label="GSTIN">
+                <input
+                  maxLength={15}
+                  className={inputBase}
+                  placeholder="15-digit GSTIN"
+                  value={form.gstin}
+                  onChange={(e) => setForm({ ...form, gstin: e.target.value })}
+                />
+              </F>
+              <F label="PAN Card No">
+                <input
+                  maxLength={10}
+                  className={inputBase}
+                  placeholder="10-character PAN"
+                  value={form.pan_card_no}
+                  onChange={(e) => setForm({ ...form, pan_card_no: e.target.value })}
+                />
+              </F>
               <F label="Contact name">
                 <input
                   className={inputBase}
@@ -516,6 +542,11 @@ function SupplierDetailModal({
                 paymentTermsDays: (supplier as any).paymentTermsDays ?? (supplier as any).payment_terms_days,
                 paymentTerms: (supplier as any).paymentTerms ?? (supplier as any).payment_terms,
               })}
+            />
+            <Detail label="GSTIN" value={supplier.gstin ?? "—"} />
+            <Detail
+              label="PAN"
+              value={(supplier as any).panCardNo ?? supplier.pan_card_no ?? "—"}
             />
             <Detail label="Contact name" value={supplier.contact_name ?? "—"} />
             <Detail label="Contact email" value={supplier.contact_email ?? "—"} />

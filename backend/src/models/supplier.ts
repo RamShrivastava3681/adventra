@@ -9,6 +9,12 @@ export interface Supplier {
   industry: string | null;
   addressLine: string | null; city: string | null; country: string | null; postalCode: string | null;
   status: string; notes: string | null; supplierCode: string;
+  /** 15-digit GST Identification Number. */
+  gstin: string | null;
+  /** PAN (Permanent Account Number) - 10-character alphanumeric ID. */
+  panCardNo: string | null;
+  /** State code (2-digit, derived from GSTIN or manually set). */
+  stateCode: string | null;
   /** Credit period in days (Net N) when paymentTermsType is "credit". */
   paymentTermsDays: number;
   /** Structured payment terms: credit (Net N), advance_full (100% advance),
@@ -40,6 +46,9 @@ export async function create(data: Partial<Supplier> & { companyName: string }) 
     })(),
     paymentTermsType: normalizePaymentTermsType(data.paymentTermsType) || "credit",
     advancePct: normalizeAdvancePct(data.advancePct),
+    gstin: data.gstin || null,
+    panCardNo: data.panCardNo || null,
+    stateCode: data.stateCode || (data.gstin ? data.gstin.slice(0, 2) : null),
     supplierCode: code, createdAt: now, updatedAt: now,
   };
   await db.putItem(item);
@@ -48,7 +57,7 @@ export async function create(data: Partial<Supplier> & { companyName: string }) 
 
 export async function update(id: string, updates: Partial<Supplier>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
-  const allowed = ["companyName","contactName","contactEmail","contactPhone","industry","addressLine","city","country","postalCode","status","notes","paymentTermsDays","paymentTermsType","advancePct"];
+  const allowed = ["companyName","contactName","contactEmail","contactPhone","industry","addressLine","city","country","postalCode","status","notes","paymentTermsDays","paymentTermsType","advancePct","gstin","panCardNo","stateCode"];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   return db.updateItem(`SUPPLIER#${id}`, `SUPPLIER#${id}`, patch);
 }

@@ -281,6 +281,8 @@ function PurchaseOrdersPage() {
             advancePct: s.advancePct ?? s.advance_pct ?? null,
             paymentTermsDays: s.paymentTermsDays ?? s.payment_terms_days ?? null,
             paymentTerms: s.paymentTerms ?? s.payment_terms ?? null,
+            gstin: s.gstin ?? null,
+            panCardNo: s.panCardNo ?? s.pan_card_no ?? null,
           }),
         ),
         ...vendors.map((v: { id: string; name?: string } & Record<string, any>) => ({
@@ -694,8 +696,6 @@ function POModal({
     // Free-text "Buyer / created by" — new POs default to the signed-in
     // user's email (what the backend used to store); the user can type anything.
     buyer_name: po ? (po.buyer_name ?? "") : email,
-    buyer_address: (po as any)?.buyer_address ?? (po as any)?.buyerAddress ?? "",
-    buyer_gstin: (po as any)?.buyer_gstin ?? (po as any)?.buyerGstin ?? "",
     bill_to_debtor_id: (po as any)?.bill_to_debtor_id ?? (po as any)?.billToDebtorId ?? "",
     bill_to_address: (po as any)?.bill_to_address ?? (po as any)?.billToAddress ?? "",
     ship_to_supplier_id: (po as any)?.ship_to_supplier_id ?? (po as any)?.shipToSupplierId ?? "",
@@ -1103,8 +1103,6 @@ function POModal({
         ...toTermsPayload(f),
         payment_terms: formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }),
         buyer_name: f.buyer_name.trim() || null,
-        buyer_address: (f as any).buyer_address.trim() || null,
-        buyer_gstin: (f as any).buyer_gstin.trim() || null,
         bill_to_debtor_id: (f as any).bill_to_debtor_id || null,
         bill_to_address: (f as any).bill_to_address.trim() || null,
         ship_to_supplier_id: (f as any).ship_to_supplier_id || null,
@@ -1356,9 +1354,16 @@ function POModal({
                     setF({ ...f, supplier_id: v });
                     // Keep the proforma supplier in sync with the PO supplier.
                     if (docChoice === "proforma") setPfForm((p) => ({ ...p, supplier_id: v }));
-                    // Pre-fill payment terms from the supplier master (editable).
-                    const s = suppliers.find((x) => x.id === v);
-                    if (s) setF((prev) => ({ ...prev, ...toTermsFormFields(s) }));
+                    // Pre-fill payment terms + GSTIN/PAN from the supplier master (editable).
+                    const s = suppliers.find((x) => x.id === v) as any;
+                    if (s) {
+                      setF((prev) => ({
+                        ...prev,
+                        ...toTermsFormFields(s),
+                        vendor_gstin: s.gstin ?? (prev as any).vendor_gstin,
+                        vendor_pan: s.panCardNo ?? (prev as any).vendor_pan,
+                      }));
+                    }
                   }}
                   placeholder="Select supplier…"
                   disabled={!editable}
@@ -1426,22 +1431,6 @@ function POModal({
                   value={f.buyer_name}
                   onChange={(e) => setF({ ...f, buyer_name: e.target.value })}
                   placeholder="You"
-                  disabled={!editable}
-                />
-              </L>
-              <L label="Buyer address (bill to)">
-                <input
-                  className={inputBase}
-                  value={(f as any).buyer_address}
-                  onChange={(e) => setF({ ...f, buyer_address: e.target.value } as any)}
-                  disabled={!editable}
-                />
-              </L>
-              <L label="Buyer GSTIN">
-                <input
-                  className={inputBase}
-                  value={(f as any).buyer_gstin}
-                  onChange={(e) => setF({ ...f, buyer_gstin: e.target.value } as any)}
                   disabled={!editable}
                 />
               </L>
