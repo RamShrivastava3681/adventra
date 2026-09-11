@@ -1012,9 +1012,9 @@ export function invoiceToPdfData(
 
 // ═════════════════════════════════════════════════════════════════════════════
 // PROFORMA PDF (Tally-style, adapted from the sales-order layout)
-// ── Cream title bar · "PROFORMA INVOICE" · seller + bill-to blocks ·
+// ── Cream title bar · "PROFORMA INVOICE" · seller + logo + bill-to blocks ·
 //    meta grid (proforma no, date, valid until, currency, PO ref…) ·
-//    item table (SNO/Particulars/Color/Code/Size/MRP/Selling/Qty/Offer/Total) ·
+//    item table (SNO/Particulars/Color/Code/HSN/Size/MRP/Selling/Qty/Offer/Total) ·
 //    totals · amount-in-words · bank/UPI · declaration · signatory.
 // ═════════════════════════════════════════════════════════════════════════════
 
@@ -1092,6 +1092,7 @@ export function proformaToTallyData(
       particulars: l.name || "Item",
       color: l.color ?? l.colour ?? "",
       productCode: l.productCode ?? l.product_code ?? l.model ?? l.sku ?? "",
+      hsn: String(l.hsnCode ?? l.hsn_code ?? ""),
       size: l.size ? String(l.size) : "",
       mrp: l.mrp ?? null,
       sellingPrice,
@@ -1294,11 +1295,11 @@ export function buildProformaTallyPdf(data: ProformaPdfData): Promise<Buffer> {
       y = y0 + blockH;
 
       // ── Item table ─────────────────────────────────────────────────────────
-      const C = { sno: 30, color: 56, code: 56, size: 34, mrp: 52, sell: 56, qty: 42, offer: 56, amt: 66 };
-      const partW = CW - (C.sno + C.color + C.code + C.size + C.mrp + C.sell + C.qty + C.offer + C.amt);
+      const C = { sno: 28, color: 46, code: 46, hsn: 56, size: 28, mrp: 44, sell: 50, qty: 38, offer: 50, amt: 60 };
+      const partW = CW - (C.sno + C.color + C.code + C.hsn + C.size + C.mrp + C.sell + C.qty + C.offer + C.amt);
       const colX = (key: keyof typeof C | "part"): number => {
         let x = M;
-        const order: Array<keyof typeof C | "part"> = ["sno", "part", "color", "code", "size", "mrp", "sell", "qty", "offer", "amt"];
+        const order: Array<keyof typeof C | "part"> = ["sno", "part", "color", "code", "hsn", "size", "mrp", "sell", "qty", "offer", "amt"];
         const widths: Record<string, number> = { ...C, part: partW };
         for (const k of order) {
           if (k === key) return x;
@@ -1314,7 +1315,7 @@ export function buildProformaTallyPdf(data: ProformaPdfData): Promise<Buffer> {
         need(HEAD_H);
         const heads: Array<[keyof typeof C | "part", string]> = [
           ["sno", "SNO"], ["part", "Particulars"], ["color", "Product Color"],
-          ["code", "Product Cod"], ["size", "Size"], ["mrp", "MRP"],
+          ["code", "Product Cod"], ["hsn", "HSN/SAC"], ["size", "Size"], ["mrp", "MRP"],
           ["sell", "Selling Price"], ["qty", "Quantity"], ["offer", "Offer Price"],
           ["amt", "Total Amount"],
         ];
@@ -1342,6 +1343,7 @@ export function buildProformaTallyPdf(data: ProformaPdfData): Promise<Buffer> {
           ["part", l.particulars, "left"],
           ["color", l.color, "center"],
           ["code", l.productCode, "center"],
+          ["hsn", l.hsn, "center"],
           ["size", l.size, "center"],
           ["mrp", l.mrp != null ? tallyNum(l.mrp) : "", "right"],
           ["sell", tallyNum(l.sellingPrice), "right"],
@@ -1358,7 +1360,7 @@ export function buildProformaTallyPdf(data: ProformaPdfData): Promise<Buffer> {
       // Totals row
       const TOT_H = 15;
       need(TOT_H);
-      const spanW = C.sno + partW + C.color + C.code + C.size + C.mrp + C.sell;
+      const spanW = C.sno + partW + C.color + C.code + C.hsn + C.size + C.mrp + C.sell;
       cell(M, y, spanW, TOT_H, "Total", { font: FB, size: 8, align: "center", fill: TALLY.headGray });
       cell(M + spanW, y, C.qty, TOT_H, tallyNum(data.totalQty), { font: FB, size: 8, align: "right", fill: TALLY.headGray });
       cell(M + spanW + C.qty, y, C.offer, TOT_H, "", { fill: TALLY.headGray });
@@ -1437,7 +1439,7 @@ export function buildProformaTallyPdf(data: ProformaPdfData): Promise<Buffer> {
         cell(M, y, CW, h, text, { font: o?.font ?? F, size: o?.size ?? 7.5, align: "center" });
         y += h;
       };
-      if (data.seller.name) signRow(`ONLY ${data.seller.name}`, { font: FB, h: 13 });
+      if (data.seller.name) signRow(`for ${data.seller.name}`, { font: FB, h: 13 });
       signRow("Authorised Signatory");
       if (data.jurisdiction) signRow(`SUBJECT TO ${data.jurisdiction} JURISDICTION`);
       signRow("This is a Computer Generated Proforma Invoice");
@@ -1463,6 +1465,8 @@ export interface TallySOLine {
   particulars: string;
   color: string;
   productCode: string;
+  /** HSN/SAC code snapshot from the catalogue (blank when unknown). */
+  hsn: string;
   size: string;
   mrp: number | null;
   sellingPrice: number;
@@ -1622,6 +1626,7 @@ export function salesOrderToTallyData(
       particulars: l.name || "Item",
       color: l.color ?? l.colour ?? "",
       productCode: l.productCode ?? l.product_code ?? l.model ?? l.sku ?? "",
+      hsn: String(l.hsnCode ?? l.hsn_code ?? ""),
       size: l.size ? String(l.size) : "",
       mrp: l.mrp ?? null,
       sellingPrice,

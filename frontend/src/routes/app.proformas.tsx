@@ -48,6 +48,8 @@ type PFLine = {
   product_id: string;
   sku: string | null;
   name: string;
+  hsn_code?: string | null;
+  hsnCode?: string | null;
   unit: string;
   quantity: number;
   unit_price: number;
@@ -144,6 +146,8 @@ type CatalogueProduct = {
   sku: string | null;
   name: string;
   unit_of_measure: string;
+  hsn_code?: string | null;
+  hsnCode?: string | null;
   gst_rate: number | null;
   unit_cost: number | null;
   unit_price: number | null;
@@ -623,6 +627,7 @@ function SalesProformaModal({
       product_id: l.product_id,
       sku: l.sku,
       name: l.name,
+      hsn_code: String((l as any).hsn_code ?? (l as any).hsnCode ?? ""),
       unit: l.unit,
       quantity: String(l.quantity),
       unit_price: String(l.unit_price),
@@ -635,11 +640,12 @@ function SalesProformaModal({
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
 
   const pickProduct = (i: number, id: string) => {
-    const p = products.find((x) => x.id === id);
+    const p = products.find((x) => x.id === id) as any;
     setLine(i, {
       product_id: id,
       name: p?.name ?? "",
       sku: p?.sku ?? null,
+      hsn_code: String(p?.hsn_code ?? p?.hsnCode ?? ""),
       unit: p?.unit_of_measure ?? "piece",
       unit_price: p?.unit_price != null ? String(p.unit_price) : "",
       gst_rate: p?.gst_rate != null ? String(p.gst_rate) : "",
@@ -653,6 +659,7 @@ function SalesProformaModal({
         product_id: "",
         sku: null,
         name: "",
+        hsn_code: "",
         unit: "piece",
         quantity: "",
         unit_price: "",
@@ -709,6 +716,63 @@ function SalesProformaModal({
     queryFn: async () => api.goodsSalesOrders.list(),
   });
 
+  // Pick a sales order → auto-fill customer + contact + GSTIN + terms + dates + lines.
+  const pickSo = (id: string) => {
+    if (!id) {
+      setF((prev) => ({ ...prev, linked_so_id: "" }));
+      return;
+    }
+    const so = (sosQ.data ?? []).find((x: any) => x.id === id) as any;
+    if (!so) {
+      setF((prev) => ({ ...prev, linked_so_id: id }));
+      return;
+    }
+    const debtorId = so.customer_id ?? so.customerId ?? f.party_id;
+    const master = (partiesQ.data ?? []).find((x: any) => x.id === debtorId) as any;
+    setF((prev) => ({
+      ...prev,
+      linked_so_id: id,
+      party_id: debtorId ?? prev.party_id,
+      debtor_contact:
+        so.contact_person ?? so.contactPerson ?? master?.contact ?? prev.debtor_contact,
+      debtor_gstin:
+        so.bill_gstin ?? so.billGstin ?? so.ship_gstin ?? so.shipGstin ?? prev.debtor_gstin,
+      ...toTermsFormFields(so),
+      expected_delivery_date:
+        (so.expected_delivery_date ?? so.expectedDeliveryDate ?? "").slice(0, 10) ||
+        prev.expected_delivery_date,
+      po_number: so.buyer_order_no ?? so.buyerOrderNo ?? prev.po_number,
+      currency: so.currency ?? prev.currency,
+      freight:
+        prev.freight || (so.freight != null ? String(so.freight) : prev.freight),
+    }));
+    const soLines = (so.lines ?? []).filter(
+      (l: any) => Number(l.ordered_qty ?? l.quantity ?? 0) > 0,
+    );
+    if (soLines.length) {
+      setLines(
+        soLines.map((l: any) => {
+          const cat = (products ?? []).find((x: any) => x.id === l.product_id) as any;
+          return {
+            product_id: l.product_id,
+            sku: l.sku ?? null,
+            name: l.name,
+            hsn_code: String(
+              l.hsn_code ?? l.hsnCode ?? cat?.hsn_code ?? cat?.hsnCode ?? "",
+            ),
+            unit: l.unit || "piece",
+            quantity: String(l.ordered_qty ?? l.quantity ?? ""),
+            unit_price: String(l.unit_price ?? l.unitPrice ?? ""),
+            gst_rate: (l.gst_rate ?? l.gstRate) != null ? String(l.gst_rate ?? l.gstRate) : "",
+          };
+        }),
+      );
+      toast.success(`Fetched ${soLines.length} line${soLines.length === 1 ? "" : "s"} from ${so.so_number ?? "sales order"}`);
+    } else {
+      toast.success(`Linked ${so.so_number ?? "sales order"} — customer details fetched`);
+    }
+  };
+
   const save = useMutation({
     mutationFn: async () => {
       if (!f.proforma_number.trim()) throw new Error("Proforma invoice number is required");
@@ -717,6 +781,7 @@ function SalesProformaModal({
         product_id: l.product_id,
         sku: l.sku,
         name: l.name,
+        hsn_code: l.hsn_code.trim() || null,
         unit: l.unit || "piece",
         quantity: Number(l.quantity) || 0,
         unit_price: Number(l.unit_price) || 0,
@@ -740,7 +805,7 @@ function SalesProformaModal({
         validUntil: f.valid_until || null,
         currency: f.currency,
         ...toTermsPayload(f),
-        paymentTerms: f.payment_terms_type ? formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }) : f.payment_terms || null,
+        paymentTerms: formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }),
         expectedDeliveryDate: f.expected_delivery_date || null,
         notes: f.notes.trim() || null,
         linkedGoodsSoId: f.linked_so_id || null,
@@ -856,30 +921,29 @@ function SalesProformaModal({
                     {c}
                   </option>
                 ))}
-              </select>
-            </L>
-            <L label="Payment terms">
-              <PaymentTermsFields
-                type={f.payment_terms_type}
-                advancePct={f.payment_terms_advance_pct}
-                paymentTermsDays={f.payment_terms_days}
-                freeText={f.payment_terms}
-                daysLabel="Net days"
-                onChange={(patch) => setF({ ...f, ...patch })}
-              />
-            </L>
-            <L label="Expected delivery date">
-              <input
-                type="date"
-                className={inputBase}
-                value={f.expected_delivery_date}
-                onChange={(e) => setF({ ...f, expected_delivery_date: e.target.value })}
-              />
-            </L>
-            <L label="Linked sales order (optional)">
+</select>
+             </L>
+             <L label="Payment terms">
+               <PaymentTermsFields
+                 type={f.payment_terms_type}
+                 advancePct={f.payment_terms_advance_pct}
+                 paymentTermsDays={f.payment_terms_days}
+                 daysLabel="Net days"
+                 onChange={(patch) => setF({ ...f, ...patch })}
+               />
+             </L>
+             <L label="Expected delivery date">
+               <input
+                 type="date"
+                 className={inputBase}
+                 value={f.expected_delivery_date}
+                 onChange={(e) => setF({ ...f, expected_delivery_date: e.target.value })}
+               />
+             </L>
+             <L label="Linked sales order (optional)">
               <SearchableSelect
                 value={f.linked_so_id}
-                onChange={(v) => setF({ ...f, linked_so_id: v })}
+                onChange={pickSo}
                 placeholder="None"
                 options={[
                   { value: "", label: "None" },
@@ -890,6 +954,11 @@ function SalesProformaModal({
                   })),
                 ]}
               />
+              {f.linked_so_id ? (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Customer, terms, dates and lines auto-filled from the sales order — editable.
+                </p>
+              ) : null}
             </L>
           </div>
           <div className="mt-3">
@@ -953,6 +1022,16 @@ function SalesProformaModal({
                         {l.name && (
                           <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
                         )}
+                        {(() => {
+                          const cat = (products ?? []).find((x: any) => x.id === l.product_id) as any;
+                          const hsn =
+                            (l as any).hsn_code || cat?.hsn_code || cat?.hsnCode || "";
+                          return hsn ? (
+                            <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                              HSN {hsn}
+                            </div>
+                          ) : null;
+                        })()}
                     </div>
                     <div>
                       <L label="Unit">
@@ -1110,6 +1189,7 @@ type LineDraft = {
   product_id: string;
   sku: string | null;
   name: string;
+  hsn_code: string;
   unit: string;
   quantity: string;
   unit_price: string;
@@ -1153,6 +1233,7 @@ function PurchaseProformaModal({
       product_id: l.product_id,
       sku: l.sku,
       name: l.name,
+      hsn_code: String((l as any).hsn_code ?? (l as any).hsnCode ?? ""),
       unit: l.unit,
       quantity: String(l.quantity),
       unit_price: String(l.unit_price),
@@ -1165,11 +1246,12 @@ function PurchaseProformaModal({
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
 
   const pickProduct = (i: number, id: string) => {
-    const p = products.find((x) => x.id === id);
+    const p = products.find((x) => x.id === id) as any;
     setLine(i, {
       product_id: id,
       name: p?.name ?? "",
       sku: p?.sku ?? null,
+      hsn_code: String(p?.hsn_code ?? p?.hsnCode ?? ""),
       unit: p?.unit_of_measure ?? "piece",
       unit_price: p?.unit_cost != null ? String(p.unit_cost) : "",
       gst_rate: p?.gst_rate != null ? String(p.gst_rate) : "",
@@ -1183,6 +1265,7 @@ function PurchaseProformaModal({
         product_id: "",
         sku: null,
         name: "",
+        hsn_code: "",
         unit: "piece",
         quantity: "",
         unit_price: "",
@@ -1215,6 +1298,7 @@ function PurchaseProformaModal({
         product_id: l.product_id,
         sku: l.sku,
         name: l.name,
+        hsn_code: l.hsn_code.trim() || null,
         unit: l.unit || "piece",
         quantity: Number(l.quantity) || 0,
         unit_price: Number(l.unit_price) || 0,
@@ -1234,7 +1318,7 @@ function PurchaseProformaModal({
         validUntil: f.valid_until || null,
         currency: f.currency,
         ...toTermsPayload(f),
-        paymentTerms: f.payment_terms_type ? formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }) : f.payment_terms || null,
+        paymentTerms: formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }),
         expectedDeliveryDate: f.expected_delivery_date || null,
         notes: f.notes.trim() || null,
         poNumber: (() => {
@@ -1352,29 +1436,28 @@ function PurchaseProformaModal({
                     {c}
                   </option>
                 ))}
-              </select>
-            </L>
-            <L label="Payment terms">
-              <PaymentTermsFields
-                type={f.payment_terms_type}
-                advancePct={f.payment_terms_advance_pct}
-                paymentTermsDays={f.payment_terms_days}
-                freeText={f.payment_terms}
-                daysLabel="Net days"
-                onChange={(patch) => setF({ ...f, ...patch })}
-              />
-            </L>
-            <L label="Expected delivery date">
-              <input
-                type="date"
-                className={inputBase}
-                value={f.expected_delivery_date}
-                onChange={(e) => setF({ ...f, expected_delivery_date: e.target.value })}
-              />
-            </L>
-          </div>
-          <div className="mt-3">
-            <L label="Notes">
+</select>
+             </L>
+             <L label="Payment terms">
+               <PaymentTermsFields
+                 type={f.payment_terms_type}
+                 advancePct={f.payment_terms_advance_pct}
+                 paymentTermsDays={f.payment_terms_days}
+                 daysLabel="Net days"
+                 onChange={(patch) => setF({ ...f, ...patch })}
+               />
+             </L>
+             <L label="Expected delivery date">
+               <input
+                 type="date"
+                 className={inputBase}
+                 value={f.expected_delivery_date}
+                 onChange={(e) => setF({ ...f, expected_delivery_date: e.target.value })}
+               />
+             </L>
+           </div>
+           <div className="mt-3">
+             <L label="Notes">
               <textarea
                 rows={2}
                 className={textareaBase}
@@ -1434,6 +1517,16 @@ function PurchaseProformaModal({
                         {l.name && (
                           <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
                         )}
+                        {(() => {
+                          const cat = (products ?? []).find((x: any) => x.id === l.product_id) as any;
+                          const hsn =
+                            (l as any).hsn_code || cat?.hsn_code || cat?.hsnCode || "";
+                          return hsn ? (
+                            <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                              HSN {hsn}
+                            </div>
+                          ) : null;
+                        })()}
                     </div>
                     <div>
                       <L label="Unit">
@@ -1825,6 +1918,7 @@ function ProformaDetailModal({
               <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
                 <tr className="border-b border-border">
                   <th className="px-3 py-2 text-left font-normal">Product</th>
+                  <th className="px-3 py-2 text-left font-normal">HSN</th>
                   <th className="px-3 py-2 text-right font-normal">Qty</th>
                   <th className="px-3 py-2 text-right font-normal">Unit price</th>
                   <th className="px-3 py-2 text-right font-normal">GST %</th>
@@ -1841,6 +1935,9 @@ function ProformaDetailModal({
                           {l.sku}
                         </span>
                       )}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                      {(l as any).hsn_code ?? (l as any).hsnCode ?? "—"}
                     </td>
                     <td className="px-3 py-2 text-right num">{l.quantity.toLocaleString()}</td>
                     <td className="px-3 py-2 text-right num text-muted-foreground">

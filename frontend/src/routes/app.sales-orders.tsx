@@ -145,6 +145,8 @@ type CatalogueProduct = {
   color: string | null;
   size: string | null;
   model: string | null;
+  hsn_code?: string | null;
+  hsnCode?: string | null;
   gst_rate: number | null;
   unit_price: number | null;
   unit_cost: number | null;
@@ -630,6 +632,7 @@ type LineDraft = {
   color: string;
   size: string;
   product_code: string;
+  hsn_code: string;
   mrp: string;
   ordered_qty: string;
   unit_price: string;
@@ -698,6 +701,7 @@ function SOModal({
       color: (l as any).color ?? "",
       size: (l as any).size != null ? String((l as any).size) : "",
       product_code: (l as any).product_code ?? "",
+      hsn_code: String((l as any).hsn_code ?? (l as any).hsnCode ?? ""),
       mrp: (l as any).mrp != null ? String((l as any).mrp) : "",
       ordered_qty: String(l.ordered_qty),
       unit_price: String(l.unit_price),
@@ -729,10 +733,9 @@ function SOModal({
       setF((prev) => ({
         ...prev,
         payment_term_id: def.id,
-        payment_terms_type: def.paymentTermsType ?? def.payment_terms_type ?? "",
+        payment_terms_type: def.paymentTermsType ?? def.payment_terms_type ?? "credit",
         payment_terms_advance_pct: String(def.advancePct ?? def.advance_pct ?? ""),
         payment_terms_days: String(def.balanceDueDays ?? def.balance_due_days ?? "30"),
-        payment_terms: def.name ?? prev.payment_terms,
       }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -784,7 +787,7 @@ function SOModal({
       // until the approved terms load and override).
       ...(id
         ? toTermsFormFields(c)
-        : { payment_terms_type: "" as const, payment_terms_advance_pct: "", payment_terms: "" }),
+        : { payment_terms_type: "credit" as const, payment_terms_advance_pct: "", payment_terms_days: "30" }),
     }));
   };
 
@@ -795,26 +798,26 @@ function SOModal({
       payment_term_id: termId,
       ...(t
         ? {
-            payment_terms_type: t.paymentTermsType ?? t.payment_terms_type ?? "",
+            payment_terms_type: t.paymentTermsType ?? t.payment_terms_type ?? "credit",
             payment_terms_advance_pct: String(t.advancePct ?? t.advance_pct ?? ""),
             payment_terms_days: String(t.balanceDueDays ?? t.balance_due_days ?? "30"),
-            payment_terms: t.name ?? prev.payment_terms,
           }
         : {}),
     }));
   };
 
   const pickProduct = (i: number, id: string) => {
-    const p = products.find((x) => x.id === id);
+    const p = products.find((x) => x.id === id) as any;
     setLine(i, {
       product_id: id,
       name: p?.name ?? "",
       sku: p?.sku ?? null,
       unit: p?.unit_of_measure ?? "piece",
-      color: (p as any)?.color ?? "",
-      size: (p as any)?.size != null ? String((p as any).size) : "",
-      product_code: (p as any)?.model || p?.sku || "",
-      mrp: (p as any)?.mrp != null ? String((p as any).mrp) : "",
+      color: p?.color ?? "",
+      size: p?.size != null ? String(p.size) : "",
+      product_code: p?.model || p?.sku || "",
+      hsn_code: String(p?.hsn_code ?? p?.hsnCode ?? ""),
+      mrp: p?.mrp != null ? String(p.mrp) : "",
       unit_price: p?.unit_price != null ? String(p.unit_price) : "",
       gst_rate: p?.gst_rate != null ? String(p.gst_rate) : "",
       price_tier: "",
@@ -832,6 +835,7 @@ function SOModal({
         color: "",
         size: "",
         product_code: "",
+        hsn_code: "",
         mrp: "",
         ordered_qty: "",
         unit_price: "",
@@ -905,6 +909,7 @@ function SOModal({
         color: l.color.trim() || null,
         size: l.size.trim() || null,
         product_code: l.product_code.trim() || null,
+        hsn_code: l.hsn_code.trim() || null,
         mrp: l.mrp ? Number(l.mrp) : null,
         ordered_qty: Number(l.ordered_qty) || 0,
         unit_price: Number(l.unit_price) || 0,
@@ -945,7 +950,7 @@ function SOModal({
         remarks: f.remarks.trim() || null,
         paymentTermId: (f as any).payment_term_id || null,
         ...toTermsPayload(f),
-        payment_terms: f.payment_terms_type ? formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }) : f.payment_terms || null,
+        payment_terms: formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }),
         expected_dispatch_date: f.expected_dispatch_date || null,
         expected_delivery_date: f.expected_delivery_date || null,
         notes: f.notes.trim() || null,
@@ -1452,6 +1457,8 @@ function SOModal({
                   const snapColor = l.color || prod?.color || "";
                   const snapSize = l.size || (prod?.size != null ? String(prod.size) : "");
                   const snapCode = l.product_code || prod?.model || l.sku || "";
+                  const snapHsn =
+                    l.hsn_code || prod?.hsn_code || prod?.hsnCode || "";
                   const snapMrp = l.mrp || (prod?.mrp != null ? String(prod.mrp) : "");
                   const overDispatched =
                     editable && l.dispatched_qty > 0 && Number(l.ordered_qty) < l.dispatched_qty;
@@ -1470,12 +1477,13 @@ function SOModal({
                           {l.name && (
                             <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
                           )}
-                          {(snapColor || snapSize || snapCode || snapMrp) && (
+                          {(snapColor || snapSize || snapCode || snapHsn || snapMrp) && (
                             <div className="mt-0.5 text-[10px] text-muted-foreground">
                               {[
                                 snapColor || null,
                                 snapSize ? `Size ${snapSize}` : null,
                                 snapCode ? `Code ${snapCode}` : null,
+                                snapHsn ? `HSN ${snapHsn}` : null,
                                 snapMrp ? `MRP ₹${snapMrp}` : null,
                                 `Offer ₹${offerUnit.toLocaleString("en-IN")}`,
                               ]

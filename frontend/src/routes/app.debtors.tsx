@@ -625,45 +625,43 @@ function DebtorModal({
             </div>
           </Section>
 
-          <Section title="Payment terms">
-            {isEdit && (debtor as any)?.id ? (
-              <div className="space-y-3">
-                <CustomerTermsManager debtorId={(debtor as any).id} />
-                {!hasTerms && (
-                  <div className="grid gap-3 md:grid-cols-2">
-                    <L label="Terms type (legacy — used until first approved term is added)" full>
-                      <PaymentTermsFields
-                        type={form.payment_terms_type}
-                        advancePct={form.payment_terms_advance_pct}
-                        paymentTermsDays={form.payment_terms_days}
-                        freeText={form.payment_terms}
-                        daysLabel="Net days"
-                        onChange={(patch) => setForm({ ...form, ...patch })}
-                      />
-                    </L>
-                  </div>
-                )}
-                {hasTerms && (
-                  <p className="text-[11px] text-muted-foreground">
-                    Historic sales orders keep the term snapshot taken at order time.
-                  </p>
-                )}
-              </div>
-            ) : (
-              <div className="grid gap-3 md:grid-cols-2">
-                <L label="Terms type (becomes the default approved term)" full>
-                  <PaymentTermsFields
-                    type={form.payment_terms_type}
-                    advancePct={form.payment_terms_advance_pct}
-                    paymentTermsDays={form.payment_terms_days}
-                    freeText={form.payment_terms}
-                    daysLabel="Net days"
-                    onChange={(patch) => setForm({ ...form, ...patch })}
-                  />
-                </L>
-              </div>
-            )}
-          </Section>
+<Section title="Payment terms">
+             {isEdit && (debtor as any)?.id ? (
+               <div className="space-y-3">
+                 <CustomerTermsManager debtorId={(debtor as any).id} />
+                 {!hasTerms && (
+                   <div className="grid gap-3 md:grid-cols-2">
+                     <L label="Terms type (legacy — used until first approved term is added)" full>
+                       <PaymentTermsFields
+                         type={form.payment_terms_type}
+                         advancePct={form.payment_terms_advance_pct}
+                         paymentTermsDays={form.payment_terms_days}
+                         daysLabel="Net days"
+                         onChange={(patch) => setForm({ ...form, ...patch })}
+                       />
+                     </L>
+                   </div>
+                 )}
+                 {hasTerms && (
+                   <p className="text-[11px] text-muted-foreground">
+                     Historic sales orders keep the term snapshot taken at order time.
+                   </p>
+                 )}
+               </div>
+             ) : (
+               <div className="grid gap-3 md:grid-cols-2">
+                 <L label="Terms type (becomes the default approved term)" full>
+                   <PaymentTermsFields
+                     type={form.payment_terms_type}
+                     advancePct={form.payment_terms_advance_pct}
+                     paymentTermsDays={form.payment_terms_days}
+                     daysLabel="Net days"
+                     onChange={(patch) => setForm({ ...form, ...patch })}
+                   />
+                 </L>
+               </div>
+             )}
+           </Section>
 
           <div className="flex justify-end gap-2 pt-2">
             <button

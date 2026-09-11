@@ -1,5 +1,3 @@
-import { useId } from "react";
-
 /**
  * Shared payment-terms model — mirrors backend/src/lib/payment-terms.ts.
  *
@@ -8,8 +6,8 @@ import { useId } from "react";
  *
  *  - credit:          Net N days (paymentTermsDays).
  *  - advance_full:    100% advance before dispatch/delivery.
- *  - advance_partial: user-entered % advance; the remainder is due on delivery.
- *  - on_delivery:     100% payment on delivery (COD).
+ *  - advance_partial: user-entered % advance; remainder due N days after invoice.
+ *  - on_delivery:     100% payment due N days after invoice (0 = on delivery).
  */
 export type PaymentTermsType =
   | "credit"
@@ -23,8 +21,8 @@ export const PAYMENT_TERMS_TYPE_OPTIONS: Array<{
 }> = [
   { value: "credit", label: "Credit — Net days" },
   { value: "advance_full", label: "Advance payment — 100%" },
-  { value: "advance_partial", label: "Partial advance — % + balance on delivery" },
-  { value: "on_delivery", label: "Payment on delivery" },
+  { value: "advance_partial", label: "Partial advance — % + balance Net days" },
+  { value: "on_delivery", label: "Payment on delivery + Net days" },
 ];
 
 export interface PaymentTermsValue {
@@ -50,76 +48,81 @@ export function normalizePaymentTermsType(v: unknown): PaymentTermsType | null {
 
 /** Read the structured terms off any master/document row (camel or snake case). */
 export function pickTerms(row: any): PaymentTermsValue {
+  const daysRaw =
+    row?.paymentTermsDays ??
+    row?.payment_terms_days ??
+    row?.balanceDueDays ??
+    row?.balance_due_days;
   return {
     paymentTermsType: normalizePaymentTermsType(
       row?.paymentTermsType ?? row?.payment_terms_type,
     ),
     advancePct: normalizeAdvancePct(row?.advancePct ?? row?.advance_pct),
-    paymentTermsDays:
-      Number(row?.paymentTermsDays ?? row?.payment_terms_days) || null,
+    paymentTermsDays: daysRaw === undefined || daysRaw === null || daysRaw === "" ? null : Number(daysRaw) || 0,
   };
+}
+
+/** Balance/net days driving the invoice due date (invoice date + N). */
+export function balanceDaysFor(t: Partial<PaymentTermsValue>): number {
+  const type = normalizePaymentTermsType(t.paymentTermsType);
+  if (!type || type === "advance_full") return 0;
+  const n = Number(t.paymentTermsDays);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
 }
 
 /**
  * The printable label for a master/document, e.g. "Net 30",
- * "100% advance", "50% advance + 50% on delivery", "Payment on delivery".
- * Falls back to the legacy free-text `payment_terms` string.
+ * "100% advance", "50% advance + 50% Net 15", "On delivery Net 7".
  */
 export function formatPaymentTerms(
   t: Partial<PaymentTermsValue> & { paymentTerms?: string | null; payment_terms?: string | null },
 ): string {
   const type = normalizePaymentTermsType(t.paymentTermsType);
   if (!type) return (t.paymentTerms ?? t.payment_terms ?? "").trim() || "—";
+  const days = Number(t.paymentTermsDays) || 0;
   if (type === "advance_full") return "100% advance";
-  if (type === "on_delivery") return "Payment on delivery";
+  if (type === "on_delivery") return days > 0 ? `On delivery Net ${days}` : "Payment on delivery";
   if (type === "advance_partial") {
     const pct = normalizeAdvancePct(t.advancePct);
-    return pct
-      ? `${pct}% advance + ${Math.round((100 - pct) * 100) / 100}% on delivery`
-      : "Advance payment";
+    const rest = pct != null ? Math.round((100 - pct) * 100) / 100 : null;
+    if (pct == null || rest == null) return days > 0 ? `Advance + balance Net ${days}` : "Advance payment";
+    return days > 0
+      ? `${pct}% advance + ${rest}% Net ${days}`
+      : `${pct}% advance + ${rest}% on delivery`;
   }
-  const days = Number(t.paymentTermsDays) || 0;
   return days > 0 ? `Net ${days}` : "—";
 }
 
 /**
- * Form fields for structured payment terms. Drop-in replacement for the old
- * free-text "Payment terms" input; keeps a free-text override for odd cases.
+ * Form fields for structured payment terms.
  *
- * Controlled via a single `payment_terms_type` + `payment_terms_advance_pct`
- * pair (snake_case form fields, matching the pages' form conventions) plus an
- * optional free-text override. The formatted label is derived, never stored in
- * the free-text field, so terms always render consistently.
+ * Controlled via `payment_terms_type` + `payment_terms_advance_pct` +
+ * `payment_terms_days` (snake_case form fields, matching the pages' form
+ * conventions). `payment_terms_days` doubles as the balance-due days for
+ * on-delivery / partial-advance terms and drives the invoice due date
+ * (invoice date + N; 0 = due on delivery/invoice date).
  */
 export function PaymentTermsFields({
   type,
   advancePct,
   paymentTermsDays,
-  freeText,
   onChange,
   disabled = false,
   daysLabel = "Net days",
-  idPrefix,
 }: {
-  /** Selected structured type ("" = custom/free-text). */
-  type: PaymentTermsType | "";
+  /** Selected structured type. */
+  type: PaymentTermsType;
   advancePct: string;
   paymentTermsDays: string;
-  /** Free-text override shown when no structured type is selected. */
-  freeText: string;
   onChange: (patch: {
-    payment_terms_type?: PaymentTermsType | "";
+    payment_terms_type?: PaymentTermsType;
     payment_terms_advance_pct?: string;
     payment_terms_days?: string;
-    payment_terms?: string;
   }) => void;
   disabled?: boolean;
   /** Label for the Net-days input (e.g. "Customer net days"). */
   daysLabel?: string;
-  idPrefix?: string;
 }) {
-  const autoId = useId();
-  const id = idPrefix ?? `pt-${autoId}`;
   const cls =
     "inp w-full rounded border border-border bg-background px-3 py-2 text-sm";
   const smallCls = "inp w-full text-sm";
@@ -131,17 +134,10 @@ export function PaymentTermsFields({
         value={type}
         disabled={disabled}
         onChange={(e) => {
-          const nextType = e.target.value as PaymentTermsType | "";
-          const patch: Parameters<typeof onChange>[0] = {
-            payment_terms_type: nextType,
-          };
-          // Clear the free-text override when a structured type is chosen so
-          // the derived label wins on save.
-          if (nextType) patch.payment_terms = "";
-          onChange(patch);
+          const nextType = e.target.value as PaymentTermsType;
+          onChange({ payment_terms_type: nextType });
         }}
       >
-        <option value="">Custom / free text…</option>
         {PAYMENT_TERMS_TYPE_OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>
             {o.label}
@@ -165,7 +161,7 @@ export function PaymentTermsFields({
             }
           />
           <span className="whitespace-nowrap text-xs text-muted-foreground">
-            % advance · balance on delivery
+            % advance
           </span>
         </div>
       )}
@@ -186,15 +182,27 @@ export function PaymentTermsFields({
         </div>
       )}
 
-      {!type && (
-        <input
-          id={`${id}-free`}
-          className={cls}
-          value={freeText}
-          placeholder="e.g. Net 30, 50% PIAA, LC at sight…"
-          disabled={disabled}
-          onChange={(e) => onChange({ payment_terms: e.target.value })}
-        />
+      {(type === "on_delivery" || type === "advance_partial") && (
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            className={smallCls}
+            value={paymentTermsDays}
+            placeholder="0"
+            disabled={disabled}
+            onChange={(e) => onChange({ payment_terms_days: e.target.value })}
+          />
+          <span className="whitespace-nowrap text-xs text-muted-foreground">
+            Balance due days · 0 = on delivery
+          </span>
+        </div>
+      )}
+
+      {type === "advance_full" && (
+        <p className="text-xs text-muted-foreground">
+          Full amount due before dispatch — no balance days.
+        </p>
       )}
     </div>
   );
@@ -202,35 +210,45 @@ export function PaymentTermsFields({
 
 /** Derive the form-field values for the component from a row. */
 export function toFormFields(row: any): {
-  payment_terms_type: PaymentTermsType | "";
+  payment_terms_type: PaymentTermsType;
   payment_terms_advance_pct: string;
   payment_terms_days: string;
-  payment_terms: string;
 } {
   const t = pickTerms(row);
+  const type = t.paymentTermsType ?? "credit";
   return {
-    payment_terms_type: t.paymentTermsType ?? "",
+    payment_terms_type: type,
     payment_terms_advance_pct:
-      t.paymentTermsType === "advance_partial" && t.advancePct != null
+      type === "advance_partial" && t.advancePct != null
         ? String(t.advancePct)
         : "",
-    payment_terms_days: t.paymentTermsDays != null ? String(t.paymentTermsDays) : "30",
-    payment_terms:
-      !t.paymentTermsType ? (row?.paymentTerms ?? row?.payment_terms ?? "") : "",
+    payment_terms_days:
+      t.paymentTermsDays != null
+        ? String(t.paymentTermsDays)
+        : type === "credit"
+          ? "30"
+          : "0",
   };
 }
 
 /** Build the API payload for the structured fields (null clears). */
 export function toPayload(f: {
-  payment_terms_type: PaymentTermsType | "";
+  payment_terms_type: PaymentTermsType;
   payment_terms_advance_pct: string;
   payment_terms_days: string;
 }) {
-  const type = f.payment_terms_type || null;
+  const type = f.payment_terms_type;
+  const days = Number(f.payment_terms_days);
   return {
     paymentTermsType: type,
     advancePct: type === "advance_partial" ? normalizeAdvancePct(f.payment_terms_advance_pct) : null,
     paymentTermsDays:
-      type === "credit" ? Number(f.payment_terms_days) || 30 : undefined,
+      type === "credit"
+        ? Number(f.payment_terms_days) || 30
+        : type === "advance_full"
+          ? 0
+          : Number.isFinite(days) && days >= 0
+            ? Math.floor(days)
+            : 0,
   };
 }

@@ -93,8 +93,8 @@ export function pickPaymentTermsFields(data: any): PaymentTermsFields {
  * The printable label for a document/master, e.g.:
  *  - "Net 30"
  *  - "100% advance"
- *  - "50% advance + 50% on delivery"
- *  - "Payment on delivery"
+ *  - "50% advance + 50% Net 15"
+ *  - "On delivery Net 7"
  * Falls back to the legacy free-text `paymentTerms` string when no structured
  * type is set.
  */
@@ -107,15 +107,18 @@ export function formatPaymentTerms(data: {
   const type = normalizePaymentTermsType(data.paymentTermsType);
   if (!type) return data.paymentTerms?.trim() || null;
 
+  const days = Number(data.paymentTermsDays) || 0;
   if (type === "advance_full") return "100% advance";
-  if (type === "on_delivery") return "Payment on delivery";
+  if (type === "on_delivery") return days > 0 ? `On delivery Net ${days}` : "Payment on delivery";
   if (type === "advance_partial") {
     const pct = normalizeAdvancePct(data.advancePct);
-    if (!pct) return "Advance payment";
-    return `${pct}% advance + ${Math.round((100 - pct) * 100) / 100}% on delivery`;
+    if (!pct) return days > 0 ? `Advance + balance Net ${days}` : "Advance payment";
+    const rest = Math.round((100 - pct) * 100) / 100;
+    return days > 0
+      ? `${pct}% advance + ${rest}% Net ${days}`
+      : `${pct}% advance + ${rest}% on delivery`;
   }
   // credit
-  const days = Number(data.paymentTermsDays) || 0;
   return days > 0 ? `Net ${days}` : null;
 }
 

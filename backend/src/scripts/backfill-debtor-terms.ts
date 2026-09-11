@@ -35,8 +35,11 @@ for (const d of debtors) {
         ? Number(d.advancePct) || 0
         : Number((d as any).advancePct) || 0;
   const balanceDueDays =
-    d.paymentTermsType === "credit" || !d.paymentTermsType
-      ? Number(d.paymentTermsDays) || 0
+    !d.paymentTermsType ||
+    d.paymentTermsType === "credit" ||
+    d.paymentTermsType === "on_delivery" ||
+    d.paymentTermsType === "advance_partial"
+      ? Math.max(0, Math.floor(Number(d.paymentTermsDays) || 0))
       : 0;
   const name =
     formatPaymentTerms({

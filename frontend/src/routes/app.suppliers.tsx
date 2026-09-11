@@ -402,7 +402,6 @@ function SuppliersPage() {
                   type={form.payment_terms_type}
                   advancePct={form.payment_terms_advance_pct}
                   paymentTermsDays={form.payment_terms_days}
-                  freeText={form.payment_terms}
                   daysLabel="Net days"
                   onChange={(patch) => setForm({ ...form, ...patch })}
                 />

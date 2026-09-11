@@ -6,6 +6,8 @@ export interface ProformaLine {
   productId: string;
   sku: string | null;
   name: string;
+  /** HSN code snapshot from the catalogue (printed on tax documents). */
+  hsnCode: string | null;
   /** Unit of measure from the catalogue (piece, pair, carton…). */
   unit: string;
   quantity: number;

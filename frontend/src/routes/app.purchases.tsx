@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import {
   PaymentTermsFields,
+  balanceDaysFor,
   formatPaymentTerms,
   toFormFields as toTermsFormFields,
   toPayload as toTermsPayload,
@@ -568,7 +569,26 @@ function NewPurchaseModal({
   }, [linkedGrn]);
 
   const selectedVendor = vendors.find((v: any) => v.id === form.vendor_id);
-  const termsDays = Number(selectedVendor?.payment_terms_days ?? 30) || 30;
+  const effectiveTermsType =
+    (form as any).payment_terms_type ||
+    (selectedVendor as any)?.paymentTermsType ||
+    (selectedVendor as any)?.payment_terms_type ||
+    "credit";
+  const formDaysRaw = (form as any).payment_terms_days;
+  const vendorDaysRaw =
+    (selectedVendor as any)?.paymentTermsDays ??
+    (selectedVendor as any)?.payment_terms_days;
+  const daysRaw =
+    formDaysRaw !== undefined && formDaysRaw !== null && String(formDaysRaw) !== ""
+      ? formDaysRaw
+      : vendorDaysRaw;
+  const termsDays = balanceDaysFor({
+    paymentTermsType: effectiveTermsType as any,
+    paymentTermsDays:
+      daysRaw === undefined || daysRaw === null || daysRaw === ""
+        ? null
+        : Number(daysRaw) || 0,
+  });
   const computedDue = (() => {
     if (!form.issue_date) return "";
     const d = new Date(form.issue_date);
@@ -905,7 +925,6 @@ function NewPurchaseModal({
                   type={form.payment_terms_type}
                   advancePct={form.payment_terms_advance_pct}
                   paymentTermsDays={form.payment_terms_days}
-                  freeText={form.payment_terms}
                   daysLabel="Net days"
                   onChange={(patch) => setForm({ ...form, ...patch })}
                 />

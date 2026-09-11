@@ -17,6 +17,7 @@ import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import {
   PaymentTermsFields,
+  balanceDaysFor,
   formatPaymentTerms,
   normalizePaymentTermsType,
   toFormFields as toTermsFormFields,
@@ -45,6 +46,8 @@ type InvLine = {
   product_id: string;
   sku: string | null;
   name: string;
+  hsn_code?: string | null;
+  hsnCode?: string | null;
   unit: string;
   quantity: number;
   unit_price: number;
@@ -539,6 +542,7 @@ type LineDraft = {
   product_id: string;
   sku: string | null;
   name: string;
+  hsn_code: string;
   unit: string;
   quantity: string;
   unit_price: string;
@@ -586,6 +590,7 @@ function NewInvoiceModal({
       product_id: l.product_id,
       sku: l.sku,
       name: l.name,
+      hsn_code: String((l as any).hsn_code ?? (l as any).hsnCode ?? ""),
       unit: l.unit,
       quantity: String(l.quantity),
       unit_price: String(l.unit_price),
@@ -712,23 +717,30 @@ function NewInvoiceModal({
       customer_contact: so.contact_person ?? f.customer_contact,
       billing_address: so.billing_address ?? f.billing_address,
       delivery_address: so.delivery_address ?? f.delivery_address,
-      payment_terms: so.payment_terms ?? f.payment_terms,
-      due_date: (so.expected_delivery_date ?? "").slice(0, 10) || f.due_date,
+      ...toTermsFormFields(so),
+      // Clear any manual due-date override so it recomputes from the SO terms.
+      due_date: "",
       goods_sales_order_id: so.id,
     }));
     setLines(
       (so.lines ?? [])
         .filter((l: any) => Number(l.ordered_qty) > 0)
-        .map((l: any) => ({
-          product_id: l.product_id,
-          sku: l.sku,
-          name: l.name,
-          unit: l.unit || "piece",
-          quantity: String(l.ordered_qty),
-          unit_price: String(l.unit_price ?? ""),
-          discount_pct: l.discount_pct != null ? String(l.discount_pct) : "",
-          gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
-        })),
+        .map((l: any) => {
+          const cat = (productsQ.data ?? []).find((x: any) => x.id === l.product_id) as any;
+          return {
+            product_id: l.product_id,
+            sku: l.sku,
+            name: l.name,
+            hsn_code: String(
+              (l as any).hsn_code ?? (l as any).hsnCode ?? cat?.hsn_code ?? cat?.hsnCode ?? "",
+            ),
+            unit: l.unit || "piece",
+            quantity: String(l.ordered_qty),
+            unit_price: String(l.unit_price ?? ""),
+            discount_pct: l.discount_pct != null ? String(l.discount_pct) : "",
+            gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
+          };
+        }),
     );
   };
 
@@ -780,9 +792,32 @@ function NewInvoiceModal({
     }
   }, [poLookupQ.data, form.po_number]);
 
-  // Auto-derive due date from the debtor's payment terms.
+  // Auto-derive due date from the payment terms (invoice date + balance days).
+  // Prefers the terms edited in this form; falls back to the debtor master so
+  // on-delivery / partial-advance balance days flow into the due date.
   const selectedDebtor = debtors.find((d: any) => d.id === form.debtor_id);
-  const termsDays = Number(selectedDebtor?.payment_terms_days ?? 30) || 30;
+  const effectiveTermsType =
+    (form as any).payment_terms_type ||
+    (selectedDebtor as any)?.paymentTermsType ||
+    (selectedDebtor as any)?.payment_terms_type ||
+    "credit";
+  const formDaysRaw = (form as any).payment_terms_days;
+  const debtorDaysRaw =
+    (selectedDebtor as any)?.paymentTermsDays ??
+    (selectedDebtor as any)?.payment_terms_days ??
+    (selectedDebtor as any)?.balanceDueDays ??
+    (selectedDebtor as any)?.balance_due_days;
+  const daysRaw =
+    formDaysRaw !== undefined && formDaysRaw !== null && String(formDaysRaw) !== ""
+      ? formDaysRaw
+      : debtorDaysRaw;
+  const termsDays = balanceDaysFor({
+    paymentTermsType: effectiveTermsType as any,
+    paymentTermsDays:
+      daysRaw === undefined || daysRaw === null || daysRaw === ""
+        ? null
+        : Number(daysRaw) || 0,
+  });
   const computedDue = (() => {
     if (!form.issue_date) return "";
     const d = new Date(form.issue_date);
@@ -790,6 +825,17 @@ function NewInvoiceModal({
     return d.toISOString().slice(0, 10);
   })();
   const effectiveDue = form.due_date || computedDue;
+
+  // When the customer changes on a new invoice, pull their master terms into
+  // the form so the balance-due days (incl. on-delivery / partial) apply.
+  const debtorSyncKey = selectedDebtor?.id ?? "";
+  const lastSyncedDebtor = useRef<string>("");
+  useEffect(() => {
+    if (isEdit || !selectedDebtor || lastSyncedDebtor.current === debtorSyncKey) return;
+    lastSyncedDebtor.current = debtorSyncKey;
+    setForm((f) => ({ ...f, ...toTermsFormFields(selectedDebtor) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debtorSyncKey]);
 
   const save = useMutation({
     // `issueNow` only applies when CREATING — an edit preserves the current
@@ -801,6 +847,7 @@ function NewInvoiceModal({
         product_id: l.product_id,
         sku: l.sku,
         name: l.name,
+        hsn_code: l.hsn_code.trim() || null,
         unit: l.unit || "piece",
         quantity: Number(l.quantity) || 0,
         unit_price: Number(l.unit_price) || 0,
@@ -850,7 +897,7 @@ function NewInvoiceModal({
         delivery_address: form.delivery_address.trim() || null,
         goods_sales_order_id: soId,
         ...toTermsPayload(form),
-        payment_terms: form.payment_terms_type ? formatPaymentTerms({ paymentTermsType: form.payment_terms_type as any, advancePct: Number(form.payment_terms_advance_pct) || null, paymentTermsDays: Number(form.payment_terms_days) || null }) : form.payment_terms || null,
+        payment_terms: formatPaymentTerms({ paymentTermsType: form.payment_terms_type as any, advancePct: Number(form.payment_terms_advance_pct) || null, paymentTermsDays: Number(form.payment_terms_days) || null }),
         po_number: form.po_number || null,
         po_date: form.po_date || null,
         po_amount: form.po_amount ? Number(form.po_amount) : null,
@@ -890,11 +937,12 @@ function NewInvoiceModal({
   });
 
   const pickProduct = (i: number, id: string) => {
-    const p = (productsQ.data ?? []).find((x: any) => x.id === id);
+    const p = (productsQ.data ?? []).find((x: any) => x.id === id) as any;
     setLine(i, {
       product_id: id,
       name: p?.name ?? "",
       sku: p?.sku ?? null,
+      hsn_code: String(p?.hsn_code ?? p?.hsnCode ?? ""),
       unit: p?.unit_of_measure ?? "piece",
       unit_price: p?.unit_price != null ? String(p.unit_price) : "",
       gst_rate: p?.gst_rate != null ? String(p.gst_rate) : "",
@@ -908,6 +956,7 @@ function NewInvoiceModal({
         product_id: "",
         sku: null,
         name: "",
+        hsn_code: "",
         unit: "piece",
         quantity: "",
         unit_price: "",
@@ -1100,12 +1149,11 @@ function NewInvoiceModal({
                   type={form.payment_terms_type}
                   advancePct={form.payment_terms_advance_pct}
                   paymentTermsDays={form.payment_terms_days}
-                  freeText={form.payment_terms}
                   daysLabel="Net days"
                   onChange={(patch) => setForm({ ...form, ...patch })}
                 />
               </Field>
-              <Field label={`Due date${selectedDebtor ? ` (auto: ${termsDays}d net)` : ""}`}>
+              <Field label={`Due date${selectedDebtor ? ` (auto: ${effectiveTermsType === "advance_full" ? "due before dispatch" : termsDays > 0 ? `+${termsDays}d` : "due on invoice"})` : ""}`}>
                 <input
                   type="date"
                   className={inputBase}
@@ -1193,6 +1241,16 @@ function NewInvoiceModal({
                       {l.name && (
                         <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
                       )}
+                      {(() => {
+                        const cat = (productsQ.data ?? []).find((x: any) => x.id === l.product_id) as any;
+                        const hsn =
+                          (l as any).hsn_code || cat?.hsn_code || cat?.hsnCode || "";
+                        return hsn ? (
+                          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                            HSN {hsn}
+                          </div>
+                        ) : null;
+                      })()}
                     </div>
                     <div>
                       <Field label="Unit">
@@ -1567,6 +1625,7 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
                 <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-3 py-2 text-left font-normal">Product</th>
+                    <th className="px-3 py-2 text-left font-normal">HSN</th>
                     <th className="px-3 py-2 text-right font-normal">Qty</th>
                     <th className="px-3 py-2 text-right font-normal">Unit price</th>
                     <th className="px-3 py-2 text-right font-normal">Disc %</th>
@@ -1584,6 +1643,9 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
                             {l.sku}
                           </span>
                         )}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-xs text-muted-foreground">
+                        {(l as any).hsn_code ?? (l as any).hsnCode ?? "—"}
                       </td>
                       <td className="px-3 py-2 text-right num">{l.quantity.toLocaleString()}</td>
                       <td className="px-3 py-2 text-right num text-muted-foreground">

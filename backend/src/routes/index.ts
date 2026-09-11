@@ -1315,8 +1315,11 @@ router.post("/debtors", authMiddleware, async (req, res) => {
           advancePct,
           balancePct: balancePctFor(advancePct),
           balanceDueDays:
-            !body.paymentTermsType || body.paymentTermsType === "credit"
-              ? Number(body.paymentTermsDays) || 0
+            !body.paymentTermsType ||
+            body.paymentTermsType === "credit" ||
+            body.paymentTermsType === "on_delivery" ||
+            body.paymentTermsType === "advance_partial"
+              ? Math.max(0, Math.floor(Number(body.paymentTermsDays) || 0))
               : 0,
           dispatchCondition: defaultDispatchConditionFor(
             body.paymentTermsType ?? "credit",
@@ -3571,7 +3574,44 @@ router.get("/proformas/:id/pdf", authMiddleware, async (req, res) => {
     if (!pf) return res.status(404).json({ error: "Proforma not found" });
     const { proformaToTallyData, buildProformaTallyPdf } = await import("../lib/document-pdf.js");
     const { seller, bank, bankRaw, declarationRaw, logoImage } = await resolveTallySellerParts(pf.clientId);
-    const data = proformaToTallyData(pf, {
+    // Enrich the sales-side bill-to block from the debtor master so the PDF
+    // prints logo + seller alongside full customer details (name, address,
+    // GSTIN, PAN) even when the proforma only stores the debtor id.
+    let enriched: any = pf;
+    try {
+      const debtorId = (pf as any).debtorId ?? (pf as any).debtor_id ?? null;
+      if ((pf as any).side === "sales" && debtorId) {
+        const d: any = await Debtor.get(debtorId).catch(() => null);
+        if (d) {
+          const addrs: any[] = Array.isArray(d.billingAddresses)
+            ? d.billingAddresses
+            : Array.isArray(d.billing_addresses)
+              ? d.billing_addresses
+              : [];
+          const primaryAddr =
+            addrs.find((a: any) => (a?.address ?? "").trim())?.address ??
+            d.billingAddress ??
+            d.billing_address ??
+            null;
+          enriched = {
+            ...pf,
+            debtorName: (pf as any).debtorName ?? d.name ?? null,
+            debtor_billing_address:
+              (pf as any).debtorBillingAddress ??
+              (pf as any).debtor_billing_address ??
+              primaryAddr,
+            debtor_city: (pf as any).debtorCity ?? (pf as any).debtor_city ?? d.city ?? null,
+            debtor_country:
+              (pf as any).debtorCountry ?? (pf as any).debtor_country ?? d.country ?? null,
+            debtor_gstin:
+              (pf as any).debtorGstin ?? (pf as any).debtor_gstin ?? d.gstin ?? null,
+            debtor_pan:
+              (pf as any).debtorPan ?? (pf as any).debtor_pan ?? d.panCardNo ?? d.pan_card_no ?? null,
+          };
+        }
+      }
+    } catch { /* master enrichment is best-effort; the record prints as-is */ }
+    const data = proformaToTallyData(enriched, {
       seller,
       bank,
       bankRaw,
@@ -4493,13 +4533,15 @@ async function validateGoodsSOLines(clientId: string | undefined, rawLines: any[
       }
     }
     applyVariantSnapshot(l, productById.get(l.productId));
-    // Server-owned print snapshots (code/MRP): always refreshed from the
+    // Server-owned print snapshots (code/MRP/HSN): always refreshed from the
     // catalogue so the Tally-style SO PDF prints catalogue truth.
     // (Colour/size are handled by applyVariantSnapshot above.)
     const soProduct = productById.get(l.productId) as any;
     if (soProduct) {
       l.productCode = soProduct.model || soProduct.sku || null;
       l.mrp = soProduct.mrp ?? null;
+      const hsn = soProduct.hsnCode ?? soProduct.hsn_code ?? null;
+      if (hsn) l.hsnCode = hsn;
     }
   }
   return lines;

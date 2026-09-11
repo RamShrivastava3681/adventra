@@ -929,7 +929,7 @@ function POModal({
         expected_date: f.expected_date || f.due_date || f.expected_delivery_date || f.po_date,
         due_date: f.due_date || null,
         ...toTermsPayload(f),
-        payment_terms: f.payment_terms_type ? formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }) : f.payment_terms || null,
+        payment_terms: formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }),
         buyer_name: f.buyer_name.trim() || null,
         notes: f.notes.trim() || null,
         freight: Number(f.freight) || 0,
@@ -966,7 +966,7 @@ function POModal({
             validUntil: pfForm.valid_until || null,
             currency: pfForm.currency,
             ...toTermsPayload(pfForm),
-            paymentTerms: pfForm.payment_terms_type ? formatPaymentTerms({ paymentTermsType: pfForm.payment_terms_type as any, advancePct: Number(pfForm.payment_terms_advance_pct) || null, paymentTermsDays: Number(pfForm.payment_terms_days) || null }) : pfForm.payment_terms || null,
+            paymentTerms: formatPaymentTerms({ paymentTermsType: pfForm.payment_terms_type as any, advancePct: Number(pfForm.payment_terms_advance_pct) || null, paymentTermsDays: Number(pfForm.payment_terms_days) || null }),
             expectedDeliveryDate: pfForm.expected_delivery_date || null,
             poNumber: savedPo?.po_number ?? null,
             amount: totals.grandTotal,
@@ -1188,7 +1188,6 @@ function POModal({
                   type={f.payment_terms_type}
                   advancePct={f.payment_terms_advance_pct}
                   paymentTermsDays={f.payment_terms_days}
-                  freeText={f.payment_terms}
                   daysLabel="Net days"
                   disabled={!editable}
                   onChange={(patch) => setF({ ...f, ...patch })}
@@ -1607,7 +1606,6 @@ function POModal({
                       type={pfForm.payment_terms_type}
                       advancePct={pfForm.payment_terms_advance_pct}
                       paymentTermsDays={pfForm.payment_terms_days}
-                      freeText={pfForm.payment_terms}
                       daysLabel="Net days"
                       disabled={!editable}
                       onChange={(patch) => setPfForm({ ...pfForm, ...patch })}

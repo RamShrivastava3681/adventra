@@ -36,6 +36,8 @@ export interface GoodsSalesOrderLine {
   productCode: string | null;
   /** Server snapshot from the catalogue (overwritten on every save): MRP. */
   mrp: number | null;
+  /** Server snapshot from the catalogue: HSN code for taxation (kept when supplied). */
+  hsnCode: string | null;
   /** System-calculated: orderedQty × unitPrice × (1 − discountPct/100). */
   lineTotal: number;
   /** Optional per-line note. */
