@@ -1140,6 +1140,7 @@ function SOModal({
         {editable && (
           <button
             type="submit"
+            form="so-form"
             disabled={save.isPending}
             className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
           >
@@ -1160,6 +1161,7 @@ function SOModal({
       footer={footer}
     >
       <form
+        id="so-form"
         onSubmit={(e) => {
           e.preventDefault();
           save.mutate();
