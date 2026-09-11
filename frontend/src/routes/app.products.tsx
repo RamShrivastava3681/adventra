@@ -539,6 +539,33 @@ function ProductsPage() {
                                 <Layers className="h-3.5 w-3.5 shrink-0" />
                                 <span className="truncate">Colours & sizes</span>
                               </button>
+                              {(() => {
+                                const parent = isVariant ? parentOf(p) : null;
+                                // Master rows add a colour variant; colour rows
+                                // (variant of a master) add a size variant.
+                                const level = !isVariant
+                                  ? ("color" as const)
+                                  : parent && !parent.parent_id
+                                    ? ("size" as const)
+                                    : null;
+                                if (!level) return null;
+                                return (
+                                  <button
+                                    onClick={() => setStageFor({ parent: p, level })}
+                                    title={
+                                      level === "color"
+                                        ? `Add colour variant under ${p.sku}`
+                                        : `Add size variant under ${p.sku}`
+                                    }
+                                    className="inline-flex items-center gap-1 rounded-md border border-border/60 px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-all duration-200 hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
+                                  >
+                                    <Plus className="h-3.5 w-3.5" />
+                                    <span className="hidden xl:inline">
+                                      {level === "color" ? "Colour" : "Size"}
+                                    </span>
+                                  </button>
+                                );
+                              })()}
                               <button
                                 onClick={() => {
                                   if (isVariant) {
@@ -1060,7 +1087,7 @@ function StagedSkuModal({
                 className="inp !py-1.5"
                 value={quick.name}
                 onChange={(e) => setQuick({ ...quick, name: e.target.value })}
-                placeholder={isColour ? "New colour — Aqua Blue" : "New size — 3 Pair"}
+                placeholder={isColour ? "New colour — Aqua Blue" : "New size — UK 9"}
               />
               <input
                 className="inp !py-1.5 font-mono uppercase"
@@ -1068,7 +1095,7 @@ function StagedSkuModal({
                 onChange={(e) =>
                   setQuick({ ...quick, code: e.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "") })
                 }
-                placeholder={isColour ? "AQB" : "3P"}
+                placeholder={isColour ? "AQB" : "UK9"}
               />
               {!isColour && (
                 <select
