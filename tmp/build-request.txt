@@ -1,0 +1,367 @@
+Build Request: Automatic Post­Customer
+Acceptance Sales Work ow
+
+Implement the work ow that starts when a customer accepts an approved Sales Order.
+
+Do not redesign the existing Sales Order ow. Add automatic work ow task creation, status
+changes, noti cations and audit history after the event Customer Accepted.
+
+Core rule
+
+A Sales Order may be customer-accepted only after:
+
+  1. Sales has created it.
+
+  2. Warehouse has con rmed stock availability.
+
+  3. Checker has approved it.
+
+  4. Sales has shared it with the customer.
+
+  5. Customer acceptance has been recorded.
+
+When the Sales Order status changes to CUSTOMER_ACCEPTED, the system must automatically
+create the next task based on the payment term selected on that Sales Order.
+
+Required document statuses
+
+Use these statuses or equivalent clear enums:
+
+Sales Order:
+DRAFT
+AWAITING_WAREHOUSE_CHECK
+AWAITING_CHECKER_APPROVAL
+AWAITING_CUSTOMER_ACCEPTANCE
+CUSTOMER_ACCEPTED
+AWAITING_ADVANCE_PAYMENT
+READY_FOR_INVOICE
+INVOICE_IN_PROGRESS
+READY_FOR_DISPATCH
+DISPATCHED
+COMPLETED
+CANCELLED
+
+Proforma:
+DRAFT
+SENT_TO_CUSTOMER
+AWAITING_PAYMENT
+
+lf lf lf lf if if
+PARTIALLY_PAID
+PAID
+EXPIRED
+CANCELLED
+
+Sales Invoice:
+DRAFT
+AWAITING_APPROVAL
+APPROVED
+AWAITING_IRN
+IRN_GENERATED
+AWAITING_DISPATCH_DETAILS
+EWAY_BILL_GENERATED
+DISPATCHED
+PARTIALLY_PAID
+PAID
+OVERDUE
+CANCELLED
+
+Dispatch Order:
+DRAFT
+AWAITING_DISPATCH_DETAILS
+READY_FOR_EWAY_BILL
+READY_TO_DISPATCH
+PARTIALLY_DISPATCHED
+DISPATCHED
+CANCELLED
+
+Payment-term branches
+
+Branch 1 -- Net credit terms
+
+Examples: Net 30, Net 45, Net 60.
+
+When Sales Order becomes CUSTOMER_ACCEPTED:
+
+  1. Automatically create a Finance task:
+
+          Task title: Create Final Sales Invoice
+
+          Linked document: Sales Order
+
+          Assigned role: Finance
+
+          Status: Open
+
+          Due date: same day, unless con gured otherwise.
+  2. Change Sales Order status to:
+
+if
+          READY_FOR_INVOICE
+
+  3. Do not wait for customer payment before invoice or dispatch preparation.
+Branch 2 -- 100% advance
+
+When Sales Order becomes CUSTOMER_ACCEPTED:
+
+  1. Automatically create a Finance task:
+          Task title: Create Proforma Invoice for Advance
+          Linked document: Sales Order
+          Assigned role: Finance
+
+  2. Change Sales Order status to:
+
+          AWAITING_ADVANCE_PAYMENT
+
+  3. Do not create a Final Invoice task yet.
+  4. Do not create a Warehouse Dispatch task yet.
+
+After Finance creates and sends the Proforma:
+
+  1. Create a Treasury task:
+          Task title: Confirm Customer Advance Receipt
+          Linked documents: Sales Order and Proforma
+          Assigned role: Treasury
+
+When Treasury marks the full advance as received:
+
+  1. Automatically create a Finance task:
+          Task title: Create Final Sales Invoice
+          Linked document: Sales Order and Proforma
+          Assigned role: Finance
+
+  2. Change Sales Order status to:
+
+          READY_FOR_INVOICE
+
+Branch 3 -- Part advance + balance later
+
+Example: 30% advance, balance in 30 days from invoice date.
+When Sales Order becomes CUSTOMER_ACCEPTED:
+  1. Automatically create a Finance task:
+          Task title: Create Proforma Invoice for Advance
+          Linked document: Sales Order
+          Assigned role: Finance
+
+  2. Change Sales Order status to:
+
+          AWAITING_ADVANCE_PAYMENT
+
+  3. Do not create a Dispatch task yet.
+
+When Treasury con rms the required advance amount has been received:
+
+  1. Automatically create a Finance task:
+          Task title: Create Final Sales Invoice
+          Linked documents: Sales Order and Proforma
+          Assigned role: Finance
+
+  2. The nal invoice must show:
+          Invoice Total
+          Advance Received
+          Advance Adjusted
+          Balance Payable
+          Balance Due Date
+
+  3. Calculate balance due date from:
+
+          invoiceDate + agreedBalanceDays
+
+Final Invoice to Dispatch work ow
+
+When Finance creates the Final Sales Invoice:
+  1. Link it mandatorily to the accepted Sales Order.
+  2. Auto- ll customer, address, product lines, quantity, prices, GST and selected payment term
+         from the Sales Order.
+  3. Do not debit inventory at this stage.
+  4. Create an invoice approval task only if invoice approval is enabled in system settings.
+
+When the Final Sales Invoice is approved, or immediately after creation if approval is not enabled:
+
+lf if if if
+  1. Automatically create a Finance task:
+          Task title: Generate IRN
+          Linked document: Final Sales Invoice
+          Assigned role: Finance
+          Status: Open
+
+  2. Change invoice status to:
+
+          AWAITING_IRN
+
+For the current version, IRN may be manually recorded. In the future, it will be received through
+the Tally integration.
+When IRN is successfully recorded/generated:
+
+  1. Change invoice status to:
+
+          IRN_GENERATED
+
+  2. Automatically create a Warehouse task:
+          Task title: Prepare Dispatch Order
+          Linked documents: Sales Order, Final Sales Invoice and IRN
+          Assigned role: Warehouse
+
+  3. Automatically create a Draft Dispatch Order linked to the Sales Order and Final Invoice.
+  4. Change invoice status to:
+
+          AWAITING_DISPATCH_DETAILS
+
+Warehouse dispatch task
+
+The Warehouse user must see the generated Dispatch Order in their own queue.
+Warehouse must enter:
+
+  · Dispatch warehouse / location
+  · Packed quantity
+  · Cartons / packages
+  · Gross weight, if applicable
+  · Dispatch date and time
+  · Transport mode
+  · Transporter name and transporter ID, if applicable
+  · Vehicle number or LR / GR / AWB number
+  · LR / GR / AWB date
+  · Approximate distance, if required
+  · Driver name and phone, if applicable
+When Warehouse saves all mandatory dispatch details:
+
+  1. Change Dispatch Order status to:
+
+          READY_FOR_EWAY_BILL
+
+  2. Automatically create a Finance task:
+          Task title: Generate E-Way Bill
+          Linked documents: Final Sales Invoice, IRN and Dispatch Order
+          Assigned role: Finance
+
+  3. Change invoice status to:
+
+          AWAITING_DISPATCH_DETAILS until details are complete;
+
+          then IRN_GENERATED with E-Way Bill task pending, or use a more speci c
+
+                 equivalent status.
+When Finance records/generated the E-Way Bill:
+
+  1. Save:
+          E-Way Bill Number
+          E-Way Bill Date
+          Validity Date
+          E-Way Bill status
+
+  2. Change Dispatch Order status to:
+
+          READY_TO_DISPATCH
+
+  3. Automatically create a Warehouse task:
+          Task title: Confirm Physical Dispatch
+          Linked documents: Sales Order, Final Invoice and Dispatch Order
+          Assigned role: Warehouse
+
+if
+When Warehouse con rms physical dispatch:
+
+  1. Debit inventory only for the dispatched quantity.
+  2. Update Sales Order dispatched quantity.
+  3. Update Sales Order status:
+
+          DISPATCHED if full quantity is dispatched;
+
+          otherwise keep a clear PARTIALLY_DISPATCHED state.
+  4. Update Final Invoice status to:
+
+          DISPATCHED or PARTIALLY_DISPATCHED.
+
+  5. Mark the dispatch task as completed.
+
+Task creation rules
+
+Every automatically created task must contain:
+
+taskId
+taskType
+title
+assignedRole
+assignedUser, if one is available
+linkedSalesOrderId
+linkedProformaId, if applicable
+linkedInvoiceId, if applicable
+linkedDispatchOrderId, if applicable
+currentStatus
+dueDate
+createdAt
+createdBy = SYSTEM
+nextAction
+Rules:
+
+  1. Do not create duplicate tasks if the event is retried.
+  2. Use idempotency checks based on:
+
+          document ID;
+
+          task type;
+
+          work ow stage;
+
+          active/incomplete task status.
+  3. Every automatic action must create an Activity History entry, for example:
+
+if lf
+SYSTEM created Finance task: Create Final Sales Invoice.
+Reason: Sales Order SO-2026-00842 was accepted by customer.
+
+  4. Send an email and in-app noti cation to the assigned role/user.
+  5. Show the task in:
+
+          the relevant functional queue;
+          the linked document timeline;
+          Management Command Overview as a count only, where relevant.
+  6. Users may view linked documents across teams where required, but may perform only their
+
+         own assigned action.
+
+Required acceptance tests
+
+Create automated tests for:
+
+  1. Net 30 Sales Order accepted:
+          Finance Final Invoice task is created.
+          No Proforma task is created.
+          No Warehouse Dispatch task is created until IRN is generated.
+
+  2. 100% Advance Sales Order accepted:
+          Finance Proforma task is created.
+          Final Invoice task is not created before Treasury con rms payment.
+          After payment con rmation, Final Invoice task is created.
+
+  3. 30% Advance + balance in 30 days:
+          Proforma is created for 30%.
+          Treasury con rms receipt.
+          Final Invoice shows advance adjusted and correct balance due date.
+
+  4. Final Invoice approved:
+          Generate IRN task is created once only.
+
+  5. IRN generated:
+          Draft Dispatch Order is created automatically.
+          Warehouse Prepare Dispatch Order task is created once only.
+
+  6. Warehouse completes dispatch details:
+
+if if if if
+        Generate E-Way Bill task is created for Finance.
+7. E-Way Bill generated:
+
+        Warehouse Con rm Physical Dispatch task is created.
+8. Warehouse con rms physical dispatch:
+
+        Inventory is debited exactly once.
+        Sales Order and Invoice dispatch quantities/statuses update correctly.
+9. Retry every event twice:
+
+        Con rm that duplicate tasks, duplicate Dispatch Orders and duplicate inventory
+
+               debits are never created.
+
+i i f f if
+

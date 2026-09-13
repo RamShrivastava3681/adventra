@@ -452,12 +452,12 @@ function CheckerPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Checker desk"
-        title="Maker–checker review"
+        eyebrow="Checker"
+        title="Checker Workbench"
         icon={<ClipboardCheck className="h-5 w-5" />}
         description={
           canReview
-            ? "Newly submitted invoices, proformas, purchase orders and sales orders wait here for your approval. Approving releases invoices into the funding queue, routes notes to Treasury for application, and lets POs/SOs move to the next step."
+            ? "Review and approve documents. Open a document to review details, then Approve or Return from within the document view."
             : "View-only. Only the checker (or admin) can approve documents."
         }
       />

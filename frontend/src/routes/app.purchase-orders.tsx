@@ -385,7 +385,7 @@ function PurchaseOrdersPage() {
       <PageHeader
         eyebrow="Procurement"
         title="Purchase orders"
-        description="Purchase requests/commitments against the product catalogue. A PO never creates inventory — goods are credited to stock when a GRN is recorded."
+        description="System PO number, supplier, delivery warehouse, payment term for this order and product lines. Submit for Approval when ready."
         icon={<ClipboardList className="h-5 w-5" />}
         actions={
           canWrite ? (

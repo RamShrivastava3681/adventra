@@ -78,9 +78,9 @@ function DebtorsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Counterparties"
-        title="Customer book"
-        description="Payment terms and live exposure across every payer."
+        eyebrow="Sales"
+        title="Customers"
+        description="Customer details, billing and delivery addresses, contacts and approved payment terms."
         icon={<Building2 className="h-5 w-5" />}
         actions={
           isAdmin && (

@@ -649,9 +649,12 @@ function AppLayout() {
     return (
       <>
         {/* Brand header */}
-        <div className="shrink-0 border-b border-sidebar-border px-5 py-5">
-          <div className="text-[15px] font-bold leading-none tracking-[0.08em] text-sidebar-foreground">
-            WHIZUNIK COMMAND
+        <div className="shrink-0 border-b border-white/10 px-5 py-5">
+          <div className="whiz-brand flex items-center gap-2 text-[15px] font-bold leading-none">
+            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/15 text-base font-bold text-white">
+              W
+            </span>
+            Whizunik Command
           </div>
         </div>
 
@@ -853,7 +856,8 @@ function AppLayout() {
       </div>
 
       {/* Desktop sidebar */}
-      <aside className="relative hidden w-56 flex-col border-r border-sidebar-border bg-sidebar md:flex print:hidden">
+      <aside className="whiz-shell relative hidden w-56 flex-col border-r border-sidebar-border bg-sidebar md:flex print:hidden">
+        <div className="whiz-sidebar flex min-h-0 flex-1 flex-col">
         {renderSidebarContent(false)}
 
         {/* ── Horizontal flyout panel ── */}
@@ -908,10 +912,11 @@ function AppLayout() {
             </div>
           </>
         )}
+        </div>
       </aside>
 
       {/* Main content area */}
-      <main className="app-surface flex-1 min-w-0 pt-14 md:pt-0">
+      <main className="app-surface whiz-shell whiz-page flex-1 min-w-0 pt-14 md:pt-0">
         {/* View-as banner — shown on every page while impersonating a team member */}
         {viewAsActive && (
           <ViewAsBanner
@@ -926,11 +931,23 @@ function AppLayout() {
             onExit={() => navigate({ to: "/app/reports", search: {} })}
           />
         )}
-        {/* Top bar — quiet page context left, controls right */}
-        <div className="hidden md:flex h-14 items-center justify-between gap-2 border-b border-border bg-background px-6">
-          <div className="flex min-w-0 items-center gap-2">
+        {/* Top bar — Whizunik Command: global search + user, like ui/ mockups */}
+        <div className="whiz-topbar hidden md:flex h-14 items-center justify-between gap-2 px-6">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <button
+              onClick={() => setCmdOpen(true)}
+              className="flex h-9 w-full max-w-xl items-center gap-2 rounded-full px-4 text-[13px] whiz-search"
+            >
+              <Search className="h-4 w-4 shrink-0" />
+              <span className="flex-1 text-left">Search documents, inventory, or approvals…</span>
+              <kbd className="hidden rounded border border-white/20 px-1.5 py-0.5 font-mono text-[10px] lg:inline-flex">
+                ⌘K
+              </kbd>
+            </button>
             {currentPage && (
-              <span className="truncate text-sm font-medium text-foreground">{currentPage}</span>
+              <span className="hidden truncate text-sm font-medium text-white/70 xl:inline">
+                · {currentPage}
+              </span>
             )}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">

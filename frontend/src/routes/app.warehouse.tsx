@@ -453,9 +453,9 @@ function WarehousePage() {
     <div>
       <PageHeader
         eyebrow="Warehouse"
-        title="Warehouse control"
+        title="Warehouse Workbench"
         icon={<Warehouse className="h-5 w-5" />}
-        description="Everything moving through the warehouse: order sign-off, dispatch readiness, live shipment pipeline, stock on hand and in/out reporting by supplier and buyer."
+        description="Manage physical stock flow from receiving to dispatch."
         actions={
           !canWrite ? (
             <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">

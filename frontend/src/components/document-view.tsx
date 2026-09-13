@@ -14,55 +14,78 @@ import { DocumentList, type DocMeta } from "@/components/document-uploader";
 
 function DocModal({
   title,
+  subtitle,
   onClose,
   children,
 }: {
   title: string;
+  subtitle?: string;
   onClose: () => void;
   children: ReactNode;
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[#0a2239]/55 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card shadow-vault"
+        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-border bg-[#f4f7fb] shadow-modal dark:bg-card"
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-base">{title}</h3>
-          <button onClick={onClose}>
-            <X className="h-4 w-4" />
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 rounded-t-2xl border-b border-border bg-white px-6 py-4 dark:bg-card">
+          <div className="min-w-0">
+            <h3 className="text-xl font-semibold tracking-tight text-[#0f2c4d] dark:text-foreground">{title}</h3>
+            {subtitle && <p className="mt-1 text-[13px] text-muted-foreground">{subtitle}</p>}
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-5 w-5" />
           </button>
         </div>
-        {children}
+        <div className="space-y-4 px-6 py-5 text-sm">{children}</div>
       </div>
     </div>
+  );
+}
+
+export function DocSection({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <section className="overflow-hidden rounded-[10px] border border-border bg-white dark:bg-card">
+      <div className="border-b border-border bg-[#e8f0f8] px-4 py-2.5 dark:bg-surface-active">
+        <h4 className="text-[15px] font-bold text-[#0f2c4d] dark:text-foreground">{title}</h4>
+      </div>
+      <div className="p-4">{children}</div>
+    </section>
   );
 }
 
 function D({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div>
-      <div className="text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
-      <div className="mt-0.5">{value}</div>
+      <div className="text-[13px] font-semibold text-[#24425f] dark:text-foreground">{label}</div>
+      <div className="mt-0.5 text-sm">{value}</div>
     </div>
   );
 }
 
 function Row({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-xs uppercase tracking-widest text-muted-foreground">{label}</span>
-      <span className="num text-right">{value}</span>
+    <div className="flex items-center justify-between gap-3 py-0.5">
+      <span className="text-[13px] text-muted-foreground">{label}</span>
+      <span className="num text-right text-[13px] font-medium">{value}</span>
     </div>
   );
 }
 
 function Summary({ rows }: { rows: Array<[string, ReactNode]> }) {
   return (
-    <div className="space-y-1 rounded-md border border-border/60 bg-muted/30 p-3 text-xs">
+    <div className="space-y-1 rounded-[10px] border border-border bg-[#eef4fa] p-4 text-xs dark:bg-surface-active">
       {rows.map(([label, value]) => (
         <Row key={label} label={label} value={value} />
       ))}
@@ -81,14 +104,14 @@ function LinesTable({
 }) {
   if (rows.length === 0) return null;
   return (
-    <div className="overflow-x-auto rounded-md border border-border/60">
+    <div className="overflow-x-auto rounded-[10px] border border-border bg-white dark:bg-card">
       <table className="w-full text-sm">
-        <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
+        <thead className="bg-[#eef4fa] text-[12px] font-semibold text-[#24425f] dark:bg-surface-active dark:text-foreground">
           <tr className="border-b border-border">
             {columns.map((c) => (
               <th
                 key={c.key}
-                className={`px-3 py-2 font-normal ${c.right ? "text-right" : "text-left"}`}
+                className={`px-3 py-2.5 font-semibold ${c.right ? "text-right" : "text-left"}`}
               >
                 {c.label}
               </th>

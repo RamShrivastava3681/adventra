@@ -25,7 +25,7 @@ export function PageHeader({
   icon?: ReactNode;
 }) {
   return (
-    <div className="border-b border-border bg-background px-6 py-6 md:px-10">
+    <div className="border-b border-border bg-background px-6 py-5 md:px-10">
       {/* Breadcrumbs */}
       {breadcrumbs && breadcrumbs.length > 0 && (
         <nav className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -52,9 +52,9 @@ export function PageHeader({
         </nav>
       )}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3.5">
+        <div className="flex items-center gap-3">
           {icon && (
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
               {icon}
             </div>
           )}
@@ -64,11 +64,11 @@ export function PageHeader({
                 {eyebrow}
               </p>
             )}
-            <h1 className="mt-0.5 text-[28px] font-semibold leading-tight tracking-tight text-foreground">
+            <h1 className="mt-0.5 text-xl font-semibold leading-tight tracking-tight text-foreground">
               {title}
             </h1>
             {description && (
-              <p className="mt-1 max-w-2xl text-sm text-muted-foreground">{description}</p>
+              <p className="mt-0.5 max-w-2xl text-[13px] text-muted-foreground">{description}</p>
             )}
           </div>
         </div>
@@ -114,11 +114,13 @@ export function Stat({
   value,
   delta,
   tone = "neutral",
+  tint,
 }: {
   label: string;
   value: string;
   delta?: string;
   tone?: "neutral" | "good" | "warn" | "bad";
+  tint?: "blue" | "amber" | "red" | "green";
 }) {
   const toneCls = {
     neutral: "text-muted-foreground",
@@ -127,7 +129,7 @@ export function Stat({
     bad: "text-sem-critical",
   }[tone];
   return (
-    <div className="metric-card">
+    <div className={`metric-card ${tint ? `whiz-kpi-${tint}` : ""}`}>
       <div className="metric-label">{label}</div>
       <div className="metric-value">{value}</div>
       {delta && <div className={`metric-delta ${toneCls}`}>{delta}</div>}

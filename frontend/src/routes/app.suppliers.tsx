@@ -196,9 +196,9 @@ function SuppliersPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Onboarding"
+        eyebrow="Procurement"
         title="Suppliers"
-        description="The companies whose invoices you finance. Track contacts and lifecycle status."
+        description="Manage supplier details, purchase commitments, payment terms and supply status."
         icon={<Truck className="h-5 w-5" />}
         actions={
           <button
@@ -215,7 +215,7 @@ function SuppliersPage() {
           <div className="num text-3xl">{suppliers.length}</div>
           <div className="mt-1 text-xs text-muted-foreground">{activeCount} active</div>
         </Card>
-        <Card title="Open exposure">
+        <Card title="Outstanding Payables">
           <div className="num text-3xl">
             {fmtMoney(
               (invoicesQ.data ?? [])
@@ -240,11 +240,13 @@ function SuppliersPage() {
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
-                    <th className="px-3 py-3 text-left">Company</th>
-                    <th className="px-3 py-3 text-left">Contact</th>
-                    <th className="px-3 py-3 text-right">Exposure</th>
+                    <th className="px-3 py-3 text-left">Supplier</th>
+                    <th className="px-3 py-3 text-left">Primary Contact</th>
+                    <th className="px-3 py-3 text-left">Default Payment Term</th>
+                    <th className="px-3 py-3 text-right">Outstanding Payables</th>
+                    <th className="px-3 py-3 text-right">Open Purchase Orders</th>
                     <th className="px-3 py-3 text-left">Status</th>
-                    <th className="px-3 py-3" />
+                    <th className="px-3 py-3 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -267,7 +269,11 @@ function SuppliersPage() {
                             {s.contact_email ?? ""}
                           </div>
                         </td>
+                        <td className="px-3 py-3 text-xs text-muted-foreground">
+                          {(s as any).payment_terms ?? (s as any).paymentTerms ?? "—"}
+                        </td>
                         <td className="px-3 py-3 text-right num">{fmtMoney(exposure)}</td>
+                        <td className="px-3 py-3 text-right num text-muted-foreground">—</td>
                         <td className="px-3 py-3">
                           <StatusPill status={s.status} />
                         </td>

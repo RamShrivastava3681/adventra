@@ -603,6 +603,228 @@ input[type="number"] {
     width: 100%;
   }
 
+  /* ── Whizunik Command workbench theme (matches ui/ mockups) ──
+     Dark navy shell, tinted KPI cards, pale section headers,
+     workbench tabs, doc tables with Open/Review actions. */
+  .whiz-shell {
+    --whiz-navy: #0a2239;
+    --whiz-navy-2: #0e2d4d;
+    --whiz-page: #eef3f8;
+    --whiz-section: #eef4fa;
+  }
+  .whiz-sidebar {
+    background: linear-gradient(180deg, #0a2239 0%, #0c2a47 100%);
+    border-right: 1px solid #12314f;
+    color: #c9d8e8;
+  }
+  .whiz-sidebar .whiz-brand {
+    color: #ffffff;
+    letter-spacing: 0.06em;
+  }
+  /* Navy sidebar link overrides — keep role logic, restyle surface */
+  .whiz-sidebar nav a,
+  .whiz-sidebar nav button {
+    color: #b9cfe5 !important;
+  }
+  .whiz-sidebar nav a:hover,
+  .whiz-sidebar nav button:hover {
+    background: rgba(255, 255, 255, 0.08) !important;
+    color: #ffffff !important;
+  }
+  .whiz-sidebar nav a.bg-primary-soft,
+  .whiz-sidebar nav button.bg-primary-soft {
+    background: rgba(255, 255, 255, 0.14) !important;
+    color: #ffffff !important;
+  }
+  .whiz-topbar {
+    background: #0a2239;
+    border-bottom: 1px solid #12314f;
+    color: #dbe7f3;
+  }
+  .whiz-topbar button, .whiz-topbar a { color: #dbe7f3; }
+  .whiz-topbar button:hover, .whiz-topbar a:hover {
+    background: rgba(255,255,255,0.1) !important;
+    color: #fff !important;
+  }
+  .whiz-search {
+    background: rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.16);
+    color: #eaf2fa;
+  }
+  .whiz-search::placeholder {
+    color: #9db4cc;
+  }
+  .whiz-page {
+    background: #eef3f8;
+  }
+  .dark .whiz-page {
+    background: var(--color-background);
+  }
+  .whiz-kpi-blue { background: #eaf3fe; border-color: #cfe3fa; }
+  .whiz-kpi-amber { background: #fdf3e3; border-color: #f5dfb8; }
+  .whiz-kpi-red { background: #fdeeee; border-color: #f6cfcf; }
+  .whiz-kpi-green { background: #eaf7ee; border-color: #c9e8d2; }
+  .dark .whiz-kpi-blue, .dark .whiz-kpi-amber,
+  .dark .whiz-kpi-red, .dark .whiz-kpi-green {
+    background: var(--color-card);
+    border-color: var(--color-border);
+  }
+  .whiz-section {
+    background: var(--whiz-section, #eef4fa);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+  }
+  .whiz-section-title {
+    background: #e8f0f8;
+    border-bottom: 1px solid var(--color-border);
+    border-radius: 10px 10px 0 0;
+    padding: 0.55rem 1rem;
+    font-size: 0.9rem;
+    font-weight: 700;
+    color: #0f2c4d;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .dark .whiz-section-title {
+    background: var(--color-surface-active);
+    color: var(--color-foreground);
+  }
+  .whiz-tabs {
+    display: flex;
+    gap: 0.25rem;
+    border-bottom: 1px solid var(--color-border);
+    overflow-x: auto;
+  }
+  .whiz-tab {
+    padding: 0.6rem 0.85rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-muted-foreground);
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+  .whiz-tab[data-active="true"] {
+    color: var(--color-primary);
+    border-bottom-color: var(--color-primary);
+    font-weight: 600;
+  }
+  .whiz-docbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 64px;
+    height: 32px;
+    padding: 0 0.85rem;
+    border-radius: 7px;
+    background: var(--color-primary);
+    color: #fff;
+    font-size: 0.78rem;
+    font-weight: 600;
+  }
+  .whiz-docbtn:hover { filter: brightness(0.94); }
+  .whiz-footerbar {
+    background: #e8f0f9;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    color: #32567c;
+    font-size: 0.78rem;
+  }
+  .dark .whiz-footerbar {
+    background: var(--color-surface-active);
+    color: var(--color-muted-foreground);
+  }
+  /* ── Whizunik dialogs: every modal app-wide ──
+     Covers shared shells + the ~50 homegrown modals (same Tailwind pattern):
+     navy overlay, wide card, pale body, white section cards, blue footer. */
+  div.fixed.inset-0.z-50 {
+    background: rgba(10, 34, 57, 0.55);
+  }
+  div.fixed.inset-0.z-50 > div[class*="rounded"] {
+    background: #f4f7fb;
+    border-radius: 16px;
+    border: 1px solid var(--color-border);
+    box-shadow: 0 24px 64px rgba(17, 24, 39, 0.16);
+  }
+  .dark div.fixed.inset-0.z-50 > div[class*="rounded"] {
+    background: var(--color-card);
+  }
+  /* Bump medium cards wider so 3–4 col section grids breathe */
+  div.fixed.inset-0.z-50 > div.max-w-3xl { max-width: 64rem; }
+  div.fixed.inset-0.z-50 > div.max-w-2xl { max-width: 56rem; }
+  /* Modal headers: white bar, 20px navy title */
+  div.fixed.inset-0.z-50 > div > div.sticky:first-child,
+  div.fixed.inset-0.z-50 > div > div:first-child[class*="border-b"] {
+    background: #fff;
+    border-radius: 16px 16px 0 0;
+  }
+  .dark div.fixed.inset-0.z-50 > div > div.sticky:first-child,
+  .dark div.fixed.inset-0.z-50 > div > div:first-child[class*="border-b"] {
+    background: var(--color-card);
+  }
+  div.fixed.inset-0.z-50 h3 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    color: #0f2c4d;
+  }
+  .dark div.fixed.inset-0.z-50 h3 { color: var(--color-foreground); }
+  /* Modal body rhythm */
+  div.fixed.inset-0.z-50 > div > div:nth-child(2) { row-gap: 1rem; }
+  /* Section cards inside any modal */
+  div.fixed.inset-0.z-50 fieldset,
+  div.fixed.inset-0.z-50 section[class*="rounded"],
+  div.fixed.inset-0.z-50 div[class*="rounded-md border"] {
+    border-radius: 10px;
+  }
+  /* Order-line rows: white cards, pale header */
+  div.fixed.inset-0.z-50 table thead th {
+    background: #eef4fa;
+    color: #24425f;
+    font-weight: 600;
+    font-size: 12px;
+  }
+  .dark div.fixed.inset-0.z-50 table thead th {
+    background: var(--color-surface-active);
+    color: var(--color-foreground);
+  }
+  /* Modal footers: white bar, right-aligned blue primary */
+  div.fixed.inset-0.z-50 > div > div.sticky:last-child,
+  div.fixed.inset-0.z-50 > div > div:last-child[class*="border-t"] {
+    background: #fff;
+    border-radius: 0 0 16px 16px;
+  }
+  .dark div.fixed.inset-0.z-50 > div > div.sticky:last-child,
+  .dark div.fixed.inset-0.z-50 > div > div:last-child[class*="border-t"] {
+    background: var(--color-card);
+  }
+  fieldset.whiz-fieldset {
+    background: #fff;
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+  }
+  /* Sectioned forms: pale blue legend bar like ui/ New Sales Order */
+  form fieldset {
+    background: #fff;
+    border: 1px solid var(--color-border) !important;
+    border-radius: 10px !important;
+    background: #fbfdff;
+  }
+  form fieldset > legend {
+    background: #e8f0f8;
+    border: 1px solid var(--color-border);
+    border-radius: 7px;
+    padding: 0.2rem 0.7rem;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #0f2c4d;
+  }
+  .dark form fieldset { background: var(--color-card); }
+  .dark form fieldset > legend {
+    background: var(--color-surface-active);
+    color: var(--color-foreground);
+  }
+
   /* App canvas — a calm cool-white surface in light mode, deep navy in dark.
      No gradients, no glows: the data carries the visual weight. */
   .app-surface {

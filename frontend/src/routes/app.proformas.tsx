@@ -278,9 +278,9 @@ export function ProformasPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Proforma invoices"
-        title="Proformas & advances"
-        description="Purchase proformas are supplier quotations with catalogue lines that can be converted into a purchase order. Sales proformas are customer proforma invoices entered into the system — catalogue lines, totals and an optional advance request, convertible into a sales order. Proformas never create inventory entries."
+        eyebrow="Sales"
+        title="Proforma Invoices"
+        description="Create a Proforma only when an advance is required. Linked to the accepted Sales Order — advance requested and balance payable shown clearly."
         icon={<FileSignature className="h-5 w-5" />}
         actions={
           canCreate ? (
@@ -2134,21 +2134,28 @@ function Modal({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[#0a2239]/55 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className={`max-h-[92vh] w-full overflow-y-auto rounded-xl border border-border bg-card ${wide ? "max-w-3xl" : "max-w-md"}`}
+        className={`max-h-[92vh] w-full overflow-y-auto rounded-2xl border border-border bg-[#f4f7fb] shadow-modal dark:bg-card ${wide ? "max-w-5xl" : "max-w-md"}`}
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
       >
-        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-base">{title}</h3>
-          <button onClick={onClose}>
-            <X className="h-4 w-4" />
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 rounded-t-2xl border-b border-border bg-white px-6 py-4 dark:bg-card">
+          <h3 className="text-xl font-semibold tracking-tight text-[#0f2c4d] dark:text-foreground">{title}</h3>
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-5 w-5" />
           </button>
         </div>
-        {children}
-        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+        <div className="space-y-4 px-6 py-5 text-sm">{children}</div>
+        <style>{`.inp{width:100%;background:#fff;border:1px solid var(--color-border);color:var(--color-foreground);border-radius:8px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
       </div>
     </div>
   );
@@ -2171,11 +2178,11 @@ function Actions({
   secondaryLabel?: string;
 }) {
   return (
-    <div className="flex justify-end gap-2 pt-2">
+    <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border bg-white px-6 py-4 dark:bg-card">
       <button
         type="button"
         onClick={onClose}
-        className="rounded-md border border-border px-4 py-2 text-sm"
+        className="btn-secondary"
       >
         Cancel
       </button>
@@ -2184,7 +2191,7 @@ function Actions({
           type="button"
           onClick={onSecondary}
           disabled={pending}
-          className="rounded-md border border-sem-attention/60 px-4 py-2 text-sm text-sem-attention disabled:opacity-60"
+          className="btn-secondary disabled:opacity-60"
         >
           {secondaryLabel}
         </button>
@@ -2193,7 +2200,7 @@ function Actions({
         type={onPrimary ? "button" : "submit"}
         onClick={onPrimary}
         disabled={pending}
-        className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+        className="btn-primary min-w-[180px] disabled:opacity-60"
       >
         {pending && <Loader2 className="h-4 w-4 animate-spin" />} {label}
       </button>

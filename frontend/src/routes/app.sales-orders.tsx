@@ -1154,8 +1154,8 @@ function SOModal({
 
   return (
     <DialogWithStickyFooter
-      title={isEdit ? `Sales order ${so.so_number}` : "New sales order"}
-      subtitle={isEdit ? undefined : "Catalogue-backed customer order — no stock impact until a dispatch is confirmed."}
+      title={isEdit ? `Sales order ${so.so_number}` : "New Sales Order"}
+      subtitle={isEdit ? undefined : "Create a confirmed customer order. Stock is reserved after approval and reduced only when physical dispatch is confirmed."}
       onClose={onClose}
       wide
       footer={footer}

@@ -436,7 +436,7 @@ function Dashboard() {
           <div>
             <div className="flex items-center gap-2.5">
               <h1 className="text-xl font-semibold tracking-tight text-foreground">
-                Portfolio Overview
+                Main Dashboard
               </h1>
               <span
                 className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${

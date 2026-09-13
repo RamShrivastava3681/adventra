@@ -182,19 +182,19 @@ export function AddLineButton({ onClick, disabled = false }: AddLineButtonProps)
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:border-primary hover:text-primary disabled:opacity-50"
+      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/50 px-3 py-1.5 text-[13px] font-semibold text-primary transition-colors hover:bg-primary-soft disabled:opacity-50"
     >
       <svg
-        className="h-3.5 w-3.5"
+        className="h-4 w-4"
         viewBox="0 0 16 16"
         fill="none"
         stroke="currentColor"
-        strokeWidth="1.5"
+        strokeWidth="1.75"
         aria-hidden="true"
       >
         <path d="M8 3v10M3 8h10" strokeLinecap="round" />
       </svg>
-      Add line
+      Add Line
     </button>
   );
 }
