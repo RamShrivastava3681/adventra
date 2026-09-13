@@ -179,7 +179,7 @@ function NoaPage() {
                     comments: mode === "accept" ? null : comments.trim(),
                   })
                 }
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
               >
                 {respond.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                 Confirm{" "}

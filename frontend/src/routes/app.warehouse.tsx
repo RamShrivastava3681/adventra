@@ -465,7 +465,7 @@ function WarehousePage() {
         }
       />
 
-      <div className="space-y-6 p-6 md:p-10">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
           <Stat label="Total stock value" value={fmtMoney(totalStockValue)} delta={`${stock.length} item lines`} />
           <Stat
@@ -1181,7 +1181,7 @@ function DispatchTable({
 // ─── Shared table shell (matches the app's list pages) ──
 function Table({ head, children }: { head: string[]; children: React.ReactNode }) {
   return (
-    <div className="-mx-5 overflow-x-auto">
+    <div className="-mx-5 overflow-x-auto table-wrap">
       <table className="w-full text-sm">
         <thead className="text-xs uppercase tracking-widest text-muted-foreground">
           <tr className="border-b border-border">

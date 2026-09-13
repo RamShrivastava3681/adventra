@@ -131,7 +131,7 @@ function NotesPage() {
           canCreate ? (
             <button
               onClick={() => setOpen(true)}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
             >
               <Plus className="h-4 w-4" /> New note
             </button>
@@ -143,7 +143,7 @@ function NotesPage() {
         }
       />
 
-      <div className="space-y-6 p-6 md:p-10">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         <div className="grid gap-4 md:grid-cols-3">
           <Card title="Pending checker">
             <div className="num text-2xl text-sem-attention">{pendingCount}</div>
@@ -192,7 +192,7 @@ function NotesPage() {
               ) : filtered.length === 0 ? (
                 <div className="py-10 text-center text-sm text-muted-foreground">No notes yet.</div>
               ) : (
-                <div className="-mx-5 overflow-x-auto">
+                <div className="-mx-5 overflow-x-auto table-wrap">
                   <table className="table-premium w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
@@ -816,7 +816,7 @@ function NewNoteModal({
             </button>
             <button
               disabled={create.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
             >
               {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Submit for approval
             </button>

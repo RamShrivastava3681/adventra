@@ -117,7 +117,7 @@ function SettingsPage() {
             <button
               onClick={save}
               disabled={loading}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />} Save
             </button>
@@ -169,7 +169,7 @@ function SettingsPage() {
             <button
               onClick={save}
               disabled={loading}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
             >
               {loading && <Loader2 className="h-4 w-4 animate-spin" />} Save
             </button>

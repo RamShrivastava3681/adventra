@@ -98,7 +98,7 @@ function AdvancesPage() {
             <div className="flex gap-2">
               <button
                 onClick={() => setOpen("sales")}
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+                className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
               >
                 <Plus className="h-4 w-4" /> Sales advance
               </button>
@@ -117,7 +117,7 @@ function AdvancesPage() {
         }
       />
 
-      <div className="space-y-6 p-6 md:p-10">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         <div className="grid gap-4 md:grid-cols-2">
           <Card title="Open sales advances (received)">
             <div className="num text-3xl text-sem-success">{fmtMoney(totals.sales)}</div>
@@ -153,7 +153,7 @@ function AdvancesPage() {
                   No advances on this side yet.
                 </div>
               ) : (
-                <div className="-mx-5 overflow-x-auto">
+                <div className="-mx-5 overflow-x-auto table-wrap">
                   <table className="table-premium w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
@@ -473,7 +473,7 @@ function NewAdvanceModal({
             </button>
             <button
               disabled={create.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
             >
               {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Save
             </button>

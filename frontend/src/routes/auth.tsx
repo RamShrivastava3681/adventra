@@ -75,35 +75,45 @@ function AuthPage() {
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden grid md:grid-cols-2">
+    <div className="relative grid min-h-screen overflow-hidden md:grid-cols-2">
       {/* ── Left brand panel ── */}
-      <div className="relative hidden overflow-hidden border-r border-border bg-vault p-12 md:flex md:flex-col md:justify-between">
-        <div className="absolute inset-0 grid-lines opacity-15" aria-hidden />
+      <div className="relative hidden overflow-hidden border-r border-[#12314f] p-12 md:flex md:flex-col md:justify-between"
+        style={{ background: "radial-gradient(90% 45% at 50% 0%, rgba(58,168,255,0.25), transparent 65%), linear-gradient(180deg, #0a2239 0%, #0b2743 55%, #0c2a47 100%)" }}>
+        <div className="absolute inset-0 grid-lines opacity-10" aria-hidden />
+        <div className="pointer-events-none absolute -left-20 top-1/3 h-72 w-72 rounded-full bg-sky-500/20 blur-3xl" aria-hidden />
+        <div className="pointer-events-none absolute -right-16 bottom-10 h-64 w-64 rounded-full bg-blue-600/20 blur-3xl" aria-hidden />
 
         <Link to="/" className="relative flex items-center gap-2.5">
-          <img src="/logo.png" alt="Whizunik Command" className="h-8 w-auto rounded-md object-contain" />
-          <span className="text-lg font-semibold tracking-tight">Whizunik Command</span>
+          <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-b from-sky-400 to-blue-600 text-base font-bold text-white shadow-lg ring-1 ring-white/20">
+            W
+          </span>
+          <span className="leading-tight">
+            <span className="block text-[17px] font-bold tracking-tight text-white">Whizunik Command</span>
+            <span className="block text-[9px] font-bold uppercase tracking-[0.24em] text-sky-200/70">
+              Executive control system
+            </span>
+          </span>
         </Link>
 
         <div className="relative">
-          <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card/70 px-3 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur">
+          <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-semibold text-sky-100 shadow-sm backdrop-blur">
             <span className="relative flex h-1.5 w-1.5">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-70" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-emerald-400" />
             </span>
-            Vault access
+            Vault access · SOC 2 certified
           </div>
-          <h2 className="mt-5 text-[34px] font-semibold leading-[1.15] tracking-tight text-balance">
+          <h2 className="mt-5 max-w-md text-[36px] font-semibold leading-[1.12] tracking-[-0.02em] text-balance text-white">
             Capital moves at the speed of conviction.
           </h2>
-          <p className="mt-4 max-w-md text-sm leading-relaxed text-muted-foreground">
+          <p className="mt-4 max-w-md text-[15px] leading-relaxed text-slate-300">
             Submit invoices, advance against them, and monitor the entire receivables book in one
             room.
           </p>
           <ul className="mt-8 space-y-3">
             {PERKS.map((perk) => (
-              <li key={perk} className="flex items-center gap-2.5 text-sm text-foreground/80">
-                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <li key={perk} className="flex items-center gap-2.5 text-sm font-medium text-slate-200">
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-white/15 bg-white/10 text-emerald-300">
                   <Check className="h-3 w-3" />
                 </span>
                 {perk}
@@ -113,31 +123,31 @@ function AuthPage() {
         </div>
 
         <div className="relative">
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-3">
+          <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
             {STATS.map(([value, label]) => (
-              <div key={label}>
-                <div className="font-mono text-lg font-bold text-foreground">{value}</div>
-                <div className="text-[11px] text-muted-foreground">{label}</div>
+              <div key={label} className="border-l-2 border-white/20 pl-4">
+                <div className="font-mono text-xl font-bold text-white">{value}</div>
+                <div className="mt-0.5 text-[11px] font-medium text-slate-400">{label}</div>
               </div>
             ))}
           </div>
-          <div className="mt-6 text-xs text-muted-foreground">
-            SOC 2 · ISO 27001 · 256-bit at rest
+          <div className="mt-6 flex items-center gap-1.5 text-xs text-slate-400">
+            <ShieldCheck className="h-3.5 w-3.5 text-emerald-300" /> SOC 2 · ISO 27001 · 256-bit at rest
           </div>
         </div>
       </div>
 
       {/* ── Right form panel ── */}
-      <div className="flex items-center justify-center p-6 md:p-12">
-        <div className="w-full max-w-md">
+      <div className="relative flex items-center justify-center bg-gradient-to-b from-primary/[0.05] to-transparent p-6 md:p-12">
+        <div className="w-full max-w-md animate-rise">
           <Link
             to="/"
-            className="mb-6 inline-flex items-center gap-1.5 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            className="mb-6 inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-3 py-1.5 text-xs font-semibold text-muted-foreground shadow-xs transition-all hover:-translate-x-px hover:text-foreground"
           >
             <ArrowLeft className="h-3.5 w-3.5" /> Back to site
           </Link>
 
-          <div className="rounded-xl border border-border bg-card p-6 shadow-modal md:p-8">
+          <div className="rounded-3xl border border-border bg-card p-6 shadow-modal ring-1 ring-black/[0.03] md:p-8">
             {/* Mobile brand */}
             <div className="mb-6 flex items-center gap-2 md:hidden">
               <img

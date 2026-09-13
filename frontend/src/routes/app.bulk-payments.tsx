@@ -549,7 +549,7 @@ function BulkPaymentsPage() {
         }
       />
 
-      <div className="space-y-6 p-6 md:p-10">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         {/* ── Counterparty Type Toggle ── */}
         <Card title="Payment type" className={!hasSelectedParty ? "ring-1 ring-primary/30" : ""}>
           <div className="flex gap-3">
@@ -818,7 +818,7 @@ function BulkPaymentsPage() {
                 <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin" /> Loading invoices…
               </div>
             ) : (
-              <div className="-mx-5 overflow-x-auto">
+              <div className="-mx-5 overflow-x-auto table-wrap">
                 <table className="w-full text-sm">
                   <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                     <tr className="border-b border-border">
@@ -1118,7 +1118,7 @@ function BulkPaymentsPage() {
                   setSelectedInvoiceIds(new Set());
                   setApplyCredit(false);
                 }}
-                  className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground">
+                  className="rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md">
                   New payment
                 </button>
               </div>
@@ -1174,7 +1174,7 @@ function BulkPaymentsPage() {
                   No payment records yet.
                 </div>
               ) : (
-                <div className="-mx-5 overflow-x-auto">
+                <div className="-mx-5 overflow-x-auto table-wrap">
                   <table className="w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">

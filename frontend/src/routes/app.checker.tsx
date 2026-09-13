@@ -462,7 +462,7 @@ function CheckerPage() {
         }
       />
 
-      <div className="space-y-6 p-6 md:p-10">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         <div className="grid gap-4 md:grid-cols-3">
           <Card title="Pending sales invoices">
             <div className="num text-3xl text-primary">{pendingSales}</div>
@@ -521,7 +521,7 @@ function CheckerPage() {
               No invoices awaiting review.
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -667,7 +667,7 @@ function CheckerPage() {
               No proformas awaiting approval.
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -758,7 +758,7 @@ function CheckerPage() {
               No purchase orders awaiting approval.
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -856,7 +856,7 @@ function CheckerPage() {
               No sales orders awaiting approval.
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -977,7 +977,7 @@ function CheckerPage() {
               No notes awaiting approval.
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -1089,7 +1089,7 @@ function CheckerPage() {
               No past approvals yet.
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -1218,7 +1218,7 @@ function ApproveSaleModal({
                 payment_amount: amount ? Number(amount) : undefined,
               })
             }
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
           >
             <Check className="h-3.5 w-3.5" />
             Approve & record

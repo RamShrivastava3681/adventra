@@ -784,7 +784,7 @@ function WorkspaceSubmissions({ readOnly = false }: { readOnly?: boolean }) {
             <button
               onClick={() => createSub.mutate({ type: activeTab, data: form })}
               disabled={createSub.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
             >
               {createSub.isPending ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />

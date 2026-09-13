@@ -203,7 +203,7 @@ function SuppliersPage() {
         actions={
           <button
             onClick={openNew}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
           >
             <Plus className="h-4 w-4" /> Onboard supplier
           </button>
@@ -467,7 +467,7 @@ function SuppliersPage() {
               <button
                 onClick={() => save.mutate()}
                 disabled={save.isPending}
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
               >
                 {save.isPending ? (
                   <Loader2 className="h-4 w-4 animate-spin" />

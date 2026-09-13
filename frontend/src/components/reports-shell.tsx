@@ -382,13 +382,13 @@ export function ReportFilterBar({
   if (!hasAny) return null;
 
   const inputCls =
-    "w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10";
+    "w-full rounded-[10px] border border-border bg-input px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-all placeholder:text-muted-foreground/60 focus:border-primary/60 focus:ring-[3px] focus:ring-primary/15";
   const labelCls =
-    "mb-1 block text-[10px] font-medium uppercase tracking-widest text-muted-foreground";
+    "mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground";
   const hasDates = !!(filters.from || filters.to);
 
   return (
-    <div className="space-y-3 rounded-xl border border-border bg-card p-4">
+    <div className="toolbar flex-col items-stretch !gap-4">
       {(f.statuses || f.paymentTypes) && (
         <div className="flex flex-wrap items-center gap-2">
           {f.statuses && (
@@ -638,15 +638,15 @@ export function ReportTable({
   }
 
   return (
-    <div className="overflow-hidden rounded-xl border border-border bg-card">
-      <div className="overflow-x-auto">
+    <div className="overflow-hidden rounded-2xl border border-border bg-card shadow-card">
+      <div className="table-wrap">
         <table className="table-premium w-full text-sm">
-          <thead className="bg-muted/30 text-xs uppercase tracking-widest text-muted-foreground">
+          <thead className="text-xs uppercase tracking-widest text-muted-foreground">
             <tr>
               {columns.map((c) => (
                 <th
                   key={c.key}
-                  className={`whitespace-nowrap px-3 py-2.5 font-normal ${numericCol(c) ? "text-right" : "text-left"}`}
+                  className={`whitespace-nowrap px-4 py-3 font-bold ${numericCol(c) ? "text-right" : "text-left"}`}
                 >
                   {c.label}
                 </th>
@@ -655,11 +655,11 @@ export function ReportTable({
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={r.id ?? i} className="border-b border-border/60 hover:bg-muted/30">
+              <tr key={r.id ?? i} className="border-b border-border/60 transition-colors last:border-0 hover:bg-primary/[0.03]">
                 {columns.map((c) => (
                   <td
                     key={c.key}
-                    className={`px-3 py-2.5 align-top ${numericCol(c) ? "text-right" : "text-left"} ${c.kind === "text" ? "max-w-[280px]" : ""}`}
+                    className={`px-4 py-3 align-middle ${numericCol(c) ? "text-right" : "text-left"} ${c.kind === "text" ? "max-w-[280px]" : ""}`}
                   >
                     <CellValue col={c} row={r} />
                   </td>

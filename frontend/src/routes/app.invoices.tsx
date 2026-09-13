@@ -282,7 +282,7 @@ export function InvoicesPage() {
           canCreate ? (
             <button
               onClick={() => setOpen(true)}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
             >
               <Plus className="h-4 w-4" /> New invoice
             </button>
@@ -294,7 +294,7 @@ export function InvoicesPage() {
         }
       />
 
-      <div className="space-y-6 p-6 md:p-10">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         <TransactionFilters data={invoicesQ.data ?? []} config={invConfig}>
           {(filtered) => (
             <Card>
@@ -303,7 +303,7 @@ export function InvoicesPage() {
               ) : filtered.length === 0 ? (
                 <div className="py-10 text-center text-sm text-muted-foreground">No invoices.</div>
               ) : (
-                <div className="-mx-5 overflow-x-auto">
+                <div className="-mx-5 overflow-x-auto table-wrap">
                   <table className="table-premium w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
@@ -1005,7 +1005,7 @@ function NewInvoiceModal({
         type="submit"
         form="invoice-form"
         disabled={save.isPending}
-        className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+        className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
       >
         {save.isPending ? (
           <Loader2 className="h-4 w-4 animate-spin" />
@@ -1856,7 +1856,7 @@ function UtrModal({  invoice,
                 payment_amount: amount ? Number(amount) : undefined,
               })
             }
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
           >
             <Send className="h-3.5 w-3.5" />
             Save UTR
@@ -1957,7 +1957,7 @@ function IrnModal({
           </button>
           <button
             onClick={submit}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
           >
             <FileCheck className="h-3.5 w-3.5" />
             Record IRN

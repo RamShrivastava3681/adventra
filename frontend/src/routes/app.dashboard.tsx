@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import api from "@/lib/api-client";
 import {
   Card,
@@ -25,6 +25,10 @@ import {
   CheckCircle2,
   ShieldCheck,
   CircleAlert,
+  TrendingUp,
+  Wallet,
+  Hourglass,
+  Percent,
 } from "lucide-react";
 import { DocumentList, type DocMeta } from "@/components/document-uploader";
 import { DashboardSkeleton } from "@/components/skeletons";
@@ -431,29 +435,35 @@ function Dashboard() {
   return (
     <div>
       {/* ── Command-center header ── */}
-      <div className="border-b border-border bg-background px-6 py-5 md:px-10">
+      <div className="border-b border-border bg-background/80 px-6 py-6 backdrop-blur supports-[backdrop-filter]:bg-background/70 md:px-10">
         <div className="mx-auto flex max-w-[1440px] flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2.5">
-              <h1 className="text-xl font-semibold tracking-tight text-foreground">
-                Main Dashboard
-              </h1>
+            <div className="flex flex-wrap items-center gap-2.5">
+              <p className="inline-flex items-center rounded-full border border-primary/20 bg-primary-soft/60 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-primary">
+                Command center
+              </p>
               <span
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold shadow-sm ${
                   portfolioHealthy
                     ? "border-sem-success/25 bg-sem-success/10 text-sem-success"
                     : "border-sem-attention/30 bg-sem-attention/10 text-sem-attention"
                 }`}
               >
-                <span className={`h-1.5 w-1.5 rounded-full ${portfolioHealthy ? "bg-sem-success" : "bg-sem-attention"}`} />
+                <span className={`relative flex h-1.5 w-1.5`}>
+                  <span className={`absolute inline-flex h-full w-full animate-ping rounded-full opacity-60 ${portfolioHealthy ? "bg-sem-success" : "bg-sem-attention"}`} />
+                  <span className={`relative inline-flex h-1.5 w-1.5 rounded-full ${portfolioHealthy ? "bg-sem-success" : "bg-sem-attention"}`} />
+                </span>
                 {portfolioHealthy ? "Portfolio healthy" : `${overdueCount} overdue need attention`}
               </span>
             </div>
-            <p className="mt-1 text-[13px] text-muted-foreground">
+            <h1 className="mt-2 text-[24px] font-semibold tracking-tight text-foreground">
+              Main Dashboard
+            </h1>
+            <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-muted-foreground">
               Track receivables, advances, settlements and portfolio performance across your clients.
             </p>
           </div>
-          <Link to="/app/queue" className="btn-primary">
+          <Link to="/app/queue" className="btn-primary shadow-card-hover">
             Open Funding Queue
             <ArrowRight className="h-4 w-4" />
           </Link>
@@ -465,37 +475,37 @@ function Dashboard() {
       ) : (
         <div className="mx-auto max-w-[1440px] space-y-6 px-6 py-6 md:px-10 md:py-8">
           {/* ── Executive KPI strip ── */}
-          <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 [&>*:nth-child(1)]:animate-rise [&>*:nth-child(2)]:animate-rise [&>*:nth-child(2)]:[animation-delay:60ms] [&>*:nth-child(3)]:animate-rise [&>*:nth-child(3)]:[animation-delay:120ms] [&>*:nth-child(4)]:animate-rise [&>*:nth-child(4)]:[animation-delay:180ms]">
             <KpiCard
               label="Gross Sales"
               value={fmtMoney(salesTotal)}
               context={`${invoices.length} invoices`}
               trend={momPct != null ? { value: momPct, caption: "vs last month" } : undefined}
-              spark={sparks.sales}
-              sparkTone="blue"
+              icon={<TrendingUp className="h-[18px] w-[18px]" />}
+              iconTone="blue"
             />
             <KpiCard
               label="Outstanding AR"
               value={fmtMoney(totalOutstanding)}
               context={`${openInvoices.length} open invoices`}
               trend={outstandingMom != null ? { value: outstandingMom, caption: "vs last month", invert: true } : undefined}
-              spark={sparks.openByMonth}
-              sparkTone={overdueCount > 0 ? "amber" : "blue"}
+              icon={<Hourglass className="h-[18px] w-[18px]" />}
+              iconTone={overdueCount > 0 ? "amber" : "blue"}
             />
             <KpiCard
               label="Advanced"
               value={fmtMoney(totalAdvanced)}
               context="Across funded invoices"
-              spark={sparks.advByMonth}
-              sparkTone="blue"
+              icon={<Wallet className="h-[18px] w-[18px]" />}
+              iconTone="blue"
             />
             <KpiCard
               label="Collection Rate"
               value={`${collectionRate}%`}
               context="Lifetime, by count"
               trend={collectionMom != null ? { value: collectionMom, caption: "vs previous period" } : undefined}
-              spark={sparks.rateByMonth}
-              sparkTone={collectionRate >= 90 ? "green" : "blue"}
+              icon={<Percent className="h-[18px] w-[18px]" />}
+              iconTone={collectionRate >= 90 ? "green" : "blue"}
               healthy={collectionRate >= 90}
             />
           </section>
@@ -628,7 +638,7 @@ function Dashboard() {
           {/* ── Performance overview ── */}
           <section>
             <SectionHeading>Performance Overview</SectionHeading>
-            <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-border md:grid-cols-3 xl:grid-cols-6">
+            <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-border bg-border shadow-card md:grid-cols-3 xl:grid-cols-6">
               <PerfCell
                 label="Cost of Goods"
                 value={fmtMoney(purchaseTotal)}
@@ -771,7 +781,7 @@ function Dashboard() {
                 description="Overdue invoices, short payments and pending approvals will surface here."
               />
             ) : (
-              <div className="-mx-5 overflow-x-auto">
+              <div className="-mx-5 overflow-x-auto table-wrap">
                 <table className="table-premium w-full">
                   <thead>
                     <tr>
@@ -897,7 +907,7 @@ function Dashboard() {
                 description="Create your first invoice to start building the portfolio."
               />
             ) : (
-              <div className="-mx-5 overflow-x-auto">
+              <div className="-mx-5 overflow-x-auto table-wrap">
                 <table className="table-premium w-full">
                   <thead>
                     <tr>
@@ -956,7 +966,7 @@ function Dashboard() {
                   description="Recorded expenses will appear here."
                 />
               ) : (
-                <div className="-mx-5 overflow-x-auto">
+                <div className="-mx-5 overflow-x-auto table-wrap">
                   <table className="table-premium w-full">
                     <thead>
                       <tr>
@@ -1102,55 +1112,57 @@ function KpiCard({
   value,
   context,
   trend,
-  spark,
-  sparkTone = "blue",
+  icon,
+  iconTone = "blue",
   healthy = false,
 }: {
   label: string;
   value: string;
   context?: string;
   trend?: { value: number; caption: string; invert?: boolean };
-  spark?: number[];
-  sparkTone?: "blue" | "green" | "amber";
+  icon?: ReactNode;
+  iconTone?: "blue" | "green" | "amber";
   healthy?: boolean;
 }) {
+  const iconCls =
+    iconTone === "green"
+      ? "border-sem-success/25 bg-gradient-to-b from-sem-success/15 to-sem-success/[0.04] text-sem-success"
+      : iconTone === "amber"
+        ? "border-sem-attention/25 bg-gradient-to-b from-sem-attention/15 to-sem-attention/[0.04] text-sem-attention"
+        : "border-primary/20 bg-gradient-to-b from-primary-soft to-primary-soft/30 text-primary";
   return (
-    <div className="group rounded-xl border border-border bg-card p-5 transition-all duration-150 hover:-translate-y-px hover:border-border-strong hover:shadow-card-hover">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-[11px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
+    <div className="kpi-card card-lift group relative overflow-hidden rounded-2xl border border-border bg-card p-5 shadow-card">
+      <span className="pointer-events-none absolute inset-x-0 top-0 h-[3px] bg-gradient-to-r from-primary via-primary/30 to-transparent opacity-60" aria-hidden />
+      <span className="pointer-events-none absolute -right-8 -top-8 h-28 w-28 rounded-full bg-primary/[0.06] blur-2xl transition-opacity duration-300 group-hover:bg-primary/[0.1]" aria-hidden />
+      <div className="relative flex items-start justify-between gap-3">
+        <div className="text-[11px] font-bold uppercase tracking-[0.11em] text-muted-foreground">
           {label}
         </div>
-        {healthy && <ShieldCheck className="h-3.5 w-3.5 text-sem-success" />}
+        <div className="flex items-center gap-1.5">
+          {healthy && (
+            <span className="flex h-6 w-6 items-center justify-center rounded-full border border-sem-success/25 bg-sem-success/10">
+              <ShieldCheck className="h-3.5 w-3.5 text-sem-success" />
+            </span>
+          )}
+          {icon && (
+            <span className={`flex h-10 w-10 items-center justify-center rounded-2xl border shadow-xs ${iconCls}`}>
+              {icon}
+            </span>
+          )}
+        </div>
       </div>
-      <div className="num mt-2 text-[28px] font-semibold leading-none tracking-tight text-foreground">
+      <div className="num relative mt-3 text-[31px] font-semibold leading-none tracking-[-0.02em] text-foreground">
         {value}
       </div>
-      <div className="mt-2 flex items-end justify-between gap-2">
-        <div>
-          {trend && <Trend value={trend.value} caption={trend.caption} invert={trend.invert} />}
-          {context && <div className="mt-1 text-xs text-muted-foreground">{context}</div>}
-        </div>
-        {spark && spark.length > 1 && <Sparkline data={spark} tone={sparkTone} />}
+      <div className="relative mt-3 flex flex-wrap items-center gap-x-2 gap-y-1.5 border-t border-border/60 pt-3">
+        {trend && <Trend value={trend.value} caption={trend.caption} invert={trend.invert} />}
+        {context && (
+          <span className="text-xs font-medium text-muted-foreground">
+            {context}
+          </span>
+        )}
       </div>
     </div>
-  );
-}
-
-function Sparkline({ data, tone }: { data: number[]; tone: "blue" | "green" | "amber" }) {
-  const w = 72;
-  const h = 26;
-  const min = Math.min(...data);
-  const max = Math.max(...data);
-  const span = max - min || 1;
-  const pts = data
-    .map((v, i) => `${((i / (data.length - 1)) * w).toFixed(1)},${(h - 3 - ((v - min) / span) * (h - 6)).toFixed(1)}`)
-    .join(" ");
-  const stroke =
-    tone === "green" ? "var(--sem-success)" : tone === "amber" ? "var(--sem-attention)" : "var(--color-chart-1)";
-  return (
-    <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`} className="shrink-0 opacity-80" aria-hidden>
-      <polyline points={pts} fill="none" stroke={stroke} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }
 
@@ -1178,13 +1190,13 @@ function PerfCell({
     bad: "bg-sem-critical",
   }[tone];
   return (
-    <div className="relative bg-card p-4">
-      <span className={`absolute left-0 top-3 h-6 w-[2.5px] rounded-r-full ${barCls} opacity-70`} />
-      <div className="pl-1.5">
-        <div className="text-[10px] font-semibold uppercase tracking-[0.09em] text-muted-foreground">
+    <div className="group relative bg-card p-4 transition-colors hover:bg-muted/[0.4]">
+      <span className={`absolute left-0 top-3 h-8 w-[3px] rounded-r-full ${barCls}`} />
+      <div className="pl-2">
+        <div className="text-[10px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
           {label}
         </div>
-        <div className={`num mt-1.5 text-lg font-semibold leading-none tracking-tight ${toneCls}`}>
+        <div className={`num mt-1.5 text-[19px] font-semibold leading-none tracking-tight ${toneCls}`}>
           {value}
         </div>
         {meta && <div className="mt-1.5 truncate text-[11px] text-muted-foreground">{meta}</div>}

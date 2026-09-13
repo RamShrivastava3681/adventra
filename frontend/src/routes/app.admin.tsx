@@ -353,7 +353,7 @@ function AdminPage() {
             <button
               onClick={() => generateAlerts.mutate()}
               disabled={generateAlerts.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
             >
               <Zap className="h-4 w-4" /> Run monitoring scan
             </button>
@@ -433,7 +433,7 @@ function AdminPage() {
                 ) : (opportunitiesQ.data ?? []).length === 0 ? (
                   <p className="py-4 text-center text-xs text-muted-foreground">No opportunities yet.</p>
                 ) : (
-                  <div className="-mx-5 overflow-x-auto">
+                  <div className="-mx-5 overflow-x-auto table-wrap">
                     <table className="table-premium w-full text-xs">
                       <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
                         <tr><th>Deal</th><th>Account</th><th>Stage</th><th className="text-right">Amount</th><th>Close date</th></tr>
@@ -465,7 +465,7 @@ function AdminPage() {
                 ) : (salesOrdersQ.data ?? []).length === 0 ? (
                   <p className="py-4 text-center text-xs text-muted-foreground">No sales orders yet.</p>
                 ) : (
-                  <div className="-mx-5 overflow-x-auto">
+                  <div className="-mx-5 overflow-x-auto table-wrap">
                     <table className="table-premium w-full text-xs">
                       <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
                         <tr><th>SO</th><th>Customer</th><th className="text-right">Grand total</th><th>Status</th></tr>
@@ -528,7 +528,7 @@ function AdminPage() {
                 ) : (opportunitiesQ.data ?? []).length === 0 ? (
                   <p className="py-4 text-center text-xs text-muted-foreground">No opportunities yet.</p>
                 ) : (
-                  <div className="-mx-5 overflow-x-auto">
+                  <div className="-mx-5 overflow-x-auto table-wrap">
                     <table className="table-premium w-full text-sm">
                       <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                         <tr><th>Deal</th><th>Account</th><th>Stage</th><th className="text-right">Amount</th><th>Prob</th><th>Close date</th></tr>
@@ -558,7 +558,7 @@ function AdminPage() {
                 ) : (leadsQ.data ?? []).length === 0 ? (
                   <p className="py-4 text-center text-xs text-muted-foreground">No leads yet.</p>
                 ) : (
-                  <div className="-mx-5 overflow-x-auto">
+                  <div className="-mx-5 overflow-x-auto table-wrap">
                     <table className="table-premium w-full text-sm">
                       <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                         <tr><th>Name</th><th>Company</th><th>Contact</th><th>Source</th><th className="text-right">Est. value</th><th>Status</th></tr>
@@ -604,7 +604,7 @@ function AdminPage() {
               ) : (salesOrdersQ.data ?? []).length === 0 ? (
                 <div className="py-10 text-center text-sm text-muted-foreground"><ShoppingBag className="mx-auto mb-2 h-8 w-8 opacity-40" />No sales orders yet.</div>
               ) : (
-                <div className="-mx-5 overflow-x-auto">
+                <div className="-mx-5 overflow-x-auto table-wrap">
                   <table className="table-premium w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr><th>SO</th><th>Customer</th><th>Dispatch</th><th className="text-right">Grand total</th><th>Status</th><th></th></tr>
@@ -646,7 +646,7 @@ function AdminPage() {
               ) : (debtorsQ.data ?? []).length === 0 ? (
                 <div className="py-10 text-center text-sm text-muted-foreground"><Building2 className="mx-auto mb-2 h-8 w-8 opacity-40" />No customers yet.</div>
               ) : (
-                <div className="-mx-5 overflow-x-auto">
+                <div className="-mx-5 overflow-x-auto table-wrap">
                   <table className="table-premium w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr><th>Name</th><th>Industry</th><th className="text-right">Exposure</th><th className="text-right">Terms</th><th>PAN</th><th>GSTIN</th><th></th></tr>
@@ -687,7 +687,7 @@ function AdminPage() {
                 ) : (suppliersQ.data ?? []).length === 0 ? (
                   <div className="py-10 text-center text-sm text-muted-foreground"><Truck className="mx-auto mb-2 h-8 w-8 opacity-40" />No suppliers yet.</div>
                 ) : (
-                  <div className="-mx-5 overflow-x-auto">
+                  <div className="-mx-5 overflow-x-auto table-wrap">
                     <table className="table-premium w-full text-sm">
                       <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                         <tr><th>Name</th><th>Category</th><th>PAN</th><th>GSTIN</th><th>Payment terms</th><th></th></tr>
@@ -873,7 +873,7 @@ function AdminPage() {
                   <button
                     onClick={() => createUser.mutate()}
                     disabled={createUser.isPending || !form.email || !form.password}
-                    className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:opacity-50"
+                    className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md transition-colors hover:bg-primary/90 disabled:opacity-50"
                   >
                     {createUser.isPending ? (
                       <>Creating…</>
@@ -893,7 +893,7 @@ function AdminPage() {
           ) : profiles.length === 0 ? (
             <div className="py-6 text-center text-sm text-muted-foreground">No users yet.</div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">

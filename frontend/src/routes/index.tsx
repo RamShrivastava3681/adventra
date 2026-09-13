@@ -63,25 +63,32 @@ const FEATURES = [
 
 function Landing() {
   return (
-    <div className="flex min-h-screen flex-col">
+    <div className="flex min-h-screen flex-col bg-background text-foreground">
       {/* Header */}
-      <header className="border-b border-border/60 bg-background/70 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-          <Link to="/" className="flex items-center gap-2.5">
-            <img src="/logo.png" alt="Whizunik Command" className="h-8 w-auto rounded-md object-contain" />
-            <span className="text-lg font-semibold tracking-tight">Whizunik Command</span>
+      <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-3.5">
+          <Link to="/" className="group flex items-center gap-2.5">
+            <span className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl bg-gradient-to-b from-sky-400 to-blue-700 text-base font-bold text-white shadow-brand ring-1 ring-black/10">
+              W
+            </span>
+            <span className="leading-tight">
+              <span className="block text-[15px] font-bold tracking-tight">Whizunik Command</span>
+              <span className="block text-[9px] font-bold uppercase tracking-[0.24em] text-muted-foreground">
+                Executive control system
+              </span>
+            </span>
           </Link>
           <div className="flex items-center gap-2">
             <Link
               to="/auth"
-              className="hidden rounded-lg border border-border bg-card/60 px-4 py-2 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-card sm:inline-flex"
+              className="btn-secondary hidden !h-10 border-border bg-card/70 backdrop-blur sm:inline-flex"
             >
               Sign in
             </Link>
             <Link
               to="/auth"
               search={{ mode: "signup" }}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:bg-primary/90"
+              className="btn-primary !h-10 shadow-brand"
             >
               Get started <ArrowRight className="h-4 w-4" />
             </Link>
@@ -90,23 +97,29 @@ function Landing() {
       </header>
 
       {/* Hero */}
-      <section className="relative overflow-hidden">
-        <div className="absolute inset-0 grid-lines opacity-20" aria-hidden />
+      <section className="relative overflow-hidden bg-gradient-to-b from-primary/[0.08] via-background to-background">
+        <div className="absolute inset-0 grid-lines opacity-25" aria-hidden />
+        <div className="pointer-events-none absolute -top-32 left-1/2 h-96 w-[52rem] -translate-x-1/2 rounded-full bg-primary/15 blur-3xl" aria-hidden />
+        <div className="pointer-events-none absolute -left-32 top-40 h-72 w-72 rounded-full bg-sky-400/15 blur-3xl" aria-hidden />
+        <div className="pointer-events-none absolute -right-32 top-64 h-72 w-72 rounded-full bg-blue-700/10 blur-3xl" aria-hidden />
 
         <div className="relative mx-auto grid max-w-7xl items-center gap-14 px-6 py-20 lg:grid-cols-2 lg:py-28">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-border bg-card/70 px-3 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur">
-              <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary opacity-60" />
-                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-primary" />
+          <div className="animate-rise">
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-card/80 py-1 pl-1.5 pr-3 text-xs font-semibold text-foreground shadow-card backdrop-blur">
+              <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-primary-foreground">
+                New
               </span>
-              Receivables factoring & monitoring
+              <span className="relative flex h-1.5 w-1.5">
+                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-sem-success opacity-60" />
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-sem-success" />
+              </span>
+              <span className="text-muted-foreground">Receivables factoring & live monitoring</span>
             </div>
-            <h1 className="mt-6 text-5xl font-semibold leading-[1.05] tracking-tight text-balance md:text-6xl">
+            <h1 className="mt-6 text-5xl font-semibold leading-[1.04] tracking-[-0.03em] text-balance md:text-[4.25rem]">
               Capital moves at the speed of{" "}
-              <em className="not-italic text-primary">conviction</em>.
+              <em className="bg-gradient-to-r from-primary via-sky-500 to-primary bg-clip-text not-italic text-transparent">conviction</em>.
             </h1>
-            <p className="mt-6 max-w-xl text-lg text-muted-foreground">
+            <p className="mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground">
               Whizunik Command is the executive control system for receivables factoring and
               customer monitoring — submit invoices, advance capital, and watch risk in real time.
             </p>
@@ -114,33 +127,38 @@ function Landing() {
               <Link
                 to="/auth"
                 search={{ mode: "signup" }}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-lg"
+                className="btn-primary !h-12 !px-6 !text-[15px] shadow-brand"
               >
                 Open a free account <ArrowRight className="h-4 w-4" />
               </Link>
               <Link
                 to="/auth"
-                className="inline-flex items-center gap-2 rounded-lg border border-border bg-card/60 px-5 py-2.5 text-sm font-medium text-foreground transition hover:border-primary/40 hover:bg-card"
+                className="btn-secondary !h-12 !px-6 !text-[15px]"
               >
                 Sign in
               </Link>
             </div>
-            <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-4 text-sm">
+            <div className="mt-10 flex flex-wrap items-center gap-x-8 gap-y-4">
               {[
                 ["₹2B+", "Invoices funded"],
                 ["48h", "Average advance"],
                 ["SOC 2", "Certified platform"],
               ].map(([v, l]) => (
-                <div key={l}>
-                  <div className="font-mono text-xl font-bold text-foreground">{v}</div>
-                  <div className="text-xs text-muted-foreground">{l}</div>
+                <div key={l} className="border-l-2 border-primary/25 pl-4">
+                  <div className="font-mono text-2xl font-bold tracking-tight text-foreground">{v}</div>
+                  <div className="mt-0.5 text-xs font-medium text-muted-foreground">{l}</div>
                 </div>
               ))}
             </div>
+            <p className="mt-6 flex items-center gap-1.5 text-xs text-muted-foreground">
+              <ShieldCheck className="h-3.5 w-3.5 text-sem-success" />
+              No credit card required · Live in minutes · Cancel anytime
+            </p>
           </div>
 
           {/* Product preview */}
-          <div className="relative rounded-xl border border-border bg-card p-5 shadow-card">
+          <div className="relative animate-rise rounded-3xl border border-border bg-card/90 p-6 shadow-modal backdrop-blur [animation-delay:120ms]">
+            <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-primary/15 blur-3xl" aria-hidden />
             <div className="flex items-center justify-between border-b border-border pb-4">
               <div>
                 <div className="text-[10px] uppercase tracking-[0.15em] text-muted-foreground">
@@ -214,9 +232,9 @@ function Landing() {
             {FEATURES.map((f) => (
               <div
                 key={f.title}
-                className="group rounded-xl border border-border bg-card p-6 transition-colors duration-150 hover:border-primary/30"
+                className="group rounded-2xl border border-border bg-card p-6 shadow-card transition-all duration-200 hover:-translate-y-1 hover:border-primary/30 hover:shadow-card-hover"
               >
-                <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-soft text-primary transition-colors duration-150">
+                <div className="flex h-11 w-11 items-center justify-center rounded-2xl border border-primary/15 bg-gradient-to-b from-primary-soft to-background text-primary shadow-sm transition-transform duration-200 group-hover:scale-105">
                   <f.icon className="h-5 w-5" />
                 </div>
                 <h3 className="mt-4 text-[15px] font-semibold text-foreground">{f.title}</h3>
@@ -228,7 +246,7 @@ function Landing() {
       </section>
 
       {/* CTA */}
-      <section className="border-t border-border/60 bg-primary/5">
+      <section className="border-t border-border/60 bg-gradient-to-b from-primary/[0.07] to-primary/[0.02]">
         <div className="mx-auto max-w-3xl px-6 py-20 text-center">
           <h2 className="text-3xl font-semibold tracking-tight text-balance md:text-4xl">
             Put your receivables to work.

@@ -451,7 +451,7 @@ function QueuePage() {
         }
       />
 
-      <div className="space-y-6 p-6 md:p-10">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Card title="Supplier balance due">
             <div className="num text-3xl text-sem-attention">{fmtMoney(balanceToPay)}</div>
@@ -496,7 +496,7 @@ function QueuePage() {
               No approved invoices in the queue.
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -602,7 +602,7 @@ function QueuePage() {
               No approved proformas waiting to be funded.
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -679,7 +679,7 @@ function QueuePage() {
               No approved notes waiting to be applied.
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -767,7 +767,7 @@ function QueuePage() {
               No payments recorded yet.
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -969,7 +969,7 @@ function PayPurchaseModal({
           </button>
           <button
             onClick={() => onSubmit({ amount_paid: totalPaid, paid_date: date })}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
           >
             <ArrowUpFromLine className="h-3.5 w-3.5" />
             {full ? "Mark paid" : "Record partial payment"}
@@ -1068,7 +1068,7 @@ function CloseSaleModal({
           </button>
           <button
             onClick={() => onSubmit({ amount_received: Number(amt), receipt_date: date })}
-            className="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            className="rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
           >
             Close invoice
           </button>

@@ -6,23 +6,26 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ============================================================
-   WHIZUNIK — Premium institutional fintech design system.
-   White + blue. Restraint, hierarchy, data-first.
-   Inspired by Amex restraint, Stripe clarity, Mercury polish,
-   Carbon / Atlassian token discipline.
+   WHIZUNIK COMMAND — Ultimate enterprise design system.
+   White + institutional navy/blue. Restraint, hierarchy, data-first.
+   Bar: Stripe Atlas clarity · Mercury polish · Amex restraint ·
+   Linear motion · Vercel precision. No diagonal ornament anywhere —
+   surfaces stay calm and orthogonal so data carries the weight.
+   This single file upgrades ALL ~50 routes: tokens, base element
+   styles, tables, buttons, inputs, dialogs, shell, motion.
    ============================================================ */
 
 @theme inline {
-  --font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  --font-display: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
   /* Radius — institutional, not playful. Pills reserved for badges. */
-  --radius-sm: 6px;
-  --radius-md: 8px;
-  --radius-lg: 10px;
-  --radius-xl: 12px;
-  --radius-2xl: 16px;
+  --radius-sm: 7px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 16px;
+  --radius-2xl: 20px;
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -31,6 +34,8 @@
   --color-popover: var(--popover);
   --color-popover-foreground: var(--popover-foreground);
   --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover, #005bab);
+  --color-primary-active: var(--primary-active, #004e94);
   --color-primary-foreground: var(--primary-foreground);
   --color-secondary: var(--secondary);
   --color-secondary-foreground: var(--secondary-foreground);
@@ -79,22 +84,32 @@
    ============================================================ */
 :root {
   color-scheme: light;
-  --radius: 10px;
+  --radius: 12px;
 
-  /* Surfaces */
+  /* Surfaces — paper white over a cool mist canvas */
   --background: #ffffff;
-  --foreground: #111827;
-  --surface-subtle: #f7fafc;
-  --surface-active: #eef7ff;
+  --foreground: #0e1b2c;
+  --surface-subtle: #f5f8fc;
+  --surface-active: #e9f2fc;
+  --surface-sunken: #eef3f8;
   --card: #ffffff;
-  --card-foreground: #111827;
+  --card-foreground: #0e1b2c;
   --popover: #ffffff;
-  --popover-foreground: #111827;
+  --popover-foreground: #0e1b2c;
+
+  /* Enterprise shadow scale */
+  --shadow-xs: 0 1px 2px rgba(14, 27, 44, 0.05);
+  --shadow-sm: 0 1px 3px rgba(14, 27, 44, 0.06), 0 1px 2px rgba(14, 27, 44, 0.05);
+  --shadow-md: 0 6px 20px -8px rgba(14, 27, 44, 0.14), 0 2px 8px rgba(14, 27, 44, 0.06);
+  --shadow-lg: 0 16px 40px -16px rgba(14, 27, 44, 0.22), 0 4px 12px rgba(14, 27, 44, 0.07);
+  --shadow-brand: 0 8px 22px -8px rgba(0, 103, 194, 0.4), 0 2px 8px rgba(0, 103, 194, 0.14);
 
   /* Primary — deep institutional blue */
-  --primary: #006fcf;
+  --primary: #0067c2;
+  --primary-hover: #005bab;
+  --primary-active: #004e94;
   --primary-foreground: #ffffff;
-  --primary-soft: #e8f4ff;
+  --primary-soft: #e9f3fe;
 
   --secondary: #f1f5f9;
   --secondary-foreground: #111827;
@@ -277,19 +292,63 @@
 @layer base {
   * {
     border-color: var(--color-border);
-    transition-property: background-color, border-color, color;
+    transition-property: background-color, border-color, color, box-shadow, transform;
     transition-duration: 150ms;
     transition-timing-function: ease-out;
   }
-  /* Keyboard focus — visible everywhere, never doubled on components that
-     define their own focus-visible utilities (those live in a later layer). */
+  /* Keyboard focus — visible everywhere, enterprise ring. */
   :focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
+    border-radius: 6px;
+  }
+  button:disabled,
+  [aria-disabled="true"] {
+    opacity: 0.55;
+    cursor: not-allowed;
   }
   ::selection {
-    background-color: rgba(0, 111, 207, 0.18);
+    background-color: rgba(0, 103, 194, 0.16);
     color: var(--color-foreground);
+  }
+  /* ── Enterprise form unification ──
+     Every native control across all ~50 pages inherits the same
+     premium treatment, so legacy copy-pasted inputs converge. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea {
+    font: inherit;
+    color: var(--color-foreground);
+  }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+  select,
+  textarea {
+    background-color: var(--color-input);
+    border: 1px solid var(--color-border);
+    border-radius: 10px;
+    box-shadow: var(--shadow-xs);
+  }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):focus,
+  select:focus,
+  textarea:focus {
+    border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 14%, transparent);
+    outline: none;
+  }
+  input::placeholder,
+  textarea::placeholder {
+    color: color-mix(in srgb, var(--color-muted-foreground) 72%, transparent);
+  }
+  select {
+    cursor: pointer;
+  }
+  input[type="date"]::-webkit-calendar-picker-indicator {
+    opacity: 0.55;
+    cursor: pointer;
+  }
+  .dark input[type="date"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.7);
+    opacity: 0.8;
   }
   ::-webkit-scrollbar {
     width: 10px;
@@ -319,12 +378,23 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
   }
+  html {
+    scrollbar-gutter: stable;
+  }
   body {
     font-family: var(--font-sans);
     font-size: 14px;
-    font-feature-settings: "ss01", "cv11";
+    line-height: 1.55;
+    font-feature-settings: "ss01", "cv11", "tnum" 0;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+  /* ── Center legacy full-bleed page bodies under the 1440px header ── */
+  .page-enter > div > div[class*="space-y-6"] {
+    width: 100%;
+    max-width: 1440px;
+    margin-inline: auto;
   }
   h1,
   h2,
@@ -357,18 +427,108 @@ input[type="number"] {
 }
 
 @layer utilities {
-  /* Elevation — used sparingly. Default surfaces rely on borders. */
+  /* Elevation — token-driven, soft, institutional. */
   .shadow-card {
-    box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04);
+    box-shadow: var(--shadow-sm);
   }
   .shadow-card-hover {
-    box-shadow: 0 4px 16px rgba(17, 24, 39, 0.08);
+    box-shadow: var(--shadow-md), 0 6px 20px -8px rgba(0, 103, 194, 0.14);
   }
   .shadow-dropdown {
-    box-shadow: 0 4px 16px rgba(17, 24, 39, 0.1);
+    box-shadow: var(--shadow-lg);
   }
   .shadow-modal {
-    box-shadow: 0 24px 64px rgba(17, 24, 39, 0.16);
+    box-shadow: 0 32px 80px -16px rgba(10, 34, 57, 0.35), 0 4px 16px rgba(10, 34, 57, 0.12);
+  }
+  .shadow-brand {
+    box-shadow: var(--shadow-brand);
+  }
+  /* ── Enterprise micro-primitives (use anywhere) ── */
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
+    background: color-mix(in srgb, var(--color-primary) 7%, transparent);
+    padding: 0.2rem 0.65rem;
+    font-size: 10px;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.16em;
+    color: var(--color-primary);
+  }
+  .icon-tile {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 2.75rem;
+    width: 2.75rem;
+    flex-shrink: 0;
+    border-radius: 14px;
+    border: 1px solid color-mix(in srgb, var(--color-primary) 18%, var(--color-border));
+    background: linear-gradient(180deg, var(--color-primary-soft), color-mix(in srgb, var(--color-primary-soft) 40%, var(--color-card)));
+    color: var(--color-primary);
+    box-shadow: var(--shadow-xs);
+  }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 0.75rem;
+    border-radius: 16px;
+    border: 1px solid var(--color-border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--color-card) 92%, var(--color-primary) 8%), var(--color-card) 70%), var(--color-card);
+    padding: 1rem;
+    box-shadow: var(--shadow-sm);
+  }
+  .table-wrap {
+    overflow-x: auto;
+    border-radius: 0 0 16px 16px;
+    scrollbar-width: thin;
+  }
+  .table-wrap::-webkit-scrollbar {
+    height: 8px;
+  }
+  .card-lift {
+    transition: transform 180ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 180ms ease, border-color 180ms ease;
+  }
+  .card-lift:hover {
+    transform: translateY(-2px);
+    border-color: var(--color-border-strong);
+    box-shadow: var(--shadow-md), 0 6px 20px -8px rgba(0, 103, 194, 0.14);
+  }
+  kbd.kbd {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 6px;
+    border: 1px solid var(--color-border);
+    background: var(--color-card);
+    padding: 0.1rem 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 10px;
+    color: var(--color-muted-foreground);
+    box-shadow: 0 1px 0 var(--color-border);
+  }
+  /* Shimmer sweep for skeleton loaders */
+  @keyframes shimmer {
+    100% {
+      transform: translateX(100%);
+    }
+  }
+  /* Staggered entrance for dashboard / flagship grids */
+  .animate-rise {
+    animation: rise 480ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translateY(10px) scale(0.995);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
   .border-hairline {
     border: 1px solid var(--color-border);
@@ -393,83 +553,114 @@ input[type="number"] {
   }
 
   /* ── Financial tables ──
-     Clean header, hairline row rules, right-aligned numerals,
-     compact 48px rows. The table is the workhorse of this product. */
+     The workhorse of the product: calm header, hairline rules,
+     tabular numerals, generous-but-dense 48px rows, min width so
+     dense books scroll horizontally instead of crushing. */
+  .table-premium {
+    min-width: 640px;
+    border-collapse: separate;
+    border-spacing: 0;
+  }
   .table-premium th {
     font-size: 0.6875rem;
-    font-weight: 600;
+    font-weight: 800;
     text-transform: uppercase;
-    letter-spacing: 0.08em;
+    letter-spacing: 0.09em;
     color: var(--color-muted-foreground);
-    padding: 0.625rem 1rem;
+    padding: 0.7rem 1rem;
     text-align: left;
     border-bottom: 1px solid var(--color-border);
-    background: transparent;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--color-muted) 62%, transparent), color-mix(in srgb, var(--color-muted) 42%, transparent));
     white-space: nowrap;
   }
+  .table-premium thead th:first-child {
+    border-top-left-radius: 12px;
+  }
+  .table-premium thead th:last-child {
+    border-top-right-radius: 12px;
+  }
   .table-premium td {
-    padding: 0.75rem 1rem;
-    border-bottom: 1px solid var(--color-border);
+    padding: 0.8rem 1rem;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
     font-size: 0.8125rem;
     vertical-align: middle;
+  }
+  .table-premium tbody tr {
+    transition: background-color 120ms ease;
   }
   .table-premium tr:last-child td {
     border-bottom: none;
   }
-  .table-premium tr:hover td {
-    background-color: var(--color-surface-subtle);
+  .table-premium tbody tr:hover td {
+    background-color: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface-subtle));
   }
   .table-premium .num {
     font-variant-numeric: tabular-nums;
   }
 
   /* ── Buttons ──
-     One dominant action per page. Solid blue, 8px radius, 40px height. */
+     One dominant action per page. Solid blue, 10px radius, 40px height,
+     with soft depth and a gentle lift on hover. */
   .btn-primary {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    border-radius: 8px;
-    background: var(--color-primary);
+    border-radius: 10px;
+    background: linear-gradient(180deg, color-mix(in srgb, var(--color-primary) 100%, white 6%), var(--color-primary));
     color: var(--color-primary-foreground);
     font-size: 0.875rem;
     font-weight: 600;
+    letter-spacing: -0.005em;
     padding: 0.625rem 1.25rem;
     height: 40px;
-    transition: background-color 150ms ease;
+    box-shadow:
+      0 1px 2px rgba(0, 103, 194, 0.28),
+      inset 0 1px 0 rgba(255, 255, 255, 0.18);
+    transition: transform 150ms ease, box-shadow 150ms ease, background-color 150ms ease, filter 150ms ease;
     cursor: pointer;
-    border: none;
+    border: 1px solid color-mix(in srgb, var(--color-primary) 80%, black 12%);
   }
   .btn-primary:hover {
-    background: var(--color-primary-hover, #005fb3);
+    background: var(--color-primary-hover, #005bab);
+    transform: translateY(-1px);
+    box-shadow:
+      0 6px 16px -6px rgba(0, 103, 194, 0.45),
+      inset 0 1px 0 rgba(255, 255, 255, 0.16);
   }
   .btn-primary:active {
-    background: var(--color-primary-active, #004f97);
+    background: var(--color-primary-active, #004e94);
+    transform: translateY(0);
   }
   .btn-primary:disabled {
     opacity: 0.55;
     cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
   }
   .btn-secondary {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.5rem;
-    border-radius: 8px;
+    border-radius: 10px;
     background: var(--color-card);
     color: var(--color-foreground);
     font-size: 0.875rem;
-    font-weight: 500;
+    font-weight: 550;
     padding: 0.625rem 1.25rem;
     height: 40px;
     border: 1px solid var(--color-border-strong);
-    transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
+    box-shadow: 0 1px 2px rgba(15, 28, 46, 0.05);
+    transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease, transform 150ms ease, box-shadow 150ms ease;
     cursor: pointer;
   }
   .btn-secondary:hover {
-    border-color: var(--color-primary);
+    border-color: color-mix(in srgb, var(--color-primary) 55%, var(--color-border-strong));
     color: var(--color-primary);
+    background: color-mix(in srgb, var(--color-primary) 4%, var(--color-card));
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px -4px rgba(15, 28, 46, 0.12);
   }
   .btn-danger {
     display: inline-flex;
@@ -492,36 +683,64 @@ input[type="number"] {
   }
 
   /* ── Metric block ──
-     Flat, bordered, 12px radius, no floating shadow. Values are the hero. */
+     Layered card, 16px radius, soft lift on hover. Values are the hero.
+     No diagonal texture — a calm vertical wash only. */
   .metric-card {
-    background: var(--color-card);
+    position: relative;
+    overflow: hidden;
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--color-card) 96%, var(--color-primary) 4%), var(--color-card) 55%),
+      var(--color-card);
     border: 1px solid var(--color-border);
-    border-radius: 12px;
+    border-radius: 16px;
     padding: 1.25rem 1.5rem;
-    transition: border-color 150ms ease;
+    box-shadow: 0 1px 2px rgba(15, 28, 46, 0.05);
+    transition: border-color 150ms ease, box-shadow 150ms ease, transform 150ms ease;
+  }
+  .metric-card::before {
+    content: "";
+    position: absolute;
+    inset-inline: 0;
+    top: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--color-primary), transparent 75%);
+    opacity: 0;
+    transition: opacity 150ms ease;
   }
   .metric-card:hover {
     border-color: var(--color-border-strong);
+    box-shadow: 0 6px 20px -6px rgba(0, 103, 194, 0.16);
+    transform: translateY(-1px);
+  }
+  .metric-card:hover::before {
+    opacity: 1;
   }
   .metric-value {
-    font-size: 1.75rem;
-    font-weight: 600;
-    letter-spacing: -0.02em;
+    font-size: 1.8rem;
+    font-weight: 650;
+    letter-spacing: -0.025em;
     color: var(--color-foreground);
     font-variant-numeric: tabular-nums;
-    line-height: 1.15;
+    line-height: 1.12;
   }
   .metric-label {
     font-size: 0.6875rem;
     text-transform: uppercase;
-    letter-spacing: 0.09em;
+    letter-spacing: 0.1em;
     color: var(--color-muted-foreground);
-    font-weight: 600;
+    font-weight: 700;
     margin-bottom: 0.375rem;
   }
   .metric-delta {
     font-size: 0.75rem;
     margin-top: 0.375rem;
+  }
+
+  /* ── KPI card (dashboard) — icon-led, no sparkline ornament ── */
+  .kpi-card {
+    background:
+      linear-gradient(180deg, color-mix(in srgb, var(--color-card) 94%, var(--color-primary) 6%), var(--color-card) 60%),
+      var(--color-card);
   }
 
   /* ── Status indicators — blue family + neutral; red only for critical.
@@ -613,7 +832,9 @@ input[type="number"] {
     --whiz-section: #eef4fa;
   }
   .whiz-sidebar {
-    background: linear-gradient(180deg, #0a2239 0%, #0c2a47 100%);
+    background:
+      radial-gradient(120% 40% at 50% -10%, rgba(58, 168, 255, 0.22), transparent 60%),
+      linear-gradient(180deg, #0a2239 0%, #0b2743 55%, #0c2a47 100%);
     border-right: 1px solid #12314f;
     color: #c9d8e8;
   }
@@ -637,7 +858,9 @@ input[type="number"] {
     color: #ffffff !important;
   }
   .whiz-topbar {
-    background: #0a2239;
+    background:
+      radial-gradient(60% 120% at 20% 0%, rgba(58, 168, 255, 0.14), transparent 60%),
+      linear-gradient(180deg, #0b2743 0%, #0a2239 100%);
     border-bottom: 1px solid #12314f;
     color: #dbe7f3;
   }
@@ -738,13 +961,35 @@ input[type="number"] {
      Covers shared shells + the ~50 homegrown modals (same Tailwind pattern):
      navy overlay, wide card, pale body, white section cards, blue footer. */
   div.fixed.inset-0.z-50 {
-    background: rgba(10, 34, 57, 0.55);
+    background: rgba(10, 34, 57, 0.6);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    animation: overlay-in 180ms ease-out;
+  }
+  @keyframes overlay-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
   }
   div.fixed.inset-0.z-50 > div[class*="rounded"] {
-    background: #f4f7fb;
-    border-radius: 16px;
-    border: 1px solid var(--color-border);
-    box-shadow: 0 24px 64px rgba(17, 24, 39, 0.16);
+    background: linear-gradient(180deg, #ffffff 0%, #f4f7fb 120px, #f4f7fb 100%);
+    border-radius: 20px;
+    border: 1px solid color-mix(in srgb, var(--color-border) 85%, white);
+    box-shadow: 0 32px 80px -16px rgba(10, 34, 57, 0.35), 0 4px 16px rgba(10, 34, 57, 0.12);
+    animation: modal-in 240ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  @keyframes modal-in {
+    from {
+      opacity: 0;
+      transform: translateY(12px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
   }
   .dark div.fixed.inset-0.z-50 > div[class*="rounded"] {
     background: var(--color-card);
@@ -825,13 +1070,75 @@ input[type="number"] {
     color: var(--color-foreground);
   }
 
-  /* App canvas — a calm cool-white surface in light mode, deep navy in dark.
-     No gradients, no glows: the data carries the visual weight. */
+  /* App canvas — calm cool-white with a faint vertical wash in light
+     mode, deep navy in dark. Orthogonal only: no diagonal texture. */
   .app-surface {
     background-color: var(--color-surface-subtle);
+    background-image: linear-gradient(180deg, rgba(0, 103, 194, 0.05), transparent 320px);
   }
   .dark .app-surface {
     background-color: var(--color-background);
+    background-image: linear-gradient(180deg, rgba(58, 168, 255, 0.06), transparent 360px);
+  }
+
+  /* Shared page container — every route gets the same rhythm. */
+  .page-shell {
+    width: 100%;
+    max-width: 1440px;
+    margin-inline: auto;
+    padding-inline: 1.5rem;
+    padding-block: 1.5rem;
+  }
+  @media (min-width: 768px) {
+    .page-shell {
+      padding-inline: 2.5rem;
+      padding-block: 2rem;
+    }
+  }
+
+  /* Premium form controls shared by filters across all pages. */
+  .input-premium {
+    width: 100%;
+    border-radius: 10px;
+    border: 1px solid var(--color-border);
+    background: var(--color-card);
+    padding: 0.55rem 0.8rem;
+    font-size: 0.85rem;
+    color: var(--color-foreground);
+    outline: none;
+    box-shadow: 0 1px 2px rgba(15, 28, 46, 0.04);
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+  .input-premium::placeholder {
+    color: color-mix(in srgb, var(--color-muted-foreground) 70%, transparent);
+  }
+  .input-premium:focus {
+    border-color: color-mix(in srgb, var(--color-primary) 60%, var(--color-border));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary) 15%, transparent);
+  }
+  .filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border-radius: 999px;
+    border: 1px solid var(--color-border);
+    background: var(--color-card);
+    padding: 0.35rem 0.8rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--color-muted-foreground);
+    transition: all 150ms ease;
+    cursor: pointer;
+  }
+  .filter-chip:hover {
+    border-color: color-mix(in srgb, var(--color-primary) 40%, var(--color-border));
+    color: var(--color-foreground);
+    transform: translateY(-1px);
+  }
+  .filter-chip[data-active="true"] {
+    border-color: color-mix(in srgb, var(--color-primary) 40%, transparent);
+    background: var(--color-primary-soft);
+    color: var(--color-primary);
   }
 
   /* Soft entrance for route changes (applied to the Outlet wrapper). */
@@ -839,12 +1146,12 @@ input[type="number"] {
     width: 100%;
     max-width: 1600px;
     margin-inline: auto;
-    animation: page-enter 180ms cubic-bezier(0.16, 1, 0.3, 1);
+    animation: page-enter 220ms cubic-bezier(0.16, 1, 0.3, 1);
   }
   @keyframes page-enter {
     from {
       opacity: 0;
-      transform: translateY(3px);
+      transform: translateY(5px);
     }
     to {
       opacity: 1;

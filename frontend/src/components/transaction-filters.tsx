@@ -44,9 +44,9 @@ export type TxFiltersConfig<T> = {
 };
 
 const inputCls =
-  "w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground outline-none transition-all focus:border-primary/50 focus:ring-2 focus:ring-primary/10";
+  "w-full rounded-[10px] border border-border bg-input px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-all placeholder:text-muted-foreground/60 focus:border-primary/60 focus:ring-[3px] focus:ring-primary/15";
 const labelCls =
-  "mb-1 block text-[10px] font-medium uppercase tracking-widest text-muted-foreground";
+  "mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground";
 
 export function TransactionFilters<T>({
   data,
@@ -130,7 +130,7 @@ export function TransactionFilters<T>({
 
   return (
     <div>
-      <div className="flex shrink-0 flex-wrap items-end gap-3 rounded-xl border border-border bg-card p-4 overflow-x-auto">
+      <div className="toolbar shrink-0 overflow-x-auto">
         <div className="min-w-[220px] flex-1">
           <span className={labelCls}>Search</span>
           <div className="relative">
@@ -194,7 +194,7 @@ export function TransactionFilters<T>({
         {hasFilters && (
           <button
             onClick={clear}
-            className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-2 text-xs text-muted-foreground transition hover:border-destructive hover:text-destructive"
+            className="inline-flex items-center gap-1.5 rounded-[10px] border border-border bg-card px-3 py-2 text-xs font-semibold text-muted-foreground shadow-xs transition hover:-translate-y-px hover:border-destructive/50 hover:text-destructive hover:shadow-sm"
             title="Clear all filters"
           >
             <X className="h-3.5 w-3.5" /> Clear

@@ -310,7 +310,7 @@ function InventoryPage() {
               </button>
               <button
                 onClick={() => setOpen(true)}
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
+                className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md transition hover:bg-primary/90"
               >
                 <Plus className="h-4 w-4" /> New movement
               </button>
@@ -323,7 +323,7 @@ function InventoryPage() {
         }
       />
 
-      <div className="space-y-6 p-6 md:p-10">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         {/* Location-wise Stock Breakdown */}
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -385,7 +385,7 @@ function InventoryPage() {
               No SKU sales yet — confirm debits to see the monthly sales breakdown.
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -440,7 +440,7 @@ function InventoryPage() {
               No stock yet — confirm a goods receipt or record an opening stock entry.
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -529,7 +529,7 @@ function InventoryPage() {
               No movements match the filters.
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -1246,7 +1246,7 @@ function MovementModal({
               <button
                 type="submit"
                 disabled={save.isPending}
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md transition hover:bg-primary/90 disabled:opacity-60"
               >
                 {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                 Save changes
@@ -1265,7 +1265,7 @@ function MovementModal({
                   type="button"
                   disabled={save.isPending}
                   onClick={() => save.mutate(true)}
-                  className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+                  className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md transition hover:bg-primary/90 disabled:opacity-60"
                 >
                   {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                   <Check className="h-4 w-4" /> Save & confirm
@@ -1757,7 +1757,7 @@ function BulkImportModal({
                 importMut.isPending
               }
               onClick={() => importMut.mutate()}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md transition hover:bg-primary/90 disabled:opacity-60"
             >
               {importMut.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               <Upload className="h-4 w-4" /> Import {validRows.length} movement(s)

@@ -150,7 +150,7 @@ function SampleDistributionPage() {
           canWrite ? (
             <button
               onClick={() => setOpen(true)}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md transition hover:bg-primary/90"
             >
               <Plus className="h-4 w-4" /> Issue sample
             </button>
@@ -162,7 +162,7 @@ function SampleDistributionPage() {
         }
       />
 
-      <div className="space-y-6 p-6 md:p-10">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         <div className="grid gap-4 sm:grid-cols-3">
           <Card>
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -196,7 +196,7 @@ function SampleDistributionPage() {
               description="Use “Issue sample” to give a sample product to a salesman — stock is debited immediately."
             />
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -442,7 +442,7 @@ function IssueSampleModal({
             <button
               type="submit"
               disabled={issue.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition hover:bg-primary/90 disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md transition hover:bg-primary/90 disabled:opacity-60"
             >
               {issue.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               Issue & debit stock

@@ -62,7 +62,7 @@ function VendorsPage() {
         actions={
           <button
             onClick={() => setOpen(true)}
-            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+            className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
           >
             <Plus className="h-4 w-4" /> Add supplier
           </button>
@@ -82,7 +82,7 @@ function VendorsPage() {
               </div>
             </div>
           ) : (
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -343,7 +343,7 @@ function AddVendorModal({
             </button>
             <button
               disabled={create.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
             >
               {create.isPending && <Loader2 className="h-4 w-4 animate-spin" />} Create
             </button>

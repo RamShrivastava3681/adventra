@@ -2,6 +2,17 @@ import nodemailer from "nodemailer";
 import { config } from "./config.js";
 import * as db from "./dynamodb.js";
 
+// ---------------------------------------------------------------------------
+// Platform branding — every outbound mail must carry this as the sender name.
+// Do not use legacy "Insight Factor" branding here.
+// ---------------------------------------------------------------------------
+
+export const PLATFORM_NAME = "Adventra Platform";
+
+function senderName(): string {
+  return PLATFORM_NAME;
+}
+
 let transporter: nodemailer.Transporter | null = null;
 
 function getTransporter(): nodemailer.Transporter {
@@ -37,10 +48,10 @@ function wrapHTML(
   title = "📋 Invoice Due Reminder",
   opts?: { company?: string; footer?: string },
 ): string {
-  const company = opts?.company || "Insight Factor";
+  const company = opts?.company || PLATFORM_NAME;
   const footerText =
     opts?.footer ||
-    "This is an automated reminder from Insight Factor. Please review and take appropriate action.";
+    `This is an automated reminder from ${PLATFORM_NAME}. Please review and take appropriate action.`;
   return `<!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -249,7 +260,7 @@ export async function sendInvoiceReminder(params: {
   try {
     const transporter = getTransporter();
     await transporter.sendMail({
-      from: `"Insight Factor" <${config.smtp.user}>`,
+      from: `"${senderName()}" <${config.smtp.user}>`,
       to: config.admin.email,
       subject,
       html: wrapHTML(body),
@@ -384,7 +395,7 @@ export async function sendSubmissionEmail(params: {
   try {
     const transporter = getTransporter();
     await transporter.sendMail({
-      from: `"Insight Factor" <${config.smtp.user}>`,
+      from: `"${senderName()}" <${config.smtp.user}>`,
       to: params.recipientEmail,
       subject,
       html: wrapHTML(body),
@@ -465,7 +476,7 @@ export async function sendDebtorReminder(params: {
   try {
     const transporter = getTransporter();
     await transporter.sendMail({
-      from: `"Insight Factor" <${config.smtp.user}>`,
+      from: `"${senderName()}" <${config.smtp.user}>`,
       to: params.counterpartyEmail,
       subject,
       html: wrapHTML(body),
@@ -568,7 +579,7 @@ export async function sendInvoiceNoaEmail(params: {
   try {
     const transporter = getTransporter();
     await transporter.sendMail({
-      from: `"${params.companyName}" <${config.smtp.user}>`,
+      from: `"${senderName()}" <${config.smtp.user}>`,
       to: params.debtorEmail,
       subject,
       html: wrapHTML(
@@ -576,7 +587,7 @@ export async function sendInvoiceNoaEmail(params: {
         `🔖 Notice of Assignment · Invoice ${safe.number}`,
         {
           company: params.companyName,
-          footer: `This is a Notice of Assignment from ${params.companyName}. Please verify the attached invoice and confirm your acknowledgement.`,
+          footer: `This is a Notice of Assignment from ${params.companyName} via ${PLATFORM_NAME}. Please verify the attached invoice and confirm your acknowledgement.`,
         },
       ),
       attachments: [
@@ -672,10 +683,13 @@ export async function sendDocumentApprovalEmail(params: {
   try {
     const transporter = getTransporter();
     await transporter.sendMail({
-      from: `"${params.companyName}" <${config.smtp.user}>`,
+      from: `"${senderName()}" <${config.smtp.user}>`,
       to: params.customerEmail,
       subject,
-      html: wrapHTML(body, `📄 ${kindLabel} for approval`),
+      html: wrapHTML(body, `📄 ${kindLabel} for approval`, {
+        company: params.companyName,
+        footer: `This ${kindLabel.toLowerCase()} was sent from ${params.companyName} via ${PLATFORM_NAME}. Please review the attached PDF.`,
+      }),
       attachments: [
         {
           filename: params.pdfFilename,
@@ -784,7 +798,7 @@ export async function notifyPendingApprovers(params: {
 
     const transporter = getTransporter();
     await transporter.sendMail({
-      from: `"Insight Factor" <${config.smtp.user}>`,
+      from: `"${senderName()}" <${config.smtp.user}>`,
       to: recipients.join(", "),
       subject,
       html: wrapHTML(body, `⏳ ${kindLabel} awaiting ${stageLabel}`),
@@ -860,7 +874,7 @@ export async function notifyWorkflowTask(params: {
     `;
     const transporter = getTransporter();
     await transporter.sendMail({
-      from: `"Insight Factor" <${config.smtp.user}>`,
+      from: `"${senderName()}" <${config.smtp.user}>`,
       to: recipients.join(", "),
       subject,
       html: wrapHTML(body, subject),
@@ -887,7 +901,7 @@ export async function sendWorkflowReminderEmail(params: {
     if (!isEmailConfigured() || params.to.length === 0) return { sent: false };
     const transporter = getTransporter();
     await transporter.sendMail({
-      from: `"Insight Factor" <${config.smtp.user}>`,
+      from: `"${senderName()}" <${config.smtp.user}>`,
       to: params.to.join(", "),
       subject: params.subject,
       html: wrapHTML(params.html, params.subject),

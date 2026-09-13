@@ -251,7 +251,7 @@ function StockAllocationPage() {
             <div className="flex gap-2">
               <button
                 onClick={() => setOpenAllocateModal(true)}
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+                className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
               >
                 <ArrowRightLeft className="h-4 w-4" /> Allocate stock
               </button>
@@ -273,7 +273,7 @@ function StockAllocationPage() {
         }
       />
 
-      <div className="space-y-6 p-6 md:p-10">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         {/* Total Company Stock */}
         <div className="rounded-lg border border-border bg-muted/20 p-4">
           <div className="flex items-center justify-between">
@@ -339,7 +339,7 @@ function StockAllocationPage() {
                 No stock locations yet. Create your first location to start tracking inventory.
               </div>
             ) : (
-              <div className="-mx-5 overflow-x-auto">
+              <div className="-mx-5 overflow-x-auto table-wrap">
                 <table className="table-premium w-full text-sm">
                   <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                     <tr className="border-b border-border">
@@ -444,7 +444,7 @@ function StockAllocationPage() {
                 No stock allocations yet. Use "Allocate stock" to transfer between locations.
               </div>
             ) : (
-              <div className="-mx-5 overflow-x-auto">
+              <div className="-mx-5 overflow-x-auto table-wrap">
                 <table className="table-premium w-full text-sm">
                   <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                     <tr className="border-b border-border">
@@ -774,7 +774,7 @@ function AllocateModal({
             <button
               type="submit"
               disabled={save.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
             >
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               Allocate stock
@@ -915,7 +915,7 @@ function LocationModal({
             <button
               type="submit"
               disabled={save.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
             >
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               {isEdit ? "Update location" : "Create location"}

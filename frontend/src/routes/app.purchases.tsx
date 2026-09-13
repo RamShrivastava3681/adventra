@@ -255,7 +255,7 @@ export function PurchasesPage() {
           canCreate ? (
             <button
               onClick={() => setOpen(true)}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
             >
               <Plus className="h-4 w-4" /> New purchase invoice
             </button>
@@ -267,7 +267,7 @@ export function PurchasesPage() {
         }
       />
 
-      <div className="space-y-6 p-6 md:p-10">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         <div className="grid gap-4 md:grid-cols-3">
           <Card title="Total purchases">
             <div className="num text-3xl">{fmtMoney(totals.all)}</div>
@@ -292,7 +292,7 @@ export function PurchasesPage() {
                   No purchase invoices.
                 </div>
               ) : (
-                <div className="-mx-5 overflow-x-auto">
+                <div className="-mx-5 overflow-x-auto table-wrap">
                   <table className="table-premium w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
@@ -1363,7 +1363,7 @@ function NewPurchaseModal({
               </button>
               <button
                 disabled={save.isPending}
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
               >
                 {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}{" "}
                 {isEdit ? "Save changes" : "Save draft"}

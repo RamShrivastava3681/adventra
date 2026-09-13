@@ -57,7 +57,7 @@ function ReportDetailPage() {
           action={
             <Link
               to="/app/reporting"
-              className="inline-flex items-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              className="inline-flex items-center rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
             >
               Back to Reports Dashboard
             </Link>

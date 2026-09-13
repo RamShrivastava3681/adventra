@@ -614,14 +614,14 @@ function AppLayout() {
           closeSidebar();
           closeAll();
         }}
-        className={`group relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 ${
+        className={`group relative flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[13.5px] font-medium transition-all duration-150 ${
           active
-            ? "bg-primary-soft text-primary"
-            : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+            ? "bg-gradient-to-r from-primary-soft to-primary-soft/40 text-primary shadow-[0_1px_6px_-2px_rgba(0,103,194,0.35)] ring-1 ring-primary/20"
+            : "text-muted-foreground hover:translate-x-px hover:bg-muted/70 hover:text-foreground"
         }`}
       >
         {active && (
-          <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
+          <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-gradient-to-b from-sky-400 to-primary shadow-[0_0_8px_rgba(58,168,255,0.8)]" />
         )}
         <Icon
           className={`h-4 w-4 shrink-0 transition-colors duration-150 ${
@@ -638,8 +638,9 @@ function AppLayout() {
   // `mobile` = false → renders in the desktop sidebar (flyout for groups)
   // A quiet uppercase section label above groups of navigation items.
   const SectionLabel = ({ children }: { children: string }) => (
-    <div className="px-3 pb-1.5 pt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+    <div className="flex items-center gap-2 px-3 pb-1.5 pt-4 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/80">
       {children}
+      <span className="h-px flex-1 bg-gradient-to-r from-border to-transparent" aria-hidden />
     </div>
   );
 
@@ -650,11 +651,16 @@ function AppLayout() {
       <>
         {/* Brand header */}
         <div className="shrink-0 border-b border-white/10 px-5 py-5">
-          <div className="whiz-brand flex items-center gap-2 text-[15px] font-bold leading-none">
-            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-white/15 text-base font-bold text-white">
+          <div className="whiz-brand flex items-center gap-2.5 text-[15px] font-bold leading-none tracking-tight">
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-b from-sky-400 to-blue-600 text-base font-bold text-white shadow-lg shadow-blue-950/40 ring-1 ring-white/20">
               W
             </span>
-            Whizunik Command
+            <span className="leading-tight">
+              Whizunik
+              <span className="block text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-200/70">
+                Command
+              </span>
+            </span>
           </div>
         </div>
 
@@ -662,11 +668,11 @@ function AppLayout() {
         <div className="px-3 pt-3">
           <button
             onClick={() => setCmdOpen(true)}
-            className="flex h-9 w-full items-center gap-2 rounded-lg border border-sidebar-border bg-sidebar-accent/50 px-3 text-[13px] text-muted-foreground transition-colors hover:border-border-strong hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            className="group flex h-10 w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.06] px-3 text-[13px] text-slate-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur transition-all hover:-translate-y-px hover:border-white/20 hover:bg-white/[0.1] hover:text-white hover:shadow-lg"
           >
-            <Search className="h-4 w-4" />
-            <span className="flex-1 text-left">Quick navigate</span>
-            <kbd className="hidden rounded border border-sidebar-border bg-card px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-muted-foreground md:inline-flex">
+            <Search className="h-4 w-4 text-slate-400 transition-colors group-hover:text-white" />
+            <span className="flex-1 text-left font-medium">Quick navigate</span>
+            <kbd className="hidden items-center gap-0.5 rounded-md border border-white/15 bg-white/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-slate-300 md:inline-flex">
               <Command className="h-2.5 w-2.5" />K
             </kbd>
           </button>
@@ -688,14 +694,14 @@ function AppLayout() {
                   onClick={() => {
                     if (mobile) setMobileOpen(false);
                   }}
-                  className={`group relative flex h-10 items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors duration-150 ${
+                  className={`group relative flex h-10 items-center gap-3 rounded-xl px-3 text-[13.5px] font-medium transition-all duration-150 ${
                     active
-                      ? "bg-primary-soft text-primary"
-                      : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      ? "bg-gradient-to-r from-primary-soft to-primary-soft/40 text-primary shadow-[0_1px_6px_-2px_rgba(0,103,194,0.35)] ring-1 ring-primary/20"
+                      : "text-muted-foreground hover:translate-x-px hover:bg-muted hover:text-foreground"
                   }`}
                 >
                   {active && (
-                    <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
+                    <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-gradient-to-b from-sky-400 to-primary shadow-[0_0_8px_rgba(58,168,255,0.8)]" />
                   )}
                   <Icon
                     className={`h-5 w-5 shrink-0 transition-colors duration-150 ${
@@ -756,14 +762,14 @@ function AppLayout() {
                   <>
                     <button
                       onClick={() => setActiveFlyout(isOpen ? null : section.label)}
-                      className={`group relative flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors duration-150 ${
+                      className={`group relative flex h-10 w-full items-center gap-3 rounded-xl px-3 text-[13.5px] font-medium transition-all duration-150 ${
                         hasActiveChild || isOpen
-                          ? "bg-primary-soft text-primary"
-                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                      } ${isOpen ? "ring-1 ring-primary/25" : ""}`}
+                          ? "bg-gradient-to-r from-primary-soft to-primary-soft/40 text-primary shadow-[0_1px_6px_-2px_rgba(0,103,194,0.35)] ring-1 ring-primary/20"
+                          : "text-muted-foreground hover:translate-x-px hover:bg-muted hover:text-foreground"
+                      } ${isOpen ? "ring-1 ring-primary/30" : ""}`}
                     >
                       {(hasActiveChild || isOpen) && (
-                        <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
+                        <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-gradient-to-b from-sky-400 to-primary shadow-[0_0_8px_rgba(58,168,255,0.8)]" />
                       )}
                       <Icon
                         className={`h-5 w-5 shrink-0 transition-colors duration-150 ${
@@ -789,13 +795,13 @@ function AppLayout() {
         </nav>
 
         {/* User footer */}
-        <div className="shrink-0 border-t border-sidebar-border p-3">
-          <div className="flex items-center gap-1">
+        <div className="shrink-0 border-t border-white/10 bg-white/[0.03] p-3">
+          <div className="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.04] p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
             <button
               onClick={() => navigate({ to: "/app/profile", search: viewSearch })}
-              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-2 text-left transition-colors hover:bg-muted"
+              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-white/10"
             >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-xs font-semibold text-primary">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-sky-400 to-blue-600 text-xs font-bold text-white shadow ring-1 ring-white/20">
                 {(user?.email || "U").charAt(0).toUpperCase()}
               </div>
               <div className="min-w-0">
@@ -856,7 +862,7 @@ function AppLayout() {
       </div>
 
       {/* Desktop sidebar */}
-      <aside className="whiz-shell relative hidden w-56 flex-col border-r border-sidebar-border bg-sidebar md:flex print:hidden">
+      <aside className="whiz-shell relative hidden w-60 flex-col border-r border-sidebar-border bg-sidebar shadow-[4px_0_24px_-12px_rgba(10,34,57,0.25)] md:flex print:hidden">
         <div className="whiz-sidebar flex min-h-0 flex-1 flex-col">
         {renderSidebarContent(false)}
 
@@ -866,22 +872,22 @@ function AppLayout() {
             {/* Backdrop */}
             <div className="fixed inset-0 z-40" onClick={() => setActiveFlyout(null)} />
             {/* Flyout panel */}
-            <div className="fixed left-56 top-0 z-50 flex h-full w-64 flex-col border-r border-border bg-popover shadow-modal animate-in slide-in-from-left-2 fade-in duration-150">
+            <div className="fixed left-60 top-0 z-50 flex h-full w-72 flex-col overflow-hidden rounded-r-2xl border-r border-border bg-popover/95 shadow-modal backdrop-blur-xl animate-in slide-in-from-left-2 fade-in duration-200">
               {/* Flyout header */}
-              <div className="flex items-center gap-3 px-4 h-14 shrink-0 border-b border-border">
+              <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-gradient-to-b from-muted/60 to-transparent px-4">
                 <button
                   onClick={() => setActiveFlyout(null)}
-                  className="flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                  className="flex h-8 w-8 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-xs transition-all hover:-translate-x-px hover:text-foreground"
                 >
                   <ChevronRight className="h-4 w-4 rotate-180" />
                 </button>
                 <div className="h-4 w-px bg-border" />
-                <span className="text-xs font-semibold uppercase tracking-[0.15em] text-muted-foreground">
+                <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-foreground">
                   {activeFlyoutSection.label}
                 </span>
               </div>
               {/* Flyout items */}
-              <div className="flex-1 overflow-y-auto p-2 space-y-0.5">
+              <div className="flex-1 space-y-1 overflow-y-auto p-3">
                 {activeFlyoutSection.items.map((n) => {
                   const active = pathname === n.to || pathname.startsWith(n.to + "/");
                   const ItemIcon = n.icon;
@@ -892,18 +898,18 @@ function AppLayout() {
                         setActiveFlyout(null);
                         navigate({ to: n.to, search: viewSearch });
                       }}
-                      className={`group relative flex w-full items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors duration-150 ${
+                      className={`group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] font-medium transition-all duration-150 ${
                         active
-                          ? "bg-primary-soft text-primary"
-                          : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                          ? "bg-gradient-to-r from-primary-soft to-primary-soft/40 text-primary shadow-sm ring-1 ring-primary/20"
+                          : "text-muted-foreground hover:translate-x-px hover:bg-muted/70 hover:text-foreground"
                       }`}
                     >
                       {active && (
-                        <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
+                        <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
                       )}
-                      <ItemIcon
-                        className={`h-4 w-4 shrink-0 ${active ? "text-primary" : "text-muted-foreground"}`}
-                      />
+                      <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${active ? "bg-primary/10 text-primary" : "bg-muted/60 text-muted-foreground group-hover:text-foreground"}`}>
+                        <ItemIcon className="h-4 w-4 shrink-0" />
+                      </span>
                       <span className="truncate">{n.label}</span>
                     </button>
                   );
@@ -932,21 +938,21 @@ function AppLayout() {
           />
         )}
         {/* Top bar — Whizunik Command: global search + user, like ui/ mockups */}
-        <div className="whiz-topbar hidden md:flex h-14 items-center justify-between gap-2 px-6">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
+        <div className="whiz-topbar sticky top-0 z-30 hidden h-16 items-center justify-between gap-2 px-6 shadow-[0_1px_12px_rgba(10,34,57,0.25)] backdrop-blur md:flex">
+          <div className="flex min-w-0 flex-1 items-center gap-3">
             <button
               onClick={() => setCmdOpen(true)}
-              className="flex h-9 w-full max-w-xl items-center gap-2 rounded-full px-4 text-[13px] whiz-search"
+              className="group flex h-10 w-full max-w-xl items-center gap-2.5 rounded-full px-4 text-[13px] shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_2px_8px_rgba(0,0,0,0.2)] transition-all hover:bg-white/[0.14] whiz-search"
             >
-              <Search className="h-4 w-4 shrink-0" />
-              <span className="flex-1 text-left">Search documents, inventory, or approvals…</span>
-              <kbd className="hidden rounded border border-white/20 px-1.5 py-0.5 font-mono text-[10px] lg:inline-flex">
+              <Search className="h-4 w-4 shrink-0 opacity-70 transition-opacity group-hover:opacity-100" />
+              <span className="flex-1 text-left font-medium">Search documents, inventory, or approvals…</span>
+              <kbd className="hidden items-center gap-1 rounded-md border border-white/20 bg-white/10 px-1.5 py-0.5 font-mono text-[10px] lg:inline-flex">
                 ⌘K
               </kbd>
             </button>
             {currentPage && (
-              <span className="hidden truncate text-sm font-medium text-white/70 xl:inline">
-                · {currentPage}
+              <span className="hidden items-center gap-1.5 truncate rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs font-semibold text-white/80 xl:inline-flex">
+                {currentPage}
               </span>
             )}
           </div>

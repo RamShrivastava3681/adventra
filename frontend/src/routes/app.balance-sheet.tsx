@@ -1223,7 +1223,7 @@ function ManualEntryModal({
             <button
               disabled={!name || !amount || save.isPending}
               onClick={() => save.mutate()}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-50"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-50"
             >
               <Plus className="h-4 w-4" /> {entry ? "Update" : "Add"}
             </button>

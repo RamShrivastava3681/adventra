@@ -5,7 +5,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 /* ------------------------------------------------------------------ */
 export function StatSkeleton() {
   return (
-    <div className="rounded-xl border border-border bg-card p-5">
+    <div className="rounded-2xl border border-border bg-card p-5">
       <Skeleton className="h-3 w-24" />
       <Skeleton className="mt-2.5 h-7 w-28" />
       <Skeleton className="mt-2 h-3 w-20" />
@@ -35,7 +35,7 @@ export function ChartSkeleton({ height = "h-64" }: { height?: string }) {
 /* ------------------------------------------------------------------ */
 export function TableSkeleton({ rows = 5, cols = 6 }: { rows?: number; cols?: number }) {
   return (
-    <div className="-mx-5 overflow-x-auto">
+    <div className="-mx-5 overflow-x-auto table-wrap">
       <table className="table-premium w-full">
         <thead>
           <tr>
@@ -77,7 +77,7 @@ export function DashboardSkeleton() {
       </div>
 
       {/* Performance chart */}
-      <div className="rounded-xl border border-border bg-card p-5">
+      <div className="rounded-2xl border border-border bg-card p-5">
         <div className="mb-4 flex items-center justify-between">
           <Skeleton className="h-5 w-40" />
           <Skeleton className="h-3 w-28" />
@@ -98,7 +98,7 @@ export function DashboardSkeleton() {
 
       {/* Aging + Alerts */}
       <div className="grid gap-6 lg:grid-cols-3">
-        <div className="rounded-xl border border-border bg-card p-5 lg:col-span-2">
+        <div className="rounded-2xl border border-border bg-card p-5 lg:col-span-2">
           <Skeleton className="mb-4 h-5 w-36" />
           <div className="space-y-4">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -112,7 +112,7 @@ export function DashboardSkeleton() {
             ))}
           </div>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5">
+        <div className="rounded-2xl border border-border bg-card p-5">
           <div className="mb-4 flex items-center justify-between">
             <Skeleton className="h-5 w-16" />
             <Skeleton className="h-3 w-10" />
@@ -134,14 +134,14 @@ export function DashboardSkeleton() {
       </div>
 
       {/* Action required table */}
-      <div className="rounded-xl border border-border bg-card p-5">
+      <div className="rounded-2xl border border-border bg-card p-5">
         <Skeleton className="mb-4 h-5 w-36" />
         <TableSkeleton rows={4} cols={5} />
       </div>
 
       {/* Portfolio health + recent activity */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-xl border border-border bg-card p-5">
+        <div className="rounded-2xl border border-border bg-card p-5">
           <Skeleton className="mb-4 h-5 w-36" />
           <div className="space-y-3">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -152,7 +152,7 @@ export function DashboardSkeleton() {
             ))}
           </div>
         </div>
-        <div className="rounded-xl border border-border bg-card p-5">
+        <div className="rounded-2xl border border-border bg-card p-5">
           <Skeleton className="mb-4 h-5 w-32" />
           <div className="space-y-3">
             {Array.from({ length: 4 }).map((_, i) => (
@@ -169,13 +169,13 @@ export function DashboardSkeleton() {
       </div>
 
       {/* Recent invoices table */}
-      <div className="rounded-xl border border-border bg-card p-5">
+      <div className="rounded-2xl border border-border bg-card p-5">
         <Skeleton className="mb-4 h-5 w-32" />
         <TableSkeleton rows={4} cols={7} />
       </div>
 
       {/* Recent expenses table */}
-      <div className="rounded-xl border border-border bg-card p-5">
+      <div className="rounded-2xl border border-border bg-card p-5">
         <Skeleton className="mb-4 h-5 w-32" />
         <TableSkeleton rows={3} cols={7} />
       </div>
@@ -211,14 +211,14 @@ export function TablePageSkeleton({
   return (
     <div>
       <PageHeaderSkeleton />
-      <div className="space-y-6 p-6 md:p-10">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         {statCards > 0 && (
           <div
             className="grid gap-4"
             style={{ gridTemplateColumns: `repeat(${Math.min(statCards, 4)}, minmax(0, 1fr))` }}
           >
             {Array.from({ length: statCards }).map((_, i) => (
-              <div key={i} className="rounded-xl border border-border bg-card p-5">
+              <div key={i} className="rounded-2xl border border-border bg-card p-5">
                 <Skeleton className="h-3 w-24" />
                 <Skeleton className="mt-2 h-7 w-20" />
               </div>
@@ -230,7 +230,7 @@ export function TablePageSkeleton({
             <Skeleton key={i} className="h-7 w-20 rounded-full" />
           ))}
         </div>
-        <div className="rounded-xl border border-border bg-card p-5">
+        <div className="rounded-2xl border border-border bg-card p-5">
           <TableSkeleton rows={rows} cols={cols} />
         </div>
       </div>

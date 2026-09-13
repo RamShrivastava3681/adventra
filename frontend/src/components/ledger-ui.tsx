@@ -25,14 +25,14 @@ export function PageHeader({
   icon?: ReactNode;
 }) {
   return (
-    <div className="border-b border-border bg-background px-6 py-5 md:px-10">
+    <div className="sticky top-0 z-30 border-b border-border bg-background/85 px-6 py-6 shadow-[0_1px_12px_-6px_rgba(14,27,44,0.12)] backdrop-blur-xl supports-[backdrop-filter]:bg-background/75 md:px-10">
       {/* Breadcrumbs */}
       {breadcrumbs && breadcrumbs.length > 0 && (
         <nav className="mb-3 flex items-center gap-1.5 text-xs text-muted-foreground">
           {backTo && (
             <Link
               to={backTo as any}
-              className="mr-1 inline-flex items-center gap-1 text-muted-foreground hover:text-foreground transition-colors"
+              className="mr-1 inline-flex h-6 w-6 items-center justify-center rounded-md border border-border text-muted-foreground transition-all hover:border-primary/40 hover:text-primary"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
             </Link>
@@ -41,38 +41,38 @@ export function PageHeader({
             <span key={i} className="flex items-center gap-1.5">
               {i > 0 && <ChevronRight className="h-3 w-3 text-muted-foreground/40" />}
               {b.href ? (
-                <Link to={b.href as any} className="hover:text-primary transition-colors">
+                <Link to={b.href as any} className="font-medium hover:text-primary transition-colors">
                   {b.label}
                 </Link>
               ) : (
-                <span className="text-muted-foreground">{b.label}</span>
+                <span className="rounded-full border border-border bg-muted/50 px-2 py-0.5 font-medium text-muted-foreground">{b.label}</span>
               )}
             </span>
           ))}
         </nav>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
+      <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
           {icon && (
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-soft text-primary">
+            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border border-primary/20 bg-gradient-to-b from-primary-soft to-primary-soft/40 text-primary shadow-sm">
               {icon}
             </div>
           )}
           <div>
             {eyebrow && (
-              <p className="text-[10px] uppercase tracking-[0.18em] text-primary font-semibold">
+              <p className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary-soft/60 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-primary font-bold">
                 {eyebrow}
               </p>
             )}
-            <h1 className="mt-0.5 text-xl font-semibold leading-tight tracking-tight text-foreground">
+            <h1 className="mt-1.5 text-[22px] font-semibold leading-tight tracking-tight text-foreground">
               {title}
             </h1>
             {description && (
-              <p className="mt-0.5 max-w-2xl text-[13px] text-muted-foreground">{description}</p>
+              <p className="mt-1 max-w-2xl text-[13px] leading-relaxed text-muted-foreground">{description}</p>
             )}
           </div>
         </div>
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
+        {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
       </div>
     </div>
   );
@@ -96,13 +96,16 @@ export function EmptyState({
   return (
     <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
       {icon && (
-        <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary-soft text-primary">
-          {icon}
+        <div className="relative mb-4">
+          <div className="absolute inset-0 scale-125 rounded-2xl bg-primary/5 blur-md" aria-hidden />
+          <div className="relative flex h-12 w-12 items-center justify-center rounded-2xl border border-primary/15 bg-gradient-to-b from-primary-soft to-background text-primary shadow-sm">
+            {icon}
+          </div>
         </div>
       )}
-      <h3 className="text-base font-semibold text-foreground">{title}</h3>
+      <h3 className="text-[15px] font-semibold tracking-tight text-foreground">{title}</h3>
       {description && (
-        <p className="mt-1.5 max-w-sm text-sm text-muted-foreground">{description}</p>
+        <p className="mt-1.5 max-w-sm text-[13px] leading-relaxed text-muted-foreground">{description}</p>
       )}
       {action && <div className="mt-5">{action}</div>}
     </div>
@@ -123,16 +126,20 @@ export function Stat({
   tint?: "blue" | "amber" | "red" | "green";
 }) {
   const toneCls = {
-    neutral: "text-muted-foreground",
-    good: "text-sem-success",
-    warn: "text-sem-attention",
-    bad: "text-sem-critical",
+    neutral: "text-muted-foreground border-border bg-muted/60",
+    good: "text-sem-success border-sem-success/25 bg-sem-success/10",
+    warn: "text-sem-attention border-sem-attention/25 bg-sem-attention/10",
+    bad: "text-sem-critical border-sem-critical/25 bg-sem-critical/10",
   }[tone];
   return (
-    <div className={`metric-card ${tint ? `whiz-kpi-${tint}` : ""}`}>
+    <div className={`metric-card card-lift group ${tint ? `whiz-kpi-${tint}` : ""}`}>
       <div className="metric-label">{label}</div>
       <div className="metric-value">{value}</div>
-      {delta && <div className={`metric-delta ${toneCls}`}>{delta}</div>}
+      {delta && (
+        <div className={`metric-delta inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${toneCls}`}>
+          {delta}
+        </div>
+      )}
     </div>
   );
 }
@@ -149,9 +156,9 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div className={`rounded-xl border border-border bg-card shadow-card ${className}`}>
+    <div className={`overflow-hidden rounded-2xl border border-border bg-card shadow-card transition-shadow duration-200 hover:shadow-card-hover ${className}`}>
       {title && (
-        <div className="flex items-center justify-between border-b border-border px-5 py-3.5">
+        <div className="flex items-center justify-between gap-3 border-b border-border/80 bg-gradient-to-b from-muted/[0.5] to-muted/[0.15] px-5 py-3.5">
           <h3 className="text-[15px] font-semibold tracking-tight text-foreground">{title}</h3>
           {action}
         </div>
@@ -258,15 +265,15 @@ export function Trend({
   const good = neutral ? null : value > 0 !== invert;
   const Icon = neutral ? Minus : value > 0 ? ArrowUpRight : ArrowDownRight;
   const cls = neutral
-    ? "text-sem-neutral"
+    ? "text-sem-neutral border-border bg-muted/60"
     : good
-      ? "text-sem-success"
-      : "text-sem-critical";
+      ? "text-sem-success border-sem-success/25 bg-sem-success/10"
+      : "text-sem-critical border-sem-critical/25 bg-sem-critical/10";
   return (
-    <span className={`inline-flex items-center gap-1 text-xs font-semibold ${cls} ${className}`}>
-      <Icon className="h-3.5 w-3.5" />
+    <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-bold tabular-nums ${cls} ${className}`}>
+      <Icon className="h-3 w-3" />
       {Math.abs(value).toFixed(1)}%
-      {caption && <span className="font-normal text-muted-foreground">{caption}</span>}
+      {caption && <span className="font-medium text-muted-foreground">{caption}</span>}
     </span>
   );
 }

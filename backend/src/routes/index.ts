@@ -2065,7 +2065,7 @@ router.post("/invoices/:id/send-noa", authMiddleware, async (req, res) => {
 
     // Build the invoice PDF (Tally-style tax invoice + e-Way Bill section).
     const { pdf, number, grandTotal } = await buildInvoiceTallyBuffer(inv, inv.clientId);
-    const companyName = "Adventra";
+    const companyName = "Adventra Platform";
 
     const filename = `${number.replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`;
     const noaUrl = `${config.appUrl}/noa/${inv.noaToken}`;

@@ -394,7 +394,7 @@ function DispatchesPage() {
                 setPreselectSoId(null);
                 setCreateOpen(true);
               }}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
             >
               <Plus className="h-4 w-4" /> Create from sales order
             </button>
@@ -406,7 +406,7 @@ function DispatchesPage() {
         }
       />
 
-      <div className="space-y-6 p-6 md:p-10">
+      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <StatTile label="Drafts" value={stats.drafts} icon={PackageOpen} />
           <StatTile label="Awaiting delivery" value={stats.toDeliver} icon={Truck} />
@@ -425,7 +425,7 @@ function DispatchesPage() {
                 {pendingInvoices.length} invoice(s) awaiting dispatch
               </span>
             </div>
-            <div className="-mx-5 overflow-x-auto">
+            <div className="-mx-5 overflow-x-auto table-wrap">
               <table className="table-premium w-full text-sm">
                 <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                   <tr className="border-b border-border">
@@ -528,7 +528,7 @@ function DispatchesPage() {
                   No dispatch notes yet.
                 </div>
               ) : (
-                <div className="-mx-5 overflow-x-auto">
+                <div className="-mx-5 overflow-x-auto table-wrap">
                   <table className="table-premium w-full text-sm">
                     <thead className="text-xs uppercase tracking-widest text-muted-foreground">
                       <tr className="border-b border-border">
@@ -1352,7 +1352,7 @@ function DispatchCreateModal({
               </button>
               <button
                 disabled={save.isPending}
-                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+                className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
               >
                 {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
                 Record draft dispatch
@@ -1903,7 +1903,7 @@ function DeliverModal({
             </button>
             <button
               disabled={save.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
             >
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               Record delivery
@@ -2051,7 +2051,7 @@ function ReturnModal({
             </button>
             <button
               disabled={save.isPending}
-              className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground disabled:opacity-60"
+              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
             >
               {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
               Record return
