@@ -230,7 +230,7 @@ function computeManualPreview<T extends { id: string; due_date: string | null }>
 
 // ── Page Component ──
 
-function BulkPaymentsPage() {
+export function BulkPaymentsPage() {
   const { isAdmin, isTreasury } = useAuth();
   const canWrite = isAdmin || isTreasury;
   const qc = useQueryClient();

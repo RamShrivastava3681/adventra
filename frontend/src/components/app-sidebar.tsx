@@ -6,7 +6,6 @@ import {
   ChevronsRight,
   Command,
   Search,
-  TrendingUp,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -376,29 +375,6 @@ export function AppSidebar({
             </div>
           ))}
         </nav>
-
-        {/* ── 10. Bottom brand message ── */}
-        <div className="shrink-0 border-t border-[#eef2f7] p-3 dark:border-sidebar-border">
-          {collapsed ? (
-            <div className="flex justify-center">
-              <ItemTooltip enabled label="Build today. Stronger tomorrow.">
-                <span className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-[#eef7ff] text-[#0067c2] dark:bg-sidebar-accent dark:text-sidebar-primary">
-                  <TrendingUp className="h-4 w-4" />
-                </span>
-              </ItemTooltip>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2.5 rounded-[10px] bg-[#eef7ff] px-3 py-2.5 dark:bg-sidebar-accent">
-              <TrendingUp className="h-4 w-4 shrink-0 text-[#0067c2] dark:text-sidebar-primary" />
-              <p className="text-[12.5px] leading-snug text-[#334155] dark:text-sidebar-accent-foreground">
-                Build today.
-                <span className="block font-bold text-[#0a4a8a] dark:text-sidebar-accent-foreground">
-                  Stronger tomorrow.
-                </span>
-              </p>
-            </div>
-          )}
-        </div>
       </div>
     </TooltipProvider>
   );

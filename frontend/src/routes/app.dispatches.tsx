@@ -192,11 +192,52 @@ const DISPATCH_STATUS_TONES: Record<string, string> = {
 };
 
 export function DispatchesPage() {
+  const search = Route.useSearch();
+  return (
+    <DispatchesPageContent
+      soId={search.soId}
+      soFilter={search.soFilter}
+      createFromInvoice={search.createFromInvoice}
+      createFromSO={search.createFromSO}
+      initialStatus={search.initialStatus}
+    />
+  );
+}
+
+// Embedded-safe content — also rendered as the "Dispatch" tab inside
+// /app/warehouse-workbench (which lazy-imports this export directly).
+// It must NOT call Route.useSearch() itself, otherwise the tab crashes
+// because "/app/dispatches" is not the matched route in that context.
+export function DispatchesPageContent({
+  soId,
+  soFilter,
+  createFromInvoice,
+  createFromSO,
+  initialStatus,
+}: {
+  soId?: string;
+  soFilter?: string;
+  createFromInvoice?: string;
+  createFromSO?: string;
+  initialStatus?: string;
+}) {
   const { user, isSalesRep, isAdmin, isChecker } = useAuth();
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();
   const navigate = useNavigate();
-  const { soId, soFilter, createFromInvoice, createFromSO, initialStatus } = Route.useSearch();
+  // Only rewrite the URL when we are actually on the standalone
+  // /app/dispatches route — inside the workbench tab there is no
+  // dispatches search to clear, and navigating would kick the user
+  // out of the workbench.
+  const clearDispatchSearch = () => {
+    try {
+      if (window.location.pathname.startsWith("/app/dispatches")) {
+        navigate({ to: "/app/dispatches", search: {}, replace: true });
+      }
+    } catch {
+      // embedded / no router context — nothing to clear
+    }
+  };
   const [soFilterSel, setSoFilterSel] = useState<string>(soFilter ?? "");
   const [createOpen, setCreateOpen] = useState(false);
   const [preselectSoId, setPreselectSoId] = useState<string | null>(null);
@@ -209,27 +250,27 @@ export function DispatchesPage() {
     if (soId) {
       setPreselectSoId(soId);
       setCreateOpen(true);
-      navigate({ to: "/app/dispatches", search: {}, replace: true });
+      clearDispatchSearch();
     }
-  }, [soId, navigate]);
+  }, [soId]);
 
   // Coming from warehouse ready tab with SO and initial status
   useEffect(() => {
     if (createFromSO) {
       setPreselectSoId(createFromSO);
       setCreateOpen(true);
-      navigate({ to: "/app/dispatches", search: {}, replace: true });
+      clearDispatchSearch();
     }
-  }, [createFromSO, navigate]);
+  }, [createFromSO]);
 
   // Coming from an invoice ("Create dispatch" button in warehouse) — open with invoice preselected
   useEffect(() => {
     if (createFromInvoice) {
       setPreselectInvoiceId(createFromInvoice);
       setCreateOpen(true);
-      navigate({ to: "/app/dispatches", search: {}, replace: true });
+      clearDispatchSearch();
     }
-  }, [createFromInvoice, navigate]);
+  }, [createFromInvoice]);
 
   const dispatchQ = useQuery({
     queryKey: ["goods-dispatches"],
@@ -377,7 +418,13 @@ export function DispatchesPage() {
 
   const setSoFilter = (v: string) => {
     setSoFilterSel(v);
-    navigate({ to: "/app/dispatches", search: v ? { soFilter: v } : {}, replace: true });
+    try {
+      if (window.location.pathname.startsWith("/app/dispatches")) {
+        navigate({ to: "/app/dispatches", search: v ? { soFilter: v } : {}, replace: true });
+      }
+    } catch {
+      // embedded in workbench — keep filter in local state only
+    }
   };
 
   return (
@@ -1669,7 +1716,7 @@ function DispatchDetailModal({
                 </button>
               )}
               <Link
-                to="/app/dispatches/challan/$dispatchId"
+                to="/app/challan/$dispatchId"
                 params={{ dispatchId: d.id }}
                 className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:border-primary hover:text-primary"
               >

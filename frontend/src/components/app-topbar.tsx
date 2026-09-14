@@ -4,8 +4,6 @@ import {
   Briefcase,
   Check,
   ChevronDown,
-  ChevronsLeft,
-  ChevronsRight,
   Home,
   LogOut,
   Monitor,
@@ -87,8 +85,6 @@ export function ThemeMenu({
 type Props = {
   currentPage: string;
   pageIcon?: LucideIcon;
-  collapsed: boolean;
-  onToggleSidebar: () => void;
   onSearch: () => void;
   alertsCount?: number;
   userEmail?: string | null;
@@ -120,8 +116,6 @@ function CountBadge({ count }: { count: number }) {
 export function AppTopbar({
   currentPage,
   pageIcon,
-  collapsed,
-  onToggleSidebar,
   onSearch,
   alertsCount = 0,
   userEmail,
@@ -141,22 +135,6 @@ export function AppTopbar({
         aria-label="Top navigation"
         className="flex h-16 items-center gap-3 rounded-2xl border border-[#e5ebf2] bg-white px-4 shadow-[0_8px_28px_-12px_rgba(10,34,57,0.18)] dark:border-sidebar-border dark:bg-sidebar dark:shadow-none"
       >
-        {/* ── 2. Sidebar toggle ── */}
-        <button
-          onClick={onToggleSidebar}
-          aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[#e5ebf2] text-[#334155] transition-colors duration-150 hover:bg-[#f1f5f9] hover:text-[#0e1b2c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-sidebar-border dark:text-muted-foreground dark:hover:bg-sidebar-accent dark:hover:text-sidebar-foreground"
-        >
-          {collapsed ? (
-            <ChevronsRight className="h-5 w-5" strokeWidth={1.8} />
-          ) : (
-            <ChevronsLeft className="h-5 w-5" strokeWidth={1.8} />
-          )}
-        </button>
-
-        <span aria-hidden className="h-8 w-px shrink-0 bg-[#e5ebf2] dark:bg-sidebar-border" />
-
         {/* ── 3. Search bar ── */}
         <button
           onClick={onSearch}

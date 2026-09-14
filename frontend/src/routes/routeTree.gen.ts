@@ -29,6 +29,7 @@ import { Route as AppFinanceInvoicesRouteImport } from './app.finance-invoices'
 import { Route as AppFinanceProformasRouteImport } from './app.finance-proformas'
 import { Route as AppFinancePurchasesRouteImport } from './app.finance-purchases'
 import { Route as AppFinanceSalesOrdersRouteImport } from './app.finance-sales-orders'
+import { Route as AppFinanceWorkbenchRouteImport } from './app.finance-workbench'
 import { Route as AppForecastRouteImport } from './app.forecast'
 import { Route as AppGrnRouteImport } from './app.grn'
 import { Route as AppInventoryRouteImport } from './app.inventory'
@@ -163,6 +164,11 @@ const AppFinancePurchasesRoute = AppFinancePurchasesRouteImport.update({
 const AppFinanceSalesOrdersRoute = AppFinanceSalesOrdersRouteImport.update({
   id: '/finance-sales-orders',
   path: '/finance-sales-orders',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFinanceWorkbenchRoute = AppFinanceWorkbenchRouteImport.update({
+  id: '/finance-workbench',
+  path: '/finance-workbench',
   getParentRoute: () => AppRoute,
 } as any)
 const AppForecastRoute = AppForecastRouteImport.update({
@@ -362,6 +368,7 @@ export interface FileRoutesByFullPath {
   '/app/finance-proformas': typeof AppFinanceProformasRoute
   '/app/finance-purchases': typeof AppFinancePurchasesRoute
   '/app/finance-sales-orders': typeof AppFinanceSalesOrdersRoute
+  '/app/finance-workbench': typeof AppFinanceWorkbenchRoute
   '/app/forecast': typeof AppForecastRoute
   '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
@@ -419,6 +426,7 @@ export interface FileRoutesByTo {
   '/app/finance-proformas': typeof AppFinanceProformasRoute
   '/app/finance-purchases': typeof AppFinancePurchasesRoute
   '/app/finance-sales-orders': typeof AppFinanceSalesOrdersRoute
+  '/app/finance-workbench': typeof AppFinanceWorkbenchRoute
   '/app/forecast': typeof AppForecastRoute
   '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
@@ -476,6 +484,7 @@ export interface FileRoutesById {
   '/app/finance-proformas': typeof AppFinanceProformasRoute
   '/app/finance-purchases': typeof AppFinancePurchasesRoute
   '/app/finance-sales-orders': typeof AppFinanceSalesOrdersRoute
+  '/app/finance-workbench': typeof AppFinanceWorkbenchRoute
   '/app/forecast': typeof AppForecastRoute
   '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
@@ -535,6 +544,7 @@ export interface FileRouteTypes {
     | '/app/finance-proformas'
     | '/app/finance-purchases'
     | '/app/finance-sales-orders'
+    | '/app/finance-workbench'
     | '/app/forecast'
     | '/app/grn'
     | '/app/inventory'
@@ -592,6 +602,7 @@ export interface FileRouteTypes {
     | '/app/finance-proformas'
     | '/app/finance-purchases'
     | '/app/finance-sales-orders'
+    | '/app/finance-workbench'
     | '/app/forecast'
     | '/app/grn'
     | '/app/inventory'
@@ -648,6 +659,7 @@ export interface FileRouteTypes {
     | '/app/finance-proformas'
     | '/app/finance-purchases'
     | '/app/finance-sales-orders'
+    | '/app/finance-workbench'
     | '/app/forecast'
     | '/app/grn'
     | '/app/inventory'
@@ -833,6 +845,13 @@ declare module '@tanstack/react-router' {
       path: '/finance-sales-orders'
       fullPath: '/app/finance-sales-orders'
       preLoaderRoute: typeof AppFinanceSalesOrdersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/finance-workbench': {
+      id: '/app/finance-workbench'
+      path: '/finance-workbench'
+      fullPath: '/app/finance-workbench'
+      preLoaderRoute: typeof AppFinanceWorkbenchRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/forecast': {
@@ -1115,6 +1134,7 @@ interface AppRouteChildren {
   AppFinanceProformasRoute: typeof AppFinanceProformasRoute
   AppFinancePurchasesRoute: typeof AppFinancePurchasesRoute
   AppFinanceSalesOrdersRoute: typeof AppFinanceSalesOrdersRoute
+  AppFinanceWorkbenchRoute: typeof AppFinanceWorkbenchRoute
   AppForecastRoute: typeof AppForecastRoute
   AppGrnRoute: typeof AppGrnRoute
   AppInventoryRoute: typeof AppInventoryRoute
@@ -1166,6 +1186,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppFinanceProformasRoute: AppFinanceProformasRoute,
   AppFinancePurchasesRoute: AppFinancePurchasesRoute,
   AppFinanceSalesOrdersRoute: AppFinanceSalesOrdersRoute,
+  AppFinanceWorkbenchRoute: AppFinanceWorkbenchRoute,
   AppForecastRoute: AppForecastRoute,
   AppGrnRoute: AppGrnRoute,
   AppInventoryRoute: AppInventoryRoute,

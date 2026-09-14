@@ -6,20 +6,16 @@ import { useViewAsUserId } from "@/lib/view-as";
 import { ViewAsBanner } from "@/components/view-as-banner";
 import {
   LayoutDashboard,
-  FileText,
   BellRing,
   Settings,
   Shield,
   Building2,
   Truck,
   ShoppingCart,
-  Banknote,
   ClipboardCheck,
   Wallet,
-  FileSignature,
   Palette,
   Package,
-  TrendingUp,
   Users,
   Search,
   Menu,
@@ -28,7 +24,6 @@ import {
   Briefcase,
   PackageCheck,
   BarChart3,
-  ArrowRightLeft,
   AlertTriangle,
   Warehouse,
   ListTodo,
@@ -56,17 +51,6 @@ type NavItem = { to: string; label: string; icon: any };
 type NavSection =
   | { type: "single"; label: string; icon: any; to: string }
   | { type: "group"; label: string; icon: any; items: NavItem[] };
-
-// ─── Finance items ──
-const FINANCE_ITEMS: NavItem[] = [
-  { to: "/app/cash-flow", label: "Cash Command", icon: Wallet },
-  { to: "/app/queue", label: "Treasury", icon: Banknote },
-  { to: "/app/bulk-payments", label: "Bulk Payments", icon: ArrowRightLeft },
-  { to: "/app/finance-sales-orders", label: "Sales orders", icon: ShoppingBag },
-  { to: "/app/finance-invoices", label: "Sales invoices", icon: FileText },
-  { to: "/app/finance-proformas", label: "Sales proforma", icon: FileSignature },
-  { to: "/app/finance-purchases", label: "Purchase invoices", icon: ShoppingCart },
-];
 
 // ─── Procurement — a single Workbench entry. The workbench page hosts the
 // procurement navigation (Suppliers, Purchase Orders, Purchase Invoices,
@@ -132,14 +116,19 @@ function buildNavSections(roles: string[]): NavSection[] {
       ? { type: "single", label: "Checker", icon: ClipboardCheck, to: "/app/checker" }
       : null;
 
-  // Finance — visible to treasury, operations, admin
+  // Finance — a single Workbench entry, same format as Sales / Procurement /
+  // Warehouse. The workbench page hosts the finance navigation (Cash
+  // Command, Treasury, Bulk Payments, Sales Orders, Sales Invoices, Sales
+  // Proforma, Purchase Invoices, Activity History) as in-page tabs, so the
+  // sidebar collapses to one link. All document routes below stay registered
+  // and reachable via the workbench tabs and deep links.
   const financeSection: NavSection | null =
     (isTreasury || isOperations || isAdmin)
       ? {
-          type: "group",
+          type: "single",
           label: "Finance",
-          icon: TrendingUp,
-          items: FINANCE_ITEMS,
+          icon: Wallet,
+          to: "/app/finance-workbench",
         }
       : null;
 
@@ -354,7 +343,11 @@ function AppLayout() {
     ];
     // Finance duplicate tabs (same data/process as the Sales and Procurement
     // tabs, just surfaced under the Finance section for treasury/ops/admin).
+    // The Finance Workbench hosts them as same-page tabs (same format as the
+    // Sales / Procurement / Warehouse workbenches); the routes below stay
+    // registered for deep links.
     const financeRoutes: string[] = [
+      "/app/finance-workbench",
       "/app/finance-sales-orders",
       "/app/finance-invoices",
       "/app/finance-proformas",
@@ -395,7 +388,7 @@ function AppLayout() {
       "/app/forecast",
       "/app/grn",
       "/app/dispatches",
-      "/app/dispatches/challan",
+      "/app/challan",
       "/app/stock-allocation",
       "/app/sample-distribution",
     ];
@@ -548,7 +541,7 @@ function AppLayout() {
   const currentPage = (() => {
     // Detail / preview routes that don't share a nav-item prefix.
     const DETAIL_LABELS: [string, string][] = [
-      ["/app/dispatches/challan/", "Challan"],
+      ["/app/challan/", "Challan"],
       ["/app/invoice-preview/", "Invoice"],
       ["/app/note-preview/", "Credit / Debit note"],
     ];
@@ -720,8 +713,6 @@ function AppLayout() {
         <AppTopbar
           currentPage={currentPage}
           pageIcon={pageIcon}
-          collapsed={collapsed}
-          onToggleSidebar={toggleCollapsed}
           onSearch={() => setCmdOpen(true)}
           alertsCount={alertsCount}
           userEmail={user?.email}

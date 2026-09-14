@@ -233,7 +233,7 @@ function occurrencesInNext7Days(r: any): number {
 
 // ── Page Component ─────────────────────────────────────────────────────────
 
-function CashFlowPage() {
+export function CashFlowPage() {
   const { isAdmin, isTreasury } = useAuth();
   const canWrite = isAdmin || isTreasury;
   const queryClient = useQueryClient();
