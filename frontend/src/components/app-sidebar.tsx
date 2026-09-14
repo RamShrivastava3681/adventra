@@ -281,13 +281,6 @@ export function AppSidebar({
         <nav aria-label="Primary" className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
           {grouped.map((g) => (
             <div key={g.title} className="mb-1">
-              {!collapsed && (
-                <div className="flex items-center gap-2 px-3 pb-1.5 pt-4 text-[10px] font-bold uppercase tracking-[0.16em] text-[#64748b]">
-                  <span className="shrink-0">{g.title}</span>
-                  <span aria-hidden className="h-px flex-1 bg-[#e5ebf2] dark:bg-sidebar-border" />
-                </div>
-              )}
-              {collapsed && <div aria-hidden className="mx-2 my-2 h-px bg-[#e5ebf2] dark:bg-sidebar-border" />}
               <ul className="flex flex-col gap-[2px]">
                 {g.sections.map((section) => {
                   if (section.type === "single") {

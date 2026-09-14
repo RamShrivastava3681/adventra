@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+﻿import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api-client";
@@ -15,7 +15,6 @@ import {
   Truck,
   PackageCheck,
   ClipboardCheck,
-  ClipboardList,
   Boxes,
   BarChart3,
   CheckCircle2,
@@ -23,8 +22,6 @@ import {
   Pencil,
   X,
   Loader2,
-  ArrowDownToLine,
-  ArrowUpFromLine,
   FileText,
   MapPin,
   RotateCcw,
@@ -50,7 +47,7 @@ export const Route = createFileRoute("/app/warehouse")({
   }),
 });
 
-// ─── Shipping pipeline (pure logistics — stock is debited once at confirm) ──
+// â”€â”€â”€ Shipping pipeline (pure logistics â€” stock is debited once at confirm) â”€â”€
 const SHIPPING_STATUSES = [
   "awaiting_pick",
   "picking",
@@ -77,7 +74,7 @@ function shippingTone(s: string) {
   return "bg-muted text-muted-foreground";
 }
 
-// ─── Types (snake_case — the backend response transform) ──
+// â”€â”€â”€ Types (snake_case â€” the backend response transform) â”€â”€
 type SOLine = {
   product_id: string;
   sku: string | null;
@@ -102,43 +99,6 @@ type SO = {
   warehouse_approved_at: string | null;
   warehouse: string | null;
   lines: SOLine[];
-};
-
-type GoodsPO = {
-  id: string;
-  po_number: string;
-  po_date: string;
-  supplier_name: string | null;
-  expected_delivery_date: string | null;
-  status: string;
-  warehouse: string | null;
-  grand_total: number;
-  lines: Array<{
-    product_id: string;
-    name: string;
-    ordered_qty: number;
-    received_qty: number;
-    unit_price: number;
-  }>;
-};
-
-type WarehouseGRN = {
-  id: string;
-  receipt_number: string;
-  goods_purchase_order_id: string;
-  po_number: string | null;
-  supplier_name: string | null;
-  received_date: string;
-  status: string;
-  warehouse: string | null;
-  lines: Array<{
-    product_id: string;
-    name: string;
-    ordered_qty: number;
-    received_qty: number;
-    accepted_qty: number;
-    unit_cost: number;
-  }>;
 };
 
 type DispatchLine = {
@@ -190,26 +150,17 @@ type Movement = {
   destination_location_id: string | null;
 };
 
-type GoodsReceipt = {
-  id: string;
-  receipt_number: string;
-  supplier_name: string | null;
-};
+type Tab = "overview" | "orders" | "ready" | "dispatches";
 
-type Tab = "overview" | "orders" | "ready" | "pos" | "grns" | "dispatches" | "stock" | "reports";
-
-// ─── Warehouse sub-navigation (Workbench + links to existing real surfaces) ──
+// â”€â”€â”€ Warehouse sub-navigation (Workbench + links to existing real surfaces) â”€â”€
 // Workbench is the in-page active tab. Every other entry points at an existing
-// route or an in-page anchor — no mock destinations.
+// route or an in-page anchor â€” no mock destinations.
 const SUBNAV: { id: string; label: string; href: string; active?: boolean; external?: boolean }[] = [
   { id: "workbench", label: "Workbench", href: "#top", active: true },
   { id: "inventory", label: "Inventory by Location", href: "/app/inventory", external: true },
-  { id: "grn", label: "Goods Receipt Notes", href: "/app/grn", external: true },
-  { id: "transfers", label: "Stock Transfers", href: "/app/inventory", external: true },
   { id: "dispatch", label: "Dispatch Orders", href: "/app/dispatches", external: true },
   { id: "packing", label: "Packing & Dispatch", href: "/app/dispatches", external: true },
   { id: "returns", label: "Returns", href: "#wh-work-items", external: false },
-  { id: "adjust", label: "Inventory Adjustments", href: "/app/inventory", external: true },
   { id: "activity", label: "Activity History", href: "#wh-activity", external: false },
 ];
 
@@ -241,7 +192,7 @@ export function WarehousePage() {
   const canWrite = isAdmin || isOperations;
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("overview");
-  // Workbench-level UI state (presentation only — no workflow change)
+  // Workbench-level UI state (presentation only â€” no workflow change)
   const [locationFilter, setLocationFilter] = useState("");
   const [showAllWorkItems, setShowAllWorkItems] = useState(false);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -264,21 +215,9 @@ export function WarehousePage() {
     queryKey: ["wh_invoices"],
     queryFn: () => api.invoices.list(),
   });
-  const posQ = useQuery({
-    queryKey: ["wh_pos"],
-    queryFn: () => api.goodsPurchaseOrders.list(),
-  });
-  const grnsQ = useQuery({
-    queryKey: ["wh_grns"],
-    queryFn: () => api.goodsReceipts.list(),
-  });
   const movementsQ = useQuery({
     queryKey: ["wh_movements"],
     queryFn: () => api.stockMovements.list(),
-  });
-  const receiptsQ = useQuery({
-    queryKey: ["wh_receipts"],
-    queryFn: () => api.goodsReceipts.list(),
   });
   // Additive read-only queries for the location card + header selector.
   const locationsQ = useQuery({
@@ -293,10 +232,7 @@ export function WarehousePage() {
   const orders = (ordersQ.data ?? []) as SO[];
   const dispatches = (dispatchesQ.data ?? []) as Dispatch[];
   const invoices = (invoicesQ.data ?? []) as any[];
-  const pos = (posQ.data ?? []) as GoodsPO[];
-  const grns = (grnsQ.data ?? []) as WarehouseGRN[];
   const movements = (movementsQ.data ?? []) as Movement[];
-  const receipts = (receiptsQ.data ?? []) as any[];
   const locations = (locationsQ.data ?? []) as any[];
   const stockSummary = (stockSummaryQ.data ?? []) as any[];
 
@@ -311,7 +247,7 @@ export function WarehousePage() {
     return ids;
   }, [dispatches]);
 
-  // ── Stock on hand + valuation (confirmed movements only) ──
+  // â”€â”€ Stock on hand + valuation (confirmed movements only) â”€â”€
   const stock = useMemo(() => {
     const m = new Map<
       string,
@@ -336,7 +272,7 @@ export function WarehousePage() {
   const totalStockValue = stock.reduce((s, r) => s + r.value, 0);
   const totalUnits = stock.reduce((s, r) => s + r.qty, 0);
 
-  // ── Order sign-off queue (hard gate: only approved SOs can be dispatched) ──
+  // â”€â”€ Order sign-off queue (hard gate: only approved SOs can be dispatched) â”€â”€
   const signoffOrders = orders.filter(
     (o) => ["warehouse_pending", "checker_pending", "confirmed", "partially_dispatched"].includes(o.status),
   );
@@ -344,7 +280,7 @@ export function WarehousePage() {
     (o) => o.status === "warehouse_pending",
   );
 
-  // ── Ready to dispatch: warehouse-approved SOs with pending quantity ──
+  // â”€â”€ Ready to dispatch: warehouse-approved SOs with pending quantity â”€â”€
   const readyOrders = useMemo(() => {
     return signoffOrders
       .filter((o) => (o.warehouse_status ?? "pending") === "approved")
@@ -365,7 +301,7 @@ export function WarehousePage() {
       .filter((o) => o.pendingQty > 0);
   }, [signoffOrders]);
 
-  // ── Ready to dispatch from invoices: approved invoices with expected dispatch date ──
+  // â”€â”€ Ready to dispatch from invoices: approved invoices with expected dispatch date â”€â”€
   const readyInvoices = useMemo(() => {
     return invoices
       .filter((inv: any) => {
@@ -378,41 +314,14 @@ export function WarehousePage() {
       .sort((a: any, b: any) => (a.expected_dispatch_date ?? '').localeCompare(b.expected_dispatch_date ?? ''));
   }, [invoices, dispatchedInvoiceIds]);
 
-  // ── Ready POs: approved POs with pending receipt quantity ──
-  const readyPOs = useMemo(() => {
-    return pos
-      .filter((po) => {
-        if (po.status === 'cancelled' || po.status === 'draft') return false;
-        if (po.status === 'fully_received') return false;
-        // Check if any lines have pending quantity (ordered but not fully received)
-        const hasPending = (po.lines ?? []).some(
-          (l) => l.ordered_qty > (l.received_qty ?? 0)
-        );
-        if (!hasPending) return false;
-        // Skip POs that already have a GRN linked
-        const hasGrn = grns.some((g) => g.goods_purchase_order_id === po.id);
-        if (hasGrn) return false;
-        return true;
-      })
-      .sort((a, b) => (a.expected_delivery_date ?? '').localeCompare(b.expected_delivery_date ?? ''));
-  }, [pos, grns]);
+  // â”€â”€ Ready POs: approved POs with pending receipt quantity â”€â”€
 
-  // ── Pending GRNs: draft GRNs awaiting confirmation (stock credit) ──
-  const pendingGrns = useMemo(() => {
-    return grns
-      .filter((grn) => {
-        // Show draft GRNs that haven't been confirmed yet
-        if (grn.status === 'confirmed' || grn.status === 'cancelled') return false;
-        return true;
-      })
-      .sort((a, b) => (a.received_date ?? '').localeCompare(b.received_date ?? ''));
-  }, [grns]);
 
   const openDispatches = dispatches.filter(
     (d) => !["delivered", "cancelled", "returned"].includes(d.status),
   );
 
-  // ── Returns awaiting inspection (real data only) ──
+  // â”€â”€ Returns awaiting inspection (real data only) â”€â”€
   const returnsAwaiting = useMemo(() => {
     const returnedDispatches = dispatches.filter((d) => d.status === "returned");
     const draftCustomerReturns = movements.filter(
@@ -423,7 +332,7 @@ export function WarehousePage() {
     return { returnedDispatches, draftCustomerReturns, count: returnedDispatches.length + draftCustomerReturns.length };
   }, [dispatches, movements]);
 
-  // ── Dispatches due today (real data: ready orders + invoices due today/overdue) ──
+  // â”€â”€ Dispatches due today (real data: ready orders + invoices due today/overdue) â”€â”€
   const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
   const dispatchesDueToday = useMemo(() => {
     const dueInvoices = readyInvoices.filter((inv: any) => {
@@ -433,7 +342,7 @@ export function WarehousePage() {
     return { dueInvoices, count: readyOrders.length + dueInvoices.length };
   }, [readyInvoices, readyOrders, todayStr]);
 
-  // ── Unified operational work items (presentation layer over existing memos) ──
+  // â”€â”€ Unified operational work items (presentation layer over existing memos) â”€â”€
   const workItems: WorkItem[] = useMemo(() => {
     const items: WorkItem[] = [];
     for (const o of pendingSignoffs.slice(0, 20)) {
@@ -441,7 +350,7 @@ export function WarehousePage() {
         id: `so-${o.id}`,
         docNumber: o.so_number,
         docType: "Sales Order",
-        location: (o as any).warehouse ?? "—",
+        location: (o as any).warehouse ?? "â€”",
         status: "Awaiting warehouse decision",
         tone: "amber",
         nextStep: "Approve or reject sign-off",
@@ -450,43 +359,12 @@ export function WarehousePage() {
         openLabel: "Open",
       });
     }
-    for (const g of pendingGrns.slice(0, 20)) {
-      const partial = (g.lines ?? []).some(
-        (l) => Number(l.received_qty ?? 0) > 0 && Number(l.received_qty ?? 0) < Number(l.ordered_qty ?? 0),
-      );
-      items.push({
-        id: `grn-${g.id}`,
-        docNumber: g.receipt_number,
-        docType: "Supplier Delivery",
-        location: g.warehouse ?? "—",
-        status: partial ? "Partially received" : g.status === "draft" ? "Awaiting receipt" : String(g.status).replace(/_/g, " "),
-        tone: partial ? "blue" : "amber",
-        nextStep: partial ? "Receive remaining items" : "Receive and confirm quantities",
-        owner: g.supplier_name ?? "Warehouse team",
-        openHref: `/app/grn?id=${encodeURIComponent(g.id)}`,
-        openLabel: "Open",
-      });
-    }
-    for (const po of readyPOs.slice(0, 10)) {
-      items.push({
-        id: `po-${po.id}`,
-        docNumber: po.po_number,
-        docType: "Supplier Delivery",
-        location: po.warehouse ?? "—",
-        status: "Awaiting receipt",
-        tone: "amber",
-        nextStep: "Create GRN and receive goods",
-        owner: po.supplier_name ?? "Warehouse team",
-        openHref: `/app/grn?createFromPO=${encodeURIComponent(po.id)}`,
-        openLabel: "Open",
-      });
-    }
     for (const o of readyOrders.slice(0, 20)) {
       items.push({
         id: `ready-${o.id}`,
         docNumber: o.so_number,
         docType: "Dispatch Order",
-        location: (o as any).warehouse ?? "—",
+        location: (o as any).warehouse ?? "â€”",
         status: "Ready to dispatch",
         tone: "green",
         nextStep: "Add dispatch details and confirm",
@@ -500,7 +378,7 @@ export function WarehousePage() {
         id: `inv-${inv.id}`,
         docNumber: String(inv.invoice_number ?? inv.id),
         docType: "Dispatch Order",
-        location: "—",
+        location: "â€”",
         status: "Ready to dispatch",
         tone: "green",
         nextStep: "Add dispatch details and confirm",
@@ -515,7 +393,7 @@ export function WarehousePage() {
         id: `pipe-${d.id}`,
         docNumber: d.dispatch_number,
         docType: "Dispatch Order",
-        location: d.warehouse ?? "—",
+        location: d.warehouse ?? "â€”",
         status: packed ? "Packed" : "In progress",
         tone: packed ? "green" : "blue",
         nextStep: packed ? "Ready to dispatch" : "Pick, pack and update pipeline",
@@ -529,7 +407,7 @@ export function WarehousePage() {
         id: `ret-${d.id}`,
         docNumber: d.dispatch_number,
         docType: "Customer Return",
-        location: d.warehouse ?? "—",
+        location: d.warehouse ?? "â€”",
         status: "Awaiting inspection",
         tone: "red",
         nextStep: "Inspect and record condition",
@@ -543,7 +421,7 @@ export function WarehousePage() {
         id: `retm-${m.id}`,
         docNumber: m.linked_document_number ?? m.item_name,
         docType: "Customer Return",
-        location: m.warehouse ?? "—",
+        location: m.warehouse ?? "â€”",
         status: "Awaiting inspection",
         tone: "red",
         nextStep: "Inspect and record condition",
@@ -553,24 +431,24 @@ export function WarehousePage() {
       });
     }
     return items;
-  }, [pendingSignoffs, pendingGrns, readyPOs, readyOrders, readyInvoices, openDispatches, returnsAwaiting]);
+  }, [pendingSignoffs, readyOrders, readyInvoices, openDispatches, returnsAwaiting]);
 
   const filteredWorkItems = useMemo(() => {
     if (!locationFilter) return workItems;
-    return workItems.filter((w) => w.location === locationFilter || w.location === "—");
+    return workItems.filter((w) => w.location === locationFilter || w.location === "â€”");
   }, [workItems, locationFilter]);
 
   const visibleWorkItems = showAllWorkItems ? filteredWorkItems : filteredWorkItems.slice(0, 8);
   const workItemsLoading =
-    ordersQ.isLoading || grnsQ.isLoading || posQ.isLoading || dispatchesQ.isLoading || invoicesQ.isLoading || movementsQ.isLoading;
+    ordersQ.isLoading || dispatchesQ.isLoading || invoicesQ.isLoading || movementsQ.isLoading;
 
-  // ── Stock by location (real data: stock-summary location breakdown, legacy fallback) ──
+  // â”€â”€ Stock by location (real data: stock-summary location breakdown, legacy fallback) â”€â”€
   const locationStock = useMemo(() => {
     const totals = new Map<string, number>();
     for (const s of stockSummary as any[]) {
       const breakdown: any[] = s.location_breakdown ?? s.locationBreakdown ?? [];
       for (const lb of breakdown) {
-        const name: string = lb.location_name ?? lb.locationName ?? "—";
+        const name: string = lb.location_name ?? lb.locationName ?? "â€”";
         const qty = Number(lb.quantity ?? 0);
         totals.set(name, (totals.get(name) ?? 0) + qty);
       }
@@ -598,57 +476,13 @@ export function WarehousePage() {
       if (n) names.add(String(n));
     }
     for (const ls of locationStock) names.add(ls.name);
-    for (const w of workItems) if (w.location && w.location !== "—") names.add(w.location);
+    for (const w of workItems) if (w.location && w.location !== "â€”") names.add(w.location);
     return [...names].sort();
   }, [locations, locationStock, workItems]);
 
 
-  // ── In / out report grouped by supplier (in) and buyer (out) ──
-  const receiptById = useMemo(
-    () => new Map(receipts.map((r) => [r.id, r])),
-    [receipts],
-  );
-  const dispatchById = useMemo(
-    () => new Map(dispatches.map((d) => [d.id, d])),
-    [dispatches],
-  );
-  const soById = useMemo(() => new Map(orders.map((o) => [o.id, o])), [orders]);
 
-  const partyReport = useMemo(() => {
-    const m = new Map<
-      string,
-      { party: string; side: "Supplier" | "Buyer"; inQty: number; outQty: number; inValue: number; outValue: number }
-    >();
-    for (const r of movements) {
-      if (r.status !== "confirmed") continue;
-      const isIn = r.direction === "in";
-      let party: string;
-      if (isIn) {
-        const gr = r.goods_receipt_id ? receiptById.get(r.goods_receipt_id) : null;
-        party = gr?.supplier_name ?? "Unattributed supplier";
-      } else {
-        const dp = r.goods_dispatch_id ? dispatchById.get(r.goods_dispatch_id) : null;
-        const so = !dp && r.sales_order_id ? soById.get(r.sales_order_id) : null;
-        party = dp?.customer_name ?? so?.customer_name ?? "Unattributed buyer";
-      }
-      const side: "Supplier" | "Buyer" = isIn ? "Supplier" : "Buyer";
-      const k = `${side}|${party}`;
-      const cur = m.get(k) ?? { party, side, inQty: 0, outQty: 0, inValue: 0, outValue: 0 };
-      const qty = Number(r.quantity);
-      const val = qty * Number(r.unit_cost ?? 0);
-      if (isIn) {
-        cur.inQty += qty;
-        cur.inValue += val;
-      } else {
-        cur.outQty += qty;
-        cur.outValue += val;
-      }
-      m.set(k, cur);
-    }
-    return [...m.values()].sort((a, b) => b.inValue + b.outValue - (a.inValue + a.outValue));
-  }, [movements, receiptById, dispatchById, soById]);
-
-  // ── Mutations (unchanged business logic) ──
+  // â”€â”€ Mutations (unchanged business logic) â”€â”€
   const signoff = useMutation({
     mutationFn: async ({
       id,
@@ -664,8 +498,8 @@ export function WarehousePage() {
       qc.invalidateQueries({ queryKey: ["goods_sales_orders"] });
       toast.success(
         vars.action === "approve"
-          ? "Order approved — sent to Checker"
-          : "Order rejected — returned to Sales review",
+          ? "Order approved â€” sent to Checker"
+          : "Order rejected â€” returned to Sales review",
       );
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Sign-off failed"),
@@ -696,23 +530,19 @@ export function WarehousePage() {
   const tabs: { id: Tab; label: string; icon: any; count?: number }[] = [
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "orders", label: "Order sign-offs", icon: ClipboardCheck, count: pendingSignoffs.length },
-    { id: "ready", label: "Ready to dispatch", icon: PackageCheck, count: readyOrders.length },
-    { id: "pos", label: "Pending POs", icon: ClipboardList, count: readyPOs.length },
-    { id: "grns", label: "GRNs", icon: CheckCircle2, count: pendingGrns.length },
+    { id: "ready", label: "Ready to dispatch", icon: PackageCheck, count: readyOrders.length + readyInvoices.length },
     { id: "dispatches", label: "Dispatches", icon: Truck, count: openDispatches.length },
-    { id: "stock", label: "Stock on hand", icon: Boxes },
-    { id: "reports", label: "Movement report", icon: BarChart3 },
   ];
 
   const profileInitial = (user?.contactName ?? user?.email ?? "W").trim().charAt(0).toUpperCase() || "W";
   const dateStr = now.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
   const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
 
-  const kpiLoading = ordersQ.isLoading || grnsQ.isLoading || posQ.isLoading || dispatchesQ.isLoading || movementsQ.isLoading;
+  const kpiLoading = ordersQ.isLoading || dispatchesQ.isLoading || movementsQ.isLoading || invoicesQ.isLoading;
 
   return (
     <div id="top" className="min-h-screen bg-[#f5f7fa]">
-      {/* ── 1. Page header ─────────────────────────────── */}
+      {/* â”€â”€ 1. Page header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="border-b border-border bg-white">
         <div className="mx-auto flex w-full max-w-[1440px] flex-wrap items-center justify-between gap-4 px-4 py-5 md:px-8">
           <div className="flex items-center gap-3.5">
@@ -746,7 +576,7 @@ export function WarehousePage() {
             </div>
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-2 text-[12px] tabular-nums text-muted-foreground shadow-sm">
               <Clock3 className="h-3.5 w-3.5" />
-              {dateStr} · {timeStr}
+              {dateStr} Â· {timeStr}
             </span>
             {!canWrite ? (
               <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -763,7 +593,7 @@ export function WarehousePage() {
           </div>
         </div>
 
-        {/* ── 2. Warehouse navigation ──────────────────── */}
+        {/* â”€â”€ 2. Warehouse navigation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <nav aria-label="Warehouse sections" className="mx-auto w-full max-w-[1440px] px-4 md:px-8">
           <div className="-mb-px flex gap-1 overflow-x-auto">
             {SUBNAV.map((s) =>
@@ -798,7 +628,7 @@ export function WarehousePage() {
       </div>
 
       <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
-        {/* ── 3. KPI cards ─────────────────────────────── */}
+        {/* â”€â”€ 3. KPI cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         {kpiLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {[0, 1, 2, 3].map((i) => (
@@ -812,19 +642,19 @@ export function WarehousePage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <KpiCard
-              title="Inbound Deliveries Due"
-              value={String(readyPOs.length)}
-              hint="Expected today"
-              icon={<Truck className="h-5 w-5" />}
-              iconBg="bg-primary/10 text-primary"
-            />
-            <KpiCard
-              title="GRNs Pending"
-              value={String(pendingGrns.length)}
-              hint="Awaiting receipt"
-              icon={<FileText className="h-5 w-5" />}
+              title="Order Sign-offs Pending"
+              value={String(pendingSignoffs.length)}
+              hint="Awaiting warehouse decision"
+              icon={<ClipboardCheck className="h-5 w-5" />}
               iconBg="bg-sem-attention/15 text-sem-attention"
               accent="amber"
+            />
+            <KpiCard
+              title="Ready to Dispatch"
+              value={String(readyOrders.length + readyInvoices.length)}
+              hint="Approved orders + invoices"
+              icon={<PackageCheck className="h-5 w-5" />}
+              iconBg="bg-sem-success/15 text-sem-success"
             />
             <KpiCard
               title="Dispatches Due Today"
@@ -844,9 +674,9 @@ export function WarehousePage() {
           </div>
         )}
 
-        {/* ── 4. Main work area ────────────────────────── */}
+        {/* â”€â”€ 4. Main work area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <div className="grid gap-6 lg:grid-cols-4">
-          {/* ── 5. Warehouse work items ────────────────── */}
+          {/* â”€â”€ 5. Warehouse work items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <div id="wh-work-items" className="overflow-hidden rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,31,56,0.05)] lg:col-span-3">
             <div className="flex items-center justify-between gap-3 border-b border-border/80 px-5 py-3.5">
               <h2 className="text-[15px] font-semibold tracking-tight text-[#0f1f38]">
@@ -869,7 +699,7 @@ export function WarehousePage() {
               <EmptyState
                 icon={<PackageCheck className="h-5 w-5" />}
                 title={locationFilter ? `No work items in ${locationFilter}` : "All caught up"}
-                description="Confirmed GRNs, approved orders and ready dispatches will appear here as actionable work items."
+                description="Approved orders and ready dispatches will appear here as actionable work items."
               />
             ) : (
               <div className="overflow-x-auto">
@@ -952,11 +782,6 @@ export function WarehousePage() {
                                       Create dispatch
                                     </a>
                                   )}
-                                  {w.id.startsWith("grn-") && (
-                                    <a href="/app/grn" className="block px-3 py-2 text-[13px] hover:bg-muted/50">
-                                      Go to GRN register
-                                    </a>
-                                  )}
                                   {(w.id.startsWith("pipe-") || w.id.startsWith("ret-")) && (
                                     <a href="/app/dispatches" className="block px-3 py-2 text-[13px] hover:bg-muted/50">
                                       Go to dispatch register
@@ -975,7 +800,7 @@ export function WarehousePage() {
             )}
           </div>
 
-          {/* ── 6. Stock by location ───────────────────── */}
+          {/* â”€â”€ 6. Stock by location â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
           <aside className="h-fit overflow-hidden rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,31,56,0.05)]">
             <div className="border-b border-border/80 px-5 py-3.5">
               <h2 className="text-[15px] font-semibold tracking-tight text-[#0f1f38]">Stock by location</h2>
@@ -992,7 +817,7 @@ export function WarehousePage() {
                 </div>
               ) : locationStock.length === 0 ? (
                 <p className="py-6 text-center text-[13px] text-muted-foreground">
-                  No stock recorded yet — confirmed GRNs will appear here by location.
+                  No stock recorded yet â€” confirmed stock will appear here by location.
                 </p>
               ) : (
                 <ul className="divide-y divide-border/60">
@@ -1012,18 +837,18 @@ export function WarehousePage() {
                 href="/app/inventory"
                 className="block rounded-lg border border-border px-3 py-2 text-center text-[13px] font-medium text-primary transition hover:border-primary/50 hover:bg-primary/5"
               >
-                View inventory by location →
+                View inventory by location â†’
               </a>
             </div>
           </aside>
         </div>
 
-        {/* ── 7. Bottom operations strip ───────────────── */}
+        {/* â”€â”€ 7. Bottom operations strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-white px-5 py-3.5">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
             <span className="font-semibold text-[#0f1f38]">Keep stock moving</span>
-            <span className="mx-1 text-muted-foreground">·</span>
-            {["Receive", "Put away", "Pick", "Pack", "Dispatch"].map((s, i, arr) => (
+            <span className="mx-1 text-muted-foreground">Â·</span>
+            {["Pick", "Pack", "Dispatch"].map((s, i, arr) => (
               <span key={s} className="inline-flex items-center gap-2">
                 <span className="text-muted-foreground">{s}</span>
                 {i < arr.length - 1 && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50" />}
@@ -1033,13 +858,13 @@ export function WarehousePage() {
           <p className="text-[12px] text-muted-foreground">Accurate stock. On time. Every time.</p>
         </div>
 
-        {/* ── Detail queues (existing functionality, preserved) ── */}
+        {/* â”€â”€ Detail queues (existing functionality, preserved) â”€â”€ */}
         <div id="wh-detail-queues" className="scroll-mt-6">
           <Card
             title="Detail queues"
             action={
               <span className="text-[11px] text-muted-foreground">
-                {totalUnits.toLocaleString()} units · {fmtMoney(totalStockValue)}
+                {totalUnits.toLocaleString()} units Â· {fmtMoney(totalStockValue)}
               </span>
             }
           >
@@ -1083,7 +908,7 @@ export function WarehousePage() {
                 ))}
               </div>
               <p className="mt-4 text-xs text-muted-foreground">
-                The pipeline is logistics-only — stock is debited once, when a dispatch note is confirmed.
+                The pipeline is logistics-only â€” stock is debited once, when a dispatch note is confirmed.
               </p>
             </Card>
             <Card title="Latest activity">
@@ -1091,14 +916,14 @@ export function WarehousePage() {
                 <EmptyState
                   icon={<Boxes className="h-5 w-5" />}
                   title="Nothing has moved yet"
-                  description="Confirmed GRNs and dispatches will appear here."
+                  description="Confirmed dispatches will appear here."
                 />
               ) : (
                 <ul className="space-y-2 text-sm">
                   {dispatches.slice(0, 5).map((d) => (
                     <li key={d.id} className="flex items-center justify-between gap-3 border-b border-border/60 pb-2">
                       <span className="truncate">
-                        {d.dispatch_number} · {d.customer_name ?? d.so_number ?? "—"}
+                        {d.dispatch_number} Â· {d.customer_name ?? d.so_number ?? "â€”"}
                       </span>
                       <span
                         className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${shippingTone(
@@ -1112,7 +937,7 @@ export function WarehousePage() {
                   {movements.slice(0, 5).map((m) => (
                     <li key={m.id} className="flex items-center justify-between gap-3 text-muted-foreground">
                       <span className="truncate">
-                        {m.direction === "in" ? "In" : "Out"} · {m.item_name} × {Number(m.quantity).toLocaleString()}
+                        {m.direction === "in" ? "In" : "Out"} Â· {m.item_name} Ã— {Number(m.quantity).toLocaleString()}
                       </span>
                       <span className="shrink-0 text-xs">{fmtDate(m.movement_date)}</span>
                     </li>
@@ -1141,7 +966,7 @@ export function WarehousePage() {
                   return (
                     <tr key={o.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-5 py-3">{o.so_number}</td>
-                      <td className="px-5 py-3">{o.customer_name ?? "—"}</td>
+                      <td className="px-5 py-3">{o.customer_name ?? "â€”"}</td>
                       <td className="px-5 py-3 text-muted-foreground">{fmtDate(o.order_date)}</td>
                       <td className="px-5 py-3 text-muted-foreground">{fmtDate(o.expected_dispatch_date)}</td>
                       <td className="num px-5 py-3 text-right">{fmtMoney(o.grand_total)}</td>
@@ -1216,7 +1041,7 @@ export function WarehousePage() {
                   {readyOrders.map((o) => (
                     <tr key={o.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-5 py-3">{o.so_number}</td>
-                      <td className="px-5 py-3">{o.customer_name ?? "—"}</td>
+                      <td className="px-5 py-3">{o.customer_name ?? "â€”"}</td>
                       <td className="px-5 py-3 text-muted-foreground">{fmtDate(o.expected_dispatch_date)}</td>
                       <td className="num px-5 py-3 text-right">{o.pendingQty.toLocaleString()}</td>
                       <td className="num px-5 py-3 text-right">{fmtMoney(o.pendingValue)}</td>
@@ -1258,7 +1083,7 @@ export function WarehousePage() {
                             <div className="text-[10px] text-muted-foreground">SO {inv.goods_sales_order_number}</div>
                           )}
                         </td>
-                        <td className="px-5 py-3">{inv.debtor?.name ?? "—"}</td>
+                        <td className="px-5 py-3">{inv.debtor?.name ?? "â€”"}</td>
                         <td className="num px-5 py-3 text-right">{fmtMoney(inv.grand_total ?? inv.amount)}</td>
                         <td className="px-5 py-3 text-muted-foreground">{fmtDate(inv.expected_dispatch_date)}</td>
                         <td className="px-5 py-3 text-center">
@@ -1288,141 +1113,11 @@ export function WarehousePage() {
                 </Table>
               )}
               <p className="mt-4 text-xs text-muted-foreground">
-                Every dispatch can be linked to an invoice — the invoice reference is stored on the dispatch record and
+                Every dispatch can be linked to an invoice â€” the invoice reference is stored on the dispatch record and
                 appears in the movement report. Create a dispatch from here to auto-link the invoice.
               </p>
             </Card>
           </div>
-        )}
-
-        {tab === "pos" && (
-          <Card title="Purchase orders awaiting goods receipt">
-            {posQ.isLoading ? (
-              <TableSkeleton rows={3} />
-            ) : readyPOs.length === 0 ? (
-              <EmptyState
-                icon={<ClipboardList className="h-5 w-5" />}
-                title="No POs waiting"
-                description="Approved purchase orders with pending quantity appear here. Create a GRN to receive the goods."
-              />
-            ) : (
-              <Table head={["PO", "Supplier", "Expected delivery", "Pending qty", "Value", ""]}>
-                {readyPOs.map((po) => {
-                  const pendingQty = (po.lines ?? []).reduce(
-                    (s, l) => s + Math.max(0, l.ordered_qty - (l.received_qty ?? 0)),
-                    0
-                  );
-                  const pendingValue = (po.lines ?? []).reduce(
-                    (s, l) => s + Math.max(0, l.ordered_qty - (l.received_qty ?? 0)) * (l.unit_price || 0),
-                    0
-                  );
-                  return (
-                    <tr key={po.id} className="border-b border-border/60 hover:bg-muted/30">
-                      <td className="px-5 py-3">
-                        <div className="font-mono text-xs">{po.po_number}</div>
-                      </td>
-                      <td className="px-5 py-3">{po.supplier_name ?? "—"}</td>
-                      <td className="px-5 py-3 text-muted-foreground">{fmtDate(po.expected_delivery_date)}</td>
-                      <td className="num px-5 py-3 text-right">{pendingQty.toLocaleString()}</td>
-                      <td className="num px-5 py-3 text-right">{fmtMoney(pendingValue)}</td>
-                      <td className="px-5 py-3 text-right">
-                        <a
-                          href={`/app/grn?createFromPO=${encodeURIComponent(po.id)}`}
-                          className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground"
-                        >
-                          <PackageCheck className="h-3 w-3" /> Create GRN
-                        </a>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </Table>
-            )}
-            <p className="mt-4 text-xs text-muted-foreground">
-              Goods Receipt Notes (GRNs) credit inventory when goods arrive. Create a GRN from here to auto-link the
-              purchase order and record the received quantities.
-            </p>
-          </Card>
-        )}
-
-        {tab === "grns" && (
-          <Card title="Goods receipts">
-            {grnsQ.isLoading ? (
-              <TableSkeleton rows={3} />
-            ) : grns.length === 0 ? (
-              <EmptyState
-                icon={<ClipboardCheck className="h-5 w-5" />}
-                title="No goods receipts yet"
-                description="GRNs are created when goods arrive against a purchase order."
-              />
-            ) : (
-              <Table head={["GRN", "PO", "Supplier", "Received", "Status", ""]}>
-                {grns.map((grn) => {
-                  const totalReceived = (grn.lines ?? []).reduce(
-                    (s, l) => s + (l.accepted_qty ?? l.received_qty ?? 0),
-                    0
-                  );
-                  const statusClass =
-                    grn.status === "confirmed"
-                      ? "bg-sem-success/15 text-sem-success"
-                      : grn.status === "cancelled"
-                        ? "bg-destructive/15 text-destructive"
-                        : "bg-sem-attention/15 text-sem-attention";
-                  return (
-                    <tr key={grn.id} className="border-b border-border/60 hover:bg-muted/30">
-                      <td className="px-5 py-3">
-                        <div className="font-mono text-xs">{grn.receipt_number}</div>
-                      </td>
-                      <td className="px-5 py-3">{grn.po_number ?? "—"}</td>
-                      <td className="px-5 py-3">{grn.supplier_name ?? "—"}</td>
-                      <td className="num px-5 py-3 text-right">{totalReceived.toLocaleString()}</td>
-                      <td className="px-5 py-3">
-                        <span className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${statusClass}`}>
-                          {grn.status?.replace("_", " ")}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        {grn.status === "draft" && (
-                          <>
-                            <a
-                              href={`/app/grn?edit=${grn.id}`}
-                              className="mr-1 inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs"
-                            >
-                              <Pencil className="h-3 w-3" /> Edit
-                            </a>
-                            <button
-                              onClick={() => {
-                                window.location.href = `/app/grn?id=${grn.id}`;
-                              }}
-                              className="inline-flex items-center gap-1 rounded-md bg-sem-success/10 px-2.5 py-1 text-xs text-sem-success"
-                            >
-                              <CheckCircle2 className="h-3 w-3" /> Confirm
-                            </button>
-                          </>
-                        )}
-                        {grn.status === "confirmed" && canWrite && (
-                          <button
-                            onClick={() => {
-                              if (confirm("Cancel this GRN? Stock will be reversed.")) {
-                                window.location.href = `/app/grn?cancel=${grn.id}`;
-                              }
-                            }}
-                            className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-destructive"
-                          >
-                            <X className="h-3 w-3" /> Cancel
-                          </button>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })}
-              </Table>
-            )}
-            <p className="mt-4 text-xs text-muted-foreground">
-              Confirming a GRN credits stock-in movements and updates the purchase order's received quantities.
-              Draft GRNs can be edited before confirmation.
-            </p>
-          </Card>
         )}
 
         {tab === "dispatches" && (
@@ -1434,117 +1129,6 @@ export function WarehousePage() {
             moving={shipMove.isPending}
           />
         )}
-
-        {tab === "stock" && (
-          <Card title={`Stock on hand — total value ${fmtMoney(totalStockValue)}`}>
-            {movementsQ.isLoading ? (
-              <TableSkeleton rows={5} />
-            ) : stock.length === 0 ? (
-              <EmptyState
-                icon={<Boxes className="h-5 w-5" />}
-                title="No stock recorded yet"
-                description="Confirmed GRNs credit stock; confirmed dispatches debit it."
-              />
-            ) : (
-              <Table head={["Item", "SKU", "On hand", "Unit", "Last in-cost", "Stock value"]}>
-                {stock.map((s) => (
-                  <tr key={`${s.item}|${s.unit}`} className="border-b border-border/60">
-                    <td className="px-5 py-2.5">{s.item}</td>
-                    <td className="px-5 py-2.5 text-muted-foreground">{s.sku ?? "—"}</td>
-                    <td className={`num px-5 py-2.5 text-right ${s.qty < 0 ? "text-destructive" : ""}`}>
-                      {s.qty.toLocaleString()}
-                    </td>
-                    <td className="px-5 py-2.5 text-muted-foreground">{s.unit}</td>
-                    <td className="num px-5 py-2.5 text-right">{s.lastCost ? fmtMoney(s.lastCost) : "—"}</td>
-                    <td className="num px-5 py-2.5 text-right">{fmtMoney(s.value)}</td>
-                  </tr>
-                ))}
-                <tr className="bg-muted/40 font-medium">
-                  <td className="px-5 py-3" colSpan={5}>
-                    Total stock value
-                  </td>
-                  <td className="num px-5 py-3 text-right">{fmtMoney(totalStockValue)}</td>
-                </tr>
-              </Table>
-            )}
-          </Card>
-        )}
-
-        {tab === "reports" && (
-          <div className="space-y-6">
-            <Card title="Stock in / out by supplier and buyer">
-              {movementsQ.isLoading ? (
-                <TableSkeleton rows={4} />
-              ) : partyReport.length === 0 ? (
-                <EmptyState
-                  icon={<BarChart3 className="h-5 w-5" />}
-                  title="No movements to report"
-                  description="Confirmed stock movements are grouped by supplier (in) and buyer (out)."
-                />
-              ) : (
-                <Table head={["Party", "Type", "Qty in", "Value in", "Qty out", "Value out", "Net qty"]}>
-                  {partyReport.map((p) => (
-                    <tr key={`${p.side}|${p.party}`} className="border-b border-border/60">
-                      <td className="px-5 py-2.5">{p.party}</td>
-                      <td className="px-5 py-2.5 text-xs uppercase tracking-widest text-muted-foreground">{p.side}</td>
-                      <td className="num px-5 py-2.5 text-right">{p.inQty.toLocaleString()}</td>
-                      <td className="num px-5 py-2.5 text-right">{fmtMoney(p.inValue)}</td>
-                      <td className="num px-5 py-2.5 text-right">{p.outQty.toLocaleString()}</td>
-                      <td className="num px-5 py-2.5 text-right">{fmtMoney(p.outValue)}</td>
-                      <td className="num px-5 py-2.5 text-right">{(p.inQty - p.outQty).toLocaleString()}</td>
-                    </tr>
-                  ))}
-                </Table>
-              )}
-            </Card>
-            <Card title="Movement log">
-              {movementsQ.isLoading ? (
-                <TableSkeleton rows={6} />
-              ) : movements.length === 0 ? (
-                <EmptyState
-                  icon={<ArrowDownToLine className="h-5 w-5" />}
-                  title="No movements recorded"
-                />
-              ) : (
-                <Table head={["Date", "Direction", "Item", "Qty", "Value", "Counterparty", "Document"]}>
-                  {movements.slice(0, 200).map((m) => {
-                    const isIn = m.direction === "in";
-                    let party = "—";
-                    if (isIn) {
-                      const gr = m.goods_receipt_id ? receiptById.get(m.goods_receipt_id) : null;
-                      party = gr?.supplier_name ?? "—";
-                    } else {
-                      const dp = m.goods_dispatch_id ? dispatchById.get(m.goods_dispatch_id) : null;
-                      const so = !dp && m.sales_order_id ? soById.get(m.sales_order_id) : null;
-                      party = dp?.customer_name ?? so?.customer_name ?? "—";
-                    }
-                    return (
-                      <tr key={m.id} className="border-b border-border/60">
-                        <td className="px-5 py-2.5 text-muted-foreground">{fmtDate(m.movement_date)}</td>
-                        <td className={`px-5 py-2.5 ${isIn ? "text-sem-success" : "text-sem-attention"}`}>
-                          <span className="inline-flex items-center gap-1">
-                            {isIn ? <ArrowDownToLine className="h-3.5 w-3.5" /> : <ArrowUpFromLine className="h-3.5 w-3.5" />}
-                            {isIn ? "In" : "Out"}
-                          </span>
-                        </td>
-                        <td className="px-5 py-2.5">{m.item_name}</td>
-                        <td className="num px-5 py-2.5 text-right">
-                          {Number(m.quantity).toLocaleString()}{" "}
-                          <span className="text-[10px] text-muted-foreground">{m.unit}</span>
-                        </td>
-                        <td className="num px-5 py-2.5 text-right">
-                          {fmtMoney(Number(m.quantity) * Number(m.unit_cost ?? 0))}
-                        </td>
-                        <td className="px-5 py-2.5">{party}</td>
-                        <td className="px-5 py-2.5 text-muted-foreground">{m.linked_document_number ?? "—"}</td>
-                      </tr>
-                    );
-                  })}
-                </Table>
-              )}
-            </Card>
-          </div>
-        )}
           </Card>
         </div>
       </div>
@@ -1552,7 +1136,7 @@ export function WarehousePage() {
   );
 }
 
-// ─── KPI card (spec §3 — light bg, navy number, tinted icon, amber/red accents) ──
+// â”€â”€â”€ KPI card (spec Â§3 â€” light bg, navy number, tinted icon, amber/red accents) â”€â”€
 function KpiCard({
   title,
   value,
@@ -1586,7 +1170,7 @@ function KpiCard({
   );
 }
 
-// ─── Dispatches tab — pipeline dropdown + inline carrier/tracking editor ──
+// â”€â”€â”€ Dispatches tab â€” pipeline dropdown + inline carrier/tracking editor â”€â”€
 function DispatchTable({
   dispatches,
   loading,
@@ -1661,8 +1245,8 @@ function DispatchTable({
             <tr key={d.id} className="border-b border-border/60 hover:bg-muted/30">
               <td className="px-5 py-3">{d.dispatch_number}</td>
               <td className="px-5 py-3">
-                <div>{d.so_number ?? "—"}</div>
-                <div className="text-xs text-muted-foreground">{d.customer_name ?? "—"}</div>
+                <div>{d.so_number ?? "â€”"}</div>
+                <div className="text-xs text-muted-foreground">{d.customer_name ?? "â€”"}</div>
               </td>
               <td className="px-5 py-3 text-muted-foreground">{fmtDate(d.dispatch_date)}</td>
               <td className="px-5 py-3 text-xs">
@@ -1700,7 +1284,7 @@ function DispatchTable({
                 ) : (
                   <>
                     <div className="flex items-center gap-1.5">
-                      <span className="truncate">{d.transporter_name ?? "—"}</span>
+                      <span className="truncate">{d.transporter_name ?? "â€”"}</span>
                       {canWrite && !closed && (
                         <button
                           onClick={() => startEdit(d)}
@@ -1758,15 +1342,15 @@ function DispatchTable({
         })}
       </Table>
       <p className="mt-4 text-xs text-muted-foreground">
-        The pipeline moves forward only (awaiting pick → picking → packed → dispatched → in transit → delivered) and
-        never touches stock — inventory was already debited when the dispatch note was confirmed. Selecting
+        The pipeline moves forward only (awaiting pick â†’ picking â†’ packed â†’ dispatched â†’ in transit â†’ delivered) and
+        never touches stock â€” inventory was already debited when the dispatch note was confirmed. Selecting
         "Delivered" records delivery against the dispatch.
       </p>
     </Card>
   );
 }
 
-// ─── Shared table shell (matches the app's list pages) ──
+// â”€â”€â”€ Shared table shell (matches the app's list pages) â”€â”€
 function Table({ head, children }: { head: string[]; children: React.ReactNode }) {
   return (
     <div className="-mx-5 overflow-x-auto table-wrap">

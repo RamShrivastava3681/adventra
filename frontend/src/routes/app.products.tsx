@@ -363,6 +363,25 @@ function ProductsPage() {
     return kids.flatMap((k) => leavesUnder(k.id));
   };
 
+  // Actual categories for the filter: union of active category masters
+  // (the source of truth for new Master SKUs) + any category already stored
+  // on products (legacy / inactive masters still need to be filterable).
+  const availableCategories = useMemo(() => {
+    const names = new Map<string, string>();
+    for (const x of (categoriesQ.data ?? []) as SkuMaster[]) {
+      if (!x?.active) continue;
+      const name = String(x.name ?? "").trim();
+      if (name) names.set(name.toLowerCase(), name);
+    }
+    for (const p of productsQ.data ?? []) {
+      const name = String(p.category ?? "").trim();
+      if (name && !names.has(name.toLowerCase())) names.set(name.toLowerCase(), name);
+    }
+    // Keep legacy defaults only when nothing else exists (empty catalogue).
+    if (names.size === 0) for (const c of CATEGORIES) names.set(c.toLowerCase(), c);
+    return [...names.values()].sort((a, b) => a.localeCompare(b));
+  }, [categoriesQ.data, productsQ.data]);
+
   // ── Products tab rows: one per Master SKU ──────────────────────────────
   const masterRows: MasterRow[] = useMemo(() => {
     const matchesDeep = (m: Product): boolean => {
@@ -374,7 +393,7 @@ function ProductsPage() {
     const list = (productsQ.data ?? [])
       .filter((p) => !p.parent_id)
       .filter((m) => {
-        if (cat !== "all" && m.category !== cat) return false;
+        if (cat !== "all" && (m.category ?? "").toLowerCase() !== cat.toLowerCase()) return false;
         if (genderF !== "all" && !genderMatches(m.gender, genderF)) return false;
         if (statusF === "active" && m.status !== "active") return false;
         if (statusF === "inactive" && m.status === "active") return false;
@@ -618,7 +637,7 @@ function ProductsPage() {
                 if (patch.status !== undefined) setStatusF(patch.status);
                 if (patch.sort !== undefined) setSort(patch.sort);
               }}
-              categories={CATEGORIES}
+              categories={availableCategories}
               genders={STANDARD_GENDERS}
               colours={STANDARD_COLOURS}
               sizes={(sizesQ.data ?? [])
