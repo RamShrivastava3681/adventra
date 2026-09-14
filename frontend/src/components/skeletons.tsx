@@ -63,58 +63,32 @@ export function TableSkeleton({ rows = 5, cols = 6 }: { rows?: number; cols?: nu
 }
 
 /* ------------------------------------------------------------------ */
-/*  Composed dashboard skeleton — mirrors the new dashboard layout     */
+/*  Composed dashboard skeleton — mirrors the Command Overview layout   */
+/*  (4 KPI cards → cash chart + inventory alerts → priorities → alerts)  */
 /* ------------------------------------------------------------------ */
 export function DashboardSkeleton() {
   return (
-    <div className="mx-auto max-w-[1440px] space-y-10 px-6 py-8 md:px-10">
-      {/* Primary portfolio metrics */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
+    <div className="mx-auto max-w-[1440px] space-y-6 px-6 py-8 md:px-10">
+      {/* KPI cards */}
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatSkeleton />
         <StatSkeleton />
         <StatSkeleton />
         <StatSkeleton />
       </div>
 
-      {/* Performance chart */}
-      <div className="rounded-2xl border border-border bg-card p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <Skeleton className="h-5 w-40" />
-          <Skeleton className="h-3 w-28" />
-        </div>
-        <ChartSkeleton />
-      </div>
-
-      {/* Secondary performance band */}
-      <div className="grid grid-cols-2 overflow-hidden rounded-xl border border-border bg-border md:grid-cols-3 xl:grid-cols-6">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="bg-card p-4">
-            <Skeleton className="h-3 w-20" />
-            <Skeleton className="mt-2 h-5 w-24" />
-            <Skeleton className="mt-2 h-3 w-16" />
-          </div>
-        ))}
-      </div>
-
-      {/* Aging + Alerts */}
+      {/* Cash chart + inventory alerts */}
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="rounded-2xl border border-border bg-card p-5 lg:col-span-2">
-          <Skeleton className="mb-4 h-5 w-36" />
-          <div className="space-y-4">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i}>
-                <div className="flex justify-between text-xs">
-                  <Skeleton className="h-3 w-20" />
-                  <Skeleton className="h-3 w-16" />
-                </div>
-                <Skeleton className="mt-1.5 h-1.5 w-full rounded-full" />
-              </div>
-            ))}
+          <div className="mb-4 flex items-center justify-between">
+            <Skeleton className="h-5 w-48" />
+            <Skeleton className="h-3 w-28" />
           </div>
+          <ChartSkeleton />
         </div>
         <div className="rounded-2xl border border-border bg-card p-5">
           <div className="mb-4 flex items-center justify-between">
-            <Skeleton className="h-5 w-16" />
+            <Skeleton className="h-5 w-36" />
             <Skeleton className="h-3 w-10" />
           </div>
           <div className="space-y-2">
@@ -133,51 +107,26 @@ export function DashboardSkeleton() {
         </div>
       </div>
 
-      {/* Action required table */}
+      {/* Cross-functional priorities table */}
       <div className="rounded-2xl border border-border bg-card p-5">
-        <Skeleton className="mb-4 h-5 w-36" />
-        <TableSkeleton rows={4} cols={5} />
+        <Skeleton className="mb-4 h-5 w-52" />
+        <TableSkeleton rows={5} cols={6} />
       </div>
 
-      {/* Portfolio health + recent activity */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <Skeleton className="mb-4 h-5 w-36" />
-          <div className="space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="flex items-center justify-between">
-                <Skeleton className="h-3 w-28" />
-                <Skeleton className="h-4 w-20" />
+      {/* Operational alerts */}
+      <div className="rounded-2xl border border-border bg-card p-5">
+        <Skeleton className="mb-4 h-5 w-40" />
+        <div className="space-y-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="flex items-start gap-3">
+              <Skeleton className="mt-1 h-2.5 w-2.5 rounded-full" />
+              <div className="flex-1 space-y-1">
+                <Skeleton className="h-3 w-3/4" />
+                <Skeleton className="h-2 w-32" />
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
-        <div className="rounded-2xl border border-border bg-card p-5">
-          <Skeleton className="mb-4 h-5 w-32" />
-          <div className="space-y-3">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="flex items-start gap-3">
-                <Skeleton className="mt-1 h-2.5 w-2.5 rounded-full" />
-                <div className="flex-1 space-y-1">
-                  <Skeleton className="h-3 w-3/4" />
-                  <Skeleton className="h-2 w-32" />
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Recent invoices table */}
-      <div className="rounded-2xl border border-border bg-card p-5">
-        <Skeleton className="mb-4 h-5 w-32" />
-        <TableSkeleton rows={4} cols={7} />
-      </div>
-
-      {/* Recent expenses table */}
-      <div className="rounded-2xl border border-border bg-card p-5">
-        <Skeleton className="mb-4 h-5 w-32" />
-        <TableSkeleton rows={3} cols={7} />
       </div>
     </div>
   );

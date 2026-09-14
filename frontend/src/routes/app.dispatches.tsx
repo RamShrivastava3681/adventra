@@ -191,7 +191,7 @@ const DISPATCH_STATUS_TONES: Record<string, string> = {
   returned: "bg-destructive/10 text-destructive border-destructive/30",
 };
 
-function DispatchesPage() {
+export function DispatchesPage() {
   const { user, isSalesRep, isAdmin, isChecker } = useAuth();
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();

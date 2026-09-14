@@ -6,13 +6,14 @@ import api from "@/lib/api-client";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { fmtMoney } from "@/components/ledger-ui";
 import {
+  ColourSwatch,
   GeneratedCodeBox,
-  INP_CSS,
   ImageField,
   SkuField,
   SkuModalShell,
   SkuParentCard,
   SkuSection,
+  colourHex,
   numOrNull,
   type SkuMaster,
   type SkuProduct,
@@ -194,7 +195,6 @@ export function ColourVariantModal({
             )}
           </div>
         </div>
-        {INP_CSS}
       </SkuModalShell>
     );
   }
@@ -229,8 +229,17 @@ export function ColourVariantModal({
                 value: c.code,
                 label: `${c.name} (${c.code})`,
                 hint: `Code: ${c.code}`,
+                swatch: colourHex(c.name),
               }))}
             />
+            {selectedColour && (
+              <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+                <ColourSwatch colour={selectedColour.name} />
+                <span>
+                  Selected: <span className="font-medium text-foreground">{selectedColour.name}</span>
+                </span>
+              </p>
+            )}
           </SkuField>
           {dupName && selectedColour && (
             <p className="mt-2 text-xs font-medium text-destructive">
@@ -363,7 +372,10 @@ export function ColourVariantModal({
               <span className="text-muted-foreground">Master SKU</span>
               <span className="break-all text-right font-mono">{parent.sku}</span>
               <span className="text-muted-foreground">Colour</span>
-              <span className="text-right font-medium">{selectedColour.name}</span>
+              <span className="flex items-center justify-end gap-1.5 text-right font-medium">
+                <ColourSwatch colour={selectedColour.name} />
+                {selectedColour.name}
+              </span>
               <span className="text-muted-foreground">Colour Code</span>
               <span className="text-right font-mono">{selectedColour.code}</span>
               <span className="text-muted-foreground">Generated Colour SKU</span>
@@ -391,7 +403,6 @@ export function ColourVariantModal({
           </button>
         </div>
       </form>
-      {INP_CSS}
     </SkuModalShell>
   );
 }

@@ -6,7 +6,6 @@ import api from "@/lib/api-client";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import {
   GeneratedCodeBox,
-  INP_CSS,
   ImageField,
   SkuField,
   SkuModalShell,
@@ -20,10 +19,10 @@ import {
 import { STANDARD_GENDERS } from "@/routes/app.products";
 
 /* ────────────────────────────────────────────────────────────────────────────
- * Create Master SKU — premium single-page enterprise form.
- * UI redesign only: fields, Master SKU generation (AD-GENDER-CATEGORY-MODEL),
- * validation and the createHierarchy save payload are unchanged from the
- * previous SkuBuilderModal wizard.
+ * Create Master SKU — 3-step wizard: product details → pricing → review.
+ * Fields, Master SKU generation (AD-GENDER-CATEGORY-MODEL), validation and
+ * the createHierarchy save payload are unchanged — only the presentation is
+ * stepped so each stage can be completed and reviewed in turn.
  * ──────────────────────────────────────────────────────────────────────── */
 
 export function MasterSkuModal({
@@ -60,6 +59,7 @@ export function MasterSkuModal({
     image_url: "",
   });
   const [showOverrides, setShowOverrides] = useState(false);
+  const [step, setStep] = useState<1 | 2 | 3>(1);
   const [created, setCreated] = useState<{ sku: string; product: SkuProduct | null } | null>(null);
   // Category stays on the Master SKU — pick an existing one or create a new
   // name + code inline.
@@ -99,6 +99,10 @@ export function MasterSkuModal({
   })();
   const canCreate =
     !!f.name.trim() && !!category && !!gender && !!model && !!parentSku && !skuTaken && !priceError;
+  /* Step 1 (product details) is done when the identity fields + SKU check pass —
+   * pricing is validated separately on step 2. */
+  const detailsValid =
+    !!f.name.trim() && !!category && !!gender && !!model && !!parentSku && !skuTaken;
 
   const quickCreateCategory = useMutation({
     mutationFn: async () => {
@@ -209,7 +213,6 @@ export function MasterSkuModal({
             )}
           </div>
         </div>
-        {INP_CSS}
       </SkuModalShell>
     );
   }
@@ -217,19 +220,34 @@ export function MasterSkuModal({
   return (
     <SkuModalShell
       title="Create Master SKU"
-      subtitle="Create the base product SKU before adding colour and size variants."
+      subtitle={
+        step === 1
+          ? "Step 1 of 3 — enter the product details that make up the Master SKU."
+          : step === 2
+            ? "Step 2 of 3 — set pricing inherited by every variant."
+            : "Step 3 of 3 — review everything, then create the Master SKU."
+      }
       onClose={onClose}
       wide
     >
+      <StepBar step={step} onGo={(s) => s < step && setStep(s)} />
       <div className="grid flex-1 gap-6 overflow-y-auto p-5 md:p-6 lg:grid-cols-[1fr_300px]">
         <form
           className="min-w-0 space-y-5"
           onSubmit={(e) => {
             e.preventDefault();
-            save.mutate();
+            if (step === 1) {
+              if (detailsValid) setStep(2);
+            } else if (step === 2) {
+              if (!priceError) setStep(3);
+            } else {
+              save.mutate();
+            }
           }}
         >
-          <SkuSection title="Product Information">
+          {step === 1 && (
+          <>
+          <SkuSection title="Step 1 — Product details">
             <div className="grid gap-4 md:grid-cols-2">
               <SkuField label="Product Name" required>
                 <input
@@ -345,8 +363,11 @@ export function MasterSkuModal({
             taken={skuTaken}
             takenHint={`Master SKU already exists: ${parentSku} — change model / category / gender.`}
           />
+          </>
+          )}
 
-          <SkuSection title="Pricing">
+          {step === 2 && (
+          <SkuSection title="Step 2 — Pricing">
             <div className="grid gap-4 md:grid-cols-2">
               <SkuField label="Reference Cost (₹)">
                 <input
@@ -457,22 +478,121 @@ export function MasterSkuModal({
               </p>
             )}
           </SkuSection>
+          )}
 
-          <div className="flex justify-end gap-2 pt-1">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md border border-border px-4 py-2 text-sm"
-            >
-              Cancel
-            </button>
-            <button
-              disabled={save.isPending || !canCreate}
-              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
-            >
-              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-              {save.isPending ? "Creating…" : "Create Master SKU"}
-            </button>
+          {step === 3 && (
+          <>
+            <SkuSection title="Step 3 — Review product details">
+              <dl className="grid gap-3 md:grid-cols-2">
+                {[
+                  ["Product name", f.name.trim() || "—"],
+                  ["Model number", model || "—"],
+                  [
+                    "Category",
+                    category ? `${category.name} (${category.code})` : "—",
+                  ],
+                  ["Gender", gender ? `${gender.name} (${gender.code})` : "—"],
+                  ["HSN code", f.hsnCode.trim() || "—"],
+                  ["Unit of measure", f.unitOfMeasure || "—"],
+                ].map(([k, v]) => (
+                  <div key={k} className="rounded-lg border border-border bg-card p-3">
+                    <dt className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {k}
+                    </dt>
+                    <dd className="mt-0.5 break-words text-sm font-medium text-foreground">
+                      {v}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+            </SkuSection>
+
+            <GeneratedCodeBox
+              label="Master SKU to be created"
+              code={parentSku}
+              note="Colours and sizes are added after the Master SKU is created."
+              checking={skuCheckQ.isFetching}
+              taken={skuTaken}
+              takenHint={`Master SKU already exists: ${parentSku} — go back and change model / category / gender.`}
+            />
+
+            <SkuSection title="Review pricing">
+              <dl className="grid gap-3 md:grid-cols-2">
+                {[
+                  ["Reference cost (₹)", f.unitCost === "" ? "—" : f.unitCost],
+                  ["Selling price (₹)", f.unitPrice === "" ? "—" : f.unitPrice],
+                  ["MRP (₹)", f.mrp === "" ? "—" : f.mrp],
+                  ["GST rate (%)", f.gstRate === "" ? "—" : f.gstRate],
+                  ["Retailer price (₹)", f.retailerPrice === "" ? "—" : f.retailerPrice],
+                  ["Distributor price (₹)", f.distributorPrice === "" ? "—" : f.distributorPrice],
+                  ["E-commerce price (₹)", f.ecommercePrice === "" ? "—" : f.ecommercePrice],
+                ].map(([k, v]) => (
+                  <div key={k} className="rounded-lg border border-border bg-card p-3">
+                    <dt className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      {k}
+                    </dt>
+                    <dd className="num mt-0.5 text-sm font-medium text-foreground">{v}</dd>
+                  </div>
+                ))}
+              </dl>
+              {priceError && (
+                <p className="mt-3 text-xs font-medium text-destructive">{priceError}</p>
+              )}
+            </SkuSection>
+          </>
+          )}
+
+          <div className="flex items-center justify-between gap-2 pt-1">
+            <div>
+              {step > 1 && (
+                <button
+                  type="button"
+                  onClick={() => setStep(step === 3 ? 2 : 1)}
+                  className="rounded-md border border-border px-4 py-2 text-sm hover:border-primary hover:text-primary"
+                >
+                  ← Back
+                </button>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-md border border-border px-4 py-2 text-sm"
+              >
+                Cancel
+              </button>
+              {step === 1 && (
+                <button
+                  type="button"
+                  disabled={!detailsValid}
+                  onClick={() => detailsValid && setStep(2)}
+                  className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
+                >
+                  Next: Pricing →
+                </button>
+              )}
+              {step === 2 && (
+                <button
+                  type="button"
+                  disabled={!!priceError}
+                  onClick={() => !priceError && setStep(3)}
+                  className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
+                >
+                  Next: Review →
+                </button>
+              )}
+              {step === 3 && (
+                <button
+                  type="submit"
+                  disabled={save.isPending || !canCreate}
+                  className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
+                >
+                  {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {save.isPending ? "Creating…" : "Create Master SKU"}
+                </button>
+              )}
+            </div>
           </div>
         </form>
 
@@ -501,7 +621,55 @@ export function MasterSkuModal({
           </p>
         </aside>
       </div>
-      {INP_CSS}
     </SkuModalShell>
+  );
+}
+
+/* ── Wizard step indicator: completed steps are clickable to go back ── */
+const STEPS = ["Product details", "Pricing", "Review & create"] as const;
+
+function StepBar({ step, onGo }: { step: 1 | 2 | 3; onGo: (s: 1 | 2 | 3) => void }) {
+  return (
+    <div className="flex items-center gap-1 border-b border-border px-5 py-3 md:px-6" aria-label="Creation steps">
+      {STEPS.map((label, i) => {
+        const n = (i + 1) as 1 | 2 | 3;
+        const done = n < step;
+        const current = n === step;
+        return (
+          <div key={label} className="flex min-w-0 flex-1 items-center gap-2 last:flex-none">
+            <button
+              type="button"
+              disabled={!done}
+              onClick={() => done && onGo(n)}
+              aria-current={current ? "step" : undefined}
+              className={`flex min-w-0 items-center gap-2 rounded-md px-1 py-0.5 ${
+                done ? "cursor-pointer" : "cursor-default"
+              }`}
+              title={done ? `Back to ${label}` : label}
+            >
+              <span
+                className={`grid h-6 w-6 shrink-0 place-items-center rounded-full text-[11px] font-semibold ${
+                  current
+                    ? "bg-primary text-primary-foreground"
+                    : done
+                      ? "bg-primary/15 text-primary"
+                      : "bg-muted text-muted-foreground"
+                }`}
+              >
+                {done ? "✓" : n}
+              </span>
+              <span
+                className={`truncate text-xs font-medium ${
+                  current ? "text-foreground" : "text-muted-foreground"
+                }`}
+              >
+                {label}
+              </span>
+            </button>
+            {i < STEPS.length - 1 && <span className="mx-1 h-px flex-1 bg-border" />}
+          </div>
+        );
+      })}
+    </div>
   );
 }

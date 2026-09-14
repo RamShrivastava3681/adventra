@@ -47,7 +47,7 @@ function statusClass(s: Status) {
   return "bg-sem-attention/10 text-sem-attention border-sem-attention/30";
 }
 
-function NotesPage() {
+export function NotesPage() {
   const { user, isAdmin, isClient, isChecker, isTreasury } = useAuth();
   const canCreate = isAdmin || (isClient && !isChecker && !isTreasury);
   const qc = useQueryClient();

@@ -65,8 +65,69 @@ export function copySku(sku: string, label = "SKU copied"): void {
   toast.success(label);
 }
 
-/** Compact enterprise input styling shared by the SKU dialogs. */
-export const INP_CSS = `<style>${`.sku-inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:8px;padding:.55rem .75rem;font-size:.875rem}.sku-inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}.sku-inp:disabled{opacity:.6}`}</style>`;
+/** Literal swatch for each standard colour name (case-insensitive).
+ *  Multi/assorted entries use gradients; unknown names fall back to grey. */
+const COLOUR_HEX: Record<string, string> = {
+  black: "#191919",
+  white: "#FFFFFF",
+  grey: "#9AA0A6",
+  charcoal: "#36454F",
+  silver: "#C7CDD4",
+  blue: "#2563EB",
+  "navy blue": "#1E2A5A",
+  "royal blue": "#4169E1",
+  "sky blue": "#7EC8E3",
+  "ice blue": "#D8EAF7",
+  teal: "#0E7C7B",
+  turquoise: "#3ED3C5",
+  green: "#22994F",
+  "olive green": "#7A7A1E",
+  "forest green": "#1F7A38",
+  khaki: "#C3B091",
+  red: "#DC2626",
+  maroon: "#7F1D1D",
+  burgundy: "#7A0C2E",
+  orange: "#F97316",
+  yellow: "#FACC15",
+  purple: "#8B5CF6",
+  pink: "#F4A7C3",
+  brown: "#8B5A2B",
+  "coyote brown": "#81613C",
+  tan: "#D2B48C",
+  beige: "#EFEAD2",
+  sand: "#E3D3AC",
+  stone: "#8D8D8D",
+  "desert sand": "#EDC9AF",
+  gold: "#C9A227",
+  copper: "#B87333",
+  camouflage: "#78866B",
+  "multi colour": "linear-gradient(135deg,#DC2626,#FACC15,#22994F,#2563EB,#8B5CF6)",
+  assorted: "linear-gradient(135deg,#9AA0A6,#36454F)",
+  transparent: "transparent",
+};
+
+export function colourHex(name?: string | null): string {
+  if (!name) return "#9AA0A6";
+  return COLOUR_HEX[name.trim().toLowerCase()] ?? "#9AA0A6";
+}
+
+/** Literal colour dot shown beside a colour name. */
+export function ColourSwatch({
+  colour,
+  className = "",
+}: {
+  colour?: string | null;
+  className?: string;
+}) {
+  return (
+    <span
+      aria-hidden
+      title={colour ?? undefined}
+      style={{ background: colourHex(colour) }}
+      className={`inline-block h-4 w-4 shrink-0 rounded-full border border-black/20 dark:border-white/25 ${className}`}
+    />
+  );
+}
 
 /** Form field with enterprise label + optional required indicator. */
 export function SkuField({

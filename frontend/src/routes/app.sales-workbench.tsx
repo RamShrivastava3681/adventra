@@ -1,6 +1,6 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   ShoppingBag,
   FileText,
@@ -132,11 +132,73 @@ const FILTERS: Array<{ key: FilterKey; label: string }> = [
 
 const PAGE_SIZE = 15;
 
+/* ── Same-page sections — tab clicks switch content below, never navigate ── */
+type SalesSection =
+  | "workbench"
+  | "customers"
+  | "sales-orders"
+  | "proformas"
+  | "invoices"
+  | "payments"
+  | "notes"
+  | "tasks";
+
+const DebtorsPanel = lazy(() =>
+  import("@/routes/app.debtors").then((m) => ({ default: m.DebtorsPage })),
+);
+const SalesOrdersPanel = lazy(() =>
+  import("@/routes/app.sales-orders").then((m) => ({ default: m.SalesOrdersPage })),
+);
+const ProformasPanel = lazy(() =>
+  import("@/routes/app.proformas").then((m) => ({ default: m.ProformasPage })),
+);
+const InvoicesPanel = lazy(() =>
+  import("@/routes/app.invoices").then((m) => ({ default: m.InvoicesPage })),
+);
+const QueuePanel = lazy(() =>
+  import("@/routes/app.queue").then((m) => ({ default: m.QueuePage })),
+);
+const NotesPanel = lazy(() =>
+  import("@/routes/app.notes").then((m) => ({ default: m.NotesPage })),
+);
+const TasksPanel = lazy(() =>
+  import("@/routes/app.tasks").then((m) => ({ default: m.TasksPage })),
+);
+
+function SectionFallback() {
+  return (
+    <div className="mx-auto w-full max-w-[1440px] px-4 py-6 md:px-8 md:py-8">
+      <TableSkeleton rows={6} cols={8} />
+    </div>
+  );
+}
+
 function SalesWorkbenchPage() {
   const { isAdmin, isOperations, isTreasury } = useAuth();
   const navigate = useNavigate();
+  const [section, setSection] = useState<SalesSection>("workbench");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [page, setPage] = useState(1);
+
+  /* Row-level open: stay in-page when the doc has its own tab, else deep-link. */
+  function openDoc(t: Task) {
+    switch (t.doc_type) {
+      case "sales_order":
+        setSection("sales-orders");
+        return;
+      case "sales_invoice":
+        setSection("invoices");
+        return;
+      case "proforma":
+        setSection("proformas");
+        return;
+      case "payment":
+        setSection("payments");
+        return;
+      default:
+        navigate({ to: docAppPath(t) as any });
+    }
+  }
 
   /* ── Open workflow tasks (engine data — same endpoint as My Queue) ── */
   const tasksQ = useQuery({
@@ -231,7 +293,7 @@ function SalesWorkbenchPage() {
         description="Track your sales documents, see what needs action, and take the next step."
         actions={
           <button
-            onClick={() => navigate({ to: "/app/sales-orders", search: { new: "1" } as any })}
+            onClick={() => setSection("sales-orders")}
             className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
           >
             + Create Sales Order
@@ -239,25 +301,58 @@ function SalesWorkbenchPage() {
         }
       />
 
-      {/* ── Sales navigation — all existing routes stay functional ── */}
+      {/* ── Sales navigation — same-page sections, no route change ── */}
       <div className="border-b border-border bg-background">
         <div className="mx-auto w-full max-w-[1440px] overflow-x-auto px-4 md:px-8">
           <nav className="flex min-w-max gap-1" aria-label="Sales sections">
-            <NavTab label="Workbench" active />
-            <NavTab label="Customers" to="/app/debtors" />
-            <NavTab label="Sales Orders" to="/app/sales-orders" />
-            <NavTab label="Proforma Invoices" to="/app/proformas" />
-            <NavTab label="Sales Invoices" to="/app/invoices" />
+            <NavTab
+              label="Workbench"
+              active={section === "workbench"}
+              onClick={() => setSection("workbench")}
+            />
+            <NavTab
+              label="Customers"
+              active={section === "customers"}
+              onClick={() => setSection("customers")}
+            />
+            <NavTab
+              label="Sales Orders"
+              active={section === "sales-orders"}
+              onClick={() => setSection("sales-orders")}
+            />
+            <NavTab
+              label="Proforma Invoices"
+              active={section === "proformas"}
+              onClick={() => setSection("proformas")}
+            />
+            <NavTab
+              label="Sales Invoices"
+              active={section === "invoices"}
+              onClick={() => setSection("invoices")}
+            />
             {(isAdmin || isOperations || isTreasury) && (
-              <NavTab label="Customer Payments" to="/app/queue" />
+              <NavTab
+                label="Customer Payments"
+                active={section === "payments"}
+                onClick={() => setSection("payments")}
+              />
             )}
-            <NavTab label="Credit Notes" to="/app/notes" />
-            <NavTab label="Activity History" to="/app/tasks" />
+            <NavTab
+              label="Credit Notes"
+              active={section === "notes"}
+              onClick={() => setSection("notes")}
+            />
+            <NavTab
+              label="Activity History"
+              active={section === "tasks"}
+              onClick={() => setSection("tasks")}
+            />
           </nav>
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
+      {section === "workbench" ? (
+        <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         {/* ── KPI cards ── */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {loading ? (
@@ -330,7 +425,7 @@ function SalesWorkbenchPage() {
             title="Work requiring attention"
             action={
               <button
-                onClick={() => navigate({ to: "/app/tasks" })}
+                onClick={() => setSection("tasks")}
                 className="text-xs font-medium text-primary hover:underline"
               >
                 View all
@@ -372,7 +467,7 @@ function SalesWorkbenchPage() {
                           {/* Document */}
                           <td className="px-4 py-2.5">
                             <button
-                              onClick={() => navigate({ to: docAppPath(t) as any })}
+                              onClick={() => openDoc(t)}
                               className="text-left font-mono text-[13px] font-semibold tracking-tight text-foreground hover:text-primary"
                               title={`Open ${WF_TYPE_LABEL[t.workflow_type] ?? t.workflow_type}`}
                             >
@@ -429,7 +524,7 @@ function SalesWorkbenchPage() {
                           <td className="px-4 py-2.5 text-right whitespace-nowrap">
                             <div className="inline-flex items-center gap-1.5">
                               <button
-                                onClick={() => navigate({ to: docAppPath(t) as any })}
+                                onClick={() => openDoc(t)}
                                 className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
                               >
                                 Open
@@ -444,14 +539,10 @@ function SalesWorkbenchPage() {
                                   </button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="w-48">
-                                  <DropdownMenuItem
-                                    onClick={() => navigate({ to: docAppPath(t) as any })}
-                                  >
+                                  <DropdownMenuItem onClick={() => openDoc(t)}>
                                     <ExternalLink className="h-3.5 w-3.5" /> Open document
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem
-                                    onClick={() => navigate({ to: "/app/tasks" })}
-                                  >
+                                  <DropdownMenuItem onClick={() => setSection("tasks")}>
                                     View in My Queue
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
@@ -503,7 +594,7 @@ function SalesWorkbenchPage() {
             title="Overdue receipts"
             action={
               <button
-                onClick={() => navigate({ to: "/app/proformas" })}
+                onClick={() => setSection("proformas")}
                 className="text-xs font-medium text-muted-foreground hover:text-primary"
               >
                 View all
@@ -545,42 +636,44 @@ function SalesWorkbenchPage() {
             )}
           </Card>
         </div>
-      </div>
+        </div>
+      ) : (
+        <Suspense fallback={<SectionFallback />}>
+          {section === "customers" && <DebtorsPanel />}
+          {section === "sales-orders" && <SalesOrdersPanel />}
+          {section === "proformas" && <ProformasPanel />}
+          {section === "invoices" && <InvoicesPanel />}
+          {section === "payments" && <QueuePanel />}
+          {section === "notes" && <NotesPanel />}
+          {section === "tasks" && <TasksPanel />}
+        </Suspense>
+      )}
     </div>
   );
 }
 
-/* ── Nav tab — active = blue text + blue bottom border; others link out ── */
+/* ── Nav tab — same-page button; active = blue text + blue bottom border ── */
 function NavTab({
   label,
-  to,
   active = false,
+  onClick,
 }: {
   label: string;
-  to?: string;
   active?: boolean;
+  onClick?: () => void;
 }) {
-  if (active || !to) {
-    return (
-      <span
-        aria-current={active ? "page" : undefined}
-        className={`whitespace-nowrap border-b-2 px-3.5 py-2.5 text-[13px] font-medium ${
-          active
-            ? "border-primary text-primary"
-            : "border-transparent text-muted-foreground"
-        }`}
-      >
-        {label}
-      </span>
-    );
-  }
   return (
-    <Link
-      to={to as any}
-      className="whitespace-nowrap border-b-2 border-transparent px-3.5 py-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+    <button
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      className={`whitespace-nowrap border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors ${
+        active
+          ? "border-primary text-primary"
+          : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+      }`}
     >
       {label}
-    </Link>
+    </button>
   );
 }
 

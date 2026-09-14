@@ -444,6 +444,24 @@ input[type="number"] {
     box-shadow: var(--shadow-brand);
   }
   /* ── Enterprise micro-primitives (use anywhere) ── */
+  /* Compact SKU-dialog input (replaces the old per-modal INP_CSS style tag). */
+  .sku-inp {
+    width: 100%;
+    background: var(--color-input);
+    border: 1px solid var(--color-border);
+    color: var(--color-foreground);
+    border-radius: 8px;
+    padding: 0.55rem 0.75rem;
+    font-size: 0.875rem;
+  }
+  .sku-inp:focus {
+    outline: none;
+    border-color: var(--color-primary);
+    box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 25%, transparent);
+  }
+  .sku-inp:disabled {
+    opacity: 0.6;
+  }
   .eyebrow {
     display: inline-flex;
     align-items: center;

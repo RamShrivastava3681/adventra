@@ -22,6 +22,8 @@ export interface SearchableOption {
   label: string;
   /** Secondary detail line (number, customer, status…) also searched. */
   hint?: string;
+  /** Optional literal swatch (any CSS background) shown before the label. */
+  swatch?: string;
 }
 
 /**
@@ -84,7 +86,16 @@ export function SearchableSelect({
             triggerClassName,
           )}
         >
-          <span className="truncate">{selected ? selected.label : placeholder}</span>
+          <span className="flex min-w-0 items-center gap-2 truncate">
+            {selected?.swatch && (
+              <span
+                aria-hidden
+                style={{ background: selected.swatch }}
+                className="inline-block h-4 w-4 shrink-0 rounded-full border border-black/20 dark:border-white/25"
+              />
+            )}
+            <span className="truncate">{selected ? selected.label : placeholder}</span>
+          </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
@@ -114,11 +125,20 @@ export function SearchableSelect({
                       value === o.value ? "opacity-100" : "opacity-0",
                     )}
                   />
-                  <div className="flex min-w-0 flex-col">
-                    <span className="truncate">{o.label}</span>
-                    {o.hint && (
-                      <span className="truncate text-[11px] text-muted-foreground">{o.hint}</span>
+                  <div className="flex min-w-0 flex-1 items-center gap-2">
+                    {o.swatch && (
+                      <span
+                        aria-hidden
+                        style={{ background: o.swatch }}
+                        className="inline-block h-4 w-4 shrink-0 rounded-full border border-black/20 dark:border-white/25"
+                      />
                     )}
+                    <div className="flex min-w-0 flex-col">
+                      <span className="truncate">{o.label}</span>
+                      {o.hint && (
+                        <span className="truncate text-[11px] text-muted-foreground">{o.hint}</span>
+                      )}
+                    </div>
                   </div>
                 </CommandItem>
               ))}

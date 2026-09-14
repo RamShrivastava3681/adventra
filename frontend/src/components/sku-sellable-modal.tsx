@@ -7,7 +7,6 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { fmtMoney } from "@/components/ledger-ui";
 import {
   GeneratedCodeBox,
-  INP_CSS,
   SkuField,
   SkuModalShell,
   SkuParentCard,
@@ -217,7 +216,6 @@ export function SellableSkuModal({
             )}
           </div>
         </div>
-        {INP_CSS}
       </SkuModalShell>
     );
   }
@@ -440,7 +438,6 @@ export function SellableSkuModal({
           </button>
         </div>
       </form>
-      {INP_CSS}
     </SkuModalShell>
   );
 }

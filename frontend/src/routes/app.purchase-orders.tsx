@@ -226,7 +226,7 @@ function resolveTierPrice(
   }
 }
 
-function PurchaseOrdersPage() {
+export function PurchaseOrdersPage() {
   const { user, isSalesRep, isAdmin, isChecker } = useAuth();
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();

@@ -9,7 +9,7 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { MasterSkuModal } from "@/components/sku-master-modal";
 import { ColourVariantModal } from "@/components/sku-colour-modal";
 import { SellableSkuModal } from "@/components/sku-sellable-modal";
-import { numOrNull, ImageField } from "@/components/sku-shared";
+import { numOrNull, ImageField, ColourSwatch } from "@/components/sku-shared";
 import {
   CatalogueTabs,
   CatalogueToolbar,
@@ -1023,7 +1023,10 @@ function ProductDetailDrawer({
                   <div key={c.id} className="rounded-lg border border-border/70">
                     <div className="flex items-center justify-between border-b border-border/60 bg-muted/20 px-3 py-2">
                       <div>
-                        <span className="font-medium">{c.color ?? c.name}</span>
+                        <span className="inline-flex items-center gap-1.5 font-medium">
+                          <ColourSwatch colour={c.color ?? c.name} />
+                          {c.color ?? c.name}
+                        </span>
                         <p className="font-mono text-xs text-primary">{c.sku}</p>
                         <p className="mt-0.5 text-[10px] text-muted-foreground">
                           Sell {c.unit_price ? fmtMoney(c.unit_price) : "—"}

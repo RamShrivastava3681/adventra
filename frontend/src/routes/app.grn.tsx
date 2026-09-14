@@ -138,7 +138,7 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-function GrnPage() {
+export function GrnPage() {
   const { user, isSalesRep, isReportingManager, isAdmin, isChecker } = useAuth();
   const canWrite = !!user && !isSalesRep && !isReportingManager;
   const qc = useQueryClient();

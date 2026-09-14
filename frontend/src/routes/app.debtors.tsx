@@ -43,7 +43,7 @@ export function invalidateCustomerQueries(qc: QueryClient) {
   });
 }
 
-function DebtorsPage() {
+export function DebtorsPage() {
   const { isAdmin } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);

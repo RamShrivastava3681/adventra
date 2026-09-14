@@ -65,7 +65,7 @@ type Row = {
   raw: any;
 };
 
-function QueuePage() {
+export function QueuePage() {
   const { isAdmin, isTreasury: isTreasuryRole, user } = useAuth();
   const isTreasury = isTreasuryRole || isAdmin;
   const qc = useQueryClient();

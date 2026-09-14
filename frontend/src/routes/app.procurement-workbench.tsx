@@ -1,6 +1,6 @@
-import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   ShoppingCart,
   ClipboardList,
@@ -163,6 +163,41 @@ const FILTERS: Array<{ key: FilterKey; label: string }> = [
 
 const PAGE_SIZE = 15;
 
+/* ── Same-page sections — tab clicks switch content below, never navigate ── */
+type ProcSection =
+  | "workbench"
+  | "suppliers"
+  | "purchase-orders"
+  | "purchases"
+  | "grns"
+  | "payments"
+  | "tasks";
+
+const SuppliersPanel = lazy(() =>
+  import("@/routes/app.suppliers").then((m) => ({ default: m.SuppliersPage })),
+);
+const PurchaseOrdersPanel = lazy(() =>
+  import("@/routes/app.purchase-orders").then((m) => ({ default: m.PurchaseOrdersPage })),
+);
+const PurchasesPanel = lazy(() =>
+  import("@/routes/app.purchases").then((m) => ({ default: m.PurchasesPage })),
+);
+const GrnPanel = lazy(() => import("@/routes/app.grn").then((m) => ({ default: m.GrnPage })));
+const PayQueuePanel = lazy(() =>
+  import("@/routes/app.queue").then((m) => ({ default: m.QueuePage })),
+);
+const ProcTasksPanel = lazy(() =>
+  import("@/routes/app.tasks").then((m) => ({ default: m.TasksPage })),
+);
+
+function SectionFallback() {
+  return (
+    <div className="mx-auto w-full max-w-[1440px] px-4 py-6 md:px-8 md:py-8">
+      <TableSkeleton rows={6} cols={8} />
+    </div>
+  );
+}
+
 /* Goods-PO statuses that still need procurement attention (not terminal). */
 const OPEN_PO_STATUSES = new Set([
   "draft",
@@ -180,11 +215,32 @@ function ProcurementWorkbenchPage() {
   void isAdmin;
   void isOperations;
   const navigate = useNavigate();
+  const [section, setSection] = useState<ProcSection>("workbench");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [query, setQuery] = useState("");
   const [supplier, setSupplier] = useState("all");
   const [owner, setOwner] = useState("all");
   const [page, setPage] = useState(1);
+
+  /* Row-level open: stay in-page when the doc has its own tab, else deep-link. */
+  function openDoc(t: { doc_type: string }) {
+    switch (t.doc_type) {
+      case "purchase_order":
+        setSection("purchase-orders");
+        return;
+      case "purchase_invoice":
+        setSection("purchases");
+        return;
+      case "grn":
+        setSection("grns");
+        return;
+      case "payment":
+        setSection("payments");
+        return;
+      default:
+        navigate({ to: docAppPath(t as any) as any });
+    }
+  }
 
   /* ── Open workflow tasks (engine data — same endpoint as My Queue) ── */
   const tasksQ = useQuery({
@@ -378,7 +434,7 @@ function ProcurementWorkbenchPage() {
         description="Manage purchase orders, supplier invoices, deliveries and GRNs."
         actions={
           <button
-            onClick={() => navigate({ to: "/app/purchase-orders" })}
+            onClick={() => setSection("purchase-orders")}
             className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
           >
             + New Purchase Order
@@ -386,22 +442,51 @@ function ProcurementWorkbenchPage() {
         }
       />
 
-      {/* ── Procurement navigation — all existing routes stay functional ── */}
+      {/* ── Procurement navigation — same-page sections, no route change ── */}
       <div className="border-b border-border bg-background">
         <div className="mx-auto w-full max-w-[1440px] overflow-x-auto px-4 md:px-8">
           <nav className="flex min-w-max gap-1" aria-label="Procurement sections">
-            <NavTab label="Workbench" active />
-            <NavTab label="Suppliers" to="/app/suppliers" />
-            <NavTab label="Purchase Orders" to="/app/purchase-orders" />
-            <NavTab label="Purchase Invoices" to="/app/purchases" />
-            <NavTab label="GRNs" to="/app/grn" />
-            <NavTab label="Supplier Payments" to="/app/queue" />
-            <NavTab label="Activity History" to="/app/tasks" />
+            <NavTab
+              label="Workbench"
+              active={section === "workbench"}
+              onClick={() => setSection("workbench")}
+            />
+            <NavTab
+              label="Suppliers"
+              active={section === "suppliers"}
+              onClick={() => setSection("suppliers")}
+            />
+            <NavTab
+              label="Purchase Orders"
+              active={section === "purchase-orders"}
+              onClick={() => setSection("purchase-orders")}
+            />
+            <NavTab
+              label="Purchase Invoices"
+              active={section === "purchases"}
+              onClick={() => setSection("purchases")}
+            />
+            <NavTab
+              label="GRNs"
+              active={section === "grns"}
+              onClick={() => setSection("grns")}
+            />
+            <NavTab
+              label="Supplier Payments"
+              active={section === "payments"}
+              onClick={() => setSection("payments")}
+            />
+            <NavTab
+              label="Activity History"
+              active={section === "tasks"}
+              onClick={() => setSection("tasks")}
+            />
           </nav>
         </div>
       </div>
 
-      <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
+      {section === "workbench" ? (
+        <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         {/* ── KPI cards ── */}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
           {loading ? (
@@ -509,7 +594,7 @@ function ProcurementWorkbenchPage() {
             title="Procurement work items"
             action={
               <button
-                onClick={() => navigate({ to: "/app/tasks" })}
+                onClick={() => setSection("tasks")}
                 className="text-xs font-medium text-primary hover:underline"
               >
                 View all
@@ -551,7 +636,7 @@ function ProcurementWorkbenchPage() {
                           {/* Document */}
                           <td className="px-4 py-2.5">
                             <button
-                              onClick={() => navigate({ to: docAppPath(t) as any })}
+                              onClick={() => openDoc(t)}
                               className="text-left font-mono text-[13px] font-semibold tracking-tight text-foreground hover:text-primary"
                               title={`Open ${WF_TYPE_LABEL[t.workflow_type] ?? t.workflow_type}`}
                             >
@@ -606,7 +691,7 @@ function ProcurementWorkbenchPage() {
                           <td className="whitespace-nowrap px-4 py-2.5 text-right">
                             <div className="inline-flex items-center gap-1.5">
                               <button
-                                onClick={() => navigate({ to: docAppPath(t) as any })}
+                                onClick={() => openDoc(t)}
                                 className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
                               >
                                 {actionLabel(t)}
@@ -621,12 +706,10 @@ function ProcurementWorkbenchPage() {
                                   </button>
                                 </DropdownMenuTrigger>
                                 <DropdownMenuContent align="end" className="w-48">
-                                  <DropdownMenuItem
-                                    onClick={() => navigate({ to: docAppPath(t) as any })}
-                                  >
+                                  <DropdownMenuItem onClick={() => openDoc(t)}>
                                     <ExternalLink className="h-3.5 w-3.5" /> Open document
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => navigate({ to: "/app/tasks" })}>
+                                  <DropdownMenuItem onClick={() => setSection("tasks")}>
                                     View in My Queue
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
@@ -678,7 +761,7 @@ function ProcurementWorkbenchPage() {
               title="Priority attention"
               action={
                 <button
-                  onClick={() => navigate({ to: "/app/tasks" })}
+                  onClick={() => setSection("tasks")}
                   className="text-xs font-medium text-muted-foreground hover:text-primary"
                 >
                   View all
@@ -762,7 +845,7 @@ function ProcurementWorkbenchPage() {
                 title="Upcoming deliveries"
                 action={
                   <button
-                    onClick={() => navigate({ to: "/app/purchase-orders" })}
+            onClick={() => setSection("purchase-orders")}
                     className="text-xs font-medium text-muted-foreground hover:text-primary"
                   >
                     View all
@@ -818,39 +901,48 @@ function ProcurementWorkbenchPage() {
             {(suppliersQ.data ?? []).length}{" "}
             {(suppliersQ.data ?? []).length === 1 ? "supplier" : "suppliers"} on record.{" "}
             <button
-              onClick={() => navigate({ to: "/app/suppliers" })}
+              onClick={() => setSection("suppliers")}
               className="font-medium text-primary hover:underline"
             >
               Manage suppliers
             </button>
           </p>
         )}
-      </div>
+        </div>
+      ) : (
+        <Suspense fallback={<SectionFallback />}>
+          {section === "suppliers" && <SuppliersPanel />}
+          {section === "purchase-orders" && <PurchaseOrdersPanel />}
+          {section === "purchases" && <PurchasesPanel />}
+          {section === "grns" && <GrnPanel />}
+          {section === "payments" && <PayQueuePanel />}
+          {section === "tasks" && <ProcTasksPanel />}
+        </Suspense>
+      )}
     </div>
   );
 }
 
-/* ── Nav tab — active = blue text + blue bottom border; others link out ── */
-function NavTab({ label, to, active = false }: { label: string; to?: string; active?: boolean }) {
-  if (active || !to) {
-    return (
-      <span
-        aria-current={active ? "page" : undefined}
-        className={`whitespace-nowrap border-b-2 px-3.5 py-2.5 text-[13px] font-medium ${
-          active ? "border-primary text-primary" : "border-transparent text-muted-foreground"
-        }`}
-      >
-        {label}
-      </span>
-    );
-  }
+/* ── Nav tab — same-page button; active = blue text + blue bottom border ── */
+function NavTab({
+  label,
+  active = false,
+  onClick,
+}: {
+  label: string;
+  active?: boolean;
+  onClick?: () => void;
+}) {
   return (
-    <Link
-      to={to as any}
-      className="whitespace-nowrap border-b-2 border-transparent px-3.5 py-2.5 text-[13px] font-medium text-muted-foreground transition-colors hover:border-border hover:text-foreground"
+    <button
+      onClick={onClick}
+      aria-current={active ? "page" : undefined}
+      className={`whitespace-nowrap border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors ${
+        active ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+      }`}
     >
       {label}
-    </Link>
+    </button>
   );
 }
 

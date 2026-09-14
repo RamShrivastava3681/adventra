@@ -132,7 +132,7 @@ function todayYMD(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-function TasksPage() {
+export function TasksPage() {
   const { user, isAdmin, isTreasury, isOperations, isChecker, roles } = useAuth();
   const [filter, setFilter] = useState<FilterKey>("pending");
   const [search, setSearch] = useState("");

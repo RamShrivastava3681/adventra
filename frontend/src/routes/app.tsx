@@ -112,10 +112,9 @@ const DEBTORS_ITEMS: NavItem[] = [
   { to: "/app/debtors", label: "Customers", icon: Building2 },
 ];
 
-// ─── Warehouse Control items ──
+// ─── Warehouse Control items (Product Catalogue lives as its own sidebar tab) ──
 const WAREHOUSE_CONTROL_ITEMS: NavItem[] = [
   { to: "/app/warehouse", label: "Warehouse", icon: Warehouse },
-  { to: "/app/products", label: "Product Catalogue", icon: Package },
   { to: "/app/forecast", label: "Forecast", icon: TrendingUp },
   { to: "/app/grn", label: "GRN", icon: PackageCheck },
   { to: "/app/dispatches", label: "Dispatch", icon: Truck },
@@ -209,6 +208,17 @@ function buildNavSections(roles: string[]): NavSection[] {
       : []),
   ];
 
+  // Product Catalogue — standalone tab (master data), visible to operations + admin
+  const catalogueSection: NavSection | null =
+    (isOperations || isAdmin)
+      ? {
+          type: "single",
+          label: "Product Catalogue",
+          icon: Package,
+          to: "/app/products",
+        }
+      : null;
+
   // Warehouse Control — visible to operations + admin
   const warehouseControlSection: NavSection | null =
     (isOperations || isAdmin)
@@ -246,7 +256,7 @@ function buildNavSections(roles: string[]): NavSection[] {
       : null;
 
   // Assemble in the desired order: Dashboard, My Queue, Checker, Finance,
-  // Procurement, Sales, Warehouse Control, Reports, System
+  // Procurement, Sales, Product Catalogue, Warehouse Control, Reports, System
   const sections = [
     dashboardSection,
     myQueueSection,
@@ -256,6 +266,7 @@ function buildNavSections(roles: string[]): NavSection[] {
     procurementSection,
     salesSection,
     ...salesRepExtras,
+    catalogueSection,
     warehouseControlSection,
     ...reportsSections,
     systemSection,
@@ -392,10 +403,13 @@ function AppLayout() {
     const naughtyListRoutes: string[] = [
       "/app/naughty-list",
     ];
+    // Product Catalogue routes (standalone sidebar tab)
+    const catalogueRoutes: string[] = [
+      "/app/products",
+    ];
     // Warehouse Control routes (hidden: /app/inventory kept out of nav for now)
     const warehouseControlRoutes: string[] = [
       "/app/warehouse",
-      "/app/products",
       "/app/forecast",
       "/app/grn",
       "/app/dispatches",
@@ -421,6 +435,7 @@ function AppLayout() {
       ...salesRoutes,
       ...financeRoutes,
       ...naughtyListRoutes,
+      ...catalogueRoutes,
       ...warehouseControlRoutes,
     ];
 
@@ -436,6 +451,7 @@ function AppLayout() {
       ...salesRoutes,
       ...financeRoutes,
       ...naughtyListRoutes,
+      ...catalogueRoutes,
       ...warehouseControlRoutes,
     ];
 

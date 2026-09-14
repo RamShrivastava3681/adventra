@@ -66,7 +66,7 @@ const emptyForm = {
   notes: "",
 };
 
-function SuppliersPage() {
+export function SuppliersPage() {
   const { isAdmin } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
