@@ -88,27 +88,11 @@ const FINANCE_ITEMS: NavItem[] = [
   { to: "/app/finance-purchases", label: "Purchase invoices", icon: ShoppingCart },
 ];
 
-// ─── Sales items ──
-const SALES_ITEMS: NavItem[] = [
-  { to: "/app/debtors", label: "Customers", icon: Building2 },
-  { to: "/app/suppliers", label: "Suppliers", icon: Truck },
-  { to: "/app/sales-orders", label: "Sales orders", icon: ShoppingBag },
-  { to: "/app/invoices", label: "Sales invoices", icon: FileText },
-  { to: "/app/proformas", label: "Sales proforma", icon: FileSignature },
-  { to: "/app/advances", label: "Advances (sales)", icon: Wallet },
-  { to: "/app/notes", label: "Credit / Debit notes", icon: FileMinus },
-];
-
-// ─── Procurement items (purchase side) ──
-const PROCUREMENT_ITEMS: NavItem[] = [
-  { to: "/app/suppliers", label: "Suppliers", icon: Truck },
-  { to: "/app/purchases", label: "Purchase invoices", icon: ShoppingCart },
-  { to: "/app/proformas", label: "Purchase proforma", icon: FileSignature },
-  { to: "/app/purchase-orders", label: "Purchase orders", icon: ClipboardList },
-  { to: "/app/advances", label: "Advances (purchase)", icon: Wallet },
-  { to: "/app/notes", label: "Credit / Debit notes", icon: FileMinus },
-  { to: "/app/debtors", label: "Customers", icon: Building2 },
-];
+// ─── Procurement — a single Workbench entry. The workbench page hosts the
+// procurement navigation (Suppliers, Purchase Orders, Purchase Invoices,
+// GRNs, Supplier Payments, Activity History) as in-page tabs, so the sidebar
+// collapses to one link. All document routes below stay registered and
+// reachable via the workbench tabs and deep links.
 
 // ─── (admin) quick-action item buckets ──
 export const QUICK_SUPPLIER_ITEMS: NavItem[] = [
@@ -184,36 +168,38 @@ function buildNavSections(roles: string[]): NavSection[] {
         }
       : null;
 
-  // Procurement — visible to operations + admin
+  // Procurement — visible to operations + admin (single Workbench link)
   const procurementSection: NavSection | null =
     (isOperations || isAdmin)
       ? {
-          type: "group",
+          type: "single",
           label: "Procurement",
           icon: ShoppingCart,
-          items: [...PROCUREMENT_ITEMS],
+          to: "/app/procurement-workbench",
         }
       : null;
 
-  // Sales — visible to operations, sales rep, admin
-  const salesItems: NavItem[] =
-    isSalesRep
-      ? [
-          { to: "/app/crm", label: "Leads", icon: Users },
-          { to: "/app/debtors", label: "Customers", icon: Building2 },
-          { to: "/app/suppliers", label: "Suppliers", icon: Truck },
-          { to: "/app/naughty-list", label: "Naughty List", icon: AlertTriangle },
-        ]
-      : [...SALES_ITEMS];
+  // Sales — a single Workbench entry. The workbench page hosts the sales
+  // navigation (Customers, Sales Orders, Proforma, Invoices, Credit Notes,
+  // Activity History) as in-page tabs, so the sidebar collapses to one link.
   const salesSection: NavSection | null =
     (isSalesRep || isOperations || isAdmin)
       ? {
-          type: "group",
-          label: "Sales",
+          type: "single",
+          label: "Sales Workbench",
           icon: ShoppingBag,
-          items: salesItems,
+          to: "/app/sales-workbench",
         }
       : null;
+
+  // Sales reps keep their standalone CRM / Naughty List entries — the
+  // workbench replaces the document tabs, not their own tools.
+  const salesRepExtras: NavSection[] = isSalesRep
+    ? [
+        { type: "single", label: "Leads", icon: Users, to: "/app/crm" },
+        { type: "single", label: "Naughty List", icon: AlertTriangle, to: "/app/naughty-list" },
+      ]
+    : [];
 
   // Reports — visible to everyone (reporting manager gets extra "My Reports")
   const reportsSections: NavSection[] = [
@@ -269,6 +255,7 @@ function buildNavSections(roles: string[]): NavSection[] {
     financeSection,
     procurementSection,
     salesSection,
+    ...salesRepExtras,
     warehouseControlSection,
     ...reportsSections,
     systemSection,
@@ -384,10 +371,12 @@ function AppLayout() {
 
     // Procurement routes (purchase side)
     const procurementRoutes: string[] = [
+      "/app/procurement-workbench",
       "/app/suppliers",
       "/app/purchases",
       "/app/proformas",
       "/app/purchase-orders",
+      "/app/grn",
       "/app/advances",
       "/app/notes",
     ];
@@ -441,6 +430,7 @@ function AppLayout() {
       "/app/cash-flow",
       "/app/queue",
       "/app/bulk-payments",
+      "/app/sales-workbench",
       ...procurementRoutes,
       ...supplierListRoutes,
       ...salesRoutes,
@@ -458,6 +448,7 @@ function AppLayout() {
     // Sales rep allowed routes
     const salesmanAllowed: string[] = [
       "/app/dashboard",
+      "/app/sales-workbench",
       "/app/crm",
       "/app/debtors",
       "/app/suppliers",

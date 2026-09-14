@@ -302,6 +302,24 @@ export function SalesOrdersPage() {
   const [editing, setEditing] = useState<SO | null>(null);
   const [pdfId, setPdfId] = useState<string | null>(null);
 
+  // Deep link from the Sales Workbench ("+ Create Sales Order"): ?new=1
+  // auto-opens the existing create dialog once, then the param is stripped
+  // so a page refresh doesn't re-trigger it.
+  useEffect(() => {
+    if (!canWrite) return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("new") === "1") {
+      params.delete("new");
+      const qs = params.toString();
+      window.history.replaceState(
+        {},
+        "",
+        window.location.pathname + (qs ? `?${qs}` : ""),
+      );
+      setOpen(true);
+    }
+  }, [canWrite]);
+
   const downloadRowPdf = async (s: SO) => {
     setPdfId(s.id);
     try {

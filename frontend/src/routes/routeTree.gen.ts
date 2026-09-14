@@ -34,6 +34,7 @@ import { Route as AppGrnRouteImport } from './app.grn'
 import { Route as AppInventoryRouteImport } from './app.inventory'
 import { Route as AppInvoicesRouteImport } from './app.invoices'
 import { Route as AppNotesRouteImport } from './app.notes'
+import { Route as AppProcurementWorkbenchRouteImport } from './app.procurement-workbench'
 import { Route as AppProductsRouteImport } from './app.products'
 import { Route as AppProfileRouteImport } from './app.profile'
 import { Route as AppProformasRouteImport } from './app.proformas'
@@ -45,6 +46,7 @@ import { Route as AppReportingRouteImport } from './app.reporting'
 import { Route as AppReportsRouteImport } from './app.reports'
 import { Route as AppRequestsRouteImport } from './app.requests'
 import { Route as AppSalesOrdersRouteImport } from './app.sales-orders'
+import { Route as AppSalesWorkbenchRouteImport } from './app.sales-workbench'
 import { Route as AppSampleDistributionRouteImport } from './app.sample-distribution'
 import { Route as AppSettingsRouteImport } from './app.settings'
 import { Route as AppStockAllocationRouteImport } from './app.stock-allocation'
@@ -187,6 +189,11 @@ const AppNotesRoute = AppNotesRouteImport.update({
   path: '/notes',
   getParentRoute: () => AppRoute,
 } as any)
+const AppProcurementWorkbenchRoute = AppProcurementWorkbenchRouteImport.update({
+  id: '/procurement-workbench',
+  path: '/procurement-workbench',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppProductsRoute = AppProductsRouteImport.update({
   id: '/products',
   path: '/products',
@@ -240,6 +247,11 @@ const AppRequestsRoute = AppRequestsRouteImport.update({
 const AppSalesOrdersRoute = AppSalesOrdersRouteImport.update({
   id: '/sales-orders',
   path: '/sales-orders',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSalesWorkbenchRoute = AppSalesWorkbenchRouteImport.update({
+  id: '/sales-workbench',
+  path: '/sales-workbench',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSampleDistributionRoute = AppSampleDistributionRouteImport.update({
@@ -349,6 +361,7 @@ export interface FileRoutesByFullPath {
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/notes': typeof AppNotesRoute
+  '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
   '/app/profile': typeof AppProfileRoute
   '/app/proformas': typeof AppProformasRoute
@@ -360,6 +373,7 @@ export interface FileRoutesByFullPath {
   '/app/reports': typeof AppReportsRoute
   '/app/requests': typeof AppRequestsRoute
   '/app/sales-orders': typeof AppSalesOrdersRoute
+  '/app/sales-workbench': typeof AppSalesWorkbenchRoute
   '/app/sample-distribution': typeof AppSampleDistributionRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
@@ -403,6 +417,7 @@ export interface FileRoutesByTo {
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/notes': typeof AppNotesRoute
+  '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
   '/app/profile': typeof AppProfileRoute
   '/app/proformas': typeof AppProformasRoute
@@ -413,6 +428,7 @@ export interface FileRoutesByTo {
   '/app/reports': typeof AppReportsRoute
   '/app/requests': typeof AppRequestsRoute
   '/app/sales-orders': typeof AppSalesOrdersRoute
+  '/app/sales-workbench': typeof AppSalesWorkbenchRoute
   '/app/sample-distribution': typeof AppSampleDistributionRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
@@ -457,6 +473,7 @@ export interface FileRoutesById {
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/notes': typeof AppNotesRoute
+  '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
   '/app/profile': typeof AppProfileRoute
   '/app/proformas': typeof AppProformasRoute
@@ -468,6 +485,7 @@ export interface FileRoutesById {
   '/app/reports': typeof AppReportsRoute
   '/app/requests': typeof AppRequestsRoute
   '/app/sales-orders': typeof AppSalesOrdersRoute
+  '/app/sales-workbench': typeof AppSalesWorkbenchRoute
   '/app/sample-distribution': typeof AppSampleDistributionRoute
   '/app/settings': typeof AppSettingsRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
@@ -513,6 +531,7 @@ export interface FileRouteTypes {
     | '/app/inventory'
     | '/app/invoices'
     | '/app/notes'
+    | '/app/procurement-workbench'
     | '/app/products'
     | '/app/profile'
     | '/app/proformas'
@@ -524,6 +543,7 @@ export interface FileRouteTypes {
     | '/app/reports'
     | '/app/requests'
     | '/app/sales-orders'
+    | '/app/sales-workbench'
     | '/app/sample-distribution'
     | '/app/settings'
     | '/app/stock-allocation'
@@ -567,6 +587,7 @@ export interface FileRouteTypes {
     | '/app/inventory'
     | '/app/invoices'
     | '/app/notes'
+    | '/app/procurement-workbench'
     | '/app/products'
     | '/app/profile'
     | '/app/proformas'
@@ -577,6 +598,7 @@ export interface FileRouteTypes {
     | '/app/reports'
     | '/app/requests'
     | '/app/sales-orders'
+    | '/app/sales-workbench'
     | '/app/sample-distribution'
     | '/app/settings'
     | '/app/stock-allocation'
@@ -620,6 +642,7 @@ export interface FileRouteTypes {
     | '/app/inventory'
     | '/app/invoices'
     | '/app/notes'
+    | '/app/procurement-workbench'
     | '/app/products'
     | '/app/profile'
     | '/app/proformas'
@@ -631,6 +654,7 @@ export interface FileRouteTypes {
     | '/app/reports'
     | '/app/requests'
     | '/app/sales-orders'
+    | '/app/sales-workbench'
     | '/app/sample-distribution'
     | '/app/settings'
     | '/app/stock-allocation'
@@ -834,6 +858,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppNotesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/procurement-workbench': {
+      id: '/app/procurement-workbench'
+      path: '/procurement-workbench'
+      fullPath: '/app/procurement-workbench'
+      preLoaderRoute: typeof AppProcurementWorkbenchRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/products': {
       id: '/app/products'
       path: '/products'
@@ -909,6 +940,13 @@ declare module '@tanstack/react-router' {
       path: '/sales-orders'
       fullPath: '/app/sales-orders'
       preLoaderRoute: typeof AppSalesOrdersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/sales-workbench': {
+      id: '/app/sales-workbench'
+      path: '/sales-workbench'
+      fullPath: '/app/sales-workbench'
+      preLoaderRoute: typeof AppSalesWorkbenchRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/sample-distribution': {
@@ -1063,6 +1101,7 @@ interface AppRouteChildren {
   AppInventoryRoute: typeof AppInventoryRoute
   AppInvoicesRoute: typeof AppInvoicesRoute
   AppNotesRoute: typeof AppNotesRoute
+  AppProcurementWorkbenchRoute: typeof AppProcurementWorkbenchRoute
   AppProductsRoute: typeof AppProductsRoute
   AppProfileRoute: typeof AppProfileRoute
   AppProformasRoute: typeof AppProformasRoute
@@ -1074,6 +1113,7 @@ interface AppRouteChildren {
   AppReportsRoute: typeof AppReportsRoute
   AppRequestsRoute: typeof AppRequestsRoute
   AppSalesOrdersRoute: typeof AppSalesOrdersRoute
+  AppSalesWorkbenchRoute: typeof AppSalesWorkbenchRoute
   AppSampleDistributionRoute: typeof AppSampleDistributionRoute
   AppSettingsRoute: typeof AppSettingsRoute
   AppStockAllocationRoute: typeof AppStockAllocationRoute
@@ -1111,6 +1151,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppInventoryRoute: AppInventoryRoute,
   AppInvoicesRoute: AppInvoicesRoute,
   AppNotesRoute: AppNotesRoute,
+  AppProcurementWorkbenchRoute: AppProcurementWorkbenchRoute,
   AppProductsRoute: AppProductsRoute,
   AppProfileRoute: AppProfileRoute,
   AppProformasRoute: AppProformasRoute,
@@ -1122,6 +1163,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppReportsRoute: AppReportsRoute,
   AppRequestsRoute: AppRequestsRoute,
   AppSalesOrdersRoute: AppSalesOrdersRoute,
+  AppSalesWorkbenchRoute: AppSalesWorkbenchRoute,
   AppSampleDistributionRoute: AppSampleDistributionRoute,
   AppSettingsRoute: AppSettingsRoute,
   AppStockAllocationRoute: AppStockAllocationRoute,

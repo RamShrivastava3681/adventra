@@ -1,12 +1,49 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
-import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
-import { ClipboardCheck, Check, X, Lock, FileMinus, FilePlus, Eye } from "lucide-react";
-import { TableSkeleton } from "@/components/skeletons";
+import {
+  PageHeader,
+  Card,
+  EmptyState,
+  fmtMoney,
+  fmtDate,
+} from "@/components/ledger-ui";
+import {
+  ClipboardCheck,
+  Check,
+  X,
+  Lock,
+  FileMinus,
+  FilePlus,
+  Eye,
+  ListChecks,
+  ShoppingBag,
+  Package,
+  FileText,
+  Info,
+  MoreHorizontal,
+  ChevronLeft,
+  ChevronRight,
+  CalendarDays,
+} from "lucide-react";
+import { TableSkeleton, StatSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   InvoiceDetailModal,
   ProformaDetailModal,
@@ -17,6 +54,25 @@ import {
 export const Route = createFileRoute("/app/checker")({
   component: CheckerPage,
 });
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Field audit (source of truth for what the workbench may display)
+ * ---------------------------------------------------------------------------
+ * Doc type            | Creator name on row            | Submission timestamp
+ * Sales Orders (SO)   | salesperson_name               | created_at
+ * Purchase Orders(PO) | buyer_name                     | created_at
+ * Sales Invoices (SI) | salesperson_name (goods) / —   | created_at
+ * Purchase InvoicesPI | — (client_id only)             | created_at
+ * Proformas (PF)      | — (client_id only)             | created_at
+ * Credit/Debit Notes  | — (client_id only)             | created_at
+ *
+ * client_id → name resolution uses the existing admin-only /admin/users
+ * endpoint (fetched only when the viewer is an admin). Checkers see direct
+ * names where the document stores them; otherwise "—". No backend changes.
+ *
+ * Approval ageing buckets are computed client-side from created_at:
+ *   Due Today = age 0 · This Week = age 1–7 · Overdue = age > 7
+ * ──────────────────────────────────────────────────────────────────────── */
 
 type Row = {
   kind: "sale" | "purchase";
@@ -36,16 +92,104 @@ type Row = {
   raw: any;
 };
 
+/* ── Workbench nav tabs (in-page filter state — no new routes) ── */
+type TabKey =
+  | "queue"
+  | "so"
+  | "po"
+  | "pi"
+  | "si"
+  | "approved"
+  | "returned"
+  | "history";
+
+const TABS: Array<{ key: TabKey; label: string }> = [
+  { key: "queue", label: "Approval Queue" },
+  { key: "so", label: "Sales Orders" },
+  { key: "po", label: "Purchase Orders" },
+  { key: "pi", label: "Purchase Invoices" },
+  { key: "si", label: "Sales Invoices" },
+  { key: "approved", label: "Approved" },
+  { key: "returned", label: "Returned" },
+  { key: "history", label: "Approval History" },
+];
+
+type ItemType =
+  | "sales_order"
+  | "purchase_order"
+  | "purchase_invoice"
+  | "sales_invoice"
+  | "proforma"
+  | "note";
+
+const TYPE_LABEL: Record<ItemType, string> = {
+  sales_order: "Sales Order",
+  purchase_order: "Purchase Order",
+  purchase_invoice: "Purchase Invoice",
+  sales_invoice: "Sales Invoice",
+  proforma: "Proforma",
+  note: "Credit / Debit Note",
+};
+
+const TAB_TO_TYPE: Partial<Record<TabKey, ItemType>> = {
+  so: "sales_order",
+  po: "purchase_order",
+  pi: "purchase_invoice",
+  si: "sales_invoice",
+};
+
+/** Whole-day age of an ISO timestamp (local midnights, never negative). */
+function ageDaysSince(iso: string | null | undefined): number | null {
+  if (!iso) return null;
+  const t = new Date(iso);
+  if (isNaN(t.getTime())) return null;
+  const a = new Date(t.getFullYear(), t.getMonth(), t.getDate()).getTime();
+  const now = new Date();
+  const b = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  return Math.max(0, Math.floor((b - a) / 86400000));
+}
+
+/* ── Unified queue row: one shape across all six document types ── */
+type QueueItem = {
+  key: string;
+  type: ItemType;
+  docNumber: string;
+  createdBy: string | null;
+  value: number;
+  valueSub?: string | null;
+  submittedOn: string | null;
+  summary: string;
+  ageDays: number | null;
+  selfCreated: boolean;
+  /* existing read-only review experience for this row (modal opener) */
+  onReview: (() => void) | null;
+  /* existing decision actions — wired verbatim to the current mutations */
+  onApprove: () => void;
+  onReject: () => void;
+  approveLabel: string;
+  rejectLabel: string;
+  approvePending: boolean;
+  noaStatus?: string | null;
+  noaComments?: string | null;
+};
+
 function CheckerPage() {
   const { isAdmin, isChecker, user } = useAuth();
   const canReview = isAdmin || isChecker;
   const qc = useQueryClient();
-  const [side, setSide] = useState<"all" | "sale" | "purchase">("all");
+
+  const [tab, setTab] = useState<TabKey>("queue");
+  const [queueFilter, setQueueFilter] = useState<"all" | "proforma" | "note">("all");
+  const [page, setPage] = useState(1);
+  const PAGE_SIZE = 15;
+
   const [viewInv, setViewInv] = useState<{ kind: "sale" | "purchase"; raw: any } | null>(null);
   const [approveFor, setApproveFor] = useState<{ row: Row; utr: string; amount: string } | null>(null);
   const [viewPf, setViewPf] = useState<any | null>(null);
   const [viewPo, setViewPo] = useState<any | null>(null);
   const [viewSo, setViewSo] = useState<any | null>(null);
+
+  /* ── Pending queues — queries unchanged from the original checker page ── */
 
   const salesQ = useQuery({
     queryKey: ["checker-sales"],
@@ -212,7 +356,312 @@ function CheckerPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  // ── Past review history for the current checker ──
+  // Goods sales orders awaiting the checker's approval.
+  const sosQ = useQuery({
+    queryKey: ["checker-sos"],
+    queryFn: async () => {
+      const data = await api.goodsSalesOrders.list();
+      return data.filter((s: any) => ["warehouse_approved", "checker_pending"].includes(s.status));
+    },
+  });
+
+  const reviewSO = useMutation({
+    mutationFn: async ({ id, action }: { id: string; action: "approve" | "reject" }) => {
+      await api.goodsSalesOrders.checkerApprove(id, action);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["checker-sos"] });
+      qc.invalidateQueries({ queryKey: ["goods-sos"] });
+      qc.invalidateQueries({ queryKey: ["pf-sales-orders"] });
+      qc.invalidateQueries({ queryKey: ["invoices-by-so"] });
+      toast.success("Sales order decision recorded");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  /* ── Creator-name resolution (admin only — /admin/users is admin-gated) ── */
+  const usersQ = useQuery({
+    queryKey: ["checker-users"],
+    enabled: !!isAdmin,
+    retry: false,
+    queryFn: async () => {
+      try {
+        return await api.admin.users();
+      } catch {
+        return [];
+      }
+    },
+  });
+  const userMap = useMemo(() => {
+    const m: Record<string, string> = {};
+    for (const u of usersQ.data ?? []) {
+      m[u.id] = u.contact_name ?? u.contactName ?? u.name ?? u.email;
+    }
+    return m;
+  }, [usersQ.data]);
+  const creatorFor = (direct: string | null | undefined, clientId?: string | null) =>
+    direct ?? (isAdmin ? userMap[clientId ?? ""] : null) ?? null;
+
+  /* ── PO → open advance lookup (verbatim from the original page) ── */
+  const salePos = Array.from(
+    new Set(((salesQ.data ?? []) as any[]).map((i) => (i.po_number ?? "").trim()).filter(Boolean)),
+  );
+  const purPos = Array.from(
+    new Set(
+      ((purchasesQ.data ?? []) as any[]).map((p) => (p.po_number ?? "").trim()).filter(Boolean),
+    ),
+  );
+
+  const advLookupQ = useQuery({
+    queryKey: ["checker-advances", salePos, purPos],
+    enabled: salePos.length > 0 || purPos.length > 0,
+    queryFn: async () => {
+      const map: Record<string, number> = {}; // key: `${side}::${po}`
+      const fetchSide = async (side: "sales" | "purchase", pos: string[]) => {
+        if (!pos.length) return;
+        const allOrders = await api.purchaseOrders.list();
+        const poRows = allOrders.filter((o: any) => o.side === side && pos.includes(o.po_number));
+        const ids = poRows.map((r: any) => r.id);
+        const idToPo = new Map<string, string>(poRows.map((r: any) => [r.id, r.po_number]));
+        if (!ids.length) return;
+        const allAdvances = await api.advances.list();
+        const advs = allAdvances.filter(
+          (a: any) =>
+            a.side === side &&
+            ids.includes(a.purchaseOrderId ?? a.purchase_order_id) &&
+            a.status !== "refunded",
+        );
+        for (const a of advs as any[]) {
+          const po = idToPo.get(a.purchase_order_id);
+          if (!po) continue;
+          map[`${side}::${po}`] = (map[`${side}::${po}`] ?? 0) + Number(a.amount);
+        }
+      };
+      await Promise.all([fetchSide("sales", salePos), fetchSide("purchase", purPos)]);
+      return map;
+    },
+  });
+  const advMap = advLookupQ.data ?? {};
+
+  const advFor = (side: "sales" | "purchase", po?: string | null) => {
+    const k = po ? `${side}::${po.trim()}` : "";
+    return k ? Number(advMap[k] ?? 0) : 0;
+  };
+
+  /* ── Invoice rows (kept for the UTR approve modal + sales NOA context) ── */
+  const invoiceRows: Row[] = [
+    ...((salesQ.data ?? []) as Array<Record<string, any>>).map((i): Row => {
+      // Goods invoices now store the net amount (grand total − advances) and
+      // the deducted advance. Fall back to the legacy PO-number lookup for
+      // invoices created before those fields existed.
+      const storedAdv = Number(i.advance_deducted ?? 0);
+      const adv = storedAdv > 0 ? storedAdv : advFor("sales", i.po_number);
+      const amt = Number(i.amount ?? i.grand_total ?? 0);
+      const net = storedAdv > 0 ? amt : Math.max(0, amt - adv);
+      return {
+        kind: "sale",
+        id: i.id,
+        invoice_number: i.invoice_number,
+        amount: amt,
+        po_number: i.po_number,
+        advance: adv,
+        net,
+        issue_date: i.issue_date,
+        due_date: i.due_date,
+        party: partyMap[i.debtor_id] ?? i.debtor?.name ?? "—",
+        client_id: i.client_id,
+        noa_status: i.noa_status,
+        noa_comments: i.noa_comments,
+        raw: i,
+      };
+    }),
+    ...((purchasesQ.data ?? []) as Array<Record<string, any>>).map((p): Row => {
+      const storedAdv = Number(p.advance_deducted ?? 0);
+      const adv = storedAdv > 0 ? storedAdv : advFor("purchase", p.po_number);
+      const amt = Number(p.amount ?? p.grand_total ?? 0);
+      const net = storedAdv > 0 ? amt : Math.max(0, amt - adv);
+      return {
+        kind: "purchase",
+        id: p.id,
+        invoice_number: p.invoice_number,
+        amount: amt,
+        po_number: p.goods_po_number ?? p.po_number,
+        advance: adv,
+        net,
+        issue_date: p.issue_date,
+        due_date: p.due_date,
+        party: p.supplier_name ?? partyMap[p.vendor_id] ?? p.vendor?.name ?? "—",
+        client_id: p.client_id,
+        raw: p,
+      };
+    }),
+  ];
+  /* ── Unified queue across all six document types ── */
+  const items: QueueItem[] = useMemo(() => {
+    const out: QueueItem[] = [];
+
+    // Sales orders
+    for (const s of (sosQ.data ?? []) as any[]) {
+      const lineCount = (s.lines ?? []).reduce(
+        (n: number, l: any) => n + (Number(l.ordered_qty) || 0),
+        0,
+      );
+      out.push({
+        key: `so-${s.id}`,
+        type: "sales_order",
+        docNumber: s.so_number,
+        createdBy: creatorFor(s.salesperson_name, s.client_id),
+        value: Number(s.grand_total) || 0,
+        submittedOn: s.created_at,
+        summary: `Customer order · ${lineCount.toLocaleString()} units${s.customer_name ? ` · ${s.customer_name}` : ""}`,
+        ageDays: ageDaysSince(s.created_at),
+        selfCreated: s.client_id === user?.id && !isAdmin,
+        onReview: () => setViewSo(s),
+        onApprove: () => reviewSO.mutate({ id: s.id, action: "approve" }),
+        onReject: () => reviewSO.mutate({ id: s.id, action: "reject" }),
+        approveLabel: "Approve",
+        rejectLabel: s.status === "checker_pending" ? "Reject" : "Reject",
+        approvePending: reviewSO.isPending,
+      });
+    }
+
+    // Purchase orders
+    for (const p of (posQ.data ?? []) as any[]) {
+      const lineCount = (p.lines ?? []).reduce(
+        (n: number, l: any) => n + (Number(l.ordered_qty) || 0),
+        0,
+      );
+      out.push({
+        key: `po-${p.id}`,
+        type: "purchase_order",
+        docNumber: p.po_number,
+        createdBy: creatorFor(p.buyer_name, p.client_id),
+        value: Number(p.grand_total) || 0,
+        submittedOn: p.created_at,
+        summary: `Supplier order · ${lineCount.toLocaleString()} units${p.supplier_name ? ` · ${p.supplier_name}` : ""}`,
+        ageDays: ageDaysSince(p.created_at),
+        selfCreated: p.client_id === user?.id && !isAdmin,
+        onReview: () => setViewPo(p),
+        onApprove: () => reviewPO.mutate({ id: p.id, decision: "approved" }),
+        onReject: () => reviewPO.mutate({ id: p.id, decision: "draft" }),
+        approveLabel: "Approve",
+        rejectLabel: "Reject",
+        approvePending: reviewPO.isPending,
+      });
+    }
+
+    // Purchase invoices
+    for (const p of (purchasesQ.data ?? []) as any[]) {
+      out.push({
+        key: `pi-${p.id}`,
+        type: "purchase_invoice",
+        docNumber: p.invoice_number,
+        createdBy: creatorFor(null, p.client_id),
+        value: Number(p.amount ?? p.grand_total ?? 0),
+        submittedOn: p.created_at,
+        summary: `Supplier invoice${p.supplier_name ? ` from ${p.supplier_name}` : ""}`,
+        ageDays: ageDaysSince(p.created_at),
+        selfCreated: p.client_id === user?.id && !isAdmin,
+        onReview: () =>
+          setViewInv({ kind: "purchase", raw: invoiceRows.find((r) => r.id === p.id)?.raw ?? p }),
+        onApprove: () => reviewPurchase.mutate({ id: p.id, decision: "approved" }),
+        onReject: () => reviewPurchase.mutate({ id: p.id, decision: "disputed" }),
+        approveLabel: "Approve",
+        rejectLabel: "Dispute",
+        approvePending: reviewPurchase.isPending,
+      });
+    }
+
+    // Sales invoices
+    for (const r of invoiceRows.filter((x) => x.kind === "sale")) {
+      out.push({
+        key: `si-${r.id}`,
+        type: "sales_invoice",
+        docNumber: r.invoice_number,
+        createdBy: creatorFor(r.raw?.salesperson_name, r.client_id),
+        value: r.amount,
+        valueSub: r.advance > 0 ? `Net ${fmtMoney(r.net)}` : null,
+        submittedOn: r.raw?.created_at,
+        summary: `Invoice for ${r.party}`,
+        ageDays: ageDaysSince(r.raw?.created_at),
+        selfCreated: r.client_id === user?.id && !isAdmin,
+        onReview: () => setViewInv({ kind: "sale", raw: r.raw }),
+        onApprove: () => setApproveFor({ row: r, utr: "", amount: String(r.amount) }),
+        onReject: () => reviewSale.mutate({ id: r.id, decision: "rejected" }),
+        approveLabel: "Approve",
+        rejectLabel: "Reject",
+        approvePending: reviewSale.isPending,
+        noaStatus: r.noa_status,
+        noaComments: r.noa_comments,
+      });
+    }
+
+    // Proforma advances
+    for (const p of (proformasQ.data ?? []) as any[]) {
+      out.push({
+        key: `pf-${p.id}`,
+        type: "proforma",
+        docNumber: p.proforma_number ?? "—",
+        createdBy: creatorFor(null, p.client_id),
+        value: Number(p.amount) || 0,
+        submittedOn: p.created_at,
+        summary: `${p.side === "sales" ? "Sales" : "Purchase"} proforma advance · ${pfParty(p)}`,
+        ageDays: ageDaysSince(p.created_at),
+        selfCreated: p.client_id === user?.id && !isAdmin,
+        onReview: () => setViewPf(p),
+        onApprove: () => reviewProforma.mutate({ id: p.id, decision: "approved" }),
+        onReject: () => reviewProforma.mutate({ id: p.id, decision: "rejected" }),
+        approveLabel: "Approve",
+        rejectLabel: "Reject",
+        approvePending: reviewProforma.isPending,
+      });
+    }
+
+    // Credit / debit notes
+    for (const n of (notesQ.data ?? []) as any[]) {
+      const linkedRaw = n.invoice ?? n.purchase ?? null;
+      out.push({
+        key: `note-${n.id}`,
+        type: "note",
+        docNumber: n.note_number,
+        createdBy: creatorFor(null, n.client_id),
+        value: Number(n.amount) || 0,
+        submittedOn: n.created_at,
+        summary: `${n.kind === "credit" ? "Credit" : "Debit"} note${n.reason ? ` · ${n.reason}` : ""}`,
+        ageDays: ageDaysSince(n.created_at),
+        selfCreated: n.client_id === user?.id && !isAdmin,
+        // Notes have no dedicated detail modal — reuse the existing linked
+        // invoice modal when one is attached; otherwise no review view.
+        onReview: linkedRaw
+          ? () => setViewInv({ kind: n.invoice ? "sale" : "purchase", raw: linkedRaw })
+          : null,
+        onApprove: () => reviewNote.mutate({ id: n.id, decision: "approved" }),
+        onReject: () => reviewNote.mutate({ id: n.id, decision: "rejected" }),
+        approveLabel: "Approve",
+        rejectLabel: "Reject",
+        approvePending: reviewNote.isPending,
+      });
+    }
+
+    // Oldest first — overdue items naturally rise to the top.
+    out.sort((a, b) => (b.ageDays ?? -1) - (a.ageDays ?? -1));
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    sosQ.data,
+    posQ.data,
+    purchasesQ.data,
+    salesQ.data,
+    proformasQ.data,
+    notesQ.data,
+    partyMap,
+    userMap,
+    isAdmin,
+    user?.id,
+    invoiceRows,
+  ]);
+
+  /* ── Past decisions by this checker (verbatim from the original page) ── */
   const historyQ = useQuery({
     queryKey: ["checker-history", user?.id],
     enabled: !!user?.id,
@@ -322,132 +771,95 @@ function CheckerPage() {
     },
   });
 
-  // Goods sales orders awaiting the checker's approval.
-  const sosQ = useQuery({
-    queryKey: ["checker-sos"],
-    queryFn: async () => {
-      const data = await api.goodsSalesOrders.list();
-      return data.filter((s: any) => ["warehouse_approved", "checker_pending"].includes(s.status));
-    },
+  /* ── Derived: counts, filtering, ageing buckets, pagination ── */
+  const countSO = (sosQ.data ?? []).length;
+  const countPO = (posQ.data ?? []).length;
+  const countInv = (salesQ.data ?? []).length + (purchasesQ.data ?? []).length;
+  const countTotal =
+    countSO + countPO + countInv + (proformasQ.data ?? []).length + (notesQ.data ?? []).length;
+
+  const isHistoryTab = tab === "approved" || tab === "returned" || tab === "history";
+
+  const visibleItems = useMemo(() => {
+    let list = items;
+    const t = TAB_TO_TYPE[tab];
+    if (t) list = list.filter((i) => i.type === t);
+    else if (tab === "queue") {
+      if (queueFilter === "proforma") list = list.filter((i) => i.type === "proforma");
+      else if (queueFilter === "note") list = list.filter((i) => i.type === "note");
+      // "all" keeps every type, matching the original All / Sales / Purchases
+      // filter behavior (proformas & notes remain part of the full queue).
+    }
+    return list;
+  }, [items, tab, queueFilter]);
+
+  const buckets = useMemo(() => {
+    let overdue = 0;
+    let today = 0;
+    let week = 0;
+    for (const i of items) {
+      if (i.ageDays == null) continue;
+      if (i.ageDays > 7) overdue++;
+      else if (i.ageDays === 0) today++;
+      else week++;
+    }
+    return { overdue, today, week };
+  }, [items]);
+
+  const totalPages = Math.max(1, Math.ceil(visibleItems.length / PAGE_SIZE));
+  useEffect(() => {
+    setPage(1);
+  }, [tab, queueFilter]);
+  const safePage = Math.min(page, totalPages);
+  const pageItems = visibleItems.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
+
+  const historyFiltered = useMemo(() => {
+    const h = historyQ.data ?? [];
+    if (tab === "approved") return h.filter((x) => x.action === "Approved" || x.action === "Confirmed");
+    if (tab === "returned") return h.filter((x) => x.action !== "Approved" && x.action !== "Confirmed");
+    return h;
+  }, [historyQ.data, tab]);
+
+  const queueLoading =
+    salesQ.isLoading ||
+    purchasesQ.isLoading ||
+    proformasQ.isLoading ||
+    posQ.isLoading ||
+    sosQ.isLoading ||
+    notesQ.isLoading;
+
+  const todayLabel = new Date().toLocaleDateString("en-US", {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
   });
 
-  const reviewSO = useMutation({
-    mutationFn: async ({ id, action }: { id: string; action: "approve" | "reject" }) => {
-      await api.goodsSalesOrders.checkerApprove(id, action);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["checker-sos"] });
-      qc.invalidateQueries({ queryKey: ["goods-sos"] });
-      qc.invalidateQueries({ queryKey: ["pf-sales-orders"] });
-      qc.invalidateQueries({ queryKey: ["invoices-by-so"] });
-      toast.success("Sales order decision recorded");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  // Build PO -> open advance total lookup per side (DB is source of truth)
-  const saleIds = (salesQ.data ?? []).map((i: any) => i.id);
-  const purIds = (purchasesQ.data ?? []).map((p: any) => p.id);
-  const salePos = Array.from(
-    new Set(((salesQ.data ?? []) as any[]).map((i) => (i.po_number ?? "").trim()).filter(Boolean)),
-  );
-  const purPos = Array.from(
-    new Set(
-      ((purchasesQ.data ?? []) as any[]).map((p) => (p.po_number ?? "").trim()).filter(Boolean),
-    ),
-  );
-
-  const advLookupQ = useQuery({
-    queryKey: ["checker-advances", salePos, purPos],
-    enabled: salePos.length > 0 || purPos.length > 0,
-    queryFn: async () => {
-      const map: Record<string, number> = {}; // key: `${side}::${po}`
-      const fetchSide = async (side: "sales" | "purchase", pos: string[]) => {
-        if (!pos.length) return;
-        const allOrders = await api.purchaseOrders.list();
-        const poRows = allOrders.filter((o: any) => o.side === side && pos.includes(o.po_number));
-        const ids = poRows.map((r: any) => r.id);
-        const idToPo = new Map<string, string>(poRows.map((r: any) => [r.id, r.po_number]));
-        if (!ids.length) return;
-        const allAdvances = await api.advances.list();
-        const advs = allAdvances.filter(
-          (a: any) =>
-            a.side === side &&
-            ids.includes(a.purchaseOrderId ?? a.purchase_order_id) &&
-            a.status !== "refunded",
-        );
-        for (const a of advs as any[]) {
-          const po = idToPo.get(a.purchase_order_id);
-          if (!po) continue;
-          map[`${side}::${po}`] = (map[`${side}::${po}`] ?? 0) + Number(a.amount);
-        }
-      };
-      await Promise.all([fetchSide("sales", salePos), fetchSide("purchase", purPos)]);
-      return map;
-    },
-  });
-  const advMap = advLookupQ.data ?? {};
-
-  const advFor = (side: "sales" | "purchase", po?: string | null) => {
-    const k = po ? `${side}::${po.trim()}` : "";
-    return k ? Number(advMap[k] ?? 0) : 0;
+  /* ── Ageing pill on the Document cell — color only where it means priority ── */
+  const AgeDot = ({ days }: { days: number | null }) => {
+    if (days == null) return null;
+    if (days > 7)
+      return (
+        <span
+          className="inline-flex items-center gap-1 text-[10px] font-medium text-destructive"
+          title="Waiting more than 7 days"
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+          {days}d
+        </span>
+      );
+    if (days >= 4)
+      return (
+        <span
+          className="inline-flex items-center gap-1 text-[10px] font-medium text-sem-attention"
+          title="Waiting 4–7 days"
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-sem-attention" />
+          {days}d
+        </span>
+      );
+    return null;
   };
-
-  const rows: Row[] = [
-    ...((salesQ.data ?? []) as Array<Record<string, any>>).map((i): Row => {
-      // Goods invoices now store the net amount (grand total − advances) and
-      // the deducted advance. Fall back to the legacy PO-number lookup for
-      // invoices created before those fields existed.
-      const storedAdv = Number(i.advance_deducted ?? 0);
-      const adv = storedAdv > 0 ? storedAdv : advFor("sales", i.po_number);
-      const amt = Number(i.amount ?? i.grand_total ?? 0);
-      const net = storedAdv > 0 ? amt : Math.max(0, amt - adv);
-      return {
-        kind: "sale",
-        id: i.id,
-        invoice_number: i.invoice_number,
-        amount: amt,
-        po_number: i.po_number,
-        advance: adv,
-        net,
-        issue_date: i.issue_date,
-        due_date: i.due_date,
-        party: partyMap[i.debtor_id] ?? i.debtor?.name ?? "—",
-        client_id: i.client_id,
-        noa_status: i.noa_status,
-        noa_comments: i.noa_comments,
-        raw: i,
-      };
-    }),
-    ...((purchasesQ.data ?? []) as Array<Record<string, any>>).map((p): Row => {
-      // Purchase invoices now store the net payable (grand total − advances)
-      // and the deducted advance. Fall back to the legacy PO-number lookup for
-      // invoices created before those fields existed.
-      const storedAdv = Number(p.advance_deducted ?? 0);
-      const adv = storedAdv > 0 ? storedAdv : advFor("purchase", p.po_number);
-      const amt = Number(p.amount ?? p.grand_total ?? 0);
-      const net = storedAdv > 0 ? amt : Math.max(0, amt - adv);
-      return {
-        kind: "purchase",
-        id: p.id,
-        invoice_number: p.invoice_number,
-        amount: amt,
-        po_number: p.goods_po_number ?? p.po_number,
-        advance: adv,
-        net,
-        issue_date: p.issue_date,
-        due_date: p.due_date,
-        party: p.supplier_name ?? partyMap[p.vendor_id] ?? p.vendor?.name ?? "—",
-        client_id: p.client_id,
-        raw: p,
-      };
-    }),
-  ].filter((r) => side === "all" || r.kind === side);
-  void saleIds;
-  void purIds;
-
-  const pendingSales = (salesQ.data ?? []).length;
-  const pendingPurchases = (purchasesQ.data ?? []).length;
 
   return (
     <div>
@@ -455,509 +867,431 @@ function CheckerPage() {
         eyebrow="Checker"
         title="Checker Workbench"
         icon={<ClipboardCheck className="h-5 w-5" />}
-        description={
-          canReview
-            ? "Review and approve documents. Open a document to review details, then Approve or Return from within the document view."
-            : "View-only. Only the checker (or admin) can approve documents."
+        description="Review and approve documents"
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {!isHistoryTab && tab === "queue" && (
+              <Select value={queueFilter} onValueChange={(v) => setQueueFilter(v as any)}>
+                <SelectTrigger className="h-9 w-[170px] bg-card text-sm">
+                  <SelectValue placeholder="Queue" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All document types</SelectItem>
+                  <SelectItem value="proforma">Proforma advances</SelectItem>
+                  <SelectItem value="note">Credit / Debit notes</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+            <span className="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-2.5 py-1.5 text-xs text-muted-foreground">
+              <CalendarDays className="h-3.5 w-3.5" />
+              {todayLabel}
+            </span>
+          </div>
         }
       />
 
+      {/* ── Checker navigation ── */}
+      <div className="border-b border-border bg-background">
+        <div className="mx-auto w-full max-w-[1440px] overflow-x-auto px-4 md:px-8">
+          <nav className="flex min-w-max gap-1" aria-label="Checker sections">
+            {TABS.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                aria-current={tab === t.key ? "page" : undefined}
+                className={`whitespace-nowrap border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors ${
+                  tab === t.key
+                    ? "border-primary text-primary"
+                    : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+                }`}
+              >
+                {t.label}
+                {t.key === "queue" && countTotal > 0 && (
+                  <span className="ml-1.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+                    {countTotal}
+                  </span>
+                )}
+              </button>
+            ))}
+          </nav>
+        </div>
+      </div>
+
       <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card title="Pending sales invoices">
-            <div className="num text-3xl text-primary">{pendingSales}</div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Awaiting approval to enter AR queue
-            </div>
-          </Card>
-          <Card title="Pending purchase invoices">
-            <div className="num text-3xl text-sem-attention">{pendingPurchases}</div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Awaiting approval to enter AP queue
-            </div>
-          </Card>
-          <Card title="Pending proforma advances">
-            <div className="num text-3xl text-primary">{(proformasQ.data ?? []).length}</div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Awaiting approval before funding
-            </div>
-          </Card>
-          <Card title="Pending purchase orders">
-            <div className="num text-3xl text-primary">{(posQ.data ?? []).length}</div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Awaiting approval before sending to supplier
-            </div>
-          </Card>
-          <Card title="Pending sales orders">
-            <div className="num text-3xl text-primary">{(sosQ.data ?? []).length}</div>
-            <div className="mt-1 text-xs text-muted-foreground">
-              Awaiting approval before dispatch
-            </div>
-          </Card>
-        </div>
-
-        <div className="flex flex-wrap gap-2">
-          {(["all", "sale", "purchase"] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setSide(s)}
-              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                side === s
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {s === "all" ? "All" : s === "sale" ? "Sales (AR)" : "Purchases (AP)"}
-            </button>
-          ))}
-        </div>
-
-        <Card>
-          {salesQ.isLoading || purchasesQ.isLoading ? (
-            <TableSkeleton rows={4} cols={10} />
-          ) : rows.length === 0 ? (
-            <div className="py-10 text-center text-sm text-muted-foreground">
-              <ClipboardCheck className="mx-auto mb-3 h-8 w-8 opacity-40" />
-              No invoices awaiting review.
-            </div>
+        {/* ── KPI cards ── */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {queueLoading ? (
+            <>
+              <StatSkeleton />
+              <StatSkeleton />
+              <StatSkeleton />
+              <StatSkeleton />
+            </>
           ) : (
-            <div className="-mx-5 overflow-x-auto table-wrap">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">Type</th>
-                    <th className="px-5 py-2 text-left font-normal">Invoice</th>
-                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
-                    <th className="px-5 py-2 text-right font-normal">Gross</th>
-                    <th className="px-5 py-2 text-right font-normal">Advance</th>
-                    <th className="px-5 py-2 text-right font-normal">
-                      Net to{" "}
-                      {side === "purchase" ? "pay" : side === "sale" ? "receive" : "transfer"}
-                    </th>
-                    <th className="px-5 py-2 text-left font-normal">Issued</th>
-                    <th className="px-5 py-2 text-left font-normal">Due</th>
-                    <th className="px-5 py-2 text-left font-normal">NOA</th>
-                    <th className="px-5 py-2 text-right font-normal">Decision</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr
-                      key={`${r.kind}-${r.id}`}
-                      className="border-b border-border/60 hover:bg-muted/30"
-                    >
-                      <td className="px-5 py-3">
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
-                            r.kind === "sale"
-                              ? "bg-primary/15 text-primary"
-                              : "bg-sem-attention/15 text-sem-attention"
-                          }`}
+            <>
+              <KpiCard
+                label="Total Awaiting Approval"
+                value={countTotal}
+                sub="Across all document types"
+                icon={<ListChecks className="h-[18px] w-[18px]" />}
+              />
+              <KpiCard
+                label="Sales Orders"
+                value={countSO}
+                sub="Awaiting your review"
+                icon={<ShoppingBag className="h-[18px] w-[18px]" />}
+              />
+              <KpiCard
+                label="Purchase Orders"
+                value={countPO}
+                sub="Awaiting your review"
+                icon={<Package className="h-[18px] w-[18px]" />}
+                tone={countPO > 0 ? "amber" : "neutral"}
+              />
+              <KpiCard
+                label="Invoices"
+                value={countInv}
+                sub="Awaiting your review"
+                icon={<FileText className="h-[18px] w-[18px]" />}
+              />
+            </>
+          )}
+        </div>
+
+        {/* ── Main content: decisions table (75%) + ageing (25%) ── */}
+        <div className="grid gap-6 lg:grid-cols-4">
+          {/* LEFT — Items awaiting your decision */}
+          <Card
+            className="lg:col-span-3"
+            title={isHistoryTab ? "Your decisions" : "Items awaiting your decision"}
+            action={
+              !isHistoryTab && visibleItems.length > 0 ? (
+                <span className="text-xs text-muted-foreground">
+                  {visibleItems.length} pending
+                </span>
+              ) : undefined
+            }
+          >
+            {isHistoryTab ? (
+              /* ── Approved / Returned / History — existing review history ── */
+              historyQ.isLoading ? (
+                <TableSkeleton rows={5} cols={6} />
+              ) : historyFiltered.length === 0 ? (
+                <EmptyState
+                  icon={<ClipboardCheck className="h-6 w-6" />}
+                  title={tab === "returned" ? "No returned documents" : tab === "approved" ? "No approvals yet" : "No past approvals yet"}
+                  description="Decisions you record will appear here."
+                />
+              ) : (
+                <div className="-mx-5 overflow-x-auto table-wrap">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                      <tr className="border-b border-border bg-muted/40">
+                        <th className="px-4 py-2 text-left font-medium">Document</th>
+                        <th className="px-4 py-2 text-left font-medium">Type</th>
+                        <th className="px-4 py-2 text-left font-medium">Counterparty</th>
+                        <th className="px-4 py-2 text-left font-medium">Decision</th>
+                        <th className="px-4 py-2 text-left font-medium hidden md:table-cell">Details</th>
+                        <th className="px-4 py-2 text-left font-medium">Reviewed</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {historyFiltered.slice(0, 50).map((h: any, idx: number) => (
+                        <tr key={idx} className="border-b border-border/60 hover:bg-muted/30">
+                          <td className="px-4 py-2.5 font-mono text-xs font-medium">{h.doc_number}</td>
+                          <td className="px-4 py-2.5 text-[11px] uppercase tracking-wider text-muted-foreground">
+                            {h.kind}
+                          </td>
+                          <td className="px-4 py-2.5 text-muted-foreground">{h.party}</td>
+                          <td className="px-4 py-2.5">
+                            <span
+                              className={`inline-flex items-center gap-1 text-[11px] font-medium ${
+                                h.action === "Approved" || h.action === "Confirmed"
+                                  ? "text-sem-success"
+                                  : "text-destructive"
+                              }`}
+                            >
+                              <span
+                                className={`h-1.5 w-1.5 rounded-full ${
+                                  h.action === "Approved" || h.action === "Confirmed"
+                                    ? "bg-sem-success"
+                                    : "bg-destructive"
+                                }`}
+                              />
+                              {h.action}
+                            </span>
+                          </td>
+                          {h.detail ? (
+                            <td className="px-4 py-2.5 text-xs text-muted-foreground hidden md:table-cell">
+                              {h.detail}
+                            </td>
+                          ) : (
+                            <td className="px-4 py-2.5 hidden md:table-cell">—</td>
+                          )}
+                          <td className="px-4 py-2.5 text-sm text-muted-foreground">
+                            {fmtDate(h.reviewed_at)}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : queueLoading ? (
+              <TableSkeleton rows={6} cols={6} />
+            ) : visibleItems.length === 0 ? (
+              <EmptyState
+                icon={<ClipboardCheck className="h-6 w-6" />}
+                title="You're all caught up"
+                description="There's nothing waiting for your approval."
+              />
+            ) : (
+              <>
+                <div className="-mx-5 overflow-x-auto table-wrap">
+                  <table className="table-premium w-full text-sm">
+                    <thead className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                      <tr className="border-b border-border bg-muted/40">
+                        <th className="px-4 py-2 text-left font-medium">Document</th>
+                        <th className="px-4 py-2 text-left font-medium">Created By</th>
+                        <th className="px-4 py-2 text-right font-medium">Value</th>
+                        <th className="px-4 py-2 text-left font-medium">Submitted On</th>
+                        <th className="px-4 py-2 text-left font-medium">Summary</th>
+                        <th className="px-4 py-2 text-right font-medium">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pageItems.map((it) => (
+                        <tr
+                          key={it.key}
+                          className="border-b border-border/60 transition-colors hover:bg-muted/30"
                         >
-                          {r.kind === "sale" ? "Sale (AR)" : "Purchase (AP)"}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                          <span className="font-mono text-xs">{r.invoice_number}</span>
-                          <button
-                            onClick={() => setViewInv({ kind: r.kind, raw: r.raw })}
-                            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-sans text-muted-foreground hover:border-primary hover:text-primary"
-                            title="View invoice details"
+                          {/* Document */}
+                          <td className="px-4 py-2.5">
+                            <button
+                              onClick={it.onReview ?? undefined}
+                              className={`text-left font-mono text-[13px] font-semibold tracking-tight text-foreground ${
+                                it.onReview ? "hover:text-primary" : "cursor-default"
+                              }`}
+                              title={it.onReview ? "Open document details" : TYPE_LABEL[it.type]}
+                            >
+                              {it.docNumber}
+                            </button>
+                            <div className="mt-0.5 flex items-center gap-2">
+                              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                {TYPE_LABEL[it.type]}
+                              </span>
+                              <AgeDot days={it.ageDays} />
+                            </div>
+                            {it.type === "sales_invoice" && it.noaStatus && (
+                              <NoaPill status={it.noaStatus} />
+                            )}
+                          </td>
+
+                          {/* Created By */}
+                          <td className="px-4 py-2.5 text-[13px] text-muted-foreground">
+                            {it.createdBy ?? "—"}
+                          </td>
+
+                          {/* Value */}
+                          <td className="px-4 py-2.5 text-right">
+                            <span className="num text-[13px] font-medium">{fmtMoney(it.value)}</span>
+                            {it.valueSub && (
+                              <div className="text-[10px] text-muted-foreground">{it.valueSub}</div>
+                            )}
+                          </td>
+
+                          {/* Submitted On */}
+                          <td className="px-4 py-2.5 text-[13px] text-muted-foreground">
+                            {fmtDate(it.submittedOn)}
+                          </td>
+
+                          {/* Summary */}
+                          <td
+                            className="max-w-[240px] truncate px-4 py-2.5 text-[13px] text-muted-foreground"
+                            title={it.summary}
                           >
-                            <Eye className="h-3 w-3" /> View
-                          </button>
-                        </div>
-                      </td>
-                      <td className="px-5 py-3">{r.party}</td>
-                      <td className="px-5 py-3 text-right num">
-                        {fmtMoney(r.amount)}
-                        {r.po_number && (
-                          <div className="text-[10px] font-mono text-muted-foreground">
-                            PO {r.po_number}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-5 py-3 text-right num text-primary">
-                        {r.advance > 0 ? `− ${fmtMoney(r.advance)}` : "—"}
-                      </td>
-                      <td
-                        className={`px-5 py-3 text-right num font-medium ${r.kind === "sale" ? "text-sem-success" : "text-sem-attention"}`}
-                      >
-                        {fmtMoney(r.net)}
-                      </td>
-                      <td className="px-5 py-3 text-sm">{fmtDate(r.issue_date)}</td>
-                      <td className="px-5 py-3 text-sm">{fmtDate(r.due_date)}</td>
-                      <td className="px-5 py-3">
-                        {r.kind === "sale" ? (
-                          <div>
-                            <NoaPill status={r.noa_status ?? "not_sent"} />
-                            {r.noa_comments && (
-                              <div
-                                className="mt-1 max-w-[180px] truncate text-[10px] text-muted-foreground"
-                                title={r.noa_comments}
+                            {it.summary}
+                          </td>
+
+                          {/* Action */}
+                          <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                            {!canReview ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground">
+                                <Lock className="h-3 w-3" /> Checker only
+                              </span>
+                            ) : it.selfCreated ? (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-wider text-muted-foreground"
+                                title="Segregation of duties: you cannot review a document you created"
                               >
-                                “{r.noa_comments}”
+                                <Lock className="h-3 w-3" /> Self-created
+                              </span>
+                            ) : (
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  onClick={it.onReview ?? it.onApprove}
+                                  className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
+                                  title={
+                                    it.onReview
+                                      ? "Review document details"
+                                      : "No detail view exists for this document — approve directly"
+                                  }
+                                >
+                                  Review
+                                </button>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <button
+                                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                                      aria-label="More actions"
+                                    >
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-52">
+                                    {it.onReview && (
+                                      <DropdownMenuItem onClick={it.onReview}>
+                                        <Eye className="h-3.5 w-3.5" /> Open details
+                                      </DropdownMenuItem>
+                                    )}
+                                    {it.onReview && <DropdownMenuSeparator />}
+                                    <DropdownMenuItem onClick={it.onApprove} disabled={it.approvePending}>
+                                      <Check className="h-3.5 w-3.5 text-sem-success" />
+                                      {it.approveLabel}
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={it.onReject} disabled={it.approvePending}>
+                                      <X className="h-3.5 w-3.5 text-destructive" />
+                                      {it.rejectLabel}
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
                               </div>
                             )}
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">—</span>
-                        )}
-                      </td>
-                      <td className="px-5 py-3 text-right">
-                        {r.kind === "sale" &&
-                          (r.noa_status === "rejected" || r.noa_status === "not_sent") && (
-                            <div className="mb-1 text-[10px] uppercase tracking-widest text-sem-attention">
-                              {r.noa_status === "not_sent" ? "NOA not sent" : "NOA rejected"}
-                            </div>
-                          )}
-                        {canReview ? (
-                          r.client_id && r.client_id === user?.id && !isAdmin ? (
-                            <span
-                              className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground"
-                              title="Segregation of duties: you cannot review an invoice you created"
-                            >
-                              <Lock className="h-3 w-3" /> Self-created
-                            </span>
-                          ) : (
-                            <div className="inline-flex gap-1">
-                              <button
-                                onClick={() =>
-                                  r.kind === "sale"
-                                    ? setApproveFor({ row: r, utr: "", amount: String(r.amount) })
-                                    : reviewPurchase.mutate({ id: r.id, decision: "approved" })
-                                }
-                                className="inline-flex items-center gap-1 rounded-md border border-sem-success/50 px-2.5 py-1 text-xs text-sem-success hover:bg-sem-success/10 disabled:opacity-60"
-                                title="Enter UTR and payment amount"
-                              >
-                                <Check className="h-3 w-3" /> Approve
-                              </button>
-                              <button
-                                onClick={() =>
-                                  r.kind === "sale"
-                                    ? reviewSale.mutate({ id: r.id, decision: "rejected" })
-                                    : reviewPurchase.mutate({ id: r.id, decision: "disputed" })
-                                }
-                                className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
-                              >
-                                <X className="h-3 w-3" /> {r.kind === "sale" ? "Reject" : "Dispute"}
-                              </button>
-                            </div>
-                          )
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-                            <Lock className="h-3 w-3" /> Checker only
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
 
-        <Card title="Proforma advances awaiting approval">
-          {proformasQ.isLoading ? (
-            <TableSkeleton rows={3} cols={9} />
-          ) : (proformasQ.data ?? []).length === 0 ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              No proformas awaiting approval.
-            </div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto table-wrap">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">Proforma</th>
-                    <th className="px-5 py-2 text-left font-normal">PO #</th>
-                    <th className="px-5 py-2 text-left font-normal">Side</th>
-                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
-                    <th className="px-5 py-2 text-right font-normal">Advance amount</th>
-                    <th className="px-5 py-2 text-left font-normal">Issued</th>
-                    <th className="px-5 py-2 text-right font-normal">Decision</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(proformasQ.data ?? []).map((p: any) => {
-                    const selfCreated = p.client_id === user?.id && !isAdmin;
-                    return (
-                      <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3">
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span className="font-mono text-xs">{p.proforma_number ?? "—"}</span>
-                            <button
-                              onClick={() => setViewPf(p)}
-                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-sans text-muted-foreground hover:border-primary hover:text-primary"
-                              title="View proforma details"
-                            >
-                              <Eye className="h-3 w-3" /> View
-                            </button>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3 font-mono text-xs">{p.po_number}</td>
-                        <td className="px-5 py-3 text-[10px] uppercase tracking-widest text-muted-foreground">
-                          {p.side}
-                        </td>
-                        <td className="px-5 py-3">{pfParty(p)}</td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
-                        <td className="px-5 py-3 text-sm">
-                          {fmtDate(p.proforma_date ?? p.issue_date)}
-                        </td>
-                        <td className="px-5 py-3 text-right">
-                          {canReview ? (
-                            selfCreated ? (
-                              <span
-                                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground"
-                                title="Segregation of duties: you cannot review a proforma you created"
-                              >
-                                <Lock className="h-3 w-3" /> Self-created
-                              </span>
-                            ) : (
-                              <div className="inline-flex gap-1">
-                                <button
-                                  onClick={() =>
-                                    reviewProforma.mutate({ id: p.id, decision: "approved" })
-                                  }
-                                  className="inline-flex items-center gap-1 rounded-md border border-sem-success/50 px-2.5 py-1 text-xs text-sem-success hover:bg-sem-success/10"
-                                >
-                                  <Check className="h-3 w-3" /> Approve
-                                </button>
-                                <button
-                                  onClick={() =>
-                                    reviewProforma.mutate({ id: p.id, decision: "rejected" })
-                                  }
-                                  className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
-                                >
-                                  <X className="h-3 w-3" /> Reject
-                                </button>
-                              </div>
-                            )
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-                              <Lock className="h-3 w-3" /> Checker only
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
+                {/* Pagination — client-side, mirrors existing list-page patterns */}
+                {totalPages > 1 && (
+                  <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
+                    <span>
+                      Showing {(safePage - 1) * PAGE_SIZE + 1}–
+                      {Math.min(safePage * PAGE_SIZE, visibleItems.length)} of {visibleItems.length}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        disabled={safePage <= 1}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-40"
+                        aria-label="Previous page"
+                      >
+                        <ChevronLeft className="h-3.5 w-3.5" />
+                      </button>
+                      <span className="px-1 font-medium">
+                        {safePage} / {totalPages}
+                      </span>
+                      <button
+                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                        disabled={safePage >= totalPages}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-40"
+                        aria-label="Next page"
+                      >
+                        <ChevronRight className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
+            )}
+          </Card>
 
-        <Card title="Purchase orders awaiting approval">
-          {posQ.isLoading ? (
-            <TableSkeleton rows={3} cols={6} />
-          ) : (posQ.data ?? []).length === 0 ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              No purchase orders awaiting approval.
-            </div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto table-wrap">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">PO</th>
-                    <th className="px-5 py-2 text-left font-normal">Supplier</th>
-                    <th className="px-5 py-2 text-left font-normal">Delivery</th>
-                    <th className="px-5 py-2 text-right font-normal">Qty</th>
-                    <th className="px-5 py-2 text-right font-normal">Grand total</th>
-                    <th className="px-5 py-2 text-left font-normal">Issued</th>
-                    <th className="px-5 py-2 text-right font-normal">Decision</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(posQ.data ?? []).map((p: any) => {
-                    const selfCreated = p.client_id === user?.id && !isAdmin;
-                    const totalQty = (p.lines ?? []).reduce(
-                      (s: number, l: any) => s + (Number(l.ordered_qty) || 0),
-                      0,
-                    );
-                    return (
-                      <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3">
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span className="font-mono text-xs">{p.po_number}</span>
-                            <button
-                              onClick={() => setViewPo(p)}
-                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-sans text-muted-foreground hover:border-primary hover:text-primary"
-                              title="View purchase order details"
-                            >
-                              <Eye className="h-3 w-3" /> View
-                            </button>
-                          </div>
-                        </td>
-                        <td className="px-5 py-3">{p.supplier_name ?? "—"}</td>
-                        <td className="px-5 py-3 text-xs text-muted-foreground">
-                          {p.warehouse || "—"}
-                          {p.expected_delivery_date ? (
-                            <div className="text-[10px]">
-                              by {fmtDate(p.expected_delivery_date)}
-                            </div>
-                          ) : null}
-                        </td>
-                        <td className="px-5 py-3 text-right num">{totalQty.toLocaleString()}</td>
-                        <td className="px-5 py-3 text-right num font-medium">
-                          {fmtMoney(p.grand_total)}
-                        </td>
-                        <td className="px-5 py-3 text-sm">{fmtDate(p.po_date)}</td>
-                        <td className="px-5 py-3 text-right">
-                          {canReview ? (
-                            selfCreated ? (
-                              <span
-                                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground"
-                                title="Segregation of duties: you cannot review a purchase order you created"
-                              >
-                                <Lock className="h-3 w-3" /> Self-created
-                              </span>
-                            ) : (
-                              <div className="inline-flex gap-1">
-                                <button
-                                  onClick={() =>
-                                    reviewPO.mutate({ id: p.id, decision: "approved" })
-                                  }
-                                  className="inline-flex items-center gap-1 rounded-md border border-sem-success/50 px-2.5 py-1 text-xs text-sem-success hover:bg-sem-success/10"
-                                >
-                                  <Check className="h-3 w-3" /> Approve
-                                </button>
-                                <button
-                                  onClick={() => reviewPO.mutate({ id: p.id, decision: "draft" })}
-                                  className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
-                                >
-                                  <X className="h-3 w-3" /> Reject
-                                </button>
-                              </div>
-                            )
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-                              <Lock className="h-3 w-3" /> Checker only
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
+          {/* RIGHT — Approval ageing + guidance */}
+          <div className="space-y-6">
+            {!isHistoryTab && (
+              <Card title="Approval ageing">
+                {queueLoading ? (
+                  <div className="space-y-3">
+                    <StatSkeleton />
+                    <StatSkeleton />
+                    <StatSkeleton />
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    <AgeRow
+                      label="Overdue"
+                      count={buckets.overdue}
+                      sub="Past due date"
+                      tone="red"
+                    />
+                    <AgeRow
+                      label="Due Today"
+                      count={buckets.today}
+                      sub="Needs attention"
+                      tone="amber"
+                    />
+                    <AgeRow
+                      label="This Week"
+                      count={buckets.week}
+                      sub="Due in 2–7 days"
+                      tone="blue"
+                    />
+                  </div>
+                )}
+              </Card>
+            )}
 
-        <Card title="Sales orders awaiting approval">
-          {sosQ.isLoading ? (
-            <TableSkeleton rows={3} cols={6} />
-          ) : (sosQ.data ?? []).length === 0 ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              No sales orders awaiting approval.
-            </div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto table-wrap">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">SO</th>
-                    <th className="px-5 py-2 text-left font-normal">Customer</th>
-                    <th className="px-5 py-2 text-left font-normal">Dispatch</th>
-                    <th className="px-5 py-2 text-right font-normal">Qty</th>
-                    <th className="px-5 py-2 text-right font-normal">Grand total</th>
-                    <th className="px-5 py-2 text-left font-normal">Ordered</th>
-                    <th className="px-5 py-2 text-right font-normal">Decision</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(sosQ.data ?? []).map((s: any) => {
-                    const selfCreated = s.client_id === user?.id && !isAdmin;
-                    const totalQty = (s.lines ?? []).reduce(
-                      (sum: number, l: any) => sum + (Number(l.ordered_qty) || 0),
-                      0,
-                    );
-                    return (
-                      <tr key={s.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3">
-                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                            <span className="font-mono text-xs">{s.so_number}</span>
-                            <button
-                              onClick={() => setViewSo(s)}
-                              className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-sans text-muted-foreground hover:border-primary hover:text-primary"
-                              title="View sales order details"
-                            >
-                              <Eye className="h-3 w-3" /> View
-                            </button>
+            {isHistoryTab && (
+              <Card title="Recent decisions">
+                {historyQ.isLoading ? (
+                  <TableSkeleton rows={3} cols={1} />
+                ) : (historyQ.data ?? []).length === 0 ? (
+                  <div className="py-4 text-center text-sm text-muted-foreground">
+                    No decisions yet.
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {(historyQ.data ?? []).slice(0, 8).map((h: any, idx: number) => (
+                      <div
+                        key={idx}
+                        className="flex items-center justify-between gap-2 rounded-lg border border-border/70 px-3 py-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="truncate font-mono text-xs font-medium">{h.doc_number}</div>
+                          <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                            {h.kind} · {fmtDate(h.reviewed_at)}
                           </div>
-                        </td>
-                        <td className="px-5 py-3">{s.customer_name ?? "—"}</td>
-                        <td className="px-5 py-3 text-xs text-muted-foreground">
-                          {s.expected_dispatch_date ? (
-                            <>
-                              from {fmtDate(s.expected_dispatch_date)}
-                              {s.expected_delivery_date ? (
-                                <div className="text-[10px]">
-                                  to {fmtDate(s.expected_delivery_date)}
-                                </div>
-                              ) : null}
-                            </>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        <td className="px-5 py-3 text-right num">{totalQty.toLocaleString()}</td>
-                        <td className="px-5 py-3 text-right num font-medium">
-                          {fmtMoney(s.grand_total)}
-                        </td>
-                        <td className="px-5 py-3 text-sm">{fmtDate(s.order_date)}</td>
-                        <td className="px-5 py-3 text-right">
-                          {canReview ? (
-                            selfCreated ? (
-                              <span
-                                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground"
-                                title="Segregation of duties: you cannot review a sales order you created"
-                              >
-                                <Lock className="h-3 w-3" /> Self-created
-                              </span>
-                            ) : (
-                              <div className="inline-flex gap-1">
-                                <button
-                                  onClick={() =>
-                                    reviewSO.mutate({
-                                      id: s.id,
-                                      action: "approve",
-                                    })
-                                  }
-                                  className="inline-flex items-center gap-1 rounded-md border border-sem-success/50 px-2.5 py-1 text-xs text-sem-success hover:bg-sem-success/10"
-                                >
-                                  <Check className="h-3 w-3" />
-                                  Approve
-                                </button>
-                                {s.status === "checker_pending" && (
-                                  <button
-                                    onClick={() => reviewSO.mutate({ id: s.id, action: "reject" })}
-                                    className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
-                                  >
-                                    <X className="h-3 w-3" /> Reject
-                                  </button>
-                                )}
-                              </div>
-                            )
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-                              <Lock className="h-3 w-3" /> Checker only
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
+                        </div>
+                        <span
+                          className={`shrink-0 text-[11px] font-semibold ${
+                            h.action === "Approved" || h.action === "Confirmed"
+                              ? "text-sem-success"
+                              : "text-destructive"
+                          }`}
+                        >
+                          {h.action}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            )}
 
+            {/* Helper information card */}
+            <div className="flex items-start gap-2.5 rounded-xl border border-primary/15 bg-primary-soft/50 p-4">
+              <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Open a document to review details, then Approve or Return from within the
+                document view.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── Existing detail modals (unchanged) ── */}
         {viewInv && (
           <InvoiceDetailModal
             invoice={viewInv.raw}
@@ -968,100 +1302,6 @@ function CheckerPage() {
         {viewPf && <ProformaDetailModal pf={viewPf} onClose={() => setViewPf(null)} />}
         {viewPo && <PurchaseOrderDetailModal po={viewPo} onClose={() => setViewPo(null)} />}
         {viewSo && <SalesOrderDetailModal so={viewSo} onClose={() => setViewSo(null)} />}
-
-        <Card title="Credit / debit notes awaiting approval">
-          {notesQ.isLoading ? (
-            <TableSkeleton rows={3} cols={7} />
-          ) : (notesQ.data ?? []).length === 0 ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              No notes awaiting approval.
-            </div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto table-wrap">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">Type</th>
-                    <th className="px-5 py-2 text-left font-normal">Number</th>
-                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
-                    <th className="px-5 py-2 text-left font-normal">Linked invoice</th>
-                    <th className="px-5 py-2 text-left font-normal">Reason</th>
-                    <th className="px-5 py-2 text-right font-normal">Amount</th>
-                    <th className="px-5 py-2 text-right font-normal">Decision</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(notesQ.data ?? []).map((n: any) => {
-                    const Icon = n.kind === "credit" ? FileMinus : FilePlus;
-                    const link = n.invoice?.invoice_number
-                      ? `Sale · ${n.invoice.invoice_number}`
-                      : n.purchase?.invoice_number
-                        ? `Purchase · ${n.purchase.invoice_number}`
-                        : "—";
-                    const selfCreated = n.client_id === user?.id && !isAdmin;
-                    return (
-                      <tr key={n.id} className="border-b border-border/60 hover:bg-muted/30">
-                        <td className="px-5 py-3">
-                          <span
-                            className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${n.kind === "credit" ? "border-primary/30 text-primary" : "border-border-strong text-muted-foreground"}`}
-                          >
-                            <Icon className="h-3 w-3" />
-                            {n.kind}
-                          </span>
-                        </td>
-                        <td className="px-5 py-3 font-mono text-xs">{n.note_number}</td>
-                        <td className="px-5 py-3 text-muted-foreground">{n.counterparty ?? "—"}</td>
-                        <td className="px-5 py-3 font-mono text-xs">{link}</td>
-                        <td
-                          className="px-5 py-3 text-muted-foreground max-w-[220px] truncate"
-                          title={n.reason ?? ""}
-                        >
-                          {n.reason ?? "—"}
-                        </td>
-                        <td className="px-5 py-3 text-right num">{fmtMoney(Number(n.amount))}</td>
-                        <td className="px-5 py-3 text-right">
-                          {canReview ? (
-                            selfCreated ? (
-                              <span
-                                className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground"
-                                title="Segregation of duties"
-                              >
-                                <Lock className="h-3 w-3" /> Self-created
-                              </span>
-                            ) : (
-                              <div className="inline-flex gap-1">
-                                <button
-                                  onClick={() =>
-                                    reviewNote.mutate({ id: n.id, decision: "approved" })
-                                  }
-                                  className="inline-flex items-center gap-1 rounded-md border border-sem-success/50 px-2.5 py-1 text-xs text-sem-success hover:bg-sem-success/10"
-                                >
-                                  <Check className="h-3 w-3" /> Approve
-                                </button>
-                                <button
-                                  onClick={() =>
-                                    reviewNote.mutate({ id: n.id, decision: "rejected" })
-                                  }
-                                  className="inline-flex items-center gap-1 rounded-md border border-destructive/50 px-2.5 py-1 text-xs text-destructive hover:bg-destructive/10"
-                                >
-                                  <X className="h-3 w-3" /> Reject
-                                </button>
-                              </div>
-                            )
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-                              <Lock className="h-3 w-3" /> Checker only
-                            </span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
 
         {approveFor && (
           <ApproveSaleModal
@@ -1080,64 +1320,77 @@ function CheckerPage() {
             }}
           />
         )}
-
-        <Card title="Your review history">
-          {historyQ.isLoading ? (
-            <TableSkeleton rows={4} cols={6} />
-          ) : historyQ.data?.length === 0 ? (
-            <div className="py-6 text-center text-sm text-muted-foreground">
-              No past approvals yet.
-            </div>
-          ) : (
-            <div className="-mx-5 overflow-x-auto table-wrap">
-              <table className="table-premium w-full text-sm">
-                <thead className="text-xs uppercase tracking-widest text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-5 py-2 text-left font-normal">Document</th>
-                    <th className="px-5 py-2 text-left font-normal">Type</th>
-                    <th className="px-5 py-2 text-left font-normal">Counterparty</th>
-                    <th className="px-5 py-2 text-left font-normal">Decision</th>
-                    <th className="px-5 py-2 text-left font-normal hidden md:table-cell">Details</th>
-                    <th className="px-5 py-2 text-left font-normal">Reviewed</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {(historyQ.data ?? []).map((h: any, idx: number) => (
-                    <tr key={idx} className="border-b border-border/60 hover:bg-muted/30">
-                      <td className="px-5 py-3 font-mono text-xs">{h.doc_number}</td>
-                      <td className="px-5 py-3">
-                        <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                          {h.kind}
-                        </span>
-                      </td>
-                      <td className="px-5 py-3 text-muted-foreground">{h.party}</td>
-                      <td className="px-5 py-3">
-                        <span
-                          className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
-                            h.action === "Approved" || h.action === "Confirmed" || h.action === "Mark received" || h.action === "Mark paid"
-                              ? "bg-sem-success/15 text-sem-success"
-                              : "bg-destructive/15 text-destructive"
-                          }`}
-                        >
-                          {h.action}
-                        </span>
-                      </td>
-                      {h.detail && (
-                        <td className="px-5 py-3 text-xs text-muted-foreground hidden md:table-cell">
-                          {h.detail}
-                        </td>
-                      )}
-                      <td className="px-5 py-3 text-sm text-muted-foreground">
-                        {fmtDate(h.reviewed_at)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
       </div>
+    </div>
+  );
+}
+
+/* ── KPI card — white, thin border, icon tile, big number ── */
+function KpiCard({
+  label,
+  value,
+  sub,
+  icon,
+  tone = "neutral",
+}: {
+  label: string;
+  value: number;
+  sub: string;
+  icon: React.ReactNode;
+  tone?: "neutral" | "amber";
+}) {
+  return (
+    <div
+      className={`rounded-xl border bg-card p-5 shadow-card transition-shadow duration-200 hover:shadow-card-hover ${
+        tone === "amber" ? "border-sem-attention/30" : "border-border"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          {label}
+        </p>
+        <div
+          className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border ${
+            tone === "amber"
+              ? "border-sem-attention/25 bg-sem-attention/10 text-sem-attention"
+              : "border-primary/20 bg-primary-soft text-primary"
+          }`}
+        >
+          {icon}
+        </div>
+      </div>
+      <div className="num mt-2 text-3xl font-semibold tracking-tight text-foreground">
+        {value}
+      </div>
+      <p className="mt-1 text-xs text-muted-foreground">{sub}</p>
+    </div>
+  );
+}
+
+/* ── Ageing row — prominent number, colored left accent ── */
+function AgeRow({
+  label,
+  count,
+  sub,
+  tone,
+}: {
+  label: string;
+  count: number;
+  sub: string;
+  tone: "red" | "amber" | "blue";
+}) {
+  const cls = {
+    red: "border-l-destructive text-destructive",
+    amber: "border-l-sem-attention text-sem-attention",
+    blue: "border-l-primary text-primary",
+  }[tone];
+  return (
+    <div className={`rounded-lg border border-border border-l-[3px] ${cls} bg-background/60 px-4 py-3`}>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-[13px] font-medium text-foreground">{label}</span>
+        <span className="num text-2xl font-semibold tracking-tight">{count}</span>
+      </div>
+      <p className="mt-0.5 text-[11px] text-muted-foreground">{sub}</p>
     </div>
   );
 }
@@ -1231,16 +1484,16 @@ function ApproveSaleModal({
 
 function NoaPill({ status }: { status: string }) {
   const map: Record<string, { label: string; cls: string }> = {
-    not_sent: { label: "Not sent", cls: "border-border text-muted-foreground" },
-    sent: { label: "Awaiting reply", cls: "border-sem-attention/50 text-sem-attention" },
-    accepted: { label: "Accepted", cls: "border-sem-success/50 text-sem-success" },
-    rejected: { label: "Rejected", cls: "border-destructive/50 text-destructive" },
-    commented: { label: "Commented", cls: "border-primary/50 text-primary" },
+    not_sent: { label: "NOA not sent", cls: "border-border text-muted-foreground" },
+    sent: { label: "NOA awaiting reply", cls: "border-sem-attention/50 text-sem-attention" },
+    accepted: { label: "NOA accepted", cls: "border-sem-success/50 text-sem-success" },
+    rejected: { label: "NOA rejected", cls: "border-destructive/50 text-destructive" },
+    commented: { label: "NOA commented", cls: "border-primary/50 text-primary" },
   };
   const v = map[status] ?? map.not_sent;
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-widest ${v.cls}`}
+      className={`mt-1 inline-flex items-center rounded-full border px-2 py-0.5 text-[9px] uppercase tracking-wider ${v.cls}`}
     >
       {v.label}
     </span>
