@@ -38,7 +38,7 @@ function bucketFor(label: string, type: string): (typeof SECTION_ORDER)[number] 
     case "Checker":
     case "My Workspace":
       return "MAIN";
-    case "Sales Workbench":
+    case "Sales":
     case "Leads":
     case "Naughty List":
     case "Customers":

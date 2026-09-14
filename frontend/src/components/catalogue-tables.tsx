@@ -439,7 +439,7 @@ export function ProductsTable({
   onAddSize: (c: Product) => void;
   onEditPrices: (p: Product) => void;
   onDelete: (p: Product) => void;
-  onViewSellables: (m: Product) => void;
+  onViewSellables?: (m: Product) => void;
   pager: React.ReactNode;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
@@ -585,9 +585,11 @@ export function ProductsTable({
                             <DropdownMenuItem onClick={() => onAddColour(m)}>
                               <Plus className="h-3.5 w-3.5" /> Add Colour Variant
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => onViewSellables(m)}>
-                              <Eye className="h-3.5 w-3.5" /> View Sellable SKUs
-                            </DropdownMenuItem>
+                            {onViewSellables && (
+                              <DropdownMenuItem onClick={() => onViewSellables(m)}>
+                                <Eye className="h-3.5 w-3.5" /> View Sellable SKUs
+                              </DropdownMenuItem>
+                            )}
                             <DropdownMenuItem
                               onClick={() => onDelete(m)}
                               className="text-destructive focus:text-destructive"

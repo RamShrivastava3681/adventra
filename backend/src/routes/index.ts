@@ -2257,7 +2257,10 @@ router.post("/invoices", authMiddleware, async (req, res) => {
   }
 });
 
-/** POST /invoices/:id/issue — flip a draft into the review queue (Issued). */
+/** POST /invoices/:id/issue — flip a draft straight into the funding queue.
+ * Sales invoices skip checker approval: issuing marks the invoice approved
+ * and raises the treasury task. Legacy pending invoices already in flight
+ * can still be approved via PUT /invoices/:id (checker). */
 router.post("/invoices/:id/issue", authMiddleware, async (req, res) => {
   try {
     const current = await Invoice.get(req.params.id);
@@ -2293,21 +2296,37 @@ router.post("/invoices/:id/issue", authMiddleware, async (req, res) => {
         .status(400)
         .json({ error: "Confirm the sales order before issuing this invoice" });
     }
-    const updated = await Invoice.update(current.id, { status: "pending" });
+    const updated = await Invoice.update(current.id, { status: "approved" });
     trackAction(req, "invoice.issued", current.id, {
       entityType: "invoice",
       entityRef: current.invoiceNumber,
-      status: "pending",
+      status: "approved",
     });
-    // Pending in checker → mail admin, treasury and checker users.
+    timelineStatus(req, { clientId: (current as any).clientId, docType: "sales_invoice", docId: current.id, docNumber: current.invoiceNumber },
+      "draft", "approved", `Finance issued ${current.invoiceNumber} straight to the funding queue — no checker approval`);
+    // Approved → pending in treasury: mail admin, treasury, checker.
     notifyPendingQueue(req, {
-      stage: "checker",
+      stage: "treasury",
       kind: "sales_invoice",
       number: current.invoiceNumber,
       amount: Number((updated as any)?.grandTotal ?? (updated as any)?.amount ?? current.amount) || 0,
       dueDate: (updated as any)?.dueDate ?? current.dueDate ?? null,
-      reviewPath: "/app/checker",
+      reviewPath: "/app/queue",
     });
+    advanceWorkflow(req, {
+      workflowType: "sales_invoice",
+      stage: "record_irn",
+      docType: "sales_invoice",
+      docId: current.id,
+      docNumber: current.invoiceNumber,
+      counterparty: null,
+      docStatus: "approved",
+      ownerRole: "treasury",
+      requiredAction: "Record IRN from Tally",
+      nextAction: "Prepare Dispatch Order",
+      amount: Number((updated as any)?.grandTotal ?? current.amount) || 0,
+      linkedDocs: current.goodsSalesOrderId ? [{ type: "sales_order", id: current.goodsSalesOrderId, number: current.goodsSalesOrderNumber }] : [],
+    }, { timelineKind: "system", docType: "sales_invoice", appPath: "/app/invoices" });
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

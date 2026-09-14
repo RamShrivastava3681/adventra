@@ -168,9 +168,6 @@ type ProcSection =
   | "workbench"
   | "suppliers"
   | "purchase-orders"
-  | "purchases"
-  | "grns"
-  | "payments"
   | "tasks";
 
 const SuppliersPanel = lazy(() =>
@@ -178,13 +175,6 @@ const SuppliersPanel = lazy(() =>
 );
 const PurchaseOrdersPanel = lazy(() =>
   import("@/routes/app.purchase-orders").then((m) => ({ default: m.PurchaseOrdersPage })),
-);
-const PurchasesPanel = lazy(() =>
-  import("@/routes/app.purchases").then((m) => ({ default: m.PurchasesPage })),
-);
-const GrnPanel = lazy(() => import("@/routes/app.grn").then((m) => ({ default: m.GrnPage })));
-const PayQueuePanel = lazy(() =>
-  import("@/routes/app.queue").then((m) => ({ default: m.QueuePage })),
 );
 const ProcTasksPanel = lazy(() =>
   import("@/routes/app.tasks").then((m) => ({ default: m.TasksPage })),
@@ -227,15 +217,6 @@ function ProcurementWorkbenchPage() {
     switch (t.doc_type) {
       case "purchase_order":
         setSection("purchase-orders");
-        return;
-      case "purchase_invoice":
-        setSection("purchases");
-        return;
-      case "grn":
-        setSection("grns");
-        return;
-      case "payment":
-        setSection("payments");
         return;
       default:
         navigate({ to: docAppPath(t as any) as any });
@@ -460,21 +441,6 @@ function ProcurementWorkbenchPage() {
               label="Purchase Orders"
               active={section === "purchase-orders"}
               onClick={() => setSection("purchase-orders")}
-            />
-            <NavTab
-              label="Purchase Invoices"
-              active={section === "purchases"}
-              onClick={() => setSection("purchases")}
-            />
-            <NavTab
-              label="GRNs"
-              active={section === "grns"}
-              onClick={() => setSection("grns")}
-            />
-            <NavTab
-              label="Supplier Payments"
-              active={section === "payments"}
-              onClick={() => setSection("payments")}
             />
             <NavTab
               label="Activity History"
@@ -913,9 +879,6 @@ function ProcurementWorkbenchPage() {
         <Suspense fallback={<SectionFallback />}>
           {section === "suppliers" && <SuppliersPanel />}
           {section === "purchase-orders" && <PurchaseOrdersPanel />}
-          {section === "purchases" && <PurchasesPanel />}
-          {section === "grns" && <GrnPanel />}
-          {section === "payments" && <PayQueuePanel />}
           {section === "tasks" && <ProcTasksPanel />}
         </Suspense>
       )}

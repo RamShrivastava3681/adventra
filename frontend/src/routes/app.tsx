@@ -143,14 +143,15 @@ function buildNavSections(roles: string[]): NavSection[] {
         }
       : null;
 
-  // Sales — a single Workbench entry. The workbench page hosts the sales
+  // Sales — a single entry labeled "Sales". The workbench page hosts the sales
   // navigation (Customers, Sales Orders, Proforma, Invoices, Credit Notes,
-  // Activity History) as in-page tabs, so the sidebar collapses to one link.
+  // Activity History) as in-page tabs (including the Workbench overview),
+  // so the sidebar collapses to one link.
   const salesSection: NavSection | null =
     (isSalesRep || isOperations || isAdmin)
       ? {
           type: "single",
-          label: "Sales Workbench",
+          label: "Sales",
           icon: ShoppingBag,
           to: "/app/sales-workbench",
         }

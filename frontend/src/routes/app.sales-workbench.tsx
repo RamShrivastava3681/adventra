@@ -14,7 +14,6 @@ import {
   ExternalLink,
 } from "lucide-react";
 import api from "@/lib/api-client";
-import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, EmptyState, StatusPill, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import { TableSkeleton, StatSkeleton } from "@/components/skeletons";
 import {
@@ -138,8 +137,6 @@ type SalesSection =
   | "customers"
   | "sales-orders"
   | "proformas"
-  | "invoices"
-  | "payments"
   | "notes"
   | "tasks";
 
@@ -151,12 +148,6 @@ const SalesOrdersPanel = lazy(() =>
 );
 const ProformasPanel = lazy(() =>
   import("@/routes/app.proformas").then((m) => ({ default: m.ProformasPage })),
-);
-const InvoicesPanel = lazy(() =>
-  import("@/routes/app.invoices").then((m) => ({ default: m.InvoicesPage })),
-);
-const QueuePanel = lazy(() =>
-  import("@/routes/app.queue").then((m) => ({ default: m.QueuePage })),
 );
 const NotesPanel = lazy(() =>
   import("@/routes/app.notes").then((m) => ({ default: m.NotesPage })),
@@ -174,7 +165,6 @@ function SectionFallback() {
 }
 
 function SalesWorkbenchPage() {
-  const { isAdmin, isOperations, isTreasury } = useAuth();
   const navigate = useNavigate();
   const [section, setSection] = useState<SalesSection>("workbench");
   const [filter, setFilter] = useState<FilterKey>("all");
@@ -186,14 +176,8 @@ function SalesWorkbenchPage() {
       case "sales_order":
         setSection("sales-orders");
         return;
-      case "sales_invoice":
-        setSection("invoices");
-        return;
       case "proforma":
         setSection("proformas");
-        return;
-      case "payment":
-        setSection("payments");
         return;
       default:
         navigate({ to: docAppPath(t) as any });
@@ -325,18 +309,6 @@ function SalesWorkbenchPage() {
               active={section === "proformas"}
               onClick={() => setSection("proformas")}
             />
-            <NavTab
-              label="Sales Invoices"
-              active={section === "invoices"}
-              onClick={() => setSection("invoices")}
-            />
-            {(isAdmin || isOperations || isTreasury) && (
-              <NavTab
-                label="Customer Payments"
-                active={section === "payments"}
-                onClick={() => setSection("payments")}
-              />
-            )}
             <NavTab
               label="Credit Notes"
               active={section === "notes"}
@@ -642,8 +614,6 @@ function SalesWorkbenchPage() {
           {section === "customers" && <DebtorsPanel />}
           {section === "sales-orders" && <SalesOrdersPanel />}
           {section === "proformas" && <ProformasPanel />}
-          {section === "invoices" && <InvoicesPanel />}
-          {section === "payments" && <QueuePanel />}
           {section === "notes" && <NotesPanel />}
           {section === "tasks" && <TasksPanel />}
         </Suspense>

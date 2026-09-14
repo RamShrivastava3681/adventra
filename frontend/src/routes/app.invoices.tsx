@@ -184,7 +184,7 @@ export function InvoicesPage() {
     mutationFn: async (id: string) => api.invoices.issue(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["invoices"] });
-      toast.success("Invoice reviewed — sent to the checker");
+      toast.success("Invoice issued — sent to the funding queue");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -275,7 +275,7 @@ export function InvoicesPage() {
       <PageHeader
         eyebrow="Invoices"
         title={isAdmin ? "Invoice queue" : "Your invoices"}
-        description="Sales invoices bill the customer after goods are dispatched. Creating an invoice never reduces stock — only a confirmed dispatch debits inventory. Drafts are reviewed and sent to the checker, then the funding queue."
+        description="Sales invoices bill the customer after goods are dispatched. Creating an invoice never reduces stock — only a confirmed dispatch debits inventory. Drafts are reviewed and sent straight to the funding queue — no checker approval needed."
         icon={<FileText className="h-5 w-5" />}
         breadcrumbs={[{ label: "Dashboard", href: "/app/dashboard" }, { label: "Invoices" }]}
         actions={
@@ -439,7 +439,7 @@ export function InvoicesPage() {
                                     onClick={() => review.mutate(i.id)}
                                     disabled={review.isPending}
                                     className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
-                                    title="Review the invoice and send it to the checker"
+                                    title="Review the invoice and send it to the funding queue"
                                   >
                                     <FileCheck className="h-3 w-3" /> Review
                                   </button>
@@ -859,6 +859,7 @@ function NewInvoiceModal({
   const save = useMutation({
     // `issueNow` only applies when CREATING — an edit preserves the current
     // status (never sends status back, so an issued invoice can't be reset).
+    // Issuing sends the invoice straight to the funding queue (approved).
     mutationFn: async ({ issueNow }: { issueNow: boolean }) => {
       if (!form.debtor_id) throw new Error("Please add a customer first.");
       if (lines.length === 0) throw new Error("Add at least one product line");
@@ -931,7 +932,7 @@ function NewInvoiceModal({
       if (isEdit && invoice) {
         await api.invoices.update(invoice.id, payload);
       } else {
-        payload.status = issueNow ? "pending" : "draft";
+        payload.status = issueNow ? "approved" : "draft";
         await api.invoices.create({ ...payload, clientId: userId });
         // Mark advances linked to matching proformas as applied (sales side).
         const advs = (poLookupQ.data?.advances ?? []) as any[];

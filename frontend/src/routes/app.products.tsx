@@ -11,15 +11,11 @@ import { ColourVariantModal } from "@/components/sku-colour-modal";
 import { SellableSkuModal } from "@/components/sku-sellable-modal";
 import { numOrNull, ImageField, ColourSwatch } from "@/components/sku-shared";
 import {
-  CatalogueTabs,
   CatalogueToolbar,
   ProductsTable,
-  SellableTable,
   Pager,
   stockStateOf,
-  type CatalogueTab,
   type MasterRow,
-  type SellableRow,
 } from "@/components/catalogue-tables";
 import { exportExcelReport } from "@/lib/reports-export";
 import type { ReportColumn } from "@/lib/reports-registry";
@@ -173,16 +169,13 @@ function ProductsPage() {
   const [q, setQ] = useState("");
   const [cat, setCat] = useState<string>("all");
   const [deleting, setDeleting] = useState<Product | null>(null);
-  // Catalogue tabs + filters (all client-side over the loaded catalogue).
-  const [tab, setTab] = useState<CatalogueTab>("products");
+  // Catalogue filters (all client-side over the loaded catalogue).
   const [genderF, setGenderF] = useState("all");
   const [colorF, setColorF] = useState("all");
   const [sizeF, setSizeF] = useState("all");
   const [statusF, setStatusF] = useState("all");
   const [sort, setSort] = useState("sku");
   const [page, setPage] = useState(1);
-  // "View Sellable SKUs" from a master row scopes the sellable tab.
-  const [sellableMasterId, setSellableMasterId] = useState<string | null>(null);
 
   const productsQ = useQuery({
     queryKey: ["products"],
@@ -370,16 +363,6 @@ function ProductsPage() {
     return kids.flatMap((k) => leavesUnder(k.id));
   };
 
-  const rootOf = (p: Product): Product => {
-    let cur = p;
-    while (cur.parent_id) {
-      const par = byId.get(cur.parent_id);
-      if (!par) break;
-      cur = par;
-    }
-    return cur;
-  };
-
   // ── Products tab rows: one per Master SKU ──────────────────────────────
   const masterRows: MasterRow[] = useMemo(() => {
     const matchesDeep = (m: Product): boolean => {
@@ -465,60 +448,6 @@ function ProductsPage() {
     sort,
   ]);
 
-  // ── Sellable SKUs tab rows: one per leaf SKU ───────────────────────────
-  const sellableRows: SellableRow[] = useMemo(() => {
-    const list = (productsQ.data ?? [])
-      .filter((p) => !(childrenByParent.get(p.id) ?? []).length)
-      .filter((p) => !sellableMasterId || rootOf(p).id === sellableMasterId)
-      .filter((p) => {
-        const master = rootOf(p);
-        if (cat !== "all" && master.category !== cat) return false;
-        if (genderF !== "all" && !genderMatches(master.gender, genderF)) return false;
-        if (statusF === "active" && p.status !== "active") return false;
-        if (statusF === "inactive" && p.status === "active") return false;
-        const colour = (p.color ?? "").toLowerCase();
-        if (colorF !== "all" && colour !== colorF.toLowerCase() && colour !== colourNameFor(colorF))
-          return false;
-        if (sizeF !== "all" && (p.size ?? "").toLowerCase() !== sizeF.toLowerCase()) return false;
-        if (!matchesQuery(p) && !matchesQuery(master)) return false;
-        return true;
-      })
-      .map((p) => {
-        const stock = stockByProduct.get(p.id) ?? 0;
-        return {
-          item: p,
-          master: rootOf(p),
-          colour: p.color ?? "—",
-          size: p.size ?? "—",
-          stock,
-          state: stockStateOf(stock, p.reorder_level),
-        };
-      });
-    const rank: Record<string, number> = { out: 0, low: 1, ok: 2 };
-    if (sort === "name")
-      list.sort(
-        (a, b) =>
-          a.master.name.localeCompare(b.master.name) || a.item.sku.localeCompare(b.item.sku),
-      );
-    else if (sort === "stock")
-      list.sort((a, b) => rank[a.state] - rank[b.state] || a.stock - b.stock);
-    else list.sort((a, b) => a.item.sku.localeCompare(b.item.sku));
-    return list;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    productsQ.data,
-    childrenByParent,
-    stockByProduct,
-    q,
-    cat,
-    genderF,
-    colorF,
-    sizeF,
-    statusF,
-    sort,
-    sellableMasterId,
-  ]);
-
   const filtersActive =
     q.trim() !== "" ||
     cat !== "all" ||
@@ -542,7 +471,7 @@ function ProductsPage() {
   const PAGE_SIZE = 25;
   useEffect(() => {
     setPage(1);
-  }, [tab, q, cat, genderF, colorF, sizeF, statusF, sort, sellableMasterId]);
+  }, [q, cat, genderF, colorF, sizeF, statusF, sort]);
   const paginate = <T,>(list: T[]) => {
     const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
     const safe = Math.min(page, totalPages);
@@ -561,9 +490,6 @@ function ProductsPage() {
     };
   };
   const masterPage = paginate(masterRows);
-  const sellablePage = paginate(sellableRows);
-
-  const sellableMaster = sellableMasterId ? (byId.get(sellableMasterId) ?? null) : null;
 
   // Excel export of the currently filtered view (existing reports infra).
   const doExport = () => {
@@ -574,67 +500,37 @@ function ProductsPage() {
     if (colorF !== "all") notes.push(`Colour: ${colorF}`);
     if (sizeF !== "all") notes.push(`Size: ${sizeF}`);
     if (statusF !== "all") notes.push(`Status: ${statusF}`);
-    if (tab === "products") {
-      const columns: ReportColumn[] = [
-        { key: "product", label: "Product", kind: "text" },
-        { key: "model", label: "Model", kind: "text" },
-        { key: "masterSku", label: "Master SKU", kind: "mono" },
-        { key: "category", label: "Category", kind: "text" },
-        { key: "gender", label: "Gender", kind: "text" },
-        { key: "sellables", label: "Sellable variants", kind: "int" },
-        { key: "inStock", label: "In stock", kind: "int" },
-        { key: "lowStock", label: "Low stock", kind: "int" },
-        { key: "outStock", label: "Out of stock", kind: "int" },
-        { key: "onHand", label: "On hand (family)", kind: "int" },
-        { key: "status", label: "Status", kind: "text" },
-      ];
-      exportExcelReport(
-        "Products catalogue",
-        { title: "Products catalogue", notes },
-        columns,
-        masterRows.map((r) => ({
-          product: r.master.name,
-          model: r.master.model ?? "",
-          masterSku: r.master.sku,
-          category: r.master.category ?? "",
-          gender: r.master.gender ?? "",
-          sellables: r.sellables.length,
-          inStock: r.inStock,
-          lowStock: r.lowStock,
-          outStock: r.outStock,
-          onHand: r.familyStock,
-          status: r.master.status === "active" ? "Active" : "Inactive",
-        })),
-      );
-    } else {
-      const columns: ReportColumn[] = [
-        { key: "sellableSku", label: "Sellable SKU", kind: "mono" },
-        { key: "product", label: "Product", kind: "text" },
-        { key: "model", label: "Model", kind: "text" },
-        { key: "colour", label: "Colour", kind: "text" },
-        { key: "size", label: "Size", kind: "text" },
-        { key: "masterSku", label: "Master SKU", kind: "mono" },
-        { key: "onHand", label: "On hand", kind: "int" },
-        { key: "available", label: "Available", kind: "int" },
-        { key: "status", label: "Stock status", kind: "text" },
-      ];
-      exportExcelReport(
-        "Sellable SKUs",
-        { title: "Sellable SKUs", notes },
-        columns,
-        sellableRows.map((r) => ({
-          sellableSku: r.item.sku,
-          product: r.master.name,
-          model: r.master.model ?? "",
-          colour: r.colour,
-          size: r.size,
-          masterSku: r.master.sku,
-          onHand: r.stock,
-          available: r.stock,
-          status: r.state === "ok" ? "In Stock" : r.state === "low" ? "Low Stock" : "Out of Stock",
-        })),
-      );
-    }
+    const columns: ReportColumn[] = [
+      { key: "product", label: "Product", kind: "text" },
+      { key: "model", label: "Model", kind: "text" },
+      { key: "masterSku", label: "Master SKU", kind: "mono" },
+      { key: "category", label: "Category", kind: "text" },
+      { key: "gender", label: "Gender", kind: "text" },
+      { key: "sellables", label: "Sellable variants", kind: "int" },
+      { key: "inStock", label: "In stock", kind: "int" },
+      { key: "lowStock", label: "Low stock", kind: "int" },
+      { key: "outStock", label: "Out of stock", kind: "int" },
+      { key: "onHand", label: "On hand (family)", kind: "int" },
+      { key: "status", label: "Status", kind: "text" },
+    ];
+    exportExcelReport(
+      "Products catalogue",
+      { title: "Products catalogue", notes },
+      columns,
+      masterRows.map((r) => ({
+        product: r.master.name,
+        model: r.master.model ?? "",
+        masterSku: r.master.sku,
+        category: r.master.category ?? "",
+        gender: r.master.gender ?? "",
+        sellables: r.sellables.length,
+        inStock: r.inStock,
+        lowStock: r.lowStock,
+        outStock: r.outStock,
+        onHand: r.familyStock,
+        status: r.master.status === "active" ? "Active" : "Inactive",
+      })),
+    );
     toast.success("Export downloaded");
   };
 
@@ -700,16 +596,6 @@ function ProductsPage() {
         }
       />
 
-      <CatalogueTabs
-        tab={tab}
-        onTab={(t) => {
-          setTab(t);
-          if (t === "products") setSellableMasterId(null);
-        }}
-        productCount={masterRows.length}
-        sellableCount={sellableRows.length}
-      />
-
       <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         <Card>
           <div className="space-y-4">
@@ -738,7 +624,7 @@ function ProductsPage() {
               sizes={(sizesQ.data ?? [])
                 .filter((x: SkuMaster) => x.active)
                 .map((x: SkuMaster) => ({ id: x.id, name: x.name }))}
-              resultCount={tab === "products" ? masterRows.length : sellableRows.length}
+              resultCount={masterRows.length}
               onClear={clearFilters}
               filtersActive={filtersActive}
               canWrite={canWrite}
@@ -751,46 +637,22 @@ function ProductsPage() {
               marginPending={saveMargin.isPending}
               defaultMargin={defaultMargin}
             />
-            {tab === "products" ? (
-              <ProductsTable
-                rows={masterRows}
-                pageItems={masterPage.pageItems}
-                loading={productsQ.isLoading || movementsQ.isLoading}
-                canWrite={canWrite}
-                emptyFiltered={filtersActive}
-                stockOf={(id) => stockByProduct.get(id) ?? 0}
-                onClearFilters={clearFilters}
-                onCreate={() => setSkuWizard(true)}
-                onView={(m) => setDetailFor(m)}
-                onAddColour={(m) => setStageFor({ parent: m, level: "color" })}
-                onAddSize={(c) => setStageFor({ parent: c, level: "size" })}
-                onEditPrices={(p) => setPriceFor(p)}
-                onDelete={(p) => setDeleting(p)}
-                onViewSellables={(m) => {
-                  setSellableMasterId(m.id);
-                  setTab("sellable");
-                }}
-                pager={masterPage.pager}
-              />
-            ) : (
-              <SellableTable
-                rows={sellableRows}
-                pageItems={sellablePage.pageItems}
-                loading={productsQ.isLoading || movementsQ.isLoading}
-                canWrite={canWrite}
-                emptyFiltered={filtersActive}
-                masterFilter={
-                  sellableMaster ? { sku: sellableMaster.sku, name: sellableMaster.name } : null
-                }
-                onClearMasterFilter={() => setSellableMasterId(null)}
-                onClearFilters={clearFilters}
-                onCreate={() => setSkuWizard(true)}
-                onViewMaster={(m) => setDetailFor(m)}
-                onEditPrices={(p) => setPriceFor(p)}
-                onDelete={(p) => setDeleting(p)}
-                pager={sellablePage.pager}
-              />
-            )}
+            <ProductsTable
+              rows={masterRows}
+              pageItems={masterPage.pageItems}
+              loading={productsQ.isLoading || movementsQ.isLoading}
+              canWrite={canWrite}
+              emptyFiltered={filtersActive}
+              stockOf={(id) => stockByProduct.get(id) ?? 0}
+              onClearFilters={clearFilters}
+              onCreate={() => setSkuWizard(true)}
+              onView={(m) => setDetailFor(m)}
+              onAddColour={(m) => setStageFor({ parent: m, level: "color" })}
+              onAddSize={(c) => setStageFor({ parent: c, level: "size" })}
+              onEditPrices={(p) => setPriceFor(p)}
+              onDelete={(p) => setDeleting(p)}
+              pager={masterPage.pager}
+            />
           </div>
         </Card>
       </div>
