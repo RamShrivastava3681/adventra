@@ -849,51 +849,50 @@ input[type="number"] {
     --whiz-page: #eef3f8;
     --whiz-section: #eef4fa;
   }
+  /* Sidebar — premium light theme (Sidebar Design Prompt §11).
+     White surface, hairline borders, navy text, blue accents.
+     Dark mode falls back to the sidebar tokens. */
   .whiz-sidebar {
+    background: #ffffff;
+    border-right: 1px solid #e5ebf2;
+    color: #0e1b2c;
+  }
+  .dark .whiz-sidebar {
     background:
-      radial-gradient(120% 40% at 50% -10%, rgba(58, 168, 255, 0.22), transparent 60%),
-      linear-gradient(180deg, #0a2239 0%, #0b2743 55%, #0c2a47 100%);
-    border-right: 1px solid #12314f;
-    color: #c9d8e8;
+      radial-gradient(120% 40% at 50% -10%, rgba(58, 168, 255, 0.14), transparent 60%),
+      linear-gradient(180deg, #0d141d 0%, #0d141d 100%);
+    border-right: 1px solid var(--color-sidebar-border);
+    color: var(--color-sidebar-foreground);
   }
   .whiz-sidebar .whiz-brand {
-    color: #ffffff;
+    color: #0e1b2c;
     letter-spacing: 0.06em;
   }
-  /* Navy sidebar link overrides — keep role logic, restyle surface */
-  .whiz-sidebar nav a,
-  .whiz-sidebar nav button {
-    color: #b9cfe5 !important;
-  }
-  .whiz-sidebar nav a:hover,
-  .whiz-sidebar nav button:hover {
-    background: rgba(255, 255, 255, 0.08) !important;
-    color: #ffffff !important;
-  }
-  .whiz-sidebar nav a.bg-primary-soft,
-  .whiz-sidebar nav button.bg-primary-soft {
-    background: rgba(255, 255, 255, 0.14) !important;
-    color: #ffffff !important;
-  }
   .whiz-topbar {
+    background: rgba(255, 255, 255, 0.9);
+    border-bottom: 1px solid #e5ebf2;
+    color: #0e1b2c;
+  }
+  .dark .whiz-topbar {
     background:
-      radial-gradient(60% 120% at 20% 0%, rgba(58, 168, 255, 0.14), transparent 60%),
-      linear-gradient(180deg, #0b2743 0%, #0a2239 100%);
-    border-bottom: 1px solid #12314f;
-    color: #dbe7f3;
+      radial-gradient(60% 120% at 20% 0%, rgba(58, 168, 255, 0.1), transparent 60%),
+      linear-gradient(180deg, #0d141d 0%, #0d141d 100%);
+    border-bottom: 1px solid var(--color-sidebar-border);
+    color: var(--color-sidebar-foreground);
   }
-  .whiz-topbar button, .whiz-topbar a { color: #dbe7f3; }
-  .whiz-topbar button:hover, .whiz-topbar a:hover {
-    background: rgba(255,255,255,0.1) !important;
-    color: #fff !important;
-  }
+  .whiz-topbar button, .whiz-topbar a { color: inherit; }
   .whiz-search {
-    background: rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(255, 255, 255, 0.16);
+    background: #f1f5f9;
+    border: 1px solid #dce5ee;
+    color: #0e1b2c;
+  }
+  .dark .whiz-search {
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.14);
     color: #eaf2fa;
   }
   .whiz-search::placeholder {
-    color: #9db4cc;
+    color: #64748b;
   }
   .whiz-page {
     background: #eef3f8;

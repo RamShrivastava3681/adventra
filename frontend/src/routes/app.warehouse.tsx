@@ -236,7 +236,7 @@ function toneClass(t: WorkItemTone) {
   return "bg-muted text-muted-foreground border-border";
 }
 
-function WarehousePage() {
+export function WarehousePage() {
   const { user, isAdmin, isOperations } = useAuth();
   const canWrite = isAdmin || isOperations;
   const qc = useQueryClient();

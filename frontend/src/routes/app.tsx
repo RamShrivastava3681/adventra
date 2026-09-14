@@ -8,7 +8,6 @@ import {
   LayoutDashboard,
   FileText,
   BellRing,
-  LogOut,
   Settings,
   Shield,
   Building2,
@@ -18,35 +17,23 @@ import {
   ClipboardCheck,
   Wallet,
   FileSignature,
-  FileMinus,
   Palette,
   Package,
   TrendingUp,
   Users,
   Search,
   Menu,
-  Command,
   Mail,
-  ChevronRight,
-  ChevronDown,
-  User,
-  Briefcase,
-  ClipboardList,
-  PackageCheck,
   ShoppingBag,
-  Sun,
-  Moon,
-  Monitor,
-  Check,
+  Briefcase,
+  PackageCheck,
   BarChart3,
-  MapPin,
   ArrowRightLeft,
   AlertTriangle,
   Warehouse,
-  Gift,
   ListTodo,
 } from "lucide-react";
-import { useTheme, type Theme } from "@/lib/theme";
+import { useTheme } from "@/lib/theme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CommandDialog,
@@ -57,15 +44,8 @@ import {
   CommandItem,
 } from "@/components/ui/command";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { AppSidebar } from "@/components/app-sidebar";
+import { AppTopbar, ThemeMenu } from "@/components/app-topbar";
 
 export const Route = createFileRoute("/app")({
   component: AppLayout,
@@ -112,15 +92,11 @@ const DEBTORS_ITEMS: NavItem[] = [
   { to: "/app/debtors", label: "Customers", icon: Building2 },
 ];
 
-// ─── Warehouse Control items (Product Catalogue lives as its own sidebar tab) ──
-const WAREHOUSE_CONTROL_ITEMS: NavItem[] = [
-  { to: "/app/warehouse", label: "Warehouse", icon: Warehouse },
-  { to: "/app/forecast", label: "Forecast", icon: TrendingUp },
-  { to: "/app/grn", label: "GRN", icon: PackageCheck },
-  { to: "/app/dispatches", label: "Dispatch", icon: Truck },
-  { to: "/app/stock-allocation", label: "Stock Allocation", icon: MapPin },
-  { to: "/app/sample-distribution", label: "Sample Distribution", icon: Gift },
-];
+// ─── Warehouse — a single Control entry. The workbench page hosts the
+// warehouse navigation (Warehouse, Forecast, GRN, Dispatch, Stock
+// Allocation, Samples, Activity History) as in-page tabs, so the sidebar
+// collapses to one link. All document routes below stay registered and
+// reachable via the workbench tabs and deep links.
 
 // ─── Build navigation sections per role ──────────────────────
 // Priority: Checker → Treasury → Operations → Salesman → Admin → fallback
@@ -219,14 +195,14 @@ function buildNavSections(roles: string[]): NavSection[] {
         }
       : null;
 
-  // Warehouse Control — visible to operations + admin
+  // Warehouse Control — visible to operations + admin (single Workbench link)
   const warehouseControlSection: NavSection | null =
     (isOperations || isAdmin)
       ? {
-          type: "group",
+          type: "single",
           label: "Warehouse Control",
           icon: Warehouse,
-          items: WAREHOUSE_CONTROL_ITEMS,
+          to: "/app/warehouse-workbench",
         }
       : null;
 
@@ -313,8 +289,23 @@ function AppLayout() {
   const effectiveRoles = viewAsActive ? (viewAsTarget?.roles ?? []) : (user?.roles ?? []);
   const [cmdOpen, setCmdOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [activeFlyout, setActiveFlyout] = useState<string | null>(null);
-  const [mobileExpanded, setMobileExpanded] = useState<string | null>(null);
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem("whizunik-sidebar-collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleCollapsed = () => {
+    setCollapsed((c) => {
+      try {
+        window.localStorage.setItem("whizunik-sidebar-collapsed", c ? "0" : "1");
+      } catch {
+        // Storage unavailable — collapse still applies for this session.
+      }
+      return !c;
+    });
+  };
 
   // Cmd+K / Ctrl+K keyboard shortcut
   useEffect(() => {
@@ -327,16 +318,6 @@ function AppLayout() {
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
   }, []);
-
-  // Close flyout on Escape
-  useEffect(() => {
-    if (!activeFlyout) return;
-    const handleKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setActiveFlyout(null);
-    };
-    document.addEventListener("keydown", handleKey);
-    return () => document.removeEventListener("keydown", handleKey);
-  }, [activeFlyout]);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth" });
@@ -409,6 +390,7 @@ function AppLayout() {
     ];
     // Warehouse Control routes (hidden: /app/inventory kept out of nav for now)
     const warehouseControlRoutes: string[] = [
+      "/app/warehouse-workbench",
       "/app/warehouse",
       "/app/forecast",
       "/app/grn",
@@ -591,245 +573,63 @@ function AppLayout() {
     return "";
   })();
 
-  // Resolve the currently active flyout section data
-  const activeFlyoutSection = activeFlyout
-    ? (navSections.find(
-        (s): s is Extract<NavSection, { type: "group" }> =>
-          s.type === "group" && s.label === activeFlyout,
-      ) ?? null)
-    : null;
-
-  const closeAll = () => {
-    setActiveFlyout(null);
-    setMobileExpanded(null);
-  };
-
   // When in view-as mode every navigation keeps the viewAsUserId search param
   // so the reporting manager keeps browsing the team member's data.
   const viewSearch = viewAsActive ? { viewAsUserId } : {};
 
-  // ─── Render a single nav link ─────────────────────────────────
-  const renderNavLink = (n: NavItem, closeSidebar: () => void) => {
-    const active = pathname === n.to || pathname.startsWith(n.to + "/");
-    const Icon = n.icon;
-    return (
-      <Link
-        key={n.to}
-        to={n.to}
-        search={viewSearch}
-        onClick={() => {
-          closeSidebar();
-          closeAll();
-        }}
-        className={`group relative flex w-full items-center gap-3 rounded-xl px-3 py-2 text-[13.5px] font-medium transition-all duration-150 ${
-          active
-            ? "bg-gradient-to-r from-primary-soft to-primary-soft/40 text-primary shadow-[0_1px_6px_-2px_rgba(0,103,194,0.35)] ring-1 ring-primary/20"
-            : "text-muted-foreground hover:translate-x-px hover:bg-muted/70 hover:text-foreground"
-        }`}
-      >
-        {active && (
-          <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-gradient-to-b from-sky-400 to-primary shadow-[0_0_8px_rgba(58,168,255,0.8)]" />
-        )}
-        <Icon
-          className={`h-4 w-4 shrink-0 transition-colors duration-150 ${
-            active ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
-          }`}
-        />
-        <span className="truncate">{n.label}</span>
-      </Link>
-    );
-  };
-
-  // ─── Sidebar content ─────────────────────────────────────────
-  // `mobile` = true → renders inside the Sheet (inline accordion for groups)
-  // `mobile` = false → renders in the desktop sidebar (flyout for groups)
-  // A quiet uppercase section label above groups of navigation items.
-  const SectionLabel = ({ children }: { children: string }) => (
-    <div className="flex items-center gap-2 px-3 pb-1.5 pt-4 text-[10px] font-bold uppercase tracking-[0.18em] text-muted-foreground/80">
-      {children}
-      <span className="h-px flex-1 bg-gradient-to-r from-border to-transparent" aria-hidden />
-    </div>
+  // ─── Notification badges (only show when there are actual items) ──
+  // Single lightweight query: open workflow tasks drive the My Queue count,
+  // and the checker-owned slice drives the Checker badge.
+  const showBadges = navSections.some((s) =>
+    s.type === "single"
+      ? s.label === "Checker" || s.label === "My Queue"
+      : false,
   );
+  const openTasksQ = useQuery({
+    queryKey: ["sidebar-open-tasks"],
+    queryFn: () => api.workflowTasks.list({ status: "open" }),
+    enabled: showBadges && !!user,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const openTasks: any[] = Array.isArray(openTasksQ.data) ? openTasksQ.data : [];
+  const queueCount = openTasks.length > 0 ? openTasks.length : undefined;
+  const checkerCount = (() => {
+    if (openTasks.length === 0) return undefined;
+    const n = openTasks.filter((t: any) =>
+      ["checker", "checker_pending", "pending_review", "pending_checker"].some((k) =>
+        `${t?.owner_role ?? ""} ${t?.stage ?? ""} ${t?.doc_status ?? ""} ${t?.status ?? ""}`
+          .toLowerCase()
+          .includes(k),
+      ),
+    ).length;
+    return n > 0 ? n : undefined;
+  })();
 
-  const renderSidebarContent = (mobile: boolean) => {
-    const singles = navSections.filter((s) => s.type === "single");
-    const groups = navSections.filter((s) => s.type === "group");
-    return (
-      <>
-        {/* Brand header */}
-        <div className="shrink-0 border-b border-white/10 px-5 py-5">
-          <div className="whiz-brand flex items-center gap-2.5 text-[15px] font-bold leading-none tracking-tight">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-b from-sky-400 to-blue-600 text-base font-bold text-white shadow-lg shadow-blue-950/40 ring-1 ring-white/20">
-              W
-            </span>
-            <span className="leading-tight">
-              Whizunik
-              <span className="block text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-200/70">
-                Command
-              </span>
-            </span>
-          </div>
-        </div>
+  // ─── Alerts unread count for the topbar bell (§5: red badge) ──
+  const alertsQ = useQuery({
+    queryKey: ["topbar-alerts"],
+    queryFn: () => api.alerts.list(),
+    enabled: !!user,
+    staleTime: 60_000,
+    retry: false,
+  });
+  const alertsCount = Array.isArray(alertsQ.data)
+    ? alertsQ.data.filter((a: any) => !a?.is_read).length
+    : 0;
 
-        {/* Quick search button */}
-        <div className="px-3 pt-3">
-          <button
-            onClick={() => setCmdOpen(true)}
-            className="group flex h-10 w-full items-center gap-2.5 rounded-xl border border-white/10 bg-white/[0.06] px-3 text-[13px] text-slate-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur transition-all hover:-translate-y-px hover:border-white/20 hover:bg-white/[0.1] hover:text-white hover:shadow-lg"
-          >
-            <Search className="h-4 w-4 text-slate-400 transition-colors group-hover:text-white" />
-            <span className="flex-1 text-left font-medium">Quick navigate</span>
-            <kbd className="hidden items-center gap-0.5 rounded-md border border-white/15 bg-white/10 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-slate-300 md:inline-flex">
-              <Command className="h-2.5 w-2.5" />K
-            </kbd>
-          </button>
-        </div>
-
-        {/* Navigation sections */}
-        <nav className="relative flex-1 overflow-y-auto px-3 py-2 [&::-webkit-scrollbar]:hidden">
-          {singles.length > 0 && <SectionLabel>Main</SectionLabel>}
-          {navSections.map((section) => {
-            // ── Single item ──
-            if (section.type === "single") {
-              const active = pathname === section.to || pathname.startsWith(section.to + "/");
-              const Icon = section.icon;
-              return (
-                <Link
-                  key={section.to}
-                  to={section.to}
-                  search={viewSearch}
-                  onClick={() => {
-                    if (mobile) setMobileOpen(false);
-                  }}
-                  className={`group relative flex h-10 items-center gap-3 rounded-xl px-3 text-[13.5px] font-medium transition-all duration-150 ${
-                    active
-                      ? "bg-gradient-to-r from-primary-soft to-primary-soft/40 text-primary shadow-[0_1px_6px_-2px_rgba(0,103,194,0.35)] ring-1 ring-primary/20"
-                      : "text-muted-foreground hover:translate-x-px hover:bg-muted hover:text-foreground"
-                  }`}
-                >
-                  {active && (
-                    <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-gradient-to-b from-sky-400 to-primary shadow-[0_0_8px_rgba(58,168,255,0.8)]" />
-                  )}
-                  <Icon
-                    className={`h-5 w-5 shrink-0 transition-colors duration-150 ${
-                      active ? "text-primary" : "text-muted-foreground group-hover:text-foreground"
-                    }`}
-                  />
-                  <span className="truncate">{section.label}</span>
-                </Link>
-              );
-            }
-
-            // ── Group / expandable section ──
-            const Icon = section.icon;
-            const hasActiveChild = section.items.some(
-              (n) => pathname === n.to || pathname.startsWith(n.to + "/"),
-            );
-            const isOpen = activeFlyout === section.label;
-
-            return (
-              <div key={section.label}>
-                {mobile ? (
-                  // ── Mobile: inline accordion ──
-                  <>
-                    <div className="pb-1.5 pt-4 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                      {section.label}
-                    </div>
-                    <button
-                      onClick={() =>
-                        setMobileExpanded(mobileExpanded === section.label ? null : section.label)
-                      }
-                      className={`relative flex h-10 w-full items-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors duration-150 ${
-                        hasActiveChild
-                          ? "bg-primary-soft text-primary"
-                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
-                      }`}
-                    >
-                      {hasActiveChild && (
-                        <span className="absolute left-0 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
-                      )}
-                      <Icon
-                        className={`h-5 w-5 shrink-0 ${hasActiveChild ? "text-primary" : "text-muted-foreground"}`}
-                      />
-                      <span className="flex-1 truncate text-left">{section.label}</span>
-                      <ChevronDown
-                        className={`h-4 w-4 shrink-0 transition-transform duration-200 ${
-                          mobileExpanded === section.label ? "rotate-180" : ""
-                        } ${hasActiveChild ? "text-primary" : "text-muted-foreground"}`}
-                      />
-                    </button>
-                    {mobileExpanded === section.label && (
-                      <div className="ml-4 mt-1 space-y-0.5 border-l border-border pl-3 animate-in slide-in-from-top-1 fade-in duration-150">
-                        {section.items.map((n) => renderNavLink(n, () => setMobileOpen(false)))}
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  // ── Desktop: section heading opens horizontal flyout ──
-                  <>
-                    <button
-                      onClick={() => setActiveFlyout(isOpen ? null : section.label)}
-                      className={`group relative flex h-10 w-full items-center gap-3 rounded-xl px-3 text-[13.5px] font-medium transition-all duration-150 ${
-                        hasActiveChild || isOpen
-                          ? "bg-gradient-to-r from-primary-soft to-primary-soft/40 text-primary shadow-[0_1px_6px_-2px_rgba(0,103,194,0.35)] ring-1 ring-primary/20"
-                          : "text-muted-foreground hover:translate-x-px hover:bg-muted hover:text-foreground"
-                      } ${isOpen ? "ring-1 ring-primary/30" : ""}`}
-                    >
-                      {(hasActiveChild || isOpen) && (
-                        <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-gradient-to-b from-sky-400 to-primary shadow-[0_0_8px_rgba(58,168,255,0.8)]" />
-                      )}
-                      <Icon
-                        className={`h-5 w-5 shrink-0 transition-colors duration-150 ${
-                          hasActiveChild || isOpen
-                            ? "text-primary"
-                            : "text-muted-foreground group-hover:text-foreground"
-                        }`}
-                      />
-                      <span className="flex-1 truncate text-left">{section.label}</span>
-                      <ChevronRight
-                        className={`h-4 w-4 shrink-0 transition-transform duration-150 ${
-                          isOpen ? "rotate-90 text-primary" : ""
-                        } ${hasActiveChild ? "text-primary" : "text-muted-foreground"}`}
-                      />
-                    </button>
-                    {/* Spacer so flyout groups read as distinct sections */}
-                    <div className="mt-1.5 border-b border-sidebar-border/70" />
-                  </>
-                )}
-              </div>
-            );
-          })}
-        </nav>
-
-        {/* User footer */}
-        <div className="shrink-0 border-t border-white/10 bg-white/[0.03] p-3">
-          <div className="flex items-center gap-1 rounded-xl border border-white/[0.06] bg-white/[0.04] p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-            <button
-              onClick={() => navigate({ to: "/app/profile", search: viewSearch })}
-              className="flex min-w-0 flex-1 items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-white/10"
-            >
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-sky-400 to-blue-600 text-xs font-bold text-white shadow ring-1 ring-white/20">
-                {(user?.email || "U").charAt(0).toUpperCase()}
-              </div>
-              <div className="min-w-0">
-                <div className="truncate text-[13px] font-medium text-sidebar-foreground">
-                  {user?.email}
-                </div>
-              </div>
-            </button>
-            <button
-              onClick={handleSignOut}
-              aria-label="Sign out"
-              title="Sign out"
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-destructive"
-            >
-              <LogOut className="h-4 w-4" />
-            </button>
-          </div>
-        </div>
-      </>
-    );
-  };
+  // Icon for the current page pill (active nav item's icon, Home fallback).
+  const pageIcon = (() => {
+    for (const s of navSections) {
+      if (s.type === "single" && (pathname === s.to || pathname.startsWith(s.to + "/")))
+        return s.icon;
+      if (s.type === "group") {
+        const item = s.items.find((n) => pathname === n.to || pathname.startsWith(n.to + "/"));
+        if (item) return item.icon;
+      }
+    }
+    return undefined;
+  })();
 
   return (
     <div className="flex min-h-screen w-full">
@@ -841,8 +641,19 @@ function AppLayout() {
               <Menu className="h-5 w-5" />
             </button>
           </SheetTrigger>
-          <SheetContent side="left" className="w-[280px] p-0 bg-sidebar">
-            {renderSidebarContent(true)}
+          <SheetContent side="left" className="w-[280px] bg-white p-0 dark:bg-sidebar">
+            <AppSidebar
+              navSections={navSections}
+              pathname={pathname}
+              onSearch={() => {
+                setMobileOpen(false);
+                setCmdOpen(true);
+              }}
+              viewSearch={viewSearch}
+              badges={{ checker: checkerCount, queue: queueCount }}
+              hideCollapse
+              onNavigate={() => setMobileOpen(false)}
+            />
           </SheetContent>
         </Sheet>
         <div className="flex items-center gap-2">
@@ -851,11 +662,16 @@ function AppLayout() {
         <div className="ml-auto flex items-center gap-1.5">
           <Link
             to="/app/alerts"
-            aria-label="Alerts"
+            aria-label={alertsCount > 0 ? `Alerts, ${alertsCount} unread` : "Alerts"}
             title="Alerts"
-            className="rounded-md border border-border p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="relative rounded-md border border-border p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           >
             <BellRing className="h-4 w-4" />
+            {alertsCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-[#e5484d] px-1 text-[9px] font-bold text-white ring-2 ring-background">
+                {alertsCount > 99 ? "99+" : alertsCount}
+              </span>
+            )}
           </Link>
           <button
             onClick={() => setCmdOpen(true)}
@@ -868,64 +684,17 @@ function AppLayout() {
         </div>
       </div>
 
-      {/* Desktop sidebar */}
-      <aside className="whiz-shell relative hidden w-60 flex-col border-r border-sidebar-border bg-sidebar shadow-[4px_0_24px_-12px_rgba(10,34,57,0.25)] md:flex print:hidden">
-        <div className="whiz-sidebar flex min-h-0 flex-1 flex-col">
-        {renderSidebarContent(false)}
-
-        {/* ── Horizontal flyout panel ── */}
-        {activeFlyoutSection && (
-          <>
-            {/* Backdrop */}
-            <div className="fixed inset-0 z-40" onClick={() => setActiveFlyout(null)} />
-            {/* Flyout panel */}
-            <div className="fixed left-60 top-0 z-50 flex h-full w-72 flex-col overflow-hidden rounded-r-2xl border-r border-border bg-popover/95 shadow-modal backdrop-blur-xl animate-in slide-in-from-left-2 fade-in duration-200">
-              {/* Flyout header */}
-              <div className="flex h-16 shrink-0 items-center gap-3 border-b border-border bg-gradient-to-b from-muted/60 to-transparent px-4">
-                <button
-                  onClick={() => setActiveFlyout(null)}
-                  className="flex h-8 w-8 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-xs transition-all hover:-translate-x-px hover:text-foreground"
-                >
-                  <ChevronRight className="h-4 w-4 rotate-180" />
-                </button>
-                <div className="h-4 w-px bg-border" />
-                <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-foreground">
-                  {activeFlyoutSection.label}
-                </span>
-              </div>
-              {/* Flyout items */}
-              <div className="flex-1 space-y-1 overflow-y-auto p-3">
-                {activeFlyoutSection.items.map((n) => {
-                  const active = pathname === n.to || pathname.startsWith(n.to + "/");
-                  const ItemIcon = n.icon;
-                  return (
-                    <button
-                      key={n.to}
-                      onClick={() => {
-                        setActiveFlyout(null);
-                        navigate({ to: n.to, search: viewSearch });
-                      }}
-                      className={`group relative flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-[13.5px] font-medium transition-all duration-150 ${
-                        active
-                          ? "bg-gradient-to-r from-primary-soft to-primary-soft/40 text-primary shadow-sm ring-1 ring-primary/20"
-                          : "text-muted-foreground hover:translate-x-px hover:bg-muted/70 hover:text-foreground"
-                      }`}
-                    >
-                      {active && (
-                        <span className="absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-primary" />
-                      )}
-                      <span className={`flex h-8 w-8 items-center justify-center rounded-lg ${active ? "bg-primary/10 text-primary" : "bg-muted/60 text-muted-foreground group-hover:text-foreground"}`}>
-                        <ItemIcon className="h-4 w-4 shrink-0" />
-                      </span>
-                      <span className="truncate">{n.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          </>
-        )}
-        </div>
+      {/* Desktop sidebar — premium light theme (§11) */}
+      <aside className="sticky top-0 hidden h-screen shrink-0 flex-col border-r border-[#e5ebf2] bg-white shadow-[4px_0_24px_-12px_rgba(10,34,57,0.18)] md:flex dark:border-sidebar-border dark:bg-sidebar print:hidden">
+        <AppSidebar
+          navSections={navSections}
+          pathname={pathname}
+          collapsed={collapsed}
+          onToggleCollapse={toggleCollapsed}
+          onSearch={() => setCmdOpen(true)}
+          viewSearch={viewSearch}
+          badges={{ checker: checkerCount, queue: queueCount }}
+        />
       </aside>
 
       {/* Main content area */}
@@ -944,98 +713,21 @@ function AppLayout() {
             onExit={() => navigate({ to: "/app/reports", search: {} })}
           />
         )}
-        {/* Top bar — Whizunik Command: global search + user, like ui/ mockups */}
-        <div className="whiz-topbar sticky top-0 z-30 hidden h-16 items-center justify-between gap-2 px-6 shadow-[0_1px_12px_rgba(10,34,57,0.25)] backdrop-blur md:flex">
-          <div className="flex min-w-0 flex-1 items-center gap-3">
-            <button
-              onClick={() => setCmdOpen(true)}
-              className="group flex h-10 w-full max-w-xl items-center gap-2.5 rounded-full px-4 text-[13px] shadow-[inset_0_1px_0_rgba(255,255,255,0.12),0_2px_8px_rgba(0,0,0,0.2)] transition-all hover:bg-white/[0.14] whiz-search"
-            >
-              <Search className="h-4 w-4 shrink-0 opacity-70 transition-opacity group-hover:opacity-100" />
-              <span className="flex-1 text-left font-medium">Search documents, inventory, or approvals…</span>
-              <kbd className="hidden items-center gap-1 rounded-md border border-white/20 bg-white/10 px-1.5 py-0.5 font-mono text-[10px] lg:inline-flex">
-                ⌘K
-              </kbd>
-            </button>
-            {currentPage && (
-              <span className="hidden items-center gap-1.5 truncate rounded-full border border-white/10 bg-white/[0.06] px-2.5 py-1 text-xs font-semibold text-white/80 xl:inline-flex">
-                {currentPage}
-              </span>
-            )}
-          </div>
-          <div className="flex shrink-0 items-center gap-1.5">
-            <button
-              onClick={() => setCmdOpen(true)}
-              aria-label="Search"
-              title="Search (Ctrl+K)"
-              className="inline-flex h-9 items-center gap-2 rounded-lg border border-transparent px-2.5 text-[13px] text-muted-foreground transition-colors hover:border-border hover:bg-muted hover:text-foreground"
-            >
-              <Search className="h-4 w-4" />
-              <span className="hidden lg:inline">Search…</span>
-              <kbd className="hidden rounded border border-border bg-card px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground lg:inline-flex">
-                ⌘K
-              </kbd>
-            </button>
-            <Link
-              to="/app/alerts"
-              aria-label="Alerts"
-              title="Alerts"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            >
-              <BellRing className="h-[18px] w-[18px]" />
-            </Link>
-            <ThemeMenu theme={theme} setTheme={setTheme} />
-            <div className="mx-1 h-5 w-px bg-border" />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="flex h-9 items-center gap-2 rounded-lg px-2 text-sm transition-colors hover:bg-muted">
-                  <Avatar className="h-7 w-7">
-                    <AvatarImage src={user?.photoUrl || undefined} />
-                    <AvatarFallback className="bg-primary-soft text-primary text-xs font-semibold">
-                      {(user?.email || "U").charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="max-w-[120px] truncate text-[13px] font-medium text-foreground">
-                    {user?.email?.split("@")[0] || "User"}
-                  </span>
-                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-52">
-                <DropdownMenuLabel className="px-2 py-1.5 text-xs font-normal text-muted-foreground">
-                  {user?.email}
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() => navigate({ to: "/app/profile", search: viewSearch })}
-                  className="cursor-pointer"
-                >
-                  <User className="mr-2 h-4 w-4" /> Profile
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => navigate({ to: "/app/workspace", search: viewSearch })}
-                  className="cursor-pointer"
-                >
-                  <Briefcase className="mr-2 h-4 w-4" /> My Workspace
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => navigate({ to: "/app/settings", search: viewSearch })}
-                  className="cursor-pointer"
-                >
-                  <Settings className="mr-2 h-4 w-4" /> Settings
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={handleSignOut}
-                  className="cursor-pointer text-destructive focus:text-destructive"
-                >
-                  <LogOut className="mr-2 h-4 w-4" /> Sign out
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        </div>
-        <div key={pathname.split("/").slice(0, 3).join("/")} className="page-enter">
+        <AppTopbar
+          currentPage={currentPage}
+          pageIcon={pageIcon}
+          collapsed={collapsed}
+          onToggleSidebar={toggleCollapsed}
+          onSearch={() => setCmdOpen(true)}
+          alertsCount={alertsCount}
+          userEmail={user?.email}
+          userPhotoUrl={user?.photoUrl}
+          theme={theme}
+          setTheme={setTheme}
+          onNavigate={(to) => navigate({ to, search: viewSearch })}
+          onSignOut={handleSignOut}
+        />
+        <div key={pathname.split("/").slice(0, 3).join("/")} className="page-enter px-4 pt-4 md:px-6">
           <Outlet />
         </div>
       </main>
@@ -1095,61 +787,5 @@ function AppLayout() {
         </CommandList>
       </CommandDialog>
     </div>
-  );
-}
-
-// ─── Appearance menu — Light / Dark / System ────────────────────
-const THEME_OPTIONS: { value: Theme; label: string; icon: any }[] = [
-  { value: "light", label: "Light", icon: Sun },
-  { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "System", icon: Monitor },
-];
-
-function ThemeMenu({
-  theme,
-  setTheme,
-}: {
-  theme: Theme;
-  setTheme: (t: Theme) => void;
-}) {
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <button
-          aria-label="Appearance"
-          title="Appearance"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-        >
-          {theme === "light" ? (
-            <Sun className="h-[18px] w-[18px]" />
-          ) : theme === "dark" ? (
-            <Moon className="h-[18px] w-[18px]" />
-          ) : (
-            <Monitor className="h-[18px] w-[18px]" />
-          )}
-        </button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-40">
-        <DropdownMenuLabel className="px-2 py-1.5 text-xs font-normal text-muted-foreground">
-          Appearance
-        </DropdownMenuLabel>
-        <DropdownMenuSeparator />
-        {THEME_OPTIONS.map((opt) => {
-          const Icon = opt.icon;
-          const active = theme === opt.value;
-          return (
-            <DropdownMenuItem
-              key={opt.value}
-              onClick={() => setTheme(opt.value)}
-              className={`cursor-pointer ${active ? "text-primary" : ""}`}
-            >
-              <Icon className="mr-2 h-4 w-4" />
-              <span className="flex-1">{opt.label}</span>
-              {active && <Check className="h-4 w-4" />}
-            </DropdownMenuItem>
-          );
-        })}
-      </DropdownMenuContent>
-    </DropdownMenu>
   );
 }

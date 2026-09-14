@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
@@ -19,6 +19,7 @@ import {
 } from "@/lib/forecast-engine";
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   ArrowUpDown,
   BadgePercent,
@@ -118,8 +119,9 @@ function snakeToCamelDeep(value: unknown): any {
   return value;
 }
 
-function ForecastPage() {
+export function ForecastPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<FilterT>("all");
   const [category, setCategory] = useState<string>("all");
@@ -587,12 +589,26 @@ function ForecastPage() {
         title="SKU Forecast"
         description="Reorder intelligence powered by 12 months of stock-movement history."
         icon={<TrendingUp className="h-5 w-5" />}
+        breadcrumbs={[
+          { label: "Dashboard", href: "/app/dashboard" },
+          { label: "Product Catalogue", href: "/app/products" },
+          { label: "SKU Forecast" },
+        ]}
         actions={
-          <SummaryCards
-            totalSkus={analyses.length}
-            needReorder={summary.toReorder}
-            stockoutRisk={summary.critical}
-          />
+          <div className="flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => navigate({ to: "/app/products" })}
+              title="Back to the product catalogue"
+              className="inline-flex items-center gap-2 rounded-[10px] border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground shadow-sm transition-all hover:-translate-y-px hover:text-foreground hover:shadow-md"
+            >
+              <ArrowLeft className="h-4 w-4" /> Back to Products
+            </button>
+            <SummaryCards
+              totalSkus={analyses.length}
+              needReorder={summary.toReorder}
+              stockoutRisk={summary.critical}
+            />
+          </div>
         }
       />
 

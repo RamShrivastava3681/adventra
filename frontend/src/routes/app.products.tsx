@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
@@ -23,7 +23,7 @@ import {
 } from "@/components/catalogue-tables";
 import { exportExcelReport } from "@/lib/reports-export";
 import type { ReportColumn } from "@/lib/reports-registry";
-import { Plus, X, Loader2, Package, RefreshCw, Layers, Copy, Download } from "lucide-react";
+import { Plus, X, Loader2, Package, RefreshCw, Layers, Copy, Download, TrendingUp } from "lucide-react";
 import { toast } from "sonner";
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
@@ -157,6 +157,7 @@ function ProductsPage() {
   const { user, isSalesRep } = useAuth();
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [skuWizard, setSkuWizard] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
@@ -667,6 +668,13 @@ function ProductsPage() {
         breadcrumbs={[{ label: "Dashboard", href: "/app/dashboard" }, { label: "Catalog" }]}
         actions={
           <div className="flex gap-2">
+            <button
+              onClick={() => navigate({ to: "/app/forecast" })}
+              title="Open demand forecasting for the catalogue"
+              className="inline-flex items-center gap-2 rounded-[10px] border border-border bg-card px-4 py-2 text-sm font-medium text-muted-foreground shadow-sm transition-all hover:-translate-y-px hover:text-foreground hover:shadow-md"
+            >
+              <TrendingUp className="h-4 w-4" /> View Forecasting
+            </button>
             <button
               onClick={doExport}
               title="Export the current view to Excel"

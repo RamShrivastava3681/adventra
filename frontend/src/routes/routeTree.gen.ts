@@ -55,6 +55,7 @@ import { Route as AppTasksRouteImport } from './app.tasks'
 import { Route as AppTemplateRouteImport } from './app.template'
 import { Route as AppVendorsRouteImport } from './app.vendors'
 import { Route as AppWarehouseRouteImport } from './app.warehouse'
+import { Route as AppWarehouseWorkbenchRouteImport } from './app.warehouse-workbench'
 import { Route as AppWorkspaceRouteImport } from './app.workspace'
 import { Route as ApproveTokenRouteImport } from './approve.$token'
 import { Route as NoaTokenRouteImport } from './noa.$token'
@@ -294,6 +295,11 @@ const AppWarehouseRoute = AppWarehouseRouteImport.update({
   path: '/warehouse',
   getParentRoute: () => AppRoute,
 } as any)
+const AppWarehouseWorkbenchRoute = AppWarehouseWorkbenchRouteImport.update({
+  id: '/warehouse-workbench',
+  path: '/warehouse-workbench',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppWorkspaceRoute = AppWorkspaceRouteImport.update({
   id: '/workspace',
   path: '/workspace',
@@ -382,6 +388,7 @@ export interface FileRoutesByFullPath {
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
   '/app/warehouse': typeof AppWarehouseRoute
+  '/app/warehouse-workbench': typeof AppWarehouseWorkbenchRoute
   '/app/workspace': typeof AppWorkspaceRoute
   '/approve/$token': typeof ApproveTokenRoute
   '/noa/$token': typeof NoaTokenRoute
@@ -437,6 +444,7 @@ export interface FileRoutesByTo {
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
   '/app/warehouse': typeof AppWarehouseRoute
+  '/app/warehouse-workbench': typeof AppWarehouseWorkbenchRoute
   '/app/workspace': typeof AppWorkspaceRoute
   '/approve/$token': typeof ApproveTokenRoute
   '/noa/$token': typeof NoaTokenRoute
@@ -494,6 +502,7 @@ export interface FileRoutesById {
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
   '/app/warehouse': typeof AppWarehouseRoute
+  '/app/warehouse-workbench': typeof AppWarehouseWorkbenchRoute
   '/app/workspace': typeof AppWorkspaceRoute
   '/approve/$token': typeof ApproveTokenRoute
   '/noa/$token': typeof NoaTokenRoute
@@ -552,6 +561,7 @@ export interface FileRouteTypes {
     | '/app/template'
     | '/app/vendors'
     | '/app/warehouse'
+    | '/app/warehouse-workbench'
     | '/app/workspace'
     | '/approve/$token'
     | '/noa/$token'
@@ -607,6 +617,7 @@ export interface FileRouteTypes {
     | '/app/template'
     | '/app/vendors'
     | '/app/warehouse'
+    | '/app/warehouse-workbench'
     | '/app/workspace'
     | '/approve/$token'
     | '/noa/$token'
@@ -663,6 +674,7 @@ export interface FileRouteTypes {
     | '/app/template'
     | '/app/vendors'
     | '/app/warehouse'
+    | '/app/warehouse-workbench'
     | '/app/workspace'
     | '/approve/$token'
     | '/noa/$token'
@@ -1005,6 +1017,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppWarehouseRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/warehouse-workbench': {
+      id: '/app/warehouse-workbench'
+      path: '/warehouse-workbench'
+      fullPath: '/app/warehouse-workbench'
+      preLoaderRoute: typeof AppWarehouseWorkbenchRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/workspace': {
       id: '/app/workspace'
       path: '/workspace'
@@ -1122,6 +1141,7 @@ interface AppRouteChildren {
   AppTemplateRoute: typeof AppTemplateRoute
   AppVendorsRoute: typeof AppVendorsRoute
   AppWarehouseRoute: typeof AppWarehouseRoute
+  AppWarehouseWorkbenchRoute: typeof AppWarehouseWorkbenchRoute
   AppWorkspaceRoute: typeof AppWorkspaceRoute
   AppChallanDispatchIdRoute: typeof AppChallanDispatchIdRoute
   AppInvoicePreviewIdRoute: typeof AppInvoicePreviewIdRoute
@@ -1172,6 +1192,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppTemplateRoute: AppTemplateRoute,
   AppVendorsRoute: AppVendorsRoute,
   AppWarehouseRoute: AppWarehouseRoute,
+  AppWarehouseWorkbenchRoute: AppWarehouseWorkbenchRoute,
   AppWorkspaceRoute: AppWorkspaceRoute,
   AppChallanDispatchIdRoute: AppChallanDispatchIdRoute,
   AppInvoicePreviewIdRoute: AppInvoicePreviewIdRoute,

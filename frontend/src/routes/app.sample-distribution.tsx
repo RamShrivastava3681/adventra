@@ -73,7 +73,7 @@ function salesmanLabel(u: any): string {
   );
 }
 
-function SampleDistributionPage() {
+export function SampleDistributionPage() {
   const { user, isAdmin, isOperations } = useAuth();
   const canWrite = isAdmin || isOperations;
   const qc = useQueryClient();

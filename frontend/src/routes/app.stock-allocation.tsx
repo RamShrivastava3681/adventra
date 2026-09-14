@@ -112,7 +112,7 @@ const LOCATION_TYPES: { value: string; label: string; icon: LucideIcon }[] = [
 ];
 
 // ─── Main Page ──────────────────────────────────────────────────────────────
-function StockAllocationPage() {
+export function StockAllocationPage() {
   const { user, isSalesRep, isReportingManager, isAdmin, isChecker } = useAuth();
   const canWrite = !!user && !isSalesRep && !isReportingManager;
   const qc = useQueryClient();
