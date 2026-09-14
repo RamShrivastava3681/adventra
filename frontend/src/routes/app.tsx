@@ -534,20 +534,11 @@ function AppLayout() {
     }
   }, [viewAsUserId, qc]);
 
-  if (loading || !user) {
-    return (
-      <div className="grid min-h-screen place-items-center">
-        <div className="text-sm text-muted-foreground">Opening vault…</div>
-      </div>
-    );
-  }
-
-  const handleSignOut = () => {
-    signOut();
-    navigate({ to: "/auth", replace: true });
-  };
-
   // ─── Build navigation sections per role ──────────────────────
+  // NOTE: all hooks must run unconditionally on every render (Rules of Hooks).
+  // Nothing may early-return above the queries below, otherwise the hook
+  // count changes between the loading=true and loading=false renders and
+  // React throws #310 ("Rendered more hooks than during the previous render").
   // In view-as mode the sidebar mirrors the team member's own tabs (e.g. a
   // salesperson sees CRM / Leads, Debtors, Suppliers + their Workspace);
   // otherwise it reflects the signed-in user's roles.
@@ -630,6 +621,19 @@ function AppLayout() {
     }
     return undefined;
   })();
+
+  if (loading || !user) {
+    return (
+      <div className="grid min-h-screen place-items-center">
+        <div className="text-sm text-muted-foreground">Opening vault…</div>
+      </div>
+    );
+  }
+
+  const handleSignOut = () => {
+    signOut();
+    navigate({ to: "/auth", replace: true });
+  };
 
   return (
     <div className="flex min-h-screen w-full">
