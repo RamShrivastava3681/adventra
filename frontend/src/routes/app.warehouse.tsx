@@ -150,19 +150,7 @@ type Movement = {
   destination_location_id: string | null;
 };
 
-type Tab = "overview" | "orders" | "ready" | "dispatches";
-
-// â”€â”€â”€ Warehouse sub-navigation (Workbench + links to existing real surfaces) â”€â”€
-// Workbench is the in-page active tab. Every other entry points at an existing
-// route or an in-page anchor â€” no mock destinations.
-const SUBNAV: { id: string; label: string; href: string; active?: boolean; external?: boolean }[] = [
-  { id: "workbench", label: "Workbench", href: "#top", active: true },
-  { id: "inventory", label: "Inventory by Location", href: "/app/inventory", external: true },
-  { id: "dispatch", label: "Dispatch Orders", href: "/app/dispatches", external: true },
-  { id: "packing", label: "Packing & Dispatch", href: "/app/dispatches", external: true },
-  { id: "returns", label: "Returns", href: "#wh-work-items", external: false },
-  { id: "activity", label: "Activity History", href: "#wh-activity", external: false },
-];
+type Tab = "overview" | "orders" | "ready" | "dispatches" | "movements" | "reports";
 
 type WorkItemTone = "amber" | "blue" | "green" | "red" | "neutral";
 
@@ -571,6 +559,8 @@ export function WarehousePage() {
     { id: "orders", label: "Order sign-offs", icon: ClipboardCheck, count: pendingSignoffs.length },
     { id: "ready", label: "Ready to dispatch", icon: PackageCheck, count: readyOrders.length + readyInvoices.length },
     { id: "dispatches", label: "Dispatches", icon: Truck, count: openDispatches.length },
+    { id: "movements", label: "Inventory movements", icon: Boxes, count: movements.length },
+    { id: "reports", label: "Movement reports", icon: FileText },
   ];
 
   const profileInitial = (user?.contactName ?? user?.email ?? "W").trim().charAt(0).toUpperCase() || "W";
@@ -631,39 +621,6 @@ export function WarehousePage() {
             )}
           </div>
         </div>
-
-        {/* â”€â”€ 2. Warehouse navigation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-        <nav aria-label="Warehouse sections" className="mx-auto w-full max-w-[1440px] px-4 md:px-8">
-          <div className="-mb-px flex gap-1 overflow-x-auto">
-            {SUBNAV.map((s) =>
-              s.active ? (
-                <span
-                  key={s.id}
-                  aria-current="page"
-                  className="whitespace-nowrap border-b-2 border-primary px-3 py-2.5 text-[13px] font-semibold text-primary"
-                >
-                  {s.label}
-                </span>
-              ) : s.external ? (
-                <a
-                  key={s.id}
-                  href={s.href}
-                  className="whitespace-nowrap border-b-2 border-transparent px-3 py-2.5 text-[13px] text-muted-foreground transition hover:border-border hover:text-foreground"
-                >
-                  {s.label}
-                </a>
-              ) : (
-                <a
-                  key={s.id}
-                  href={s.href}
-                  className="whitespace-nowrap border-b-2 border-transparent px-3 py-2.5 text-[13px] text-muted-foreground transition hover:border-border hover:text-foreground"
-                >
-                  {s.label}
-                </a>
-              ),
-            )}
-          </div>
-        </nav>
       </div>
 
       <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
@@ -1170,6 +1127,116 @@ export function WarehousePage() {
             onReturn={(id) => returnDispatch.mutate(id)}
             acting={actingId}
           />
+        )}
+
+        {tab === "movements" && (
+          <Card title="Inventory movements">
+            {movementsQ.isLoading ? (
+              <TableSkeleton rows={5} />
+            ) : movements.length === 0 ? (
+              <EmptyState
+                icon={<Boxes className="h-5 w-5" />}
+                title="No movements yet"
+                description="Confirmed stock ins and outs will appear here."
+              />
+            ) : (
+              <Table head={["Date", "Item", "Direction", "Qty", "Warehouse", "Status", "Linked doc"]}>
+                {[...movements]
+                  .sort((a, b) => String(b.movement_date ?? "").localeCompare(String(a.movement_date ?? "")))
+                  .slice(0, 100)
+                  .map((m) => (
+                    <tr key={m.id} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-5 py-3 text-muted-foreground">{fmtDate(m.movement_date)}</td>
+                      <td className="px-5 py-3">
+                        <div>{m.item_name}</div>
+                        {m.sku && <div className="text-xs text-muted-foreground">{m.sku}</div>}
+                      </td>
+                      <td className="px-5 py-3">
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${
+                            m.direction === "in"
+                              ? "bg-sem-success/15 text-sem-success"
+                              : "bg-primary/15 text-primary"
+                          }`}
+                        >
+                          {m.direction === "in" ? "In" : "Out"}
+                        </span>
+                      </td>
+                      <td className="num px-5 py-3 text-right">
+                        {Number(m.quantity).toLocaleString()} {m.unit}
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">{m.warehouse ?? "—"}</td>
+                      <td className="px-5 py-3">
+                        <StatusPill status={m.status} />
+                      </td>
+                      <td className="px-5 py-3 text-xs text-muted-foreground">
+                        {m.linked_document_number ?? "—"}
+                      </td>
+                    </tr>
+                  ))}
+              </Table>
+            )}
+            <p className="mt-4 text-xs text-muted-foreground">
+              Showing latest 100 movements. Full history lives under Inventory.
+            </p>
+          </Card>
+        )}
+
+        {tab === "reports" && (
+          <div className="space-y-6">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <div className="rounded-lg border border-border bg-white p-4">
+                <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Total in</div>
+                <div className="num mt-1 text-2xl">
+                  {movements
+                    .filter((m) => m.status === "confirmed" && m.direction === "in")
+                    .reduce((s, m) => s + Number(m.quantity ?? 0), 0)
+                    .toLocaleString()}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border bg-white p-4">
+                <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Total out</div>
+                <div className="num mt-1 text-2xl">
+                  {movements
+                    .filter((m) => m.status === "confirmed" && m.direction === "out")
+                    .reduce((s, m) => s + Number(m.quantity ?? 0), 0)
+                    .toLocaleString()}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border bg-white p-4">
+                <div className="text-[11px] uppercase tracking-widest text-muted-foreground">On hand value</div>
+                <div className="num mt-1 text-2xl">{fmtMoney(totalStockValue)}</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  {totalUnits.toLocaleString()} units across {stock.length} items
+                </div>
+              </div>
+            </div>
+            <Card title="Stock on hand by item">
+              {movementsQ.isLoading ? (
+                <TableSkeleton rows={5} />
+              ) : stock.length === 0 ? (
+                <EmptyState
+                  icon={<FileText className="h-5 w-5" />}
+                  title="No stock to report"
+                  description="Confirm movements to build the stock report."
+                />
+              ) : (
+                <Table head={["Item", "SKU", "Qty", "Value", "Last cost"]}>
+                  {stock.map((r) => (
+                    <tr key={`${r.item}|${r.unit}`} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-5 py-3">
+                        {r.item} <span className="text-xs text-muted-foreground">· {r.unit}</span>
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">{r.sku ?? "—"}</td>
+                      <td className="num px-5 py-3 text-right">{Number(r.qty).toLocaleString()}</td>
+                      <td className="num px-5 py-3 text-right">{fmtMoney(r.value)}</td>
+                      <td className="num px-5 py-3 text-right">{fmtMoney(r.lastCost)}</td>
+                    </tr>
+                  ))}
+                </Table>
+              )}
+            </Card>
+          </div>
         )}
           </Card>
         </div>
