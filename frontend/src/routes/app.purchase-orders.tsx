@@ -86,6 +86,7 @@ type PO = {
   bill_to_debtor_id?: string | null;
   bill_to_address?: string | null;
   ship_to_supplier_id?: string | null;
+  ship_to_debtor_id?: string | null;
   ship_to_address?: string | null;
   notes: string | null;
   documents: DocMeta[];
@@ -721,7 +722,15 @@ function POModal({
     bill_to_debtor_id: (po as any)?.bill_to_debtor_id ?? (po as any)?.billToDebtorId ?? "",
     bill_to_address: (po as any)?.bill_to_address ?? (po as any)?.billToAddress ?? "",
     ship_to_supplier_id: (po as any)?.ship_to_supplier_id ?? (po as any)?.shipToSupplierId ?? "",
+    ship_to_debtor_id: (po as any)?.ship_to_debtor_id ?? (po as any)?.shipToDebtorId ?? "",
     ship_to_address: (po as any)?.ship_to_address ?? (po as any)?.shipToAddress ?? "",
+    same_as_bill_to: (() => {
+      if (!po) return true;
+      const ship = (po as any)?.ship_to_debtor_id ?? (po as any)?.shipToDebtorId ?? null;
+      const bill = (po as any)?.bill_to_debtor_id ?? (po as any)?.billToDebtorId ?? null;
+      if (!ship) return true;
+      return ship === bill;
+    })(),
     notes: po?.notes ?? "",
     freight: po?.freight != null ? String(po.freight) : "",
     // ── Garment PO print details (all optional — blank prints blank) ──
@@ -816,16 +825,20 @@ function POModal({
             address,
             billing,
             shipping,
+            gstin: d.gstin ?? null,
+            pan: d.panCardNo ?? d.pan_card_no ?? d.pan ?? null,
           };
         })
         .sort((a: any, b: any) => a.name.localeCompare(b.name));
     },
   });
 
-  // Fresh address book for the selected customer (fetched live so newly
+  // Fresh address books, one per side (fetched live so newly
   // added master addresses are always choosable, even with a cached list).
   const [addrBook, setAddrBook] = useState<{ billing: PoAddr[]; shipping: PoAddr[] } | null>(null);
   const [addrFor, setAddrFor] = useState<string>("");
+  const [shipAddrBook, setShipAddrBook] = useState<{ billing: PoAddr[]; shipping: PoAddr[] } | null>(null);
+  const [shipAddrFor, setShipAddrFor] = useState<string>("");
 
   const applyCustomerAddrs = (id: string, billing: PoAddr[], shipping: PoAddr[], overwrite: boolean) => {
     setAddrBook({ billing, shipping });
@@ -836,10 +849,40 @@ function POModal({
         ? ({
             ...prev,
             bill_to_address: billing[0]?.address ?? (prev as any).bill_to_address,
-            ship_to_address: shipping[0]?.address ?? billing[0]?.address ?? (prev as any).ship_to_address,
           } as any)
         : prev,
     );
+  };
+
+  const applyShipCustomerAddrs = (id: string, billing: PoAddr[], shipping: PoAddr[], overwrite: boolean) => {
+    setShipAddrBook({ billing, shipping });
+    setShipAddrFor(id);
+    if (!overwrite) return;
+    setF((prev) => {
+      const same = ((prev as any).same_as_bill_to ?? true) !== false;
+      const sid = (prev as any).ship_to_debtor_id as string;
+      if (sid !== id && !(same && (prev as any).bill_to_debtor_id === id)) return prev;
+      return {
+        ...prev,
+        ship_to_address: (shipping[0]?.address ?? billing[0]?.address ?? (prev as any).ship_to_address),
+      } as any;
+    });
+  };
+
+  const fetchPoCustomerAddrs = async (id: string) => {
+    const d = await api.debtors.get(id);
+    let billing = normPoAddrs(d?.billing_addresses ?? d?.billingAddresses);
+    const primaryBilling = d?.billing_address ?? d?.billingAddress ?? d?.address_line ?? d?.addressLine ?? "";
+    if (!billing.length && primaryBilling) billing = [{ label: null, address: String(primaryBilling) }];
+    let shipping = normPoAddrs(d?.shipping_addresses ?? d?.shippingAddresses);
+    const primaryShipping = d?.shipping_address ?? d?.shippingAddress ?? "";
+    if (!shipping.length && primaryShipping) shipping = [{ label: null, address: String(primaryShipping) }];
+    if (!billing.length && !shipping.length) {
+      const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
+      billing = c?.billing ?? [];
+      shipping = c?.shipping ?? [];
+    }
+    return { d, billing, shipping };
   };
 
   const loadCustomerAddrs = async (id: string, overwrite: boolean) => {
@@ -868,13 +911,32 @@ function POModal({
     }
   };
 
-  // Edit mode: load the linked customer's address options (no overwrite —
+  const loadShipCustomerAddrs = async (id: string, overwrite: boolean) => {
+    if (!id) return;
+    try {
+      const { d, billing, shipping } = await fetchPoCustomerAddrs(id);
+      applyShipCustomerAddrs(id, billing, shipping, overwrite);
+      if (overwrite && (billing.length + shipping.length > 0)) {
+        const n = Math.max(billing.length, shipping.length);
+        toast.success(`Fetched ${n} address${n === 1 ? "" : "es"} from ${d?.name ?? "customer"}`);
+      }
+    } catch {
+      const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
+      if (c) applyShipCustomerAddrs(id, c.billing ?? [], c.shipping ?? [], overwrite);
+    }
+  };
+  // Edit mode: load the linked customers' address options (no overwrite —
   // the saved addresses on the PO win).
   useEffect(() => {
     const id = ((f as any).bill_to_debtor_id ?? "") as string;
     if (isEdit && id && addrFor !== id) loadCustomerAddrs(id, false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEdit, (f as any).bill_to_debtor_id]);
+  useEffect(() => {
+    const sid = ((f as any).ship_to_debtor_id ?? "") as string;
+    if (isEdit && sid && shipAddrFor !== sid) loadShipCustomerAddrs(sid, false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit, (f as any).ship_to_debtor_id]);
 
   const pickBillCustomer = (id: string) => {
     setAddrBook(null);
@@ -883,11 +945,50 @@ function POModal({
       setF((prev) => ({ ...prev, bill_to_debtor_id: "" }) as any);
       return;
     }
-    // The supplier-picker era is over: one customer drives both addresses.
-    setF((prev) => ({ ...prev, bill_to_debtor_id: id, ship_to_supplier_id: "" }) as any);
+    const same = ((f as any).same_as_bill_to ?? true) !== false;
+    setF((prev) => ({
+      ...prev,
+      bill_to_debtor_id: id,
+      ...(same ? { ship_to_debtor_id: id, ship_to_supplier_id: "" } : {}),
+    }) as any);
     const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
     if (c) applyCustomerAddrs(id, c.billing ?? [], c.shipping ?? [], true);
     loadCustomerAddrs(id, true);
+    if (same) {
+      if (c) applyShipCustomerAddrs(id, c.billing ?? [], c.shipping ?? [], true);
+      loadShipCustomerAddrs(id, true);
+    }
+  };
+
+  const pickShipCustomer = (id: string) => {
+    setShipAddrBook(null);
+    setShipAddrFor("");
+    if (!id) {
+      setF((prev) => ({ ...prev, ship_to_debtor_id: "" }) as any);
+      return;
+    }
+    setF((prev) => ({ ...prev, ship_to_debtor_id: id }) as any);
+    const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
+    if (c) applyShipCustomerAddrs(id, c.billing ?? [], c.shipping ?? [], true);
+    loadShipCustomerAddrs(id, true);
+  };
+
+  const toggleSameAsBillTo = (on: boolean) => {
+    setF((prev) => {
+      if (on) return { ...prev, same_as_bill_to: true, ship_to_debtor_id: (prev as any).bill_to_debtor_id } as any;
+      return { ...prev, same_as_bill_to: false, ship_to_debtor_id: "" } as any;
+    });
+    if (on) {
+      const id = ((f as any).bill_to_debtor_id ?? "") as string;
+      if (id) {
+        const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
+        if (c) applyShipCustomerAddrs(id, c.billing ?? [], c.shipping ?? [], true);
+        loadShipCustomerAddrs(id, true);
+      }
+    } else {
+      setShipAddrBook(null);
+      setShipAddrFor("");
+    }
   };
 
   // Inline variant creation from the line editor: "Add variant" opens the
@@ -1148,6 +1249,9 @@ function POModal({
         bill_to_debtor_id: (f as any).bill_to_debtor_id || null,
         bill_to_address: (f as any).bill_to_address.trim() || null,
         ship_to_supplier_id: (f as any).ship_to_supplier_id || null,
+        ship_to_debtor_id: (((f as any).same_as_bill_to ?? true) !== false
+          ? (f as any).bill_to_debtor_id
+          : (f as any).ship_to_debtor_id) || null,
         ship_to_address: (f as any).ship_to_address.trim() || null,
         notes: f.notes.trim() || null,
         freight: Number(f.freight) || 0,
@@ -1496,7 +1600,7 @@ function POModal({
                   />
                   {(f as any).bill_to_debtor_id ? (
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      Billing + shipping addresses auto-filled from this customer — editable.
+                      Billing address auto-filled from this customer — editable. GSTIN/PAN print on the PDF from the customer master.
                     </p>
                   ) : null}
                 </L>
@@ -1544,14 +1648,44 @@ function POModal({
               </div>
               <div className="rounded-md border border-border/60 p-3">
                 <div className="mb-2 text-xs uppercase tracking-widest text-primary">Ship to</div>
+                <L label="Customer">
+                  <SearchableSelect
+                    value={((f as any).same_as_bill_to ?? true) !== false ? ((f as any).bill_to_debtor_id as string) : ((f as any).ship_to_debtor_id as string)}
+                    onChange={pickShipCustomer}
+                    placeholder="Select customer…"
+                    disabled={!editable || ((f as any).same_as_bill_to ?? true) !== false}
+                    options={[
+                      { value: "", label: "None" },
+                      ...((billCustomersQ.data ?? []).map((d: any) => ({
+                        value: d.id,
+                        label: d.name,
+                      }))),
+                    ]}
+                  />
+                  <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <input
+                      type="checkbox"
+                      checked={((f as any).same_as_bill_to ?? true) !== false}
+                      disabled={!editable}
+                      onChange={(e) => toggleSameAsBillTo(e.target.checked)}
+                      className="h-3.5 w-3.5 accent-primary"
+                    />
+                    Same as bill-to customer
+                  </label>
+                </L>
                 <div className="mt-2">
                   <L label="Ship to address">
                     {(() => {
-                      const id = (f as any).bill_to_debtor_id as string;
-                      const fromBook = addrFor === id ? (addrBook?.shipping ?? []) : [];
+                      const same = ((f as any).same_as_bill_to ?? true) !== false;
+                      const id = (same ? (f as any).bill_to_debtor_id : (f as any).ship_to_debtor_id) as string;
+                      const book = same ? addrBook : shipAddrBook;
+                      const forId = same ? addrFor : shipAddrFor;
+                      const fromBook = forId === id ? (book?.shipping ?? []) : [];
                       const listEntry = ((billCustomersQ.data ?? []).find((x: any) => x.id === id) as any);
                       const fromList = listEntry?.shipping?.length ? listEntry.shipping : (listEntry?.billing ?? []);
-                      const opts = fromBook.length ? fromBook : fromList;
+                      const bookBilling = forId === id ? (book?.billing ?? []) : [];
+                      const listBilling = listEntry?.billing ?? [];
+                      const opts = fromBook.length ? fromBook : fromList.length ? fromList : (bookBilling.length ? bookBilling : listBilling);
                       return (
                         <>
                           {editable && opts.length > 1 && (

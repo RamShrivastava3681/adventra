@@ -69,6 +69,10 @@ export interface GoodsSalesOrder {
   customerId: string | null;
   /** Denormalized customer name for display. */
   customerName: string | null;
+  /** Ship-to customer (may differ from the billing customer). Null = same as billing / legacy order. */
+  shipCustomerId: string | null;
+  /** Denormalized ship-to customer name for display. */
+  shipCustomerName: string | null;
   /** Customer contact person (auto-filled from the debtor master, editable). */
   contactPerson: string | null;
   billingAddress: string | null;
@@ -337,6 +341,8 @@ export async function create(
     orderDate: data.orderDate || db.todayDate(),
     customerId: data.customerId || null,
     customerName: data.customerName || null,
+    shipCustomerId: (data as any).shipCustomerId || null,
+    shipCustomerName: (data as any).shipCustomerName || null,
     contactPerson: data.contactPerson || null,
     billingAddress: data.billingAddress || null,
     deliveryAddress: data.deliveryAddress || null,
@@ -410,6 +416,8 @@ export async function update(id: string, updates: Partial<GoodsSalesOrder>) {
     "orderDate",
     "customerId",
     "customerName",
+    "shipCustomerId",
+    "shipCustomerName",
     "contactPerson",
     "billingAddress",
     "deliveryAddress",

@@ -119,6 +119,9 @@ export interface GoodsPurchaseOrder {
   billToAddress: string | null;
   /** Ship-to supplier selection (address fetched from the supplier master). */
   shipToSupplierId: string | null;
+  /** Ship-to customer selection (address fetched from the debtor master).
+   *  When set, it wins over the legacy ship-to supplier for the Consignee block. */
+  shipToDebtorId: string | null;
   /** Ship-to address (defaults to the selected supplier's address). */
   shipToAddress: string | null;
   documents: any[];
@@ -298,6 +301,7 @@ export async function create(
     billToDebtorId: data.billToDebtorId || null,
     billToAddress: data.billToAddress || null,
     shipToSupplierId: data.shipToSupplierId || null,
+    shipToDebtorId: (data as any).shipToDebtorId || null,
     shipToAddress: data.shipToAddress || null,
     documents: data.documents || [],
     status,
@@ -363,6 +367,7 @@ export async function update(id: string, updates: Partial<GoodsPurchaseOrder>) {
     "billToDebtorId",
     "billToAddress",
     "shipToSupplierId",
+    "shipToDebtorId",
     "shipToAddress",
     "documents",
     "status",

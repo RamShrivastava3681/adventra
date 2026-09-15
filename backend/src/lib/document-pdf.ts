@@ -1654,15 +1654,16 @@ export function salesOrderToTallyData(
     .map((x) => x.trim())
     .filter(Boolean);
   const billName = so.customerName ?? so.customer_name ?? "";
+  const shipName = so.shipCustomerName ?? so.ship_customer_name ?? billName;
   const billAddress = so.billingAddress ?? so.billing_address ?? "";
   const shipAddress = so.deliveryAddress ?? so.delivery_address ?? "";
   // Avoid "Name, Name, address" when a stored address already starts with the buyer name.
-  const startsWithName = (addr: string) =>
-    !!billName && addr.toLowerCase().startsWith(billName.toLowerCase());
-  const shipText = startsWithName(shipAddress)
+  const startsWithName = (name: string, addr: string) =>
+    !!name && addr.toLowerCase().startsWith(name.toLowerCase());
+  const shipText = startsWithName(shipName, shipAddress)
     ? shipAddress
-    : [billName, shipAddress].filter(Boolean).join(", ");
-  const billText = startsWithName(billAddress)
+    : [shipName, shipAddress].filter(Boolean).join(", ");
+  const billText = startsWithName(billName, billAddress)
     ? billAddress
     : [billName, billAddress].filter(Boolean).join(", ");
   return {
@@ -2911,12 +2912,14 @@ export function goodsPOToPdfData(
     billToDebtor?: any | null;
     /** Ship-to supplier master (name fallback for the Consignee block). */
     shipToSupplier?: any | null;
+    /** Ship-to debtor master — wins over the ship-to supplier when set. */
+    shipToDebtor?: any | null;
   },
 ): GoodsPOPdfData {
   const s = opts?.seller ?? {};
   const sup = opts?.supplier ?? {};
   const billTo = opts?.billToDebtor ?? {};
-  const shipTo = opts?.shipToSupplier ?? {};
+  const shipTo = opts?.shipToDebtor ?? opts?.shipToSupplier ?? {};
   const g = (camel: string, snake: string) => po[camel] ?? po[snake] ?? null;
 
   const vendorName =
@@ -2993,7 +2996,7 @@ export function goodsPOToPdfData(
       "",
     consigneeName: shipTo.name ?? shipTo.companyName ?? s.name ?? "",
     consigneeAddress: g("shipToAddress", "ship_to_address") ?? s.address ?? "",
-    consigneeGstin: s.gstin || "",
+    consigneeGstin: (opts?.shipToDebtor ? (shipTo.gstin ?? "") : "") || s.gstin || "",
     consigneeState: [s.stateName, s.stateCode ? `Code : ${s.stateCode}` : ""].filter(Boolean).join(", "),
     consigneeEmail: s.email || "",
     deliveryNoteDate: fmtTallyDate(g("deliveryNoteDate", "delivery_note_date") ?? ""),

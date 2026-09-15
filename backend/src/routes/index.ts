@@ -4790,6 +4790,10 @@ router.post("/goods-sales-orders", authMiddleware, async (req, res) => {
     }
     if (!body.customerName && body.customerId)
       body.customerName = await resolveCustomerName(body.customerId);
+    // Ship-to customer is informational (delivery + GST/PAN snapshots).
+    // It never drives terms/invoice matching, which follow the billing customer.
+    if (body.shipCustomerId && !body.shipCustomerName)
+      body.shipCustomerName = await resolveCustomerName(body.shipCustomerId);
     // PDF §2: copy the selected approved term as a permanent snapshot.
     // If the caller picked a term, verify it belongs to this customer;
     // otherwise fall back to the customer's default term.
@@ -4883,6 +4887,15 @@ router.put("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
     }
     if (body.customerName === undefined && body.customerId)
       body.customerName = await resolveCustomerName(body.customerId);
+    if (body.shipCustomerId !== undefined) {
+      if (body.shipCustomerId) {
+        const shipName = await resolveCustomerName(body.shipCustomerId);
+        if (!shipName) return res.status(400).json({ error: "Shipping customer not found" });
+        if (body.shipCustomerName === undefined) body.shipCustomerName = shipName;
+      } else {
+        if (body.shipCustomerName === undefined) body.shipCustomerName = null;
+      }
+    }
     // Warehouse sign-off is controlled exclusively by the dedicated sign-off
     // endpoint — strip it from generic edits so it can't be smuggled through.
     delete body.warehouseStatus;
@@ -5419,20 +5432,23 @@ async function buildGoodsPOTallyBuffer(
       if (!supplier) supplier = await Vendor.get(sid).catch(() => null);
     }
   } catch { supplier = null; }
-  // Bill-to debtor + ship-to supplier masters for the Buyer/Consignee blocks
+  // Bill-to debtor + ship-to masters for the Buyer/Consignee blocks
   // (name/GSTIN fallbacks — the stored addresses always win).
   let billToDebtor: any = null;
   let shipToSupplier: any = null;
+  let shipToDebtor: any = null;
   try {
     const bid = po.billToDebtorId ?? po.bill_to_debtor_id ?? null;
     if (bid) billToDebtor = await Debtor.get(bid).catch(() => null);
+    const stdid = (po as any).shipToDebtorId ?? (po as any).ship_to_debtor_id ?? null;
+    if (stdid) shipToDebtor = await Debtor.get(stdid).catch(() => null);
     const stid = po.shipToSupplierId ?? po.ship_to_supplier_id ?? null;
     if (stid) {
       shipToSupplier = await Supplier.get(stid).catch(() => null);
       if (!shipToSupplier) shipToSupplier = await Vendor.get(stid).catch(() => null);
     }
-  } catch { billToDebtor = null; shipToSupplier = null; }
-  const data = goodsPOToPdfData(po, { seller, bank, bankRaw, declarationRaw, supplier, billToDebtor, shipToSupplier });
+  } catch { billToDebtor = null; shipToSupplier = null; shipToDebtor = null; }
+  const data = goodsPOToPdfData(po, { seller, bank, bankRaw, declarationRaw, supplier, billToDebtor, shipToSupplier, shipToDebtor });
   const pdf = await buildGoodsPOTallyPdf(data);
   return { pdf, number: data.poNumber, grandTotal: data.grandTotal };
 }

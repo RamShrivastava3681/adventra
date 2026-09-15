@@ -144,7 +144,12 @@ export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) 
   // Embedded in the Sales Workbench as a view-only tab — invoices may only
   // be created from the Finance tab.
   const canCreate = !viewOnly && (isAdmin || (isClient && !isChecker && !isTreasury));
-  const canRecordIrn = isAdmin || isChecker || isTreasury;
+  // UTR is uploaded by Sales (Sales Workbench > Sales Invoices tab). Finance
+  // never edits it — it only sees the value Sales saved, read-only.
+  const canUploadUtr = viewOnly;
+  // IRN lives only in the Finance tab. Sales Workbench (viewOnly) never
+  // records or sees it.
+  const canRecordIrn = !viewOnly && (isAdmin || isChecker || isTreasury);
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Inv | null>(null);
@@ -247,6 +252,7 @@ export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) 
       i.po_number,
       i.goods_sales_order_number,
       i.linked_customer_proforma_number,
+      (i as any).utr_reference,
     ],
     statusField: (i) => i.status,
     statusLabel: DOC_LABELS,
@@ -301,7 +307,7 @@ export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) 
           {(filtered) => (
             <Card>
               {invoicesQ.isLoading ? (
-                <TableSkeleton rows={7} cols={9} />
+                <TableSkeleton rows={7} cols={11} />
               ) : filtered.length === 0 ? (
                 <div className="py-10 text-center text-sm text-muted-foreground">No invoices.</div>
               ) : (
@@ -318,6 +324,7 @@ export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) 
                         <th className="px-5 py-2 text-left font-normal">Expected Dispatch</th>
                         <th className="px-5 py-2 text-left font-normal">Status</th>
                         <th className="px-5 py-2 text-left font-normal">NOA</th>
+                        <th className="px-5 py-2 text-left font-normal">UTR</th>
                         <th className="px-5 py-2 text-right font-normal">Actions</th>
                       </tr>
                     </thead>
@@ -354,7 +361,7 @@ export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) 
                                   Less advance {fmtMoney(advance)}
                                 </div>
                               )}
-                              {i.irn ? (
+                              {!viewOnly && i.irn ? (
                                 <div
                                   className="text-[10px] text-sem-success"
                                   title={`IRN: ${i.irn}${i.ack_no ? ` · Ack ${i.ack_no}` : ""}${i.ack_date ? ` · ${i.ack_date}` : ""}`}
@@ -418,6 +425,25 @@ export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) 
                                 </div>
                               )}
                             </td>
+                            <td className="px-5 py-3">
+                              {i.utr_reference ? (
+                                <div className="flex flex-col items-start gap-0.5">
+                                  <span
+                                    className="max-w-[140px] truncate font-mono text-xs text-foreground"
+                                    title={i.utr_reference}
+                                  >
+                                    {i.utr_reference}
+                                  </span>
+                                  {i.payment_amount != null && (
+                                    <span className="num text-[10px] text-muted-foreground">
+                                      {fmtMoney(i.payment_amount)}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">—</span>
+                              )}
+                            </td>
                             <td className="px-5 py-3 text-right">
                               <div className="inline-flex flex-wrap justify-end gap-1">
                                 <button
@@ -456,11 +482,11 @@ export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) 
                                       <Ban className="h-3 w-3" /> Cancel
                                     </button>
                                   )}
-                                {i.status === "approved" && (
+                                {canUploadUtr && i.status === "approved" && (
                                   <button
                                     onClick={() => setUtrFor(i)}
                                     className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10"
-                                    title="Add or update UTR / payment amount"
+                                    title="Upload UTR / payment amount (Sales)"
                                   >
                                     <Send className="h-3 w-3" /> UTR
                                   </button>
@@ -514,7 +540,7 @@ export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) 
           userId={user!.id}
         />
       )}
-      {viewing && <InvoiceDetailModal invoice={viewing} onClose={() => setViewing(null)} />}
+      {viewing && <InvoiceDetailModal invoice={viewing} onClose={() => setViewing(null)} hideIrn={viewOnly} />}
       {utrFor && (
         <UtrModal
           invoice={utrFor}
@@ -1452,7 +1478,7 @@ function NewInvoiceModal({
 }
 
 // ─── Detail modal ────────────────────────────────────────────────────────
-function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () => void }) {
+function InvoiceDetailModal({ invoice, onClose, hideIrn = false }: { invoice: Inv; onClose: () => void; hideIrn?: boolean }) {
   const qc = useQueryClient();
   const sendNoa = useMutation({
     mutationFn: async () => api.invoices.sendNoa(invoice.id),
@@ -1572,18 +1598,19 @@ function InvoiceDetailModal({ invoice, onClose }: { invoice: Inv; onClose: () =>
               />
             )}
             {invoice.po_number && <D label="PO number" value={invoice.po_number} />}
-            {invoice.irn ? (
-              <>
-                <div className="col-span-2 md:col-span-3">
-                  <D label="IRN" value={<span className="break-all font-mono text-xs">{invoice.irn}</span>} />
-                </div>
-                {invoice.ack_no && <D label="Ack No." value={invoice.ack_no} />}
-                {invoice.ack_date && <D label="Ack Date" value={fmtDate(invoice.ack_date)} />}
-                {invoice.irn_source && <D label="IRN source" value={invoice.irn_source} />}
-              </>
-            ) : (
-              <D label="IRN" value={<span className="text-muted-foreground">Not recorded</span>} />
-            )}
+            {!hideIrn &&
+              (invoice.irn ? (
+                <>
+                  <div className="col-span-2 md:col-span-3">
+                    <D label="IRN" value={<span className="break-all font-mono text-xs">{invoice.irn}</span>} />
+                  </div>
+                  {invoice.ack_no && <D label="Ack No." value={invoice.ack_no} />}
+                  {invoice.ack_date && <D label="Ack Date" value={fmtDate(invoice.ack_date)} />}
+                  {invoice.irn_source && <D label="IRN source" value={invoice.irn_source} />}
+                </>
+              ) : (
+                <D label="IRN" value={<span className="text-muted-foreground">Not recorded</span>} />
+              ))}
             {invoice.ewb_number && (
               <D label="e-Way Bill No." value={invoice.ewb_number} />
             )}

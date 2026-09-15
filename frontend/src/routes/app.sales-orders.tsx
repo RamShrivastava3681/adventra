@@ -98,6 +98,10 @@ type SO = {
   created_at: string;
   customer_id: string | null;
   customer_name: string | null;
+  ship_customer_id?: string | null;
+  shipCustomerId?: string | null;
+  ship_customer_name?: string | null;
+  shipCustomerName?: string | null;
   contact_person: string | null;
   billing_address: string | null;
   delivery_address: string | null;
@@ -523,6 +527,12 @@ export function SalesOrdersPage() {
                             </td>
                             <td className="px-5 py-3">
                               {s.customer_name ?? customerName(s.customer_id) ?? "—"}
+                              {((s as any).ship_customer_name ?? (s as any).shipCustomerName) &&
+                              ((s as any).ship_customer_name ?? (s as any).shipCustomerName) !== (s.customer_name ?? customerName(s.customer_id)) ? (
+                                <div className="text-[10px] text-muted-foreground">
+                                  Ship: {(s as any).ship_customer_name ?? (s as any).shipCustomerName}
+                                </div>
+                              ) : null}
                               {s.contact_person ? (
                                 <div className="text-[10px] text-muted-foreground">
                                   {s.contact_person}
@@ -709,6 +719,13 @@ function SOModal({
   const [f, setF] = useState({
     order_date: (so?.order_date ?? new Date().toISOString().slice(0, 10)).slice(0, 10),
     customer_id: so?.customer_id ?? "",
+    ship_customer_id: (so as any)?.ship_customer_id ?? (so as any)?.shipCustomerId ?? "",
+    same_as_billing: (() => {
+      const ship = (so as any)?.ship_customer_id ?? (so as any)?.shipCustomerId ?? null;
+      if (!so) return true;
+      if (!ship) return true;
+      return ship === so.customer_id;
+    })(),
     contact_person: so?.contact_person ?? "",
     billing_address: so?.billing_address ?? "",
     delivery_address: so?.delivery_address ?? "",
@@ -804,47 +821,111 @@ function SOModal({
     });
   };
 
-  // Live address book for the selected customer (see loadSoAddrs below).
-  const [addrBook, setAddrBook] = useState<{ billing: CustomerAddress[]; shipping: CustomerAddress[] } | null>(null);
-  const [addrFor, setAddrFor] = useState<string>("");
+  // Live address books, one per side (see loadSoAddrs below). The billing
+  // customer drives contact + billing address + tax + payment terms; the
+  // shipping customer drives only the delivery address + ship tax.
+  const [billAddrBook, setBillAddrBook] = useState<CustomerAddress[] | null>(null);
+  const [billAddrFor, setBillAddrFor] = useState<string>("");
+  const [shipAddrBook, setShipAddrBook] = useState<CustomerAddress[] | null>(null);
+  const [shipAddrFor, setShipAddrFor] = useState<string>("");
 
-  const pickCustomer = (id: string) => {
+  const pickBillingCustomer = (id: string) => {
     const c = customers.find((x) => x.id === id);
-    setAddrBook(null);
-    setAddrFor("");
-    setF((prev) => ({
-      ...prev,
-      customer_id: id,
-      contact_person: c?.contact_name ?? prev.contact_person,
-      billing_address: c?.billing_address ?? prev.billing_address,
-      delivery_address: c?.shipping_address ?? c?.billing_address ?? prev.delivery_address,
-      // Buyer tax snapshots for the PDF (ship-to and bill-to may differ — editable per order).
-      ship_gstin: c?.gstin ?? "",
-      ship_pan: c?.pan ?? "",
-      bill_gstin: c?.gstin ?? "",
-      bill_pan: c?.pan ?? "",
-      // Reset the approved-term selection; the effect above auto-selects the
-      // new customer's default once its terms load.
-      payment_term_id: "",
-      // Pre-fill legacy display fields from the customer master (still editable
-      // until the approved terms load and override).
-      ...(id
-        ? toTermsFormFields(c)
-        : { payment_terms_type: "credit" as const, payment_terms_advance_pct: "", payment_terms_days: "30" }),
-    }));
+    setBillAddrBook(null);
+    setBillAddrFor("");
+    setF((prev) => {
+      const same = (prev as any).same_as_billing !== false;
+      return {
+        ...prev,
+        customer_id: id,
+        contact_person: c?.contact_name ?? prev.contact_person,
+        billing_address: c?.billing_address ?? prev.billing_address,
+        // Buyer tax snapshot for the BILL TO block (editable per order).
+        bill_gstin: c?.gstin ?? "",
+        bill_pan: c?.pan ?? "",
+        // When shipping follows billing, mirror the billing party across.
+        ...(same
+          ? {
+              ship_customer_id: id,
+              delivery_address: c?.shipping_address ?? c?.billing_address ?? prev.delivery_address,
+              ship_gstin: c?.gstin ?? "",
+              ship_pan: c?.pan ?? "",
+            }
+          : {}),
+        // Reset the approved-term selection; the effect above auto-selects the
+        // new customer's default once its terms load.
+        payment_term_id: "",
+        // Pre-fill legacy display fields from the customer master (still editable
+        // until the approved terms load and override).
+        ...(id
+          ? toTermsFormFields(c)
+          : { payment_terms_type: "credit" as const, payment_terms_advance_pct: "", payment_terms_days: "30" }),
+      };
+    });
     if (id) {
-      if (c && ((c.billing_addresses?.length ?? 0) > 1 || (c.shipping_addresses?.length ?? 0) > 1)) {
-        setAddrBook({ billing: c.billing_addresses ?? [], shipping: c.shipping_addresses ?? [] });
-        setAddrFor(id);
+      if (c && (c.billing_addresses?.length ?? 0) > 1) {
+        setBillAddrBook(c.billing_addresses ?? []);
+        setBillAddrFor(id);
       }
-      loadSoAddrs(id, true);
+      loadSoAddrs(id, true, "billing");
+      if ((f as any).same_as_billing !== false) {
+        if (c && (c.shipping_addresses?.length ?? 0) > 1) {
+          setShipAddrBook(c.shipping_addresses ?? []);
+          setShipAddrFor(id);
+        }
+        loadSoAddrs(id, true, "shipping");
+      }
     }
   };
 
-  // Live address book for the selected customer — fetched from the master so
+  const pickShippingCustomer = (id: string) => {
+    const c = customers.find((x) => x.id === id);
+    setShipAddrBook(null);
+    setShipAddrFor("");
+    setF((prev) => ({
+      ...prev,
+      ship_customer_id: id,
+      delivery_address: c?.shipping_address ?? c?.billing_address ?? prev.delivery_address,
+      // Buyer tax snapshot for the SHIP TO block (editable per order).
+      ship_gstin: c?.gstin ?? "",
+      ship_pan: c?.pan ?? "",
+    }));
+    if (id) {
+      if (c && (c.shipping_addresses?.length ?? 0) > 1) {
+        setShipAddrBook(c.shipping_addresses ?? []);
+        setShipAddrFor(id);
+      }
+      loadSoAddrs(id, true, "shipping");
+    }
+  };
+
+  const toggleSameAsBilling = (on: boolean) => {
+    setF((prev) => {
+      if (on) {
+        const c = customers.find((x) => x.id === prev.customer_id);
+        return {
+          ...prev,
+          same_as_billing: true,
+          ship_customer_id: prev.customer_id,
+          delivery_address:
+            c?.shipping_address ?? c?.billing_address ?? prev.delivery_address,
+          ship_gstin: c?.gstin ?? (prev as any).bill_gstin ?? prev.ship_gstin,
+          ship_pan: c?.pan ?? (prev as any).bill_pan ?? prev.ship_pan,
+        };
+      }
+      return { ...prev, same_as_billing: false, ship_customer_id: "" };
+    });
+    if (on && f.customer_id) loadSoAddrs(f.customer_id, true, "shipping");
+    else {
+      setShipAddrBook(null);
+      setShipAddrFor("");
+    }
+  };
+
+  // Live address book for a customer side — fetched from the master so
   // newly added billing/shipping addresses are always choosable, even when
   // the cached customer list is stale.
-  const loadSoAddrs = async (id: string, overwrite: boolean) => {
+  const loadSoAddrs = async (id: string, overwrite: boolean, side: "billing" | "shipping") => {
     if (!id) return;
     try {
       const d = await api.debtors.get(id);
@@ -856,19 +937,35 @@ function SOModal({
       if (!shipping.length && primaryShipping) shipping = [{ label: null, address: String(primaryShipping) }];
       if (!billing.length && !shipping.length) return;
       const cid = id;
-      setAddrBook({ billing, shipping });
-      setAddrFor(cid);
+      if (side === "billing") {
+        if (billing.length) {
+          setBillAddrBook(billing);
+          setBillAddrFor(cid);
+        }
+        if (overwrite && billing[0]) {
+          setF((prev) =>
+            prev.customer_id === cid
+              ? { ...prev, billing_address: fullAddr(billing[0]) }
+              : prev,
+          );
+        }
+      } else {
+        const opts = shipping.length ? shipping : billing;
+        if (opts.length) {
+          setShipAddrBook(opts);
+          setShipAddrFor(cid);
+        }
+        if (overwrite && opts[0]) {
+          setF((prev) =>
+            (prev as any).ship_customer_id === cid ||
+            ((prev as any).same_as_billing !== false && prev.customer_id === cid)
+              ? { ...prev, delivery_address: fullAddr(opts[0]) }
+              : prev,
+          );
+        }
+      }
       if (overwrite) {
-        setF((prev) =>
-          prev.customer_id === cid
-            ? {
-                ...prev,
-                billing_address: billing[0] ? fullAddr(billing[0]) : prev.billing_address,
-                delivery_address: (shipping[0] ? fullAddr(shipping[0]) : null) ?? (billing[0] ? fullAddr(billing[0]) : prev.delivery_address),
-              }
-            : prev,
-        );
-        const n = Math.max(billing.length, shipping.length);
+        const n = side === "billing" ? billing.length : Math.max(shipping.length, billing.length);
         if (n > 1) toast.success(`Fetched ${n} addresses from ${d?.name ?? "customer"}`);
       }
     } catch {
@@ -876,12 +973,17 @@ function SOModal({
     }
   };
 
-  // Edit mode: load the linked customer's address options (no overwrite —
+  // Edit mode: load address options for both linked customers (no overwrite —
   // the saved addresses on the order win).
   useEffect(() => {
-    if (isEdit && f.customer_id && addrFor !== f.customer_id) loadSoAddrs(f.customer_id, false);
+    if (isEdit && f.customer_id && billAddrFor !== f.customer_id) loadSoAddrs(f.customer_id, false, "billing");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isEdit, f.customer_id]);
+  useEffect(() => {
+    const sid = (f as any).ship_customer_id as string;
+    if (isEdit && sid && shipAddrFor !== sid) loadSoAddrs(sid, false, "shipping");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isEdit, (f as any).ship_customer_id]);
 
   const pickTerm = (termId: string) => {
     const t = soTerms.find((x) => x.id === termId) ?? null;
@@ -1018,15 +1120,21 @@ function SOModal({
           throw new Error("Discount must be a percentage between 0 and 100");
         }
       }
-      if (!f.customer_id) throw new Error("Select a customer");
+      if (!f.customer_id) throw new Error("Select a billing customer");
+      const sameAsBilling = (f as any).same_as_billing !== false;
+      const shipId = sameAsBilling ? f.customer_id : ((f as any).ship_customer_id as string);
+      if (!sameAsBilling && !shipId) throw new Error("Select a shipping customer or tick “Same as billing”");
       if (!(f as any).payment_term_id && soTerms.length > 0)
         throw new Error("Select an approved payment term for this order");
+      const shipCustomer = shipId ? customers.find((c) => c.id === shipId) : null;
       const payload = {
         order_date: f.order_date,
         customer_id: f.customer_id || null,
         customer_name: f.customer_id
           ? (customers.find((c) => c.id === f.customer_id)?.name ?? null)
           : null,
+        ship_customer_id: shipId || null,
+        ship_customer_name: shipId ? (shipCustomer?.name ?? null) : null,
         contact_person: f.contact_person.trim() || null,
         billing_address: f.billing_address.trim() || null,
         delivery_address: f.delivery_address.trim() || null,
@@ -1209,14 +1317,33 @@ function SOModal({
                   disabled={!editable}
                 />
               </L>
-              <L label="Customer">
+              <L label="Billing customer *">
                 <SearchableSelect
                   value={f.customer_id}
-                  onChange={pickCustomer}
-                  placeholder="Select customer…"
+                  onChange={pickBillingCustomer}
+                  placeholder="Select billing customer…"
                   disabled={!editable}
                   options={customers.map((c) => ({ value: c.id, label: c.name }))}
                 />
+              </L>
+              <L label="Shipping customer">
+                <SearchableSelect
+                  value={(f as any).same_as_billing !== false ? f.customer_id : ((f as any).ship_customer_id as string)}
+                  onChange={pickShippingCustomer}
+                  placeholder="Select shipping customer…"
+                  disabled={!editable || (f as any).same_as_billing !== false}
+                  options={customers.map((c) => ({ value: c.id, label: c.name }))}
+                />
+                <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={(f as any).same_as_billing !== false}
+                    disabled={!editable}
+                    onChange={(e) => toggleSameAsBilling(e.target.checked)}
+                    className="h-3.5 w-3.5 accent-primary"
+                  />
+                  Same as billing customer
+                </label>
               </L>
               <L label="Contact person">
                 <input
@@ -1231,7 +1358,7 @@ function SOModal({
                 {(() => {
                   const c = customers.find((x) => x.id === f.customer_id);
                   const listed = c?.billing_addresses ?? [];
-                  const opts = addrFor === f.customer_id && addrBook ? addrBook.billing : listed;
+                  const opts = billAddrFor === f.customer_id && billAddrBook ? billAddrBook : listed;
                   return (
                     <>
                       {editable && opts.length > 1 && (
@@ -1280,9 +1407,10 @@ function SOModal({
               </L>
               <L label="Delivery / shipping address">
                 {(() => {
-                  const c = customers.find((x) => x.id === f.customer_id);
+                  const sid = ((f as any).same_as_billing !== false ? f.customer_id : (f as any).ship_customer_id) as string;
+                  const c = customers.find((x) => x.id === sid);
                   const listed = c?.shipping_addresses?.length ? c.shipping_addresses : (c?.billing_addresses ?? []);
-                  const live = addrFor === f.customer_id && addrBook ? (addrBook.shipping.length ? addrBook.shipping : addrBook.billing) : [];
+                  const live = shipAddrFor === sid && shipAddrBook ? shipAddrBook : [];
                   const opts = live.length ? live : listed;
                   return (
                     <>
@@ -1336,7 +1464,7 @@ function SOModal({
               <L label="Payment terms (approved)">
                 {!f.customer_id ? (
                   <div className="text-xs text-muted-foreground">
-                    Select a customer first — only its approved terms can be used.
+                    Select a billing customer first — only its approved terms can be used.
                   </div>
                 ) : soTermsQ.isLoading ? (
                   <div className="text-xs text-muted-foreground">Loading approved terms…</div>

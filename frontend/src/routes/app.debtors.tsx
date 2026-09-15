@@ -282,6 +282,12 @@ function DebtorModal({
   onSaved: () => void;
 }) {
   const isEdit = !!debtor;
+  // "Same as billing" tickbox: when on, the shipping section is hidden and
+  // the billing addresses are copied to shipping on save.
+  const [sameAsBilling, setSameAsBilling] = useState(() => {
+    const ship = addressesFromDebtor(debtor, "shipping");
+    return !ship.some((a) => a.address.trim() || a.city.trim() || a.state.trim() || a.pin.trim());
+  });
   const [form, setForm] = useState({
     name: debtor?.name ?? "",
     industry: debtor?.industry ?? "",
@@ -340,7 +346,9 @@ function DebtorModal({
           postalCode: a.pin.trim() || null,
         }))
         .filter((a) => a.address || a.city || a.state || a.postalCode);
-      const cleanShipping = form.shipping_addresses
+      const cleanShipping = sameAsBilling
+        ? cleanBilling.map((a) => ({ ...a }))
+        : form.shipping_addresses
         .map((a) => ({
           label: a.label.trim() || null,
           address: a.address.trim(),
@@ -585,21 +593,39 @@ function DebtorModal({
           <Section
             title="Shipping addresses"
             action={
-              <button
-                type="button"
-                title="Add shipping address"
-                onClick={() =>
-                  setForm({
-                    ...form,
-                    shipping_addresses: [...form.shipping_addresses, emptyAddr()],
-                  })
-                }
-                className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-primary hover:text-primary"
-              >
-                <Plus className="h-3.5 w-3.5" /> Add
-              </button>
+              <div className="flex items-center gap-2">
+                <label className="flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
+                  <input
+                    type="checkbox"
+                    checked={sameAsBilling}
+                    onChange={(e) => setSameAsBilling(e.target.checked)}
+                    className="h-3.5 w-3.5 accent-primary"
+                  />
+                  Same as billing address
+                </label>
+                {!sameAsBilling && (
+                <button
+                  type="button"
+                  title="Add shipping address"
+                  onClick={() =>
+                    setForm({
+                      ...form,
+                      shipping_addresses: [...form.shipping_addresses, emptyAddr()],
+                    })
+                  }
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[11px] text-muted-foreground hover:border-primary hover:text-primary"
+                >
+                  <Plus className="h-3.5 w-3.5" /> Add
+                </button>
+                )}
+              </div>
             }
           >
+            {sameAsBilling ? (
+              <p className="text-[11px] text-muted-foreground">
+                Shipping address will be saved as a copy of the billing address. Untick to enter separate delivery locations.
+              </p>
+            ) : (
             <div className="grid gap-3">
               {form.shipping_addresses.map((a, i) => (
                 <div key={i} className="rounded-md border border-border/60 p-2">
@@ -691,6 +717,7 @@ function DebtorModal({
                 </p>
               )}
             </div>
+            )}
           </Section>
 
           <Section title="Primary contact">

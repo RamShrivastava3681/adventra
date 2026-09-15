@@ -41,31 +41,6 @@ function Dashboard() {
   const d = useCommandData();
   const initialLoading = d.loading;
 
-  const cashHealth =
-    d.cashForecast?.cashStatus === "GREEN"
-      ? {
-          label: "Healthy",
-          cls: "border-sem-success/25 bg-sem-success/10 text-sem-success",
-          dot: "bg-sem-success",
-        }
-      : d.cashForecast?.cashStatus === "AMBER"
-        ? {
-            label: "Attention",
-            cls: "border-sem-attention/30 bg-sem-attention/10 text-sem-attention",
-            dot: "bg-sem-attention",
-          }
-        : d.cashForecast?.cashStatus === "RED"
-          ? {
-              label: "At risk",
-              cls: "border-sem-critical/30 bg-sem-critical/10 text-sem-critical",
-              dot: "bg-sem-critical",
-            }
-          : {
-              label: "Live",
-              cls: "border-border bg-muted/40 text-muted-foreground",
-              dot: "bg-sem-info",
-            };
-
   return (
     <div>
       {/* ── Command Overview header ── */}
@@ -83,12 +58,6 @@ function Dashboard() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-semibold ${cashHealth.cls}`}
-            >
-              <span className={`h-1.5 w-1.5 rounded-full ${cashHealth.dot}`} />
-              {cashHealth.label}
-            </span>
             <Link
               to="/app/tasks"
               className="btn-primary shadow-card-hover"
