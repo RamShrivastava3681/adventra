@@ -4,8 +4,6 @@ import {
   ChevronRight,
   ChevronsLeft,
   ChevronsRight,
-  Command,
-  Search,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
@@ -67,7 +65,6 @@ type Props = {
   pathname: string;
   collapsed?: boolean;
   onToggleCollapse?: () => void;
-  onSearch: () => void;
   viewSearch?: Record<string, unknown>;
   badges?: SidebarBadges;
   hideCollapse?: boolean;
@@ -119,7 +116,6 @@ export function AppSidebar({
   pathname,
   collapsed = false,
   onToggleCollapse,
-  onSearch,
   viewSearch = {},
   badges,
   hideCollapse = false,
@@ -254,30 +250,7 @@ export function AppSidebar({
           </div>
         )}
 
-        {/* ── 2. Search ── */}
-        <div className={cn("shrink-0 px-3 pb-1 pt-1")}>
-          <ItemTooltip enabled={collapsed} label="Search anything… (Ctrl+K)">
-            <button
-              onClick={onSearch}
-              className={cn(
-                "group flex h-10 w-full items-center gap-2.5 rounded-[10px] border border-[#dce5ee] bg-white px-3 text-[13px] text-[#64748b] shadow-sm transition-colors duration-150 hover:border-[#c5d2df] hover:bg-[#f8fafc] hover:text-[#0e1b2c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-sidebar-border dark:bg-sidebar-accent/40 dark:text-muted-foreground dark:hover:text-sidebar-foreground",
-                collapsed && "justify-center px-0",
-              )}
-            >
-              <Search className="h-4 w-4 shrink-0" />
-              {!collapsed && (
-                <>
-                  <span className="flex-1 truncate text-left font-normal">Search anything…</span>
-                  <kbd className="hidden items-center gap-0.5 rounded-md border border-[#dce5ee] bg-[#f1f5f9] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[#64748b] md:inline-flex dark:border-sidebar-border dark:bg-sidebar">
-                    <Command className="h-2.5 w-2.5" />K
-                  </kbd>
-                </>
-              )}
-            </button>
-          </ItemTooltip>
-        </div>
-
-        {/* ── 3. Navigation sections ── */}
+        {/* ── 2. Navigation sections ── */}
         <nav aria-label="Primary" className="min-h-0 flex-1 overflow-y-auto px-3 py-2">
           {grouped.map((g) => (
             <div key={g.title} className="mb-1">

@@ -878,6 +878,27 @@ router.post("/stock-movements", authMiddleware, async (req, res) => {
       body.confirmedAt = body.confirmedAt ?? db.nowISO();
     }
 
+    // DefaultCentral Warehouse: manual + system movements without an
+    // explicit location fall back to the client's Central Warehouse so
+    // credit/dispatch works when no warehouse was ever created.
+    try {
+      const needsDefault =
+        (body.direction === "in" && !body.destinationLocationId) ||
+        (body.direction === "out" && !body.sourceLocationId);
+      if (needsDefault) {
+        const def = await StockLocation.getDefaultLocation(clientId);
+        if (body.direction === "in" && !body.destinationLocationId) {
+          body.destinationLocationId = def.id;
+        }
+        if (body.direction === "out" && !body.sourceLocationId) {
+          body.sourceLocationId = def.id;
+        }
+        if (!body.warehouse) body.warehouse = def.name;
+      }
+    } catch {
+      /* location defaulting is best-effort — movement still records */
+    }
+
     const item = await StockMovement.create({ ...body, clientId });
     trackAction(req, "stock.created", item.id, {
       entityType: "stock",
@@ -980,6 +1001,15 @@ router.post(
         });
       }
 
+      // Default Central Warehouse so bulk credit works with no warehouse.
+      let defaultLoc: any = null;
+      try {
+        defaultLoc = await StockLocation.getDefaultLocation(clientId);
+      } catch {
+        defaultLoc = null;
+      }
+      const defaultWarehouse = body.warehouse || defaultLoc?.name || null;
+
       // Create all movements
       const created: any[] = [];
       for (const v of validated) {
@@ -995,7 +1025,15 @@ router.post(
           reason: v.reason,
           notes,
           movementDate: v.movementDate,
-          warehouse: body.warehouse || null,
+          warehouse: defaultWarehouse,
+          sourceLocationId:
+            v.direction === "out"
+              ? body.sourceLocationId || defaultLoc?.id || null
+              : null,
+          destinationLocationId:
+            v.direction === "in"
+              ? body.destinationLocationId || defaultLoc?.id || null
+              : null,
           status: status as "draft" | "confirmed",
           createdById: req.user!.userId,
           createdByName: req.user!.email,
@@ -6054,17 +6092,32 @@ function debitedQty(l: any): number {
   return Number(l.dispatchedQty) || 0;
 }
 
-/** Available stock per product (confirmed credits − confirmed debits). */
+/** Available stock per product at a location (confirmed credits − confirmed debits). */
 async function stockBalanceByProduct(
   clientId: string,
   locationId: string,
 ): Promise<Map<string, number>> {
   const movements = await StockMovement.list(clientId);
+  // Legacy movements created before location tracking (no source/destination)
+  // count toward the Central Warehouse so old credit entries remain
+  // dispatchable after the location model was introduced.
+  let locationIsCentral = false;
+  try {
+    const loc = await StockLocation.get(locationId);
+    locationIsCentral = !!loc && (loc as any).locationType === "central_warehouse";
+  } catch {
+    locationIsCentral = false;
+  }
   const balance = new Map<string, number>();
   for (const m of movements) {
     if (!m.productId || m.status !== "confirmed") continue;
-    if (m.direction === "in" && m.destinationLocationId !== locationId) continue;
-    if (m.direction === "out" && m.sourceLocationId !== locationId) continue;
+    const isLegacy = !m.sourceLocationId && !m.destinationLocationId;
+    if (isLegacy) {
+      if (!locationIsCentral) continue;
+    } else {
+      if (m.direction === "in" && m.destinationLocationId !== locationId) continue;
+      if (m.direction === "out" && m.sourceLocationId !== locationId) continue;
+    }
     balance.set(
       m.productId,
       (balance.get(m.productId) ?? 0) +
@@ -6238,6 +6291,19 @@ router.post("/goods-dispatches", authMiddleware, async (req, res) => {
       const inv = await Invoice.get(body.linkedSalesInvoiceId);
       linkedInvoiceNumber = inv ? inv.invoiceNumber : null;
     }
+    // Default Central Warehouse: dispatches work even when the user never
+    // created / selected a warehouse. The confirm step re-resolves this too.
+    let defaultSourceId: string | null = body.sourceLocationId || null;
+    let defaultWarehouseName: string | null = body.warehouse ?? null;
+    if (!defaultSourceId) {
+      try {
+        const def = await StockLocation.getDefaultLocation(clientId);
+        defaultSourceId = def.id;
+        if (!defaultWarehouseName) defaultWarehouseName = def.name;
+      } catch {
+        /* best-effort */
+      }
+    }
     const dispatch = await GoodsDispatch.create({
       clientId,
       goodsSalesOrderId: so.id,
@@ -6246,7 +6312,7 @@ router.post("/goods-dispatches", authMiddleware, async (req, res) => {
       customerName: body.customerName ?? so.customerName,
       contactPerson: body.contactPerson ?? so.contactPerson,
       deliveryAddress: body.deliveryAddress ?? so.deliveryAddress,
-      warehouse: body.warehouse ?? null,
+      warehouse: defaultWarehouseName,
       dispatchDate: body.dispatchDate || null,
       transporterName: body.transporterName || null,
       trackingNumber: body.trackingNumber || null,
@@ -6263,7 +6329,7 @@ router.post("/goods-dispatches", authMiddleware, async (req, res) => {
       lines,
       // Location-based fields
       dispatchType: body.dispatchType || null,
-      sourceLocationId: body.sourceLocationId || null,
+      sourceLocationId: defaultSourceId,
       destinationLocationId: body.destinationLocationId || null,
       channel: body.channel || null,
     });
@@ -6273,7 +6339,12 @@ router.post("/goods-dispatches", authMiddleware, async (req, res) => {
   }
 });
 
-/** POST /goods-dispatches/:id/confirm — debit stock (idempotent, race-safe). */
+/**
+ * POST /goods-dispatches/:id/confirm — validate and release for picking.
+ * Confirm NEVER debits stock: it runs the SO / line / location / availability
+ * checks early and flips draft → confirmed. Inventory is debited later, exactly
+ * once, when the warehouse moves the shipping pipeline to "dispatched".
+ */
 router.post(
   "/goods-dispatches/:id/confirm",
   authMiddleware,
@@ -6346,14 +6417,28 @@ router.post(
       } catch (e: any) {
         return res.status(400).json({ error: e.message });
       }
-      if (!dispatch.sourceLocationId)
-        return res.status(400).json({ error: "Select the warehouse to dispatch from" });
-      const sourceLocation = await StockLocation.get(dispatch.sourceLocationId);
+      // Default Central Warehouse: never force the user to pick a warehouse.
+      // Drafts created before this fallback (or with an empty selection) are
+      // resolved to Central Warehouse here so confirm just works.
+      let dispatchForDebit: any = dispatch;
+      if (!dispatch.sourceLocationId) {
+        try {
+          const def = await StockLocation.getDefaultLocation(clientId);
+          await GoodsDispatch.update(dispatch.id, {
+            sourceLocationId: def.id,
+            warehouse: (dispatch as any).warehouse || def.name,
+          } as any);
+          dispatchForDebit = { ...dispatch, sourceLocationId: def.id };
+        } catch {
+          return res.status(400).json({ error: "No warehouse available — create a stock location first" });
+        }
+      }
+      const sourceLocation = await StockLocation.get(dispatchForDebit.sourceLocationId);
       if (!sourceLocation || sourceLocation.clientId !== clientId || sourceLocation.status !== "active")
         return res.status(400).json({ error: "The dispatch source location is missing or inactive" });
       // Stock is owned by a location. Never debit another warehouse or allow a
       // dispatch to create a negative balance in the selected warehouse.
-      const balance = await stockBalanceByProduct(clientId, dispatch.sourceLocationId);
+      const balance = await stockBalanceByProduct(clientId, dispatchForDebit.sourceLocationId);
       for (const ln of dispatch.lines ?? []) {
         const qty = debitedQty(ln);
         if (!(qty > 0)) continue;
@@ -6364,24 +6449,11 @@ router.post(
           });
         }
       }
-      // Atomic draft → confirmed flip: exactly one concurrent confirm wins and
-      // debits stock; the others get alreadyConfirmed and debit nothing.
-      const flipped = await GoodsDispatch.flipToConfirmed(
-        dispatch.id,
-        req.user!.email,
-      );
+      // Atomic draft → confirmed flip: exactly one concurrent confirm wins.
+      // No stock impact here — inventory debits when the pipeline reaches
+      // "dispatched" (see POST /goods-dispatches/:id/shipping-status).
+      const flipped = await GoodsDispatch.flipToConfirmed(dispatch.id);
       if (!flipped) return res.json({ ...dispatch, alreadyConfirmed: true });
-      await debitSalesOrder(clientId, flipped, so);
-      // Physical-confirm capture (PDF-1 step 12): actuals recorded at flip.
-      try {
-        const actuals: Record<string, any> = {};
-        if (req.body?.actualDispatchedAt) actuals.actualDispatchedAt = String(req.body.actualDispatchedAt);
-        else actuals.actualDispatchedAt = db.nowISO();
-        if (req.body?.actualVehicleNumber !== undefined) actuals.actualVehicleNumber = String(req.body.actualVehicleNumber || "") || null;
-        if (req.body?.actualPackedQty !== undefined) actuals.actualPackedQty = Number(req.body.actualPackedQty) || null;
-        if (req.body?.lrNumber !== undefined) actuals.lrNumber = String(req.body.lrNumber || "") || null;
-        await GoodsDispatch.update(flipped.id, actuals);
-      } catch (e) { console.error("  ⚠ Dispatch actuals capture failed:", e); }
       trackAction(req, "dispatch.confirmed", dispatch.id, {
         entityType: "dispatch",
         entityRef: dispatch.dispatchNumber,
@@ -6389,35 +6461,10 @@ router.post(
         lines: dispatch.lines?.length ?? 0,
       });
       timelineStatus(req, { clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
-        "ready_for_dispatch", "confirmed",
-        `Warehouse confirmed physical dispatch from ${dispatch.warehouse ?? "warehouse"}${req.body?.lrNumber ? ` · LR ${req.body.lrNumber}` : ""} — inventory debited`);
-      await WorkflowTask.closeTasksForDoc("dispatch", dispatch.id, req.user, "Physical dispatch confirmed");
-      timelineStatus(req, { clientId, docType: "sales_order", docId: so.id, docNumber: so.soNumber },
-        so.status, "dispatched", `Goods dispatched via ${dispatch.dispatchNumber} — visible to Sales, Finance and Treasury`);
+        dispatch.status, "confirmed",
+        `Warehouse confirmed ${dispatch.dispatchNumber} — released for picking. Stock debits when the status moves to Dispatched.`);
+      await WorkflowTask.closeTasksForDoc("dispatch", dispatch.id, req.user, "Dispatch confirmed — released for picking");
       recomputeForecast(clientId);
-      // Auto-generate E-Way Bill if taxable value exceeds threshold
-      (async () => {
-        try {
-          const { shouldAutoGenerate, generateEwb } = await import("../services/eway-bill-service.js");
-          if (shouldAutoGenerate(flipped)) {
-            await generateEwb({ dispatchId: flipped.id });
-            console.log(`  ✅ E-Way Bill auto-generated for dispatch ${flipped.dispatchNumber}`);
-          }
-        } catch (err: any) {
-          console.error("  ⚠ E-Way Bill auto-generation failed:", err?.message ?? err);
-        }
-      })();
-      // Cash-flow sync: auto-create/update marketplace settlement for marketplace dispatches
-      (async () => {
-        try {
-          if (flipped.dispatchType === "marketplace_sale") {
-            const { syncMarketplaceDispatchToSettlement } = await import("../services/cash-flow-sync.js");
-            await syncMarketplaceDispatchToSettlement(flipped);
-          }
-        } catch (err: any) {
-          console.error("  ⚠ Cash-flow marketplace sync failed:", err?.message ?? err);
-        }
-      })();
       res.json(flipped);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -6667,10 +6714,14 @@ router.post(
 );
 
 /** PUT /goods-dispatches/:id — edit a DRAFT only (no stock impact). */
-/** POST /goods-dispatches/:id/shipping-status — move the logistics pipeline
- *  forward (awaiting_pick → picking → packed → dispatched → in_transit →
- *  delivered). Pure shipping metadata: stock is NEVER touched here. Carrier
- *  and tracking can be set/edited at any pipeline stage. */
+/**
+ * POST /goods-dispatches/:id/shipping-status — move the warehouse pipeline
+ * forward (awaiting_pick → picking → packed → dispatched → in_transit →
+ * delivered). Every move except "dispatched" is logistics metadata only.
+ * Moving to "dispatched" debits inventory exactly once (idempotent via the
+ * stockDebited flag) and folds the dispatched qty into the sales order.
+ * Carrier and tracking can be set/edited at any pipeline stage.
+ */
 router.post(
   "/goods-dispatches/:id/shipping-status",
   authMiddleware,
@@ -6692,6 +6743,11 @@ router.post(
           error: "Confirm the dispatch note first — the pipeline starts on confirmed dispatches",
         });
       const to = String(req.body?.status || "");
+      if (to === "delivered" && dispatch.stockDebited !== true) {
+        return res.status(400).json({
+          error: "Move the status to Dispatched first — inventory debits on dispatch, and delivery is recorded after",
+        });
+      }
       if (to === "delivered") {
         // Delegate to the existing deliver flow (validates quantities, records
         // delivery date/user, derives partially/fully delivered status).
@@ -6757,6 +6813,92 @@ router.post(
         return res.status(400).json({
           error: `Invalid transition: ${current} → ${to} (forward only — a dispatch can never move backwards)`,
         });
+      // ── "Dispatched": the ONLY move that debits inventory. ──
+      // Re-validates against the live sales order, resolves the default
+      // Central Warehouse when none was selected, blocks negative stock in
+      // the source warehouse, then creates the stock-out movements and folds
+      // the dispatched qty into the SO. Retries are safe: only the first
+      // move through "dispatched" debits (stockDebited flag).
+      if (to === "dispatched") {
+        const clientId = req.user!.userId;
+        const so = await GoodsSO.get(dispatch.goodsSalesOrderId);
+        if (!so) return res.status(404).json({ error: "Sales order not found" });
+        const allowOver =
+          !!req.body?.allowOverDispatch &&
+          (req.user!.roles?.includes("factor_admin") ||
+            req.user!.roles?.includes("checker"));
+        try {
+          assertSODispatchable(so);
+        } catch (e: any) {
+          return res.status(400).json({ error: e.message });
+        }
+        try {
+          validateDispatchLines(so, dispatch.lines, allowOver);
+        } catch (e: any) {
+          return res.status(400).json({ error: e.message });
+        }
+        let dispatchForDebit: any = dispatch;
+        if (!dispatch.sourceLocationId) {
+          try {
+            const def = await StockLocation.getDefaultLocation(clientId);
+            await GoodsDispatch.update(dispatch.id, {
+              sourceLocationId: def.id,
+              warehouse: (dispatch as any).warehouse || def.name,
+            } as any);
+            dispatchForDebit = { ...dispatch, sourceLocationId: def.id };
+          } catch {
+            return res.status(400).json({ error: "No warehouse available — create a stock location first" });
+          }
+        }
+        const sourceLocation = await StockLocation.get(dispatchForDebit.sourceLocationId);
+        if (!sourceLocation || sourceLocation.clientId !== clientId || sourceLocation.status !== "active")
+          return res.status(400).json({ error: "The dispatch source location is missing or inactive" });
+        const balance = await stockBalanceByProduct(clientId, dispatchForDebit.sourceLocationId);
+        for (const ln of dispatch.lines ?? []) {
+          const qty = debitedQty(ln);
+          if (!(qty > 0)) continue;
+          const available = balance.get(ln.productId) ?? 0;
+          if (qty > available) {
+            return res.status(400).json({
+              error: `${ln.name}: only ${Math.max(0, available)} available in ${sourceLocation.name}; cannot dispatch ${qty}`,
+            });
+          }
+        }
+        const marked = await GoodsDispatch.markStockDebited(dispatch.id, req.user!.email);
+        if (marked) {
+          const fresh = (await GoodsDispatch.get(dispatch.id)) ?? marked;
+          await debitSalesOrder(clientId, fresh, so);
+          timelineStatus(req, { clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
+            dispatch.shippingStatus ?? "awaiting_pick", "dispatched",
+            `Warehouse moved ${dispatch.dispatchNumber} to Dispatched from ${sourceLocation.name}${req.body?.lrNumber ? ` · LR ${req.body.lrNumber}` : ""} — inventory debited`);
+          timelineStatus(req, { clientId, docType: "sales_order", docId: so.id, docNumber: so.soNumber },
+            so.status, "dispatched", `Goods dispatched via ${dispatch.dispatchNumber} — visible to Sales, Finance and Treasury`);
+          recomputeForecast(clientId);
+          // Auto-generate E-Way Bill if taxable value exceeds threshold
+          (async () => {
+            try {
+              const { shouldAutoGenerate, generateEwb } = await import("../services/eway-bill-service.js");
+              if (shouldAutoGenerate(fresh)) {
+                await generateEwb({ dispatchId: fresh.id });
+                console.log(`  ✅ E-Way Bill auto-generated for dispatch ${fresh.dispatchNumber}`);
+              }
+            } catch (err: any) {
+              console.error("  ⚠ E-Way Bill auto-generation failed:", err?.message ?? err);
+            }
+          })();
+          // Cash-flow sync: auto-create/update marketplace settlement for marketplace dispatches
+          (async () => {
+            try {
+              if (fresh.dispatchType === "marketplace_sale") {
+                const { syncMarketplaceDispatchToSettlement } = await import("../services/cash-flow-sync.js");
+                await syncMarketplaceDispatchToSettlement(fresh);
+              }
+            } catch (err: any) {
+              console.error("  ⚠ Cash-flow marketplace sync failed:", err?.message ?? err);
+            }
+          })();
+        }
+      }
       const patch: Record<string, any> = {
         shippingStatus: to,
         shippingStatusAt: new Date().toISOString(),
@@ -6768,6 +6910,14 @@ router.post(
         patch.transporterName = req.body.carrier || null;
       if (req.body?.trackingNumber !== undefined)
         patch.trackingNumber = req.body.trackingNumber || null;
+      // Physical-dispatch actuals (PDF-1 step 12) are captured at "dispatched".
+      if (to === "dispatched") {
+        if (req.body?.actualDispatchedAt !== undefined) patch.actualDispatchedAt = String(req.body.actualDispatchedAt);
+        else if (!dispatch.actualDispatchedAt) patch.actualDispatchedAt = db.nowISO();
+        if (req.body?.actualVehicleNumber !== undefined) patch.actualVehicleNumber = String(req.body.actualVehicleNumber || "") || null;
+        if (req.body?.actualPackedQty !== undefined) patch.actualPackedQty = Number(req.body.actualPackedQty) || null;
+        if (req.body?.lrNumber !== undefined) patch.lrNumber = String(req.body.lrNumber || "") || null;
+      }
       const updated = await GoodsDispatch.update(dispatch.id, patch);
       trackAction(req, "dispatch.shipping_status", dispatch.id, {
         entityType: "dispatch",
@@ -6881,6 +7031,13 @@ router.post(
             error: `Cannot mark a ${dispatch.status} dispatch as delivered`,
           });
       }
+      if (dispatch.stockDebited !== true) {
+        return res
+          .status(400)
+          .json({
+            error: "Move the status to Dispatched first — inventory debits on dispatch, and delivery is recorded after",
+          });
+      }
       if (dispatch.status === "delivered") {
         return res
           .status(400)
@@ -6957,6 +7114,13 @@ router.post(
           .status(400)
           .json({
             error: `Cannot record a return on a ${dispatch.status} dispatch`,
+          });
+      }
+      if (dispatch.stockDebited !== true) {
+        return res
+          .status(400)
+          .json({
+            error: "Nothing to return — stock was never debited. Move the status to Dispatched first",
           });
       }
       const rawLines = Array.isArray(req.body?.lines) ? req.body.lines : [];
@@ -7047,6 +7211,8 @@ router.post(
           confirmedById: req.user!.userId,
           confirmedByName: req.user!.email,
           confirmedAt: db.nowISO(),
+          // Returned stock goes back to the warehouse it was dispatched from.
+          destinationLocationId: (dispatch as any).sourceLocationId || null,
         });
       }
       const updated = await GoodsDispatch.recordReturned(
@@ -8116,7 +8282,24 @@ router.use(bulkPaymentsRoutes);
 // ===================== STOCK LOCATIONS =====================
 router.get("/stock-locations", authMiddleware, async (req, res) => {
   try {
-    const items = await StockLocation.list(effectiveListScope(req));
+    const scope = effectiveListScope(req);
+    // Ensure every client always has a default Central Warehouse so credit /
+    // dispatch works even when no warehouse was ever created. Staff reads
+    // span the whole portfolio (scope undefined) — nothing to auto-create there.
+    if (scope) {
+      const existing = await StockLocation.list(scope);
+      const hasCentral = existing.some(
+        (l: any) => l.locationType === "central_warehouse" && l.status === "active"
+      );
+      if (!hasCentral) {
+        try {
+          await StockLocation.getDefaultLocation(scope);
+        } catch {
+          /* fall through — return whatever exists */
+        }
+      }
+    }
+    const items = await StockLocation.list(scope);
     res.json(items);
   } catch (err: any) {
     res.status(500).json({ error: err.message });

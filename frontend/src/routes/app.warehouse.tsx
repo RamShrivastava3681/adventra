@@ -1,4 +1,4 @@
-﻿import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api-client";
@@ -47,7 +47,7 @@ export const Route = createFileRoute("/app/warehouse")({
   }),
 });
 
-// â”€â”€â”€ Shipping pipeline (pure logistics â€” stock is debited once at confirm) â”€â”€
+// --- Warehouse dispatch pipeline: stock debits only on Dispatched ---
 const SHIPPING_STATUSES = [
   "awaiting_pick",
   "picking",
@@ -59,11 +59,11 @@ const SHIPPING_STATUSES = [
 type ShippingStatus = (typeof SHIPPING_STATUSES)[number];
 
 const SHIPPING_LABEL: Record<string, string> = {
-  awaiting_pick: "Awaiting pick",
+  awaiting_pick: "Awaiting Pickup",
   picking: "Picking",
-  packed: "Packed",
+  packed: "Packing",
   dispatched: "Dispatched",
-  in_transit: "In transit",
+  in_transit: "In Transit",
   delivered: "Delivered",
 };
 
@@ -519,12 +519,51 @@ export function WarehousePage() {
       trackingNumber?: string | null;
       notes?: string;
     }) => api.goodsDispatches.shippingStatus(id, status, { carrier, trackingNumber, notes }),
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["wh_dispatches"] });
       qc.invalidateQueries({ queryKey: ["goods_dispatches"] });
-      toast.success("Dispatch updated");
+      qc.invalidateQueries({ queryKey: ["stock_movements"] });
+      qc.invalidateQueries({ queryKey: ["stock-summary"] });
+      toast.success(
+        vars.status === "dispatched"
+          ? "Moved to Dispatched — inventory debited"
+          : "Dispatch updated",
+      );
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Update failed"),
+  });
+
+  const [actingId, setActingId] = useState<string | null>(null);
+  const refreshDispatches = () => {
+    qc.invalidateQueries({ queryKey: ["wh_dispatches"] });
+    qc.invalidateQueries({ queryKey: ["goods_dispatches"] });
+    qc.invalidateQueries({ queryKey: ["stock_movements"] });
+    qc.invalidateQueries({ queryKey: ["stock-summary"] });
+  };
+  const cancelDispatch = useMutation({
+    mutationFn: async (id: string) => {
+      setActingId(id);
+      return api.goodsDispatches.cancel(id);
+    },
+    onSuccess: () => {
+      refreshDispatches();
+      toast.success("Dispatch cancelled — stock reversed only if it was dispatched");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Cancel failed"),
+    onSettled: () => setActingId(null),
+  });
+  const returnDispatch = useMutation({
+    mutationFn: async (id: string) => {
+      setActingId(id);
+      // No lines → full return of everything not yet returned.
+      return api.goodsDispatches.return(id, { lines: [] });
+    },
+    onSuccess: () => {
+      refreshDispatches();
+      toast.success("Return recorded — stock credited back");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Return failed"),
+    onSettled: () => setActingId(null),
   });
 
   const tabs: { id: Tab; label: string; icon: any; count?: number }[] = [
@@ -908,7 +947,7 @@ export function WarehousePage() {
                 ))}
               </div>
               <p className="mt-4 text-xs text-muted-foreground">
-                The pipeline is logistics-only â€” stock is debited once, when a dispatch note is confirmed.
+                Picking and packing never touch stock — inventory is debited once, when the status moves to Dispatched.
               </p>
             </Card>
             <Card title="Latest activity">
@@ -1127,6 +1166,9 @@ export function WarehousePage() {
             canWrite={canWrite}
             onMove={(vars) => shipMove.mutate(vars)}
             moving={shipMove.isPending}
+            onCancel={(id) => cancelDispatch.mutate(id)}
+            onReturn={(id) => returnDispatch.mutate(id)}
+            acting={actingId}
           />
         )}
           </Card>
@@ -1177,6 +1219,9 @@ function DispatchTable({
   canWrite,
   onMove,
   moving,
+  onCancel,
+  onReturn,
+  acting,
 }: {
   dispatches: Dispatch[];
   loading: boolean;
@@ -1189,6 +1234,9 @@ function DispatchTable({
     notes?: string;
   }) => void;
   moving: boolean;
+  onCancel: (id: string) => void;
+  onReturn: (id: string) => void;
+  acting: string | null;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
   const [carrier, setCarrier] = useState("");
@@ -1232,7 +1280,7 @@ function DispatchTable({
           "Carrier / tracking",
           "Commercial",
           "Pipeline",
-          canWrite ? "" : "Status",
+          canWrite ? "Cancel / Return" : "Status",
         ]}
       >
         {dispatches.map((d) => {
@@ -1303,31 +1351,60 @@ function DispatchTable({
                 <StatusPill status={d.status} />
               </td>
               {canWrite ? (
-                <td className="px-5 py-3">
-                  {closed ? (
-                    <span className="text-xs uppercase tracking-widest text-muted-foreground">Closed</span>
-                  ) : current === "delivered" ? (
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${shippingTone("delivered")}`}
-                    >
-                      Delivered
-                    </span>
-                  ) : (
-                    <select
-                      className="rounded-md border border-border bg-input px-2 py-1 text-xs"
-                      value={current}
-                      disabled={moving}
-                      onChange={(e) => onMove({ id: d.id, status: e.target.value as ShippingStatus })}
-                    >
-                      <option value={current}>{SHIPPING_LABEL[current]}</option>
-                      {forward.map((s) => (
-                        <option key={s} value={s}>
-                          {SHIPPING_LABEL[s]}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </td>
+                <>
+                  <td className="px-5 py-3">
+                    {closed ? (
+                      <span className="text-xs uppercase tracking-widest text-muted-foreground">Closed</span>
+                    ) : current === "delivered" ? (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${shippingTone("delivered")}`}
+                      >
+                        Delivered
+                      </span>
+                    ) : (
+                      <select
+                        className="rounded-md border border-border bg-input px-2 py-1 text-xs"
+                        value={current}
+                        disabled={moving}
+                        onChange={(e) => onMove({ id: d.id, status: e.target.value as ShippingStatus })}
+                        title="Awaiting Pickup → Picking → Packing → Dispatched (debits stock) → In Transit → Delivered"
+                      >
+                        <option value={current}>{SHIPPING_LABEL[current]}</option>
+                        {forward.map((s) => (
+                          <option key={s} value={s}>
+                            {SHIPPING_LABEL[s]}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </td>
+                  <td className="px-5 py-3">
+                    {closed ? (
+                      <span className="text-xs text-muted-foreground">—</span>
+                    ) : (
+                      <div className="flex items-center gap-1.5">
+                        {["confirmed", "partially_delivered", "delivered"].includes(d.status) && (
+                          <button
+                            onClick={() => onReturn(d.id)}
+                            disabled={acting === d.id}
+                            title="Record return — credits the remaining quantity back to stock"
+                            className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground transition hover:border-primary hover:text-primary disabled:opacity-60"
+                          >
+                            Return
+                          </button>
+                        )}
+                        <button
+                          onClick={() => onCancel(d.id)}
+                          disabled={acting === d.id}
+                          title="Cancel dispatch — reverses stock only if it was already dispatched"
+                          className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground transition hover:border-destructive hover:text-destructive disabled:opacity-60"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )}
+                  </td>
+                </>
               ) : (
                 <td className="px-5 py-3">
                   <span
@@ -1342,8 +1419,8 @@ function DispatchTable({
         })}
       </Table>
       <p className="mt-4 text-xs text-muted-foreground">
-        The pipeline moves forward only (awaiting pick â†’ picking â†’ packed â†’ dispatched â†’ in transit â†’ delivered) and
-        never touches stock â€” inventory was already debited when the dispatch note was confirmed. Selecting
+        The pipeline moves forward only (Awaiting Pickup → Picking → Packing → Dispatched → In Transit → Delivered).
+        Only the move to Dispatched debits inventory. Selecting
         "Delivered" records delivery against the dispatch.
       </p>
     </Card>

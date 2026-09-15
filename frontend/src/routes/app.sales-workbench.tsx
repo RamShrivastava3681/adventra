@@ -137,6 +137,7 @@ type SalesSection =
   | "customers"
   | "sales-orders"
   | "proformas"
+  | "invoices"
   | "notes"
   | "tasks";
 
@@ -148,6 +149,11 @@ const SalesOrdersPanel = lazy(() =>
 );
 const ProformasPanel = lazy(() =>
   import("@/routes/app.proformas").then((m) => ({ default: m.ProformasPage })),
+);
+const InvoicesPanel = lazy(() =>
+  import("@/routes/app.invoices").then((m) => ({
+    default: () => <m.InvoicesPage viewOnly />,
+  })),
 );
 const NotesPanel = lazy(() =>
   import("@/routes/app.notes").then((m) => ({ default: m.NotesPage })),
@@ -178,6 +184,9 @@ function SalesWorkbenchPage() {
         return;
       case "proforma":
         setSection("proformas");
+        return;
+      case "sales_invoice":
+        setSection("invoices");
         return;
       default:
         navigate({ to: docAppPath(t) as any });
@@ -275,14 +284,6 @@ function SalesWorkbenchPage() {
         title="Sales Workbench"
         icon={<ShoppingBag className="h-5 w-5" />}
         description="Track your sales documents, see what needs action, and take the next step."
-        actions={
-          <button
-            onClick={() => setSection("sales-orders")}
-            className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
-          >
-            + Create Sales Order
-          </button>
-        }
       />
 
       {/* ── Sales navigation — same-page sections, no route change ── */}
@@ -305,9 +306,14 @@ function SalesWorkbenchPage() {
               onClick={() => setSection("sales-orders")}
             />
             <NavTab
-              label="Proforma Invoices"
+              label="Sales Proforma"
               active={section === "proformas"}
               onClick={() => setSection("proformas")}
+            />
+            <NavTab
+              label="Sales Invoices"
+              active={section === "invoices"}
+              onClick={() => setSection("invoices")}
             />
             <NavTab
               label="Credit Notes"
@@ -614,6 +620,7 @@ function SalesWorkbenchPage() {
           {section === "customers" && <DebtorsPanel />}
           {section === "sales-orders" && <SalesOrdersPanel />}
           {section === "proformas" && <ProformasPanel />}
+          {section === "invoices" && <InvoicesPanel />}
           {section === "notes" && <NotesPanel />}
           {section === "tasks" && <TasksPanel />}
         </Suspense>

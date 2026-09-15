@@ -110,9 +110,11 @@ type GRNFragment = {
   }>;
 };
 
-export function PurchasesPage() {
+export function PurchasesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) {
   const { user, isAdmin, isChecker, isClient, isTreasury } = useAuth();
-  const canCreate = isAdmin || (isClient && !isChecker && !isTreasury);
+  // Embedded in the Procurement Workbench as a view-only tab — purchase
+  // invoices may only be created from the Finance tab.
+  const canCreate = !viewOnly && (isAdmin || (isClient && !isChecker && !isTreasury));
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);

@@ -806,23 +806,34 @@ function GrnModal({
                   disabled
                 />
               </L>
-              <L label="Receiving Location">
-                <select
-                  className={inputBase}
-                  value={f.receiving_location_id}
-                  onChange={(e) => setF({ ...f, receiving_location_id: e.target.value })}
-                >
-                  <option value="">Select location…</option>
-                  {stockLocations.map((loc: any) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.name}{loc.channel ? ` (${loc.channel})` : ""}
-                    </option>
-                  ))}
-                </select>
-                <div className="mt-0.5 text-[10px] text-muted-foreground">
-                  Stock will be added to this location. Default: Central Warehouse.
-                </div>
-              </L>
+              {stockLocations.length === 0 ? (
+                <L label="Receiving Location">
+                  <div className={`${inputBase} flex items-center bg-muted/30 text-xs text-muted-foreground`}>
+                    Central Warehouse (default — no warehouse created yet)
+                  </div>
+                  <div className="mt-0.5 text-[10px] text-muted-foreground">
+                    Stock will be added to Central Warehouse.
+                  </div>
+                </L>
+              ) : (
+                <L label="Receiving Location">
+                  <select
+                    className={inputBase}
+                    value={f.receiving_location_id}
+                    onChange={(e) => setF({ ...f, receiving_location_id: e.target.value })}
+                  >
+                    <option value="">Central Warehouse (default)</option>
+                    {stockLocations.map((loc: any) => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.name}{loc.channel ? ` (${loc.channel})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="mt-0.5 text-[10px] text-muted-foreground">
+                    Stock will be added to this location. Default: Central Warehouse.
+                  </div>
+                </L>
+              )}
               <L label="Delivery warehouse / store (legacy)">
                 <input
                   className={inputBase}

@@ -139,9 +139,11 @@ const DOC_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-export function InvoicesPage() {
+export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) {
   const { isAdmin, isChecker, isClient, isTreasury, user } = useAuth();
-  const canCreate = isAdmin || (isClient && !isChecker && !isTreasury);
+  // Embedded in the Sales Workbench as a view-only tab — invoices may only
+  // be created from the Finance tab.
+  const canCreate = !viewOnly && (isAdmin || (isClient && !isChecker && !isTreasury));
   const canRecordIrn = isAdmin || isChecker || isTreasury;
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
@@ -275,7 +277,7 @@ export function InvoicesPage() {
       <PageHeader
         eyebrow="Invoices"
         title={isAdmin ? "Invoice queue" : "Your invoices"}
-        description="Sales invoices bill the customer after goods are dispatched. Creating an invoice never reduces stock — only a confirmed dispatch debits inventory. Drafts are reviewed and sent straight to the funding queue — no checker approval needed."
+        description="Sales invoices bill the customer after goods are dispatched. Creating an invoice never reduces stock — only a dispatch moved to Dispatched debits inventory. Drafts are reviewed and sent straight to the funding queue — no checker approval needed."
         icon={<FileText className="h-5 w-5" />}
         breadcrumbs={[{ label: "Dashboard", href: "/app/dashboard" }, { label: "Invoices" }]}
         actions={
@@ -1062,7 +1064,7 @@ function NewInvoiceModal({
             </L>
             <p className="mt-1 text-[10px] text-muted-foreground">
               Every invoice must be linked to a confirmed sales order — its customer and lines are
-              checked against it. An invoice never reduces stock; only a confirmed dispatch debits
+              checked against it. An invoice never reduces stock; only a dispatch moved to Dispatched debits
               inventory.
             </p>
           </fieldset>

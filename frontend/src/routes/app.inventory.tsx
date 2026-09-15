@@ -297,7 +297,7 @@ function InventoryPage() {
       <PageHeader
         eyebrow="Inventory"
         title="Inventory"
-        description="Live stock is confirmed credit entries minus confirmed debit entries. Goods receipts credit stock automatically and dispatched invoices debit it; manual entries (opening stock, adjustments, damage, samples, returns) start as drafts and confirm when verified."
+        description="Live stock is confirmed credit entries minus confirmed debit entries. Goods receipts credit stock automatically and dispatches debit it when the warehouse moves them to Dispatched; manual entries (opening stock, adjustments, damage, samples, returns) start as drafts and confirm when verified."
         icon={<Boxes className="h-5 w-5" />}
         actions={
           canWrite ? (
@@ -968,13 +968,16 @@ function MovementModal({
                   onChange={(e) => setForm({ ...form, movementDate: e.target.value })}
                 />
               </L>
-              <L label="Warehouse / store">
+              <L label="Warehouse / store (optional)">
                 <input
                   className={inputBase}
                   value={form.warehouse}
                   onChange={(e) => setForm({ ...form, warehouse: e.target.value })}
-                  placeholder="e.g. Main store"
+                  placeholder="Central Warehouse (default)"
                 />
+                <span className="mt-1 block text-[10px] text-muted-foreground">
+                  Leave blank to credit / dispatch via Central Warehouse — no warehouse setup needed.
+                </span>
               </L>
             </div>
 

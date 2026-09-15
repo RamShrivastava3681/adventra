@@ -8,7 +8,6 @@ import {
   LogOut,
   Monitor,
   Moon,
-  Search,
   Settings,
   Sun,
   User,
@@ -85,7 +84,6 @@ export function ThemeMenu({
 type Props = {
   currentPage: string;
   pageIcon?: LucideIcon;
-  onSearch: () => void;
   alertsCount?: number;
   userEmail?: string | null;
   userPhotoUrl?: string | null;
@@ -109,14 +107,12 @@ function CountBadge({ count }: { count: number }) {
 
 /**
  * Top Navigation Bar — Top Navigation Bar Design Prompt.
- * White 64px floating card: sidebar toggle, large global search,
- * current-page pill, search shortcut, notifications with unread badge,
- * appearance, avatar + name + dropdown. Matches the sidebar language.
+ * White 64px floating card: current-page pill, notifications with unread
+ * badge, appearance, avatar + name + dropdown. Matches the sidebar language.
  */
 export function AppTopbar({
   currentPage,
   pageIcon,
-  onSearch,
   alertsCount = 0,
   userEmail,
   userPhotoUrl,
@@ -135,22 +131,7 @@ export function AppTopbar({
         aria-label="Top navigation"
         className="flex h-16 items-center gap-3 rounded-2xl border border-[#e5ebf2] bg-white px-4 shadow-[0_8px_28px_-12px_rgba(10,34,57,0.18)] dark:border-sidebar-border dark:bg-sidebar dark:shadow-none"
       >
-        {/* ── 3. Search bar ── */}
-        <button
-          onClick={onSearch}
-          aria-label="Search documents, inventory, or approvals (Ctrl+K)"
-          className="group flex h-10 w-full max-w-xl min-w-0 items-center gap-2.5 rounded-xl border border-[#dce5ee] bg-white px-3.5 text-[13px] text-[#64748b] shadow-sm transition-colors duration-150 hover:border-[#c5d2df] hover:bg-[#f8fafc] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:border-sidebar-border dark:bg-sidebar-accent/40 dark:text-muted-foreground dark:hover:text-sidebar-foreground"
-        >
-          <Search className="h-[18px] w-[18px] shrink-0" strokeWidth={1.8} />
-          <span className="flex-1 truncate text-left font-normal">
-            Search documents, inventory, or approvals…
-          </span>
-          <kbd className="hidden shrink-0 items-center gap-1 rounded-md border border-[#dce5ee] bg-[#f1f5f9] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[#64748b] sm:inline-flex dark:border-sidebar-border dark:bg-sidebar">
-            ⌘K
-          </kbd>
-        </button>
-
-        {/* ── 4. Page / breadcrumb pill ── */}
+        {/* ── 3. Page / breadcrumb pill ── */}
         {currentPage && (
           <span className="hidden h-9 shrink-0 items-center gap-2 truncate rounded-[10px] bg-[#eef7ff] px-3 text-[13px] font-semibold text-[#0067c2] lg:inline-flex dark:bg-sidebar-accent dark:text-sidebar-primary">
             <PageIcon className="h-4 w-4 shrink-0" strokeWidth={2} />
@@ -159,20 +140,7 @@ export function AppTopbar({
         )}
 
         <div className="ml-auto flex shrink-0 items-center gap-1">
-          {/* ── 5a. Search icon + shortcut ── */}
-          <button
-            onClick={onSearch}
-            aria-label="Search (Ctrl+K)"
-            title="Search (Ctrl+K)"
-            className="hidden h-9 items-center gap-2 rounded-[10px] px-2.5 text-[#334155] transition-colors duration-150 hover:bg-[#f1f5f9] hover:text-[#0e1b2c] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring md:inline-flex dark:text-muted-foreground dark:hover:bg-sidebar-accent dark:hover:text-sidebar-foreground"
-          >
-            <Search className="h-5 w-5" strokeWidth={1.8} />
-            <kbd className="hidden rounded-md border border-[#dce5ee] bg-[#f1f5f9] px-1.5 py-0.5 font-mono text-[10px] font-medium text-[#64748b] xl:inline-flex dark:border-sidebar-border dark:bg-sidebar">
-              ⌘K
-            </kbd>
-          </button>
-
-          {/* ── 5b. Notifications ── */}
+          {/* ── 5a. Notifications ── */}
           <Link
             to="/app/alerts"
             aria-label={alertsCount > 0 ? `Alerts, ${alertsCount} unread` : "Alerts"}

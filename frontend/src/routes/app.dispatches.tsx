@@ -432,7 +432,7 @@ export function DispatchesPageContent({
       <PageHeader
         eyebrow="Inventory"
         title="Dispatch"
-        description="The most important stock document on the sales side — a confirmed dispatch creates the automatic debit inventory entry."
+        description="The most important stock document on the sales side — moving a dispatch to Dispatched creates the automatic debit inventory entry. Confirming only releases it for picking."
         icon={<Truck className="h-5 w-5" />}
         actions={
           canWrite ? (
@@ -849,6 +849,15 @@ function DispatchCreateModal({
     }
   }, []);
 
+  // Default Central Warehouse: when no warehouse was created the backend
+  // auto-resolves Central, so don't force a pick; when exactly one location
+  // exists (the auto-created Central), pre-select it silently.
+  useEffect(() => {
+    if (!f.source_location_id && stockLocations.length === 1) {
+      setF((prev) => ({ ...prev, source_location_id: stockLocations[0].id }));
+    }
+  }, [stockLocations]);
+
   const setLine = (i: number, patch: Partial<DispatchLineDraft>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
 
@@ -946,17 +955,20 @@ function DispatchCreateModal({
         delivery_address: f.delivery_address.trim() || null,
       });
       
-      // If an initial status was specified, set it immediately
+      // If an initial status was specified, confirm first (the pipeline
+      // starts on confirmed dispatches) and then set it. Only the move to
+      // Dispatched debits inventory.
       if (initialStatus && created?.id) {
+        await api.goodsDispatches.confirm(created.id, {});
         await api.goodsDispatches.shippingStatus(created.id, initialStatus as any, {});
       }
-      
+
       return created;
     },
     onSuccess: () => {
       const msg = initialStatus
         ? `Dispatch created with status "${initialStatus}"`
-        : "Draft dispatch note recorded — confirm it to debit inventory";
+        : "Draft dispatch note recorded — confirm it, then move it to Dispatched to debit inventory";
       toast.success(msg);
       onDone();
       qc.invalidateQueries({ queryKey: ["sales-proformas-for-dispatch"] });
@@ -978,12 +990,12 @@ function DispatchCreateModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <div>
-            <h3 className="font-display text-lg">New dispatch</h3>
-            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              Creates a draft — inventory is debited only when the dispatch is confirmed.
+            <div>
+              <h3 className="font-display text-lg">New dispatch</h3>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                Creates a draft — inventory is debited only when the status moves to Dispatched.
+              </div>
             </div>
-          </div>
           <button onClick={onClose}>
             <X className="h-4 w-4" />
           </button>
@@ -1090,20 +1102,33 @@ function DispatchCreateModal({
                   <option value="damage_sample_adjustment">Damage / Sample / Adjustment</option>
                 </select>
               </L>
-              <L label="Source Location">
-                <select
-                  className="inp"
-                  value={f.source_location_id}
-                  onChange={(e) => setF({ ...f, source_location_id: e.target.value })}
-                >
-                  <option value="">Select source…</option>
-                  {stockLocations.map((loc: any) => (
-                    <option key={loc.id} value={loc.id}>
-                      {loc.name}{loc.channel ? ` (${loc.channel})` : ""}
-                    </option>
-                  ))}
-                </select>
-              </L>
+              {stockLocations.length === 0 ? (
+                <L label="Source Location">
+                  <div className="inp flex items-center bg-muted/30 text-xs text-muted-foreground">
+                    Central Warehouse (default — no warehouse created yet)
+                  </div>
+                </L>
+              ) : (
+                <L label="Source Location">
+                  <select
+                    className="inp"
+                    value={f.source_location_id}
+                    onChange={(e) => setF({ ...f, source_location_id: e.target.value })}
+                  >
+                    <option value="">Central Warehouse (default)</option>
+                    {stockLocations.map((loc: any) => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.name}{loc.channel ? ` (${loc.channel})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {stockLocations.length === 1 && (
+                    <div className="mt-0.5 text-[10px] text-muted-foreground">
+                      Only Central Warehouse exists — dispatching from there.
+                    </div>
+                  )}
+                </L>
+              )}
               {f.dispatch_type === "stock_transfer" && (
                 <L label="Destination Location">
                   <select
@@ -1375,7 +1400,7 @@ function DispatchCreateModal({
                     <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                     <span>
                       Some lines dispatch more than what is currently in stock. You can still
-                      proceed — stock availability is only a warning at confirm time.
+                      proceed — stock availability is enforced when the status moves to Dispatched.
                     </span>
                   </div>
                 )}
@@ -1480,10 +1505,10 @@ function DispatchDetailModal({
       setBusy(null);
       const warnings: string[] = res?.stock_warnings ?? [];
       if (warnings.length > 0) {
-        toast.warning("Dispatch confirmed — inventory debited with low-stock warnings");
+        toast.warning("Dispatch confirmed — released for picking (stock debits on Dispatched)");
         warnings.forEach((w) => toast.warning(w));
       } else {
-        toast.success("Dispatch confirmed — inventory debited");
+        toast.success("Dispatch confirmed — released for picking. Move to Dispatched to debit stock");
       }
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -1496,7 +1521,7 @@ function DispatchDetailModal({
     onSuccess: () => {
       invalidate();
       setBusy(null);
-      toast.success("Dispatch cancelled — stock reversed");
+      toast.success("Dispatch cancelled — stock reversed only if it was dispatched");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -1572,7 +1597,7 @@ function DispatchDetailModal({
               <D label="Linked proforma" value={d.linked_customer_proforma_number ?? "—"} />
               <D label="Linked sales invoice" value={d.linked_sales_invoice_number ?? "—"} />
               <D label="Created by" value={d.dispatched_by ?? "—"} />
-              <D label="Confirmed by" value={d.stock_debited ? (d.debited_by ?? "—") : "—"} />
+              <D label="Stock debited by" value={d.stock_debited ? (d.debited_by ?? "—") : "Not yet — debits on Dispatched"} />
             </div>
 
             {/* Lines */}
@@ -1687,6 +1712,7 @@ function DispatchDetailModal({
                 <button
                   onClick={() => run("confirm")}
                   disabled={!!busy}
+                  title="Confirm releases the dispatch for picking — stock debits only when the status moves to Dispatched"
                   className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10 disabled:opacity-50"
                 >
                   {busy === "confirm" ? (
@@ -1694,10 +1720,10 @@ function DispatchDetailModal({
                   ) : (
                     <PackageCheck className="h-3.5 w-3.5" />
                   )}
-                  Confirm dispatch (debit stock)
+                  Confirm dispatch
                 </button>
               )}
-              {canWrite && ["confirmed", "partially_delivered"].includes(d.status) && (
+              {canWrite && d.stock_debited && ["confirmed", "partially_delivered"].includes(d.status) && (
                 <button
                   onClick={() => setDeliverOpen(true)}
                   disabled={!!busy}
@@ -1706,7 +1732,7 @@ function DispatchDetailModal({
                   <CheckCircle2 className="h-3.5 w-3.5" /> Mark delivered
                 </button>
               )}
-              {canWrite && ["confirmed", "partially_delivered", "delivered"].includes(d.status) && (
+              {canWrite && d.stock_debited && ["confirmed", "partially_delivered", "delivered"].includes(d.status) && (
                 <button
                   onClick={() => setReturnOpen(true)}
                   disabled={!!busy}

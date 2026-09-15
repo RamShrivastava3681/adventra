@@ -168,6 +168,8 @@ type ProcSection =
   | "workbench"
   | "suppliers"
   | "purchase-orders"
+  | "proformas"
+  | "purchase-invoices"
   | "tasks";
 
 const SuppliersPanel = lazy(() =>
@@ -175,6 +177,14 @@ const SuppliersPanel = lazy(() =>
 );
 const PurchaseOrdersPanel = lazy(() =>
   import("@/routes/app.purchase-orders").then((m) => ({ default: m.PurchaseOrdersPage })),
+);
+const ProformasPanel = lazy(() =>
+  import("@/routes/app.proformas").then((m) => ({ default: m.ProformasPage })),
+);
+const PurchaseInvoicesPanel = lazy(() =>
+  import("@/routes/app.purchases").then((m) => ({
+    default: () => <m.PurchasesPage viewOnly />,
+  })),
 );
 const ProcTasksPanel = lazy(() =>
   import("@/routes/app.tasks").then((m) => ({ default: m.TasksPage })),
@@ -217,6 +227,12 @@ function ProcurementWorkbenchPage() {
     switch (t.doc_type) {
       case "purchase_order":
         setSection("purchase-orders");
+        return;
+      case "proforma":
+        setSection("proformas");
+        return;
+      case "purchase_invoice":
+        setSection("purchase-invoices");
         return;
       default:
         navigate({ to: docAppPath(t as any) as any });
@@ -413,14 +429,6 @@ function ProcurementWorkbenchPage() {
         title="Procurement Workbench"
         icon={<ShoppingCart className="h-5 w-5" />}
         description="Manage purchase orders, supplier invoices, deliveries and GRNs."
-        actions={
-          <button
-            onClick={() => setSection("purchase-orders")}
-            className="inline-flex h-9 items-center gap-1.5 rounded-[10px] bg-primary px-4 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
-          >
-            + New Purchase Order
-          </button>
-        }
       />
 
       {/* ── Procurement navigation — same-page sections, no route change ── */}
@@ -441,6 +449,16 @@ function ProcurementWorkbenchPage() {
               label="Purchase Orders"
               active={section === "purchase-orders"}
               onClick={() => setSection("purchase-orders")}
+            />
+            <NavTab
+              label="Purchase Proforma"
+              active={section === "proformas"}
+              onClick={() => setSection("proformas")}
+            />
+            <NavTab
+              label="Purchase Invoices"
+              active={section === "purchase-invoices"}
+              onClick={() => setSection("purchase-invoices")}
             />
             <NavTab
               label="Activity History"
@@ -879,6 +897,8 @@ function ProcurementWorkbenchPage() {
         <Suspense fallback={<SectionFallback />}>
           {section === "suppliers" && <SuppliersPanel />}
           {section === "purchase-orders" && <PurchaseOrdersPanel />}
+          {section === "proformas" && <ProformasPanel />}
+          {section === "purchase-invoices" && <PurchaseInvoicesPanel />}
           {section === "tasks" && <ProcTasksPanel />}
         </Suspense>
       )}

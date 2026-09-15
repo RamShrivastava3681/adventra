@@ -3,21 +3,24 @@ import * as db from "../dynamodb.js";
 
 /**
  * Goods Dispatch Note — the most important stock document on the sales side.
- * Created against a Sales Order; THIS is what debits inventory: only a
- * CONFIRMED dispatch creates stock-out movements (for the dispatched quantity
- * of each line). The SO, proforma and sales invoice never touch stock.
+ * Created against a Sales Order; THIS is what debits inventory: stock-out
+ * movements are created ONLY when the warehouse moves the shipping pipeline
+ * to "dispatched" (for the dispatched quantity of each line). Confirming,
+ * picking and packing never touch stock. The SO, proforma and sales invoice
+ * never touch stock either.
  *
  * Lifecycle (mirrors GoodsReceipt, plus delivery/return tracking):
  *   draft     → created from an SO; editable; no stock impact.
- *   confirmed → stock-out movements created (dispatched qty) + SO dispatched
- *               qty folded in. Confirm is idempotent (stockDebited flag).
+ *   confirmed → validated and released for picking; no stock impact.
  *   partially_delivered / delivered → per-line delivered qty recorded by
- *               "Mark Delivered" (no stock impact — already debited).
+ *               "Mark Delivered" (no stock impact — already debited at
+ *               "dispatched").
  *   returned  → per-line returned qty recorded by "Record Return"; reversing
  *               credit (stock-in) entries created for the returned qty and the
  *               SO dispatched qty is revoked so the SO can be re-dispatched.
  *   cancelled → reversing credit entries created ONLY if stock had already
- *               been debited; SO quantities revoked.
+ *               been debited (i.e. the dispatch had reached "dispatched");
+ *               SO quantities revoked.
  */
 
 export type GoodsDispatchStatus =
@@ -31,10 +34,12 @@ export type GoodsDispatchStatus =
   | "returned";
 
 /**
- * Shipping pipeline — pure logistics, deliberately SEPARATE from the financial
- * lifecycle above. Stock is debited once at confirm (flipToConfirmed) and is
- * NEVER touched by shipping-status moves; delivered still flows through the
- * existing markDelivered path so per-line delivered quantities stay accurate.
+ * Shipping pipeline — the warehouse moves a confirmed dispatch through
+ * awaiting_pick → picking → packed → dispatched → in_transit → delivered.
+ * Stock is debited exactly once, when the pipeline reaches "dispatched"
+ * (markStockDebited, idempotent via the stockDebited flag); every other move
+ * is logistics metadata only. Delivered still flows through the existing
+ * markDelivered path so per-line delivered quantities stay accurate.
  */
 export type ShippingStatus =
   | "awaiting_pick"
@@ -436,30 +441,52 @@ export async function update(id: string, updates: Partial<GoodsDispatch>) {
 }
 
 /**
- * Atomic draft → confirmed flip. Returns the updated item, or null if the
- * dispatch was already confirmed (or is cancelled) — callers must only debit
- * stock when this returns a value, so concurrent confirms can't double-debit.
+ * Atomic draft → confirmed flip. Confirm releases the dispatch for picking —
+ * it NEVER debits stock (stockDebited stays false). Inventory is debited
+ * later, exactly once, by markStockDebited when the shipping pipeline reaches
+ * "dispatched". Returns the updated item, or null if already confirmed.
  *
  * NOTE: the condition only checks the status. `attribute_not_exists(debitedAt)`
  * is intentionally NOT used here — create() stores `debitedAt: null` (a NULL
  * DynamoDB attribute still exists), which would make that check always fail and
  * silently turn every confirm into a no-op.
  */
-export async function flipToConfirmed(id: string, debitedBy: string) {
+export async function flipToConfirmed(id: string) {
   return db.updateItemIf(
     `GOODS_DISPATCH#${id}`,
     `GOODS_DISPATCH#${id}`,
     {
       status: "confirmed",
-      stockDebited: true,
-      debitedAt: db.nowISO(),
-      debitedBy,
       updatedAt: db.nowISO(),
     },
     "#status IN (:draft, :submitted, :ready)",
     { ":draft": "draft", ":submitted": "details_submitted", ":ready": "ready_for_dispatch" },
     true,
     { "#status": "status" },
+  ) as Promise<GoodsDispatch | null>;
+}
+
+/**
+ * Atomic stock-debit marker. Sets stockDebited=true (with debitedAt/debitedBy)
+ * ONLY if stock has not been debited yet — returns the updated item on the
+ * first call and null on repeats, so concurrent "dispatched" moves can't
+ * double-debit. Callers create the stock-out movements only when this returns
+ * a value. Dispatches confirmed before the debit-on-dispatched change already
+ * carry stockDebited=true and are left untouched.
+ */
+export async function markStockDebited(id: string, debitedBy: string) {
+  return db.updateItemIf(
+    `GOODS_DISPATCH#${id}`,
+    `GOODS_DISPATCH#${id}`,
+    {
+      stockDebited: true,
+      debitedAt: db.nowISO(),
+      debitedBy,
+      updatedAt: db.nowISO(),
+    },
+    "stockDebited = :false",
+    { ":false": false },
+    true,
   ) as Promise<GoodsDispatch | null>;
 }
 

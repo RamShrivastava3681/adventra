@@ -341,7 +341,8 @@ const api = {
       api.post<any>(`/approvals/${token}/respond`, { decision, comments }),
   },
 
-  // Goods Dispatches (dispatch notes — DEBIT inventory when confirmed)
+  // Goods Dispatches (dispatch notes — DEBIT inventory when the warehouse
+  // moves the status to Dispatched; confirming only releases for picking)
   goodsDispatches: {
     list: () => api.get<any[]>("/goods-dispatches"),
     get: (id: string) => api.get<any>(`/goods-dispatches/${id}`),
@@ -353,8 +354,10 @@ const api = {
     cancel: (id: string) => api.post<any>(`/goods-dispatches/${id}/cancel`, {}),
     deliver: (id: string, data: any) => api.post<any>(`/goods-dispatches/${id}/deliver`, data),
     return: (id: string, data: any) => api.post<any>(`/goods-dispatches/${id}/return`, data),
-    // Move the logistics pipeline forward (stock is never touched). Sending
-    // the current status again saves carrier/tracking/notes without moving.
+    // Move the warehouse pipeline forward (Awaiting Pickup → Picking →
+    // Packing → Dispatched → In Transit → Delivered). Only the move to
+    // Dispatched debits inventory. Sending the current status again saves
+    // carrier/tracking/notes without moving.
     shippingStatus: (
       id: string,
       status: "awaiting_pick" | "picking" | "packed" | "dispatched" | "in_transit" | "delivered",

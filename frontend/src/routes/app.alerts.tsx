@@ -211,7 +211,7 @@ function activityMessage(e: AuditEntry): string {
     case "proforma.funded": return `Proforma ${ref} was funded`;
     case "grn.confirmed": return `GRN ${ref} was confirmed — stock credited`;
     case "grn.cancelled": return `GRN ${ref} was cancelled`;
-    case "dispatch.confirmed": return `Dispatch ${ref} was confirmed — stock debited`;
+    case "dispatch.confirmed": return `Dispatch ${ref} was confirmed — released for picking`;
     case "dispatch.cancelled": return `Dispatch ${ref} was cancelled`;
     case "dispatch.delivered": return `Dispatch ${ref} was marked delivered`;
     case "dispatch.returned": return `Return was recorded on dispatch ${ref}`;

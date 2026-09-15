@@ -439,7 +439,7 @@ export function SalesOrdersPage() {
       <PageHeader
         eyebrow="Sales"
         title="Sales orders"
-        description="A sales order records the customer's confirmed order. It never debits inventory — stock reduces only after a confirmed dispatch."
+        description="A sales order records the customer's confirmed order. It never debits inventory — stock reduces only after the dispatch status moves to Dispatched."
         icon={<ShoppingBag className="h-5 w-5" />}
         actions={
           canWrite ? (

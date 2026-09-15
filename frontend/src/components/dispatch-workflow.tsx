@@ -13,7 +13,8 @@ import api from "@/lib/api-client";
  *  - RecordEwbModal: Finance records the E-Way Bill from Tally (or marks it
  *    "not required" with an authorised reason).
  *  - ConfirmDispatchModal: warehouse confirms the physical dispatch with
- *    actuals (date/time, vehicle, packed qty, LR number) — inventory debits.
+ *    actuals (date/time, vehicle, packed qty, LR number) — released for
+ *    picking; inventory debits only when the status moves to Dispatched.
  *  - sendBack helper: Finance returns the order for correction (reason needed).
  */
 
@@ -427,7 +428,7 @@ export function ConfirmDispatchModal({
         lrNumber: lrNumber || null,
       }),
     onSuccess: () => {
-      toast.success("Physical dispatch confirmed — inventory debited");
+      toast.success("Dispatch confirmed — released for picking. Move to Dispatched to debit stock");
       onDone();
       onClose();
     },
@@ -437,7 +438,7 @@ export function ConfirmDispatchModal({
   return (
     <ModalShell
       title="Confirm Physical Dispatch"
-      subtitle="Confirming debits inventory from the selected warehouse — this cannot be undone."
+      subtitle="Confirming releases the order for picking — inventory debits only when the status moves to Dispatched."
       onClose={onClose}
     >
       <div className="grid grid-cols-2 gap-3">
@@ -465,7 +466,7 @@ export function ConfirmDispatchModal({
           ) : (
             <PackageCheck className="h-3.5 w-3.5" />
           )}
-          Confirm dispatch (debit stock)
+          Confirm dispatch (release for picking)
         </button>
       </div>
     </ModalShell>

@@ -17,7 +17,6 @@ import {
   Palette,
   Package,
   Users,
-  Search,
   Menu,
   Mail,
   ShoppingBag,
@@ -30,14 +29,6 @@ import {
 } from "lucide-react";
 import { useTheme } from "@/lib/theme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import {
-  CommandDialog,
-  CommandInput,
-  CommandList,
-  CommandEmpty,
-  CommandGroup,
-  CommandItem,
-} from "@/components/ui/command";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { AppSidebar } from "@/components/app-sidebar";
 import { AppTopbar, ThemeMenu } from "@/components/app-topbar";
@@ -277,7 +268,6 @@ function AppLayout() {
   const viewAsTarget = viewAsTargetQ.data;
   const viewAsActive = !!viewAsUserId;
   const effectiveRoles = viewAsActive ? (viewAsTarget?.roles ?? []) : (user?.roles ?? []);
-  const [cmdOpen, setCmdOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     try {
@@ -296,18 +286,6 @@ function AppLayout() {
       return !c;
     });
   };
-
-  // Cmd+K / Ctrl+K keyboard shortcut
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        setCmdOpen((o) => !o);
-      }
-    };
-    document.addEventListener("keydown", down);
-    return () => document.removeEventListener("keydown", down);
-  }, []);
 
   useEffect(() => {
     if (!loading && !user) navigate({ to: "/auth" });
@@ -643,10 +621,6 @@ function AppLayout() {
             <AppSidebar
               navSections={navSections}
               pathname={pathname}
-              onSearch={() => {
-                setMobileOpen(false);
-                setCmdOpen(true);
-              }}
               viewSearch={viewSearch}
               badges={{ checker: checkerCount, queue: queueCount }}
               hideCollapse
@@ -671,13 +645,6 @@ function AppLayout() {
               </span>
             )}
           </Link>
-          <button
-            onClick={() => setCmdOpen(true)}
-            aria-label="Quick navigate"
-            className="rounded-md border border-border p-2 text-muted-foreground"
-          >
-            <Search className="h-4 w-4" />
-          </button>
           <ThemeMenu theme={theme} setTheme={setTheme} />
         </div>
       </div>
@@ -689,7 +656,6 @@ function AppLayout() {
           pathname={pathname}
           collapsed={collapsed}
           onToggleCollapse={toggleCollapsed}
-          onSearch={() => setCmdOpen(true)}
           viewSearch={viewSearch}
           badges={{ checker: checkerCount, queue: queueCount }}
         />
@@ -714,7 +680,6 @@ function AppLayout() {
         <AppTopbar
           currentPage={currentPage}
           pageIcon={pageIcon}
-          onSearch={() => setCmdOpen(true)}
           alertsCount={alertsCount}
           userEmail={user?.email}
           userPhotoUrl={user?.photoUrl}
@@ -728,60 +693,6 @@ function AppLayout() {
         </div>
       </main>
 
-      {/* ─── Command palette ─────────────────────────────── */}
-      <CommandDialog open={cmdOpen} onOpenChange={setCmdOpen}>
-        <CommandInput placeholder="Search pages…" />
-        <CommandList>
-          <CommandEmpty>No pages found.</CommandEmpty>
-          {navSections.map((section) => {
-            if (section.type === "single") {
-              const Icon = section.icon;
-              return (
-                <CommandGroup key={section.to} heading={section.label}>
-                  <CommandItem
-                    value={section.label}
-                    onSelect={() => {
-                      setCmdOpen(false);
-                      navigate({ to: section.to, search: viewSearch });
-                    }}
-                    className="cursor-pointer"
-                  >
-                    <Icon className="mr-2 h-4 w-4" />
-                    <span>{section.label}</span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">
-                      {section.to.replace("/app/", "")}
-                    </span>
-                  </CommandItem>
-                </CommandGroup>
-              );
-            }
-            return (
-              <CommandGroup key={section.label} heading={section.label}>
-                {section.items.map((n) => {
-                  const Icon = n.icon;
-                  return (
-                    <CommandItem
-                      key={n.to}
-                      value={`${section.label} ${n.label}`}
-                      onSelect={() => {
-                        setCmdOpen(false);
-                        navigate({ to: n.to, search: viewSearch });
-                      }}
-                      className="cursor-pointer"
-                    >
-                      <Icon className="mr-2 h-4 w-4" />
-                      <span>{n.label}</span>
-                      <span className="ml-auto text-[10px] text-muted-foreground">
-                        {n.to.replace("/app/", "")}
-                      </span>
-                    </CommandItem>
-                  );
-                })}
-              </CommandGroup>
-            );
-          })}
-        </CommandList>
-      </CommandDialog>
     </div>
   );
 }
