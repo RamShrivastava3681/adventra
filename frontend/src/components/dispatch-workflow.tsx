@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Send, FileCheck, Undo2, PackageCheck, Truck } from "lucide-react";
+import { Loader2, Send, FileCheck, Undo2, PackageCheck, Truck, CalendarClock } from "lucide-react";
 
 export const DispatchFlowIcons = { Truck, Send, FileCheck };
 import api from "@/lib/api-client";
@@ -470,6 +470,304 @@ export function ConfirmDispatchModal({
         </button>
       </div>
     </ModalShell>
+  );
+}
+
+// ─── Awaiting Pickup transporter/upload form ───────────────────────────────
+// Opened when the pipeline moves to Awaiting Pickup: transporter + vehicle /
+// transport-document details are mandatory and become visible to Finance.
+export function AwaitingPickupTransportModal({
+  dispatch,
+  onClose,
+  onDone,
+}: {
+  dispatch: any;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const [f, setF] = useState({
+    transporterName: dispatch.transporter_name ?? "",
+    transporterId: dispatch.transporter_id ?? "",
+    transportMode: dispatch.transport_mode ?? "Road",
+    distanceKm: dispatch.distance_km ?? "",
+    vehicleNumber: dispatch.vehicle_number ?? "",
+    vehicleType: dispatch.vehicle_type ?? "",
+    transportDocType: dispatch.transport_doc_type ?? "",
+    transportDocNumber: dispatch.transport_doc_number ?? dispatch.tracking_number ?? "",
+    transportDocDate: dispatch.transport_doc_date ?? "",
+    driverName: dispatch.driver_name ?? "",
+    driverMobile: dispatch.driver_mobile ?? "",
+    plannedDispatchAt: dispatch.planned_dispatch_at?.slice(0, 16) ?? "",
+    notes: "",
+  });
+  const set = (k: string, v: any) => setF((p) => ({ ...p, [k]: v }));
+
+  const save = useMutation({
+    mutationFn: async () => {
+      if (!String(f.transporterName).trim()) throw new Error("Transporter name is required");
+      if (!String(f.transportMode).trim()) throw new Error("Transport mode is required");
+      if (!(Number(f.distanceKm) > 0)) throw new Error("Approximate distance (km) is required");
+      if (!String(f.vehicleNumber).trim() && !String(f.transportDocNumber).trim())
+        throw new Error("Vehicle number or transport document number is required");
+      return api.goodsDispatches.shippingStatus(dispatch.id, "awaiting_pick", {
+        transporterName: f.transporterName.trim(),
+        transporterId: f.transporterId.trim() || null,
+        transportMode: f.transportMode,
+        distanceKm: Number(f.distanceKm),
+        vehicleNumber: f.vehicleNumber.trim() || null,
+        vehicleType: f.vehicleType.trim() || null,
+        transportDocType: f.transportDocType || null,
+        transportDocNumber: f.transportDocNumber.trim() || null,
+        transportDocDate: f.transportDocDate || null,
+        driverName: f.driverName.trim() || null,
+        driverMobile: f.driverMobile.trim() || null,
+        plannedDispatchAt: f.plannedDispatchAt || null,
+        trackingNumber: f.transportDocNumber.trim() || undefined,
+        notes: f.notes.trim() || undefined,
+      } as any);
+    },
+    onSuccess: () => {
+      toast.success("Moved to Awaiting Pickup — transporter details visible to Finance");
+      onDone();
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  return (
+    <ModalShell
+      title="Awaiting Pickup — transporter details"
+      subtitle={`Assign the transporter for ${dispatch.dispatch_number}. These details are fetched on the Finance Dispatch Orders tab.`}
+      onClose={onClose}
+    >
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Transporter name *">
+          <input className={inputCls} value={f.transporterName} onChange={(e) => set("transporterName", e.target.value)} placeholder="e.g. Safexpress" />
+        </Field>
+        <Field label="Transporter ID / GSTIN">
+          <input className={inputCls} value={f.transporterId} onChange={(e) => set("transporterId", e.target.value)} placeholder="e.g. 88AAECS4363H1ZA" />
+        </Field>
+        <Field label="Transport mode *">
+          <select className={inputCls} value={f.transportMode} onChange={(e) => set("transportMode", e.target.value)}>
+            {TRANSPORT_MODES.map((m) => (
+              <option key={m} value={m}>{m}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Approximate distance (km) *">
+          <input type="number" min="0" className={inputCls} value={f.distanceKm} onChange={(e) => set("distanceKm", e.target.value)} />
+        </Field>
+        <Field label="Vehicle number">
+          <input className={inputCls} value={f.vehicleNumber} onChange={(e) => set("vehicleNumber", e.target.value)} placeholder="Or transport document below" />
+        </Field>
+        <Field label="Vehicle type">
+          <input className={inputCls} value={f.vehicleType} onChange={(e) => set("vehicleType", e.target.value)} />
+        </Field>
+        <Field label="Transport document type">
+          <select className={inputCls} value={f.transportDocType} onChange={(e) => set("transportDocType", e.target.value)}>
+            <option value="">—</option>
+            {TRANSPORT_DOC_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </select>
+        </Field>
+        <Field label="Transport document number">
+          <input className={inputCls} value={f.transportDocNumber} onChange={(e) => set("transportDocNumber", e.target.value)} placeholder="LR / GR / AWB number" />
+        </Field>
+        <Field label="Transport document date">
+          <input type="date" className={inputCls} value={f.transportDocDate} onChange={(e) => set("transportDocDate", e.target.value)} />
+        </Field>
+        <Field label="Planned pickup date / time">
+          <input type="datetime-local" className={inputCls} value={f.plannedDispatchAt} onChange={(e) => set("plannedDispatchAt", e.target.value)} />
+        </Field>
+        <Field label="Driver name / mobile">
+          <div className="flex gap-2">
+            <input className={inputCls} value={f.driverName} onChange={(e) => set("driverName", e.target.value)} placeholder="Name" />
+            <input className={inputCls} value={f.driverMobile} onChange={(e) => set("driverMobile", e.target.value)} placeholder="Mobile" />
+          </div>
+        </Field>
+        <Field label="Note for Finance">
+          <input className={inputCls} value={f.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Optional" />
+        </Field>
+      </div>
+      <div className="flex gap-2 border-t border-border pt-3">
+        <button
+          onClick={() => save.mutate()}
+          disabled={save.isPending}
+          className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10 disabled:opacity-50"
+        >
+          {save.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Truck className="h-3.5 w-3.5" />}
+          Save & move to Awaiting Pickup
+        </button>
+      </div>
+    </ModalShell>
+  );
+}
+
+// ─── Dispatch status date timeline (timeline-derived, no DB change) ────────
+// Shows one dated row per shipping-pipeline stage ("Picking on 18 Sep…").
+// Dates come from the per-document activity timeline (latest entry whose
+// new_status matches the stage); the current stage falls back to
+// shipping_status_at, plus dispatch-level fallbacks (created_at,
+// actual_dispatched_at, delivered_at…). Re-renders automatically because it
+// shares the ["timeline", "dispatch", id] query with DocumentTimelinePanel.
+const JOURNEY_STAGES = [
+  { key: "awaiting_pick", label: "Awaiting Pickup" },
+  { key: "picking", label: "Picking" },
+  { key: "packed", label: "Packed" },
+  { key: "dispatched", label: "Dispatched" },
+  { key: "in_transit", label: "In Transit" },
+  { key: "delivered", label: "Delivered" },
+] as const;
+
+function fmtJourneyDateTime(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return String(iso);
+  const date = d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `${date} · ${time}`;
+}
+
+export function DispatchStatusTimeline({ dispatch }: { dispatch: any }) {
+  const d = dispatch ?? {};
+  const docId = d.id as string | undefined;
+
+  const q = useQuery({
+    queryKey: ["timeline", "dispatch", docId],
+    queryFn: () => api.timeline.list("dispatch", docId as string),
+    enabled: !!docId,
+  });
+  const entries: any[] = q.data?.entries ?? [];
+
+  // Latest timeline entry per new_status (status_change / system / assignment).
+  const latestByStatus = new Map<string, any>();
+  for (const e of entries) {
+    const ns = String(e?.new_status ?? "").toLowerCase();
+    if (!ns) continue;
+    const prev = latestByStatus.get(ns);
+    if (!prev || String(e.created_at ?? "") >= String(prev.created_at ?? "")) {
+      latestByStatus.set(ns, e);
+    }
+  }
+
+  const ship: string | null =
+    d.shipping_status ?? d.shippingStatus ?? d.shippingstatus ?? null;
+  const order = JOURNEY_STAGES.map((s) => s.key);
+  let currentIdx = ship ? order.indexOf(String(ship).toLowerCase() as any) : -1;
+  if (currentIdx < 0 && !ship) {
+    // Legacy dispatches without a shipping_status: infer rough progress from
+    // the document status so the timeline isn't entirely grey.
+    const st = String(d.status ?? "").toLowerCase();
+    if (st === "delivered") currentIdx = 5;
+    else if (st === "partially_delivered") currentIdx = 3;
+    else if (st === "confirmed" || st === "ready_for_dispatch") currentIdx = 1;
+    else if (st === "details_submitted") currentIdx = 0;
+  }
+
+  const terminalKind = ["cancelled", "returned"].includes(String(d.status ?? "").toLowerCase())
+    ? String(d.status).toLowerCase()
+    : null;
+  const terminalEntry =
+    (terminalKind && latestByStatus.get(terminalKind)) || null;
+  const terminalAt =
+    terminalEntry?.created_at ??
+    (terminalKind === "cancelled"
+      ? (d.cancelled_at ?? d.cancelledAt ?? null)
+      : (d.returned_at ?? d.returnedAt ?? null));
+
+  const rows = JOURNEY_STAGES.map((s, i) => {
+    const entry = latestByStatus.get(s.key) ?? null;
+    let at: string | null = entry?.created_at ?? null;
+    let by: string | null = entry?.actor_email ?? null;
+    let note: string | null = entry?.text ?? null;
+    // Current-stage fallback: the dispatch row always carries the last move.
+    if (!at && ship && String(ship).toLowerCase() === s.key) {
+      at = d.shipping_status_at ?? d.shippingStatusAt ?? null;
+      by = by ?? d.shipping_status_by ?? d.shippingStatusBy ?? null;
+    }
+    // Stage-specific dispatch-level fallbacks for old docs with no timeline.
+    if (!at && s.key === "dispatched") {
+      at = d.actual_dispatched_at ?? d.actualDispatchedAt ?? d.debited_at ?? d.debitedAt ?? at;
+    }
+    if (!at && s.key === "delivered") {
+      at = d.delivered_at ?? d.deliveredAt ?? d.delivery_date ?? d.deliveryDate ?? at;
+    }
+    if (i === 0 && !at) {
+      at = d.created_at ?? d.createdAt ?? at;
+    }
+    const done = !!at;
+    const isCurrent = !terminalKind && i === currentIdx;
+    return { ...s, i, at, by, note, done, isCurrent };
+  });
+
+  return (
+    <div className="rounded-lg border border-border/60 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <CalendarClock className="h-4 w-4 text-muted-foreground" />
+        <h4 className="text-sm font-semibold">Dispatch journey</h4>
+        <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+          dates update as the status changes
+        </span>
+        {q.isLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+      </div>
+      <ol className="relative ml-1.5 space-y-0 border-l border-border pl-5">
+        <li className="relative pb-3">
+          <span className="absolute -left-[27px] top-0.5 h-2.5 w-2.5 rounded-full bg-sem-success ring-4 ring-sem-success/15" />
+          <div className="text-xs font-medium">Created</div>
+          <div className="text-[11px] text-muted-foreground">
+            {fmtJourneyDateTime(d.created_at ?? d.createdAt) ?? "—"}
+          </div>
+        </li>
+        {rows.map((r) => (
+          <li key={r.key} className="relative pb-3 last:pb-0">
+            <span
+              className={`absolute -left-[27px] top-0.5 h-2.5 w-2.5 rounded-full ring-4 ${
+                r.done
+                  ? "bg-sem-success ring-sem-success/15"
+                  : r.isCurrent
+                    ? "bg-primary ring-primary/15"
+                    : "bg-muted ring-muted/40"
+              }`}
+            />
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <span className={`text-xs font-medium ${r.done ? "" : "text-muted-foreground"}`}>
+                {r.label}
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                {r.at ? `on ${fmtJourneyDateTime(r.at)}` : "— pending"}
+              </span>
+            </div>
+            {r.at && r.by && (
+              <div className="text-[10px] text-muted-foreground">by {r.by}</div>
+            )}
+            {r.at && r.note && (
+              <div className="mt-0.5 max-w-full truncate text-[10px] text-muted-foreground" title={r.note}>
+                {r.note}
+              </div>
+            )}
+          </li>
+        ))}
+        {terminalKind && (
+          <li className="relative pt-1">
+            <span className="absolute -left-[27px] top-1.5 h-2.5 w-2.5 rounded-full bg-destructive ring-4 ring-destructive/15" />
+            <div className="text-xs font-medium capitalize text-destructive">{terminalKind}</div>
+            <div className="text-[11px] text-muted-foreground">
+              {terminalAt ? `on ${fmtJourneyDateTime(terminalAt)}` : ""}
+              {terminalEntry?.actor_email ? ` · by ${terminalEntry.actor_email}` : ""}
+            </div>
+            {terminalEntry?.text && (
+              <div className="mt-0.5 text-[10px] text-muted-foreground">{terminalEntry.text}</div>
+            )}
+          </li>
+        )}
+      </ol>
+      {!q.isLoading && entries.length === 0 && (
+        <p className="mt-2 text-[10px] text-muted-foreground">
+          No status changes recorded yet — dates appear here after the first move.
+        </p>
+      )}
+    </div>
   );
 }
 

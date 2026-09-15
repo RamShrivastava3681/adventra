@@ -255,6 +255,25 @@ export function InvoiceDetailModal({
           {i.received_date && <D label="Received" value={fmtDate(i.received_date)} />}
           {i.paid_date && <D label="Paid on" value={fmtDate(i.paid_date)} />}
           {i.created_at && <D label="Created" value={fmtDate(i.created_at)} />}
+          {isSale && (i.utr_reference || i.payment_amount != null) && (
+            <D
+              label="UTR / payment"
+              value={
+                <span>
+                  {i.utr_reference && (
+                    <span className="font-mono" title={String(i.utr_reference)}>
+                      {String(i.utr_reference)}
+                    </span>
+                  )}
+                  {i.payment_amount != null && (
+                    <div className="num mt-0.5 text-[11px] text-muted-foreground">
+                      {fmtMoney(Number(i.payment_amount))}
+                    </div>
+                  )}
+                </span>
+              }
+            />
+          )}
           {isSale && i.payment_terms && <D label="Payment terms" value={i.payment_terms} />}
           {isSale && i.goods_sales_order_number && (
             <D label="Sales order" value={i.goods_sales_order_number} />

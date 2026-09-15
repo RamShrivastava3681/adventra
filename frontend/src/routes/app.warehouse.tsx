@@ -29,9 +29,12 @@ import {
   MoreVertical,
   ChevronRight,
   Clock3,
+  AlertTriangle,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
+import { AwaitingPickupTransportModal } from "@/components/dispatch-workflow";
+import { useQueryClient } from "@tanstack/react-query";
 
 export const Route = createFileRoute("/app/warehouse")({
   component: WarehousePage,
@@ -259,6 +262,21 @@ export function WarehousePage() {
 
   const totalStockValue = stock.reduce((s, r) => s + r.value, 0);
   const totalUnits = stock.reduce((s, r) => s + r.qty, 0);
+
+  // ── Live in-stock quantity per product (confirmed movements only) ──
+  // Used by the Pending Sales Order approval check: every SO line is
+  // verified against current stock before the order can be approved.
+  const stockByProduct = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const r of movements as any[]) {
+      if (r.status !== "confirmed") continue;
+      const pid = r.product_id ?? r.productId;
+      if (!pid) continue;
+      const qty = Number(r.quantity) || 0;
+      map.set(pid, (map.get(pid) ?? 0) + (r.direction === "in" ? qty : -qty));
+    }
+    return map;
+  }, [movements]);
 
   // â”€â”€ Order sign-off queue (hard gate: only approved SOs can be dispatched) â”€â”€
   const signoffOrders = orders.filter(
@@ -522,6 +540,8 @@ export function WarehousePage() {
   });
 
   const [actingId, setActingId] = useState<string | null>(null);
+  // Pending Sales Order approval popup: the order being verified line-by-line.
+  const [approveFor, setApproveFor] = useState<SO | null>(null);
   const refreshDispatches = () => {
     qc.invalidateQueries({ queryKey: ["wh_dispatches"] });
     qc.invalidateQueries({ queryKey: ["goods_dispatches"] });
@@ -556,7 +576,7 @@ export function WarehousePage() {
 
   const tabs: { id: Tab; label: string; icon: any; count?: number }[] = [
     { id: "overview", label: "Overview", icon: BarChart3 },
-    { id: "orders", label: "Order sign-offs", icon: ClipboardCheck, count: pendingSignoffs.length },
+    { id: "orders", label: "Pending Sales Order", icon: ClipboardCheck, count: pendingSignoffs.length },
     { id: "ready", label: "Ready to dispatch", icon: PackageCheck, count: readyOrders.length + readyInvoices.length },
     { id: "dispatches", label: "Dispatches", icon: Truck, count: openDispatches.length },
     { id: "movements", label: "Inventory movements", icon: Boxes, count: movements.length },
@@ -638,7 +658,7 @@ export function WarehousePage() {
         ) : (
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <KpiCard
-              title="Order Sign-offs Pending"
+              title="Pending Sales Order"
               value={String(pendingSignoffs.length)}
               hint="Awaiting warehouse decision"
               icon={<ClipboardCheck className="h-5 w-5" />}
@@ -756,11 +776,14 @@ export function WarehousePage() {
                                       <button
                                         onClick={() => {
                                           setOpenMenuId(null);
-                                          signoff.mutate({ id: w.id.replace("so-", ""), action: "approve" });
+                                          setTab("orders");
+                                          document
+                                            .getElementById("wh-detail-queues")
+                                            ?.scrollIntoView({ behavior: "smooth" });
                                         }}
                                         className="block w-full px-3 py-2 text-left text-[13px] hover:bg-muted/50"
                                       >
-                                        Approve sign-off
+                                        Verify & approve
                                       </button>
                                       <button
                                         onClick={() => {
@@ -945,7 +968,7 @@ export function WarehousePage() {
         )}
 
         {tab === "orders" && (
-          <Card title="Sales orders for warehouse sign-off">
+          <Card title="Pending sales orders">
             {ordersQ.isLoading ? (
               <TableSkeleton rows={4} />
             ) : signoffOrders.length === 0 ? (
@@ -988,8 +1011,9 @@ export function WarehousePage() {
                         {canDecide && (
                           <div className="inline-flex gap-2">
                             <button
-                              onClick={() => signoff.mutate({ id: o.id, action: "approve" })}
+                              onClick={() => setApproveFor(o)}
                               disabled={signoff.isPending}
+                              title="Verify stock line-by-line before approving"
                               className="inline-flex items-center gap-1 rounded-md bg-primary px-2.5 py-1 text-xs text-primary-foreground disabled:opacity-60"
                             >
                               <CheckCircle2 className="h-3 w-3" /> Approve
@@ -1016,8 +1040,30 @@ export function WarehousePage() {
             )}
             <p className="mt-4 text-xs text-muted-foreground">
               Warehouse approval sends the order to the Checker. Dispatch notes cannot be created until both approvals are complete.
+              Approval requires verifying every line item against live stock — short lines block approval.
             </p>
           </Card>
+        )}
+
+        {approveFor && (
+          <SignoffApproveModal
+            order={approveFor}
+            stockByProduct={stockByProduct}
+            approving={signoff.isPending}
+            onClose={() => setApproveFor(null)}
+            onApprove={(id, notes) => {
+              signoff.mutate(
+                { id, action: "approve", notes },
+                { onSuccess: () => setApproveFor(null) },
+              );
+            }}
+            onReject={(id, notes) => {
+              signoff.mutate(
+                { id, action: "reject", notes },
+                { onSuccess: () => setApproveFor(null) },
+              );
+            }}
+          />
         )}
 
         {tab === "ready" && (
@@ -1030,7 +1076,7 @@ export function WarehousePage() {
                 <EmptyState
                   icon={<PackageCheck className="h-5 w-5" />}
                   title="No orders waiting"
-                  description="Approve orders in Order sign-offs, then wait for Checker approval. Confirmed orders appear here."
+                  description="Approve orders in Pending Sales Order, then wait for Checker approval. Confirmed orders appear here."
                 />
               ) : (
                 <Table head={["Order", "Buyer", "Expected", "Pending qty", "Pending value", ""]}>
@@ -1308,6 +1354,13 @@ function DispatchTable({
   const [editing, setEditing] = useState<string | null>(null);
   const [carrier, setCarrier] = useState("");
   const [tracking, setTracking] = useState("");
+  const [awaitingPickupFor, setAwaitingPickupFor] = useState<Dispatch | null>(null);
+  const qc = useQueryClient();
+  const refreshAfterTransport = () => {
+    qc.invalidateQueries({ queryKey: ["wh_dispatches"] });
+    qc.invalidateQueries({ queryKey: ["goods-dispatches"] });
+    qc.invalidateQueries({ queryKey: ["goods_dispatches"] });
+  };
 
   const startEdit = (d: Dispatch) => {
     setEditing(d.id);
@@ -1433,7 +1486,15 @@ function DispatchTable({
                         className="rounded-md border border-border bg-input px-2 py-1 text-xs"
                         value={current}
                         disabled={moving}
-                        onChange={(e) => onMove({ id: d.id, status: e.target.value as ShippingStatus })}
+                        onChange={(e) => {
+                          const next = e.target.value as ShippingStatus;
+                          // Awaiting Pickup always collects transporter/upload details first.
+                          if (next === "awaiting_pick") {
+                            setAwaitingPickupFor(d);
+                            return;
+                          }
+                          onMove({ id: d.id, status: next });
+                        }}
                         title="Awaiting Pickup → Picking → Packing → Dispatched (debits stock) → In Transit → Delivered"
                       >
                         <option value={current}>{SHIPPING_LABEL[current]}</option>
@@ -1488,13 +1549,215 @@ function DispatchTable({
       <p className="mt-4 text-xs text-muted-foreground">
         The pipeline moves forward only (Awaiting Pickup → Picking → Packing → Dispatched → In Transit → Delivered).
         Only the move to Dispatched debits inventory. Selecting
-        "Delivered" records delivery against the dispatch.
+        "Delivered" records delivery against the dispatch. Selecting "Awaiting Pickup"
+        opens the transporter/upload form — those details are fetched on the Finance Dispatch Orders tab.
       </p>
+      {awaitingPickupFor && (
+        <AwaitingPickupTransportModal
+          dispatch={awaitingPickupFor}
+          onClose={() => setAwaitingPickupFor(null)}
+          onDone={refreshAfterTransport}
+        />
+      )}
     </Card>
   );
 }
 
 // â”€â”€â”€ Shared table shell (matches the app's list pages) â”€â”€
+// ─── Pending Sales Order approval popup ────────────────────────────────
+// Every SO line is fetched with its live in-stock quantity. The user must
+// check each line; approval is blocked while any line is short of stock.
+function SignoffApproveModal({
+  order,
+  stockByProduct,
+  approving,
+  onClose,
+  onApprove,
+  onReject,
+}: {
+  order: SO;
+  stockByProduct: Map<string, number>;
+  approving: boolean;
+  onClose: () => void;
+  onApprove: (id: string, notes?: string) => void;
+  onReject: (id: string, notes?: string) => void;
+}) {
+  const [checked, setChecked] = useState<Record<string, boolean>>({});
+  const [notes, setNotes] = useState("");
+
+  const lines = (order.lines ?? []).map((l) => {
+    const pending = Math.max(0, Number(l.ordered_qty) - Number(l.dispatched_qty ?? 0));
+    const available = stockByProduct.get(l.product_id) ?? 0;
+    return { ...l, pending, available, short: available < pending };
+  });
+  const shortLines = lines.filter((l) => l.short);
+  const allChecked = lines.length > 0 && lines.every((l) => checked[l.product_id]);
+  const canApprove = allChecked && shortLines.length === 0 && !approving;
+
+  const blockReason =
+    lines.length === 0
+      ? "This order has no lines to verify."
+      : shortLines.length > 0
+        ? `${shortLines.length} line${shortLines.length === 1 ? " is" : "s are"} short of stock — approval is blocked until stock arrives.`
+        : !allChecked
+          ? `Check all ${lines.length} line${lines.length === 1 ? "" : "s"} to enable approval (${lines.filter((l) => checked[l.product_id]).length}/${lines.length} verified).`
+          : null;
+
+  const toggleAll = () => {
+    if (allChecked) setChecked({});
+    else {
+      const next: Record<string, boolean> = {};
+      for (const l of lines) next[l.product_id] = true;
+      setChecked(next);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-xl border border-border bg-card"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <div>
+            <h3 className="font-display text-lg">Verify stock — {order.so_number}</h3>
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              {order.customer_name ?? "—"} · approval needs every line checked and fully in stock
+            </div>
+          </div>
+          <button onClick={onClose} aria-label="Close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="space-y-4 p-5 text-sm">
+          <div className="overflow-x-auto rounded-lg border border-border/60">
+            <table className="w-full text-sm">
+              <thead className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                <tr className="border-b border-border">
+                  <th className="px-3 py-2 text-left font-normal">
+                    <button
+                      onClick={toggleAll}
+                      className="inline-flex items-center gap-1.5 hover:text-foreground"
+                      title={allChecked ? "Uncheck all" : "Check all"}
+                    >
+                      <input
+                        type="checkbox"
+                        readOnly
+                        checked={allChecked}
+                        className="h-3.5 w-3.5 accent-primary"
+                      />
+                      Product
+                    </button>
+                  </th>
+                  <th className="px-3 py-2 text-right font-normal">Ordered</th>
+                  <th className="px-3 py-2 text-right font-normal">Pending</th>
+                  <th className="px-3 py-2 text-right font-normal">In stock</th>
+                  <th className="px-3 py-2 text-center font-normal">Verified</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((l) => (
+                  <tr
+                    key={l.product_id}
+                    className={`border-b border-border/40 ${l.short ? "bg-destructive/5" : ""}`}
+                  >
+                    <td className="px-3 py-2">
+                      <div className="font-medium">{l.name}</div>
+                      {l.sku && (
+                        <div className="font-mono text-[10px] text-muted-foreground">{l.sku}</div>
+                      )}
+                      {l.short && (
+                        <div className="text-[11px] font-medium text-destructive">
+                          Short by {(l.pending - l.available).toLocaleString()} — not available
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-right num">{Number(l.ordered_qty).toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right num">{l.pending.toLocaleString()}</td>
+                    <td className={`px-3 py-2 text-right num ${l.short ? "font-semibold text-destructive" : "text-sem-success"}`}>
+                      {l.available.toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        aria-label={`Verify ${l.name}`}
+                        checked={!!checked[l.product_id]}
+                        onChange={(e) =>
+                          setChecked((c) => ({ ...c, [l.product_id]: e.target.checked }))
+                        }
+                        className="h-4 w-4 accent-primary"
+                      />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {blockReason && (
+            <div
+              className={`flex items-start gap-2 rounded-md border p-3 text-xs ${
+                shortLines.length > 0
+                  ? "border-destructive/30 bg-destructive/5 text-destructive"
+                  : "border-sem-attention/30 bg-sem-attention/5 text-sem-attention"
+              }`}
+            >
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>{blockReason}</span>
+            </div>
+          )}
+
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+              Warehouse notes (optional for approve, sent with reject)
+            </span>
+            <textarea
+              rows={2}
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder="Rack / batch verification notes…"
+              className="w-full resize-y rounded-md border border-border bg-input px-2.5 py-2 text-sm focus:border-primary focus:outline-none"
+            />
+          </label>
+
+          <div className="flex flex-wrap justify-end gap-2 border-t border-border pt-3">
+            <button
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm"
+            >
+              Close
+            </button>
+            <button
+              onClick={() => onReject(order.id, notes.trim() || undefined)}
+              disabled={approving}
+              className="inline-flex items-center gap-1.5 rounded-md border border-border px-4 py-2 text-sm disabled:opacity-60"
+            >
+              <Ban className="h-3.5 w-3.5" /> Reject
+            </button>
+            <button
+              onClick={() => canApprove && onApprove(order.id, notes.trim() || undefined)}
+              disabled={!canApprove}
+              title={!canApprove ? (blockReason ?? "Verify all lines to approve") : "Approve — sends the order to the Checker"}
+              className="inline-flex items-center gap-1.5 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-50"
+            >
+              {approving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
+              Approve all lines
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Table({ head, children }: { head: string[]; children: React.ReactNode }) {
   return (
     <div className="-mx-5 overflow-x-auto table-wrap">

@@ -74,12 +74,13 @@ type Task = {
   overdue?: boolean;
 };
 
-/** Finance family only — receivables, payables and treasury handoffs. */
+/** Finance family only — receivables, payables, treasury handoffs + dispatch EWB tasks. */
 const FINANCE_WF_TYPES = new Set([
   "sales_invoice",
   "purchase_invoice",
   "proforma",
   "payment",
+  "dispatch",
 ]);
 
 const WF_TYPE_LABEL: Record<string, string> = {
@@ -87,6 +88,7 @@ const WF_TYPE_LABEL: Record<string, string> = {
   purchase_invoice: "Purchase Invoice",
   proforma: "Proforma Invoice",
   payment: "Payment",
+  dispatch: "Dispatch Order",
 };
 
 /** owner_role → the team currently responsible for the next step. */
@@ -112,6 +114,8 @@ function docAppPath(t: Task): string {
       return "/app/proformas";
     case "payment":
       return "/app/queue";
+    case "dispatch":
+      return "/app/dispatches";
     default:
       return "/app/tasks";
   }
@@ -143,7 +147,7 @@ function daysOverdue(due: string | null | undefined): number {
 
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
 
-type FilterKey = "all" | "sales_invoices" | "purchase_invoices" | "proforma" | "payments";
+type FilterKey = "all" | "sales_invoices" | "purchase_invoices" | "proforma" | "payments" | "dispatch";
 
 const FILTERS: Array<{ key: FilterKey; label: string }> = [
   { key: "all", label: "All" },
@@ -151,6 +155,7 @@ const FILTERS: Array<{ key: FilterKey; label: string }> = [
   { key: "purchase_invoices", label: "Purchase Invoices" },
   { key: "proforma", label: "Proforma" },
   { key: "payments", label: "Payments" },
+  { key: "dispatch", label: "Dispatch Orders" },
 ];
 
 const PAGE_SIZE = 15;
@@ -165,6 +170,7 @@ type FinanceSection =
   | "sales-invoices"
   | "proformas"
   | "purchase-invoices"
+  | "dispatch-orders"
   | "tasks";
 
 const CashPanel = lazy(() =>
@@ -187,6 +193,11 @@ const ProformasPanel = lazy(() =>
 );
 const PurchaseInvoicesPanel = lazy(() =>
   import("@/routes/app.purchases").then((m) => ({ default: m.PurchasesPage })),
+);
+const DispatchOrdersPanel = lazy(() =>
+  import("@/routes/app.finance-dispatches").then((m) => ({
+    default: m.FinanceDispatchOrdersPanel,
+  })),
 );
 const FinanceTasksPanel = lazy(() =>
   import("@/routes/app.tasks").then((m) => ({ default: m.TasksPage })),
@@ -229,6 +240,9 @@ function FinanceWorkbenchPage() {
         return;
       case "payment":
         setSection("treasury");
+        return;
+      case "dispatch":
+        setSection("dispatch-orders");
         return;
       default:
         navigate({ to: docAppPath(t as any) as any });
@@ -290,6 +304,7 @@ function FinanceWorkbenchPage() {
       list = list.filter((t) => t.workflow_type === "purchase_invoice");
     else if (filter === "proforma") list = list.filter((t) => t.workflow_type === "proforma");
     else if (filter === "payments") list = list.filter((t) => t.workflow_type === "payment");
+    else if (filter === "dispatch") list = list.filter((t) => t.workflow_type === "dispatch");
     const q = query.trim().toLowerCase();
     if (q) {
       list = list.filter((t) =>
@@ -409,6 +424,11 @@ function FinanceWorkbenchPage() {
               label="Purchase Invoices"
               active={section === "purchase-invoices"}
               onClick={() => setSection("purchase-invoices")}
+            />
+            <NavTab
+              label="Dispatch Orders"
+              active={section === "dispatch-orders"}
+              onClick={() => setSection("dispatch-orders")}
             />
             <NavTab
               label="Activity History"
@@ -785,6 +805,7 @@ function FinanceWorkbenchPage() {
           {section === "sales-invoices" && <SalesInvoicesPanel />}
           {section === "proformas" && <ProformasPanel />}
           {section === "purchase-invoices" && <PurchaseInvoicesPanel />}
+          {section === "dispatch-orders" && <DispatchOrdersPanel />}
           {section === "tasks" && <FinanceTasksPanel />}
         </Suspense>
       )}

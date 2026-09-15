@@ -32,6 +32,7 @@ import {
   RecordEwbModal,
   ConfirmDispatchModal,
   DispatchFlowHint,
+  DispatchStatusTimeline,
 } from "@/components/dispatch-workflow";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
@@ -104,9 +105,12 @@ type Dispatch = {
   transporter_id?: string | null;
   distance_km?: number | null;
   vehicle_number?: string | null;
+  vehicle_type?: string | null;
   transport_doc_type?: string | null;
   transport_doc_number?: string | null;
   transport_doc_date?: string | null;
+  driver_name?: string | null;
+  driver_mobile?: string | null;
   driver_name?: string | null;
   driver_mobile?: string | null;
   eway_bill_number?: string | null;
@@ -659,9 +663,7 @@ export function DispatchesPageContent({
           preselectInvoiceId={preselectInvoiceId}
           createFromInvoice={!!preselectInvoiceId}
           initialStatus={initialStatus}
-          sos={(sosQ.data ?? []).filter((s: SO) =>
-            ["confirmed", "partially_dispatched"].includes(s.status),
-          )}
+          sos={(sosQ.data ?? []) as SO[]}
           products={productsQ.data ?? []}
           stockBalance={stockBalance}
           proformas={proformasQ.data ?? []}
@@ -790,11 +792,32 @@ function DispatchCreateModal({
     return debtors.find((d) => d.id === so.customer_id) ?? null;
   }, [so, selectedInvoice, debtors, createFromInvoice]);
 
-  // When the SO is picked, preload all lines with pending quantity.
+  // Dispatchable SOs (dropdown) — the pre-selected SO is always resolvable
+  // from the full list, even if it is not yet in a dispatchable status.
+  const dispatchableSos = useMemo(
+    () => sos.filter((s) => ["confirmed", "partially_dispatched"].includes(s.status)),
+    [sos],
+  );
+  const preselectedSoMissing =
+    !!preselectSoId && !sos.some((s) => s.id === preselectSoId);
+
+  // When the SO is picked, preload lines with pending quantity, customer
+  // context and delivery address so the form is never empty.
   const pickSo = (id: string) => {
     setSoId(id);
+    setInvoiceId("");
     setCreateFromInvoice(false);
     const s = sos.find((x) => x.id === id);
+    if (!s) {
+      setLines([]);
+      return;
+    }
+    setF((prev) => ({
+      ...prev,
+      // Always refresh from the newly picked SO's shipping address so a
+      // stale address from a previously selected SO never carries over.
+      delivery_address: s.delivery_address ?? "",
+    }));
     setLines(
       (s?.lines ?? [])
         .filter((l) => l.ordered_qty - (l.dispatched_qty ?? 0) > 0)
@@ -804,7 +827,10 @@ function DispatchCreateModal({
           name: l.name,
           unit: l.unit,
           ordered_qty: l.ordered_qty,
-          dispatched_qty: "",
+          // Pre-fill the pending quantity — user can still edit down.
+          dispatched_qty: String(
+            Math.max(0, l.ordered_qty - (l.dispatched_qty ?? 0)),
+          ),
           unit_price: String(l.unit_price),
         })),
     );
@@ -813,41 +839,83 @@ function DispatchCreateModal({
   // When the invoice is picked, load lines from the invoice and set SO reference
   const pickInvoice = (id: string) => {
     setInvoiceId(id);
+    setSoId("");
     setCreateFromInvoice(true);
     const inv = allInvoices.find((x) => x.id === id);
     if (inv) {
+      // Invoice carries the SO shipping address at creation; fall back to the
+      // linked SO's shipping address when the invoice has none stored.
+      const soShip = sos.find((s) => s.id === (inv as any).goods_sales_order_id)?.delivery_address ?? null;
       setF((prev) => ({
         ...prev,
         linked_sales_invoice_id: inv.id,
-        delivery_address: inv.delivery_address ?? prev.delivery_address,
+        delivery_address: inv.delivery_address ?? soShip ?? prev.delivery_address,
       }));
       setLines(
         (inv.lines ?? [])
-          .filter((l: any) => Number(l.quantity) > 0)
+          .filter((l: any) => Number(l.quantity ?? l.ordered_qty ?? 0) > 0)
           .map((l: any) => ({
             product_id: l.product_id,
             sku: l.sku,
             name: l.name,
             unit: l.unit,
-            ordered_qty: Number(l.quantity),
-            dispatched_qty: "",
+            ordered_qty: Number(l.quantity ?? l.ordered_qty ?? 0),
+            // Pre-fill full invoice quantity.
+            dispatched_qty: String(Number(l.quantity ?? l.ordered_qty ?? 0)),
             unit_price: String(l.unit_price),
           })),
       );
     }
   };
 
-  // Preload lines when arriving pre-selected from a sales order row.
+  // Preload lines when arriving pre-selected from a sales order row or the
+  // warehouse Ready tab. Depends on the async lists so data is present.
   useEffect(() => {
-    if (preselectSoId) pickSo(preselectSoId);
-  }, []);
+    if (preselectSoId && sos.length > 0 && !soId) pickSo(preselectSoId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselectSoId, sos]);
 
   // Preload when arriving pre-selected from an invoice
   useEffect(() => {
-    if (preselectInvoiceId) {
+    if (preselectInvoiceId && allInvoices.length > 0 && !invoiceId) {
       pickInvoice(preselectInvoiceId);
     }
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselectInvoiceId, allInvoices]);
+
+  // Fallback: fetch a single invoice directly when the pre-selected one is
+  // not in the cached list (e.g. filtered out).
+  useEffect(() => {
+    if (preselectInvoiceId && allInvoices.length > 0 && !selectedInvoice) {
+      api.invoices
+        .get(preselectInvoiceId)
+        .then((inv: any) => {
+          if (!inv?.id) return;
+          setInvoiceId(inv.id);
+          setCreateFromInvoice(true);
+          setF((prev) => ({
+            ...prev,
+            linked_sales_invoice_id: inv.id,
+            delivery_address: inv.delivery_address ?? sos.find((s) => s.id === (inv as any).goods_sales_order_id)?.delivery_address ?? prev.delivery_address,
+          }));
+          setLines(
+            (inv.lines ?? [])
+              .filter((l: any) => Number(l.quantity ?? 0) > 0)
+              .map((l: any) => ({
+                product_id: l.product_id,
+                sku: l.sku,
+                name: l.name,
+                unit: l.unit,
+                ordered_qty: Number(l.quantity),
+                dispatched_qty: String(Number(l.quantity)),
+                unit_price: String(l.unit_price),
+              })),
+          );
+        })
+        .catch(() => undefined);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [preselectInvoiceId, allInvoices]);
 
   // Default Central Warehouse: when no warehouse was created the backend
   // auto-resolves Central, so don't force a pick; when exactly one location
@@ -1038,25 +1106,31 @@ function DispatchCreateModal({
               </button>
             </div>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+              {preselectSoId && preselectedSoMissing && !createFromInvoiceState ? (
+                <div className="col-span-2 rounded-md border border-sem-attention/40 bg-sem-attention/10 p-2 text-xs text-sem-attention md:col-span-3">
+                  Pre-selected sales order is still loading or not dispatchable yet — lines will appear automatically once it loads.
+                </div>
+              ) : null}
               {createFromInvoice ? (
                 <L label="Linked invoice *">
                   <SearchableSelect
                     value={invoiceId}
                     onChange={pickInvoice}
                     placeholder="Select approved invoice…"
-                    disabled={!!preselectInvoiceId}
                     options={[
                       { value: "", label: "Select invoice…" },
                       ...allInvoices
                         .filter((inv: any) =>
-                          inv.expected_dispatch_date &&
                           !["paid", "cancelled", "rejected"].includes(inv.status) &&
-                          !dispatchedInvoiceIds.has(inv.linked_sales_invoice_id)
+                          !dispatchedInvoiceIds.has(inv.id) &&
+                          (inv.id === invoiceId ||
+                            inv.expected_dispatch_date ||
+                            inv.goods_sales_order_id)
                         )
                         .map((inv: any) => ({
                           value: inv.id,
                           label: inv.invoice_number,
-                          hint: `${inv.debtor?.name ?? "—"} · Expected: ${fmtDate(inv.expected_dispatch_date)}`,
+                          hint: `${inv.debtor?.name ?? "—"}${inv.expected_dispatch_date ? ` · Expected: ${fmtDate(inv.expected_dispatch_date)}` : ""}`,
                         })),
                     ]}
                   />
@@ -1067,14 +1141,18 @@ function DispatchCreateModal({
                     value={soId}
                     onChange={pickSo}
                     placeholder="Select sales order…"
-                    disabled={!!preselectSoId}
                     options={[
                       { value: "", label: "Select sales order…" },
-                      ...sos.map((s) => ({
-                        value: s.id,
-                        label: s.so_number,
-                        hint: s.customer_name ?? undefined,
-                      })),
+                      // Pre-selected SO first (even if not dispatchable), then dispatchable SOs.
+                      ...[
+                        ...sos.filter((s) => s.id === soId),
+                        ...dispatchableSos.filter((s) => s.id !== soId),
+                      ]
+                        .map((s) => ({
+                          value: s.id,
+                          label: `${s.so_number}${["confirmed", "partially_dispatched"].includes(s.status) ? "" : ` (${s.status})`}`,
+                          hint: s.customer_name ?? undefined,
+                        })),
                     ]}
                   />
                 </L>
@@ -1237,13 +1315,13 @@ function DispatchCreateModal({
               </div>
             )}
             <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3">
-              <L label="Delivery address">
+              <L label="Shipping address">
                 <textarea
                   rows={2}
                   className="inp resize-y"
                   value={f.delivery_address}
                   onChange={(e) => setF({ ...f, delivery_address: e.target.value })}
-                  placeholder={createFromInvoice ? "Auto-filled from invoice" : "Auto-filled from sales order"}
+                  placeholder={createFromInvoice ? "Auto-filled from invoice shipping address" : "Auto-filled from sales order shipping address"}
                 />
                 {createFromInvoice && selectedInvoice?.delivery_address && (
                   <div className="mt-1 flex flex-wrap gap-1">
@@ -1252,7 +1330,7 @@ function DispatchCreateModal({
                       onClick={() => setF({ ...f, delivery_address: selectedInvoice.delivery_address ?? "" })}
                       className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
                     >
-                      Use invoice delivery address
+                      Use invoice shipping address
                     </button>
                   </div>
                 )}
@@ -1263,7 +1341,7 @@ function DispatchCreateModal({
                       onClick={() => setF({ ...f, delivery_address: so.delivery_address ?? "" })}
                       className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
                     >
-                      Use SO delivery
+                      Use SO shipping address
                     </button>
                   </div>
                 )}
@@ -1311,9 +1389,17 @@ function DispatchCreateModal({
             <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
               Dispatch item lines
             </legend>
-            {!so ? (
+            {!so && !createFromInvoice ? (
               <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
-                Select a sales order to load its item lines.
+                {preselectSoId || soId
+                  ? "Loading the pre-selected sales order — lines appear automatically…"
+                  : "Select a sales order to load its item lines."}
+              </div>
+            ) : !selectedInvoice && createFromInvoice ? (
+              <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
+                {preselectInvoiceId || invoiceId
+                  ? "Loading the pre-selected invoice — lines appear automatically…"
+                  : "Select an invoice to load its item lines."}
               </div>
             ) : lines.length === 0 ? (
               <div className="rounded-md border border-border/40 p-3 text-xs text-muted-foreground">
@@ -1333,7 +1419,7 @@ function DispatchCreateModal({
                   const pending = Math.max(
                     0,
                     l.ordered_qty -
-                      (so.lines.find((x) => x.product_id === l.product_id)?.dispatched_qty ?? 0),
+                      (so?.lines?.find((x) => x.product_id === l.product_id)?.dispatched_qty ?? 0),
                   );
                   const available = stockBalance.get(l.product_id) ?? 0;
                   const q = Number(l.dispatched_qty) || 0;
@@ -1491,6 +1577,7 @@ function DispatchDetailModal({
     qc.invalidateQueries({ queryKey: ["stock-for-dispatch"] });
     qc.invalidateQueries({ queryKey: ["products"] });
     qc.invalidateQueries({ queryKey: ["stock_movements_all"] });
+    qc.invalidateQueries({ queryKey: ["timeline", "dispatch", d.id] });
   };
 
   const confirm = useMutation({
@@ -1584,8 +1671,14 @@ function DispatchDetailModal({
               <D label="Sales order" value={d.so_number ?? "—"} />
               <D label="Dispatch date" value={d.dispatch_date ? fmtDate(d.dispatch_date) : "—"} />
               <D label="Warehouse" value={d.warehouse ?? "—"} />
-              <D label="Delivery address" value={d.delivery_address ?? "—"} />
+              <D label="Shipping address" value={d.delivery_address ?? "—"} />
               <D label="Transporter" value={d.transporter_name ?? "—"} />
+              <D label="Transporter ID" value={(d as any).transporter_id ?? "—"} />
+              <D label="Transport mode" value={(d as any).transport_mode ?? "—"} />
+              <D label="Distance" value={(d as any).distance_km != null ? `${(d as any).distance_km} km` : "—"} />
+              <D label="Vehicle" value={(d as any).vehicle_number ?? "—"} />
+              <D label="Transport doc" value={(d as any).transport_doc_number ?? d.tracking_number ?? "—"} />
+              <D label="E-Way Bill" value={(d as any).eway_bill_number ?? "—"} />
               <D label="Tracking / AWB" value={d.tracking_number ?? "—"} />
               <D label="Delivery challan" value={d.delivery_challan_number ?? "—"} />
               {debtor && (
@@ -1599,6 +1692,10 @@ function DispatchDetailModal({
               <D label="Created by" value={d.dispatched_by ?? "—"} />
               <D label="Stock debited by" value={d.stock_debited ? (d.debited_by ?? "—") : "Not yet — debits on Dispatched"} />
             </div>
+
+            {/* Date-wise status journey — dates come from the status-change
+                timeline and refresh on every move */}
+            <DispatchStatusTimeline dispatch={d} />
 
             {/* Lines */}
             <div className="overflow-x-auto rounded-lg border border-border/60">

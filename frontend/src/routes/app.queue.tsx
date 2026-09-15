@@ -509,6 +509,7 @@ export function QueuePage() {
                     <th className="px-5 py-2 text-left font-normal">Due</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
+                    <th className="px-5 py-2 text-left font-normal">UTR</th>
                     <th className="sticky right-0 hidden bg-card px-5 py-2 text-right font-normal md:table-cell">
                       Action
                     </th>
@@ -576,12 +577,33 @@ export function QueuePage() {
                           <td className="px-5 py-3">
                             <StatusPill status={r.status} />
                           </td>
+                          <td className="px-5 py-3">
+                            {r.kind === "sale" && (r.raw?.utr_reference || r.raw?.payment_amount != null) ? (
+                              <div className="flex flex-col items-start gap-0.5">
+                                {r.raw?.utr_reference ? (
+                                  <span
+                                    className="max-w-[140px] truncate font-mono text-xs text-foreground"
+                                    title={String(r.raw.utr_reference)}
+                                  >
+                                    {String(r.raw.utr_reference)}
+                                  </span>
+                                ) : null}
+                                {r.raw?.payment_amount != null && (
+                                  <span className="num text-[10px] text-muted-foreground">
+                                    {fmtMoney(Number(r.raw.payment_amount))}
+                                  </span>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="text-muted-foreground">—</span>
+                            )}
+                          </td>
                           <td className="sticky right-0 hidden bg-card px-5 py-3 text-right md:table-cell">
                             {action}
                           </td>
                         </tr>
                         <tr className="border-b border-border/60 md:hidden">
-                          <td colSpan={9} className="px-5 pb-4 pt-0 text-left">
+                          <td colSpan={10} className="px-5 pb-4 pt-0 text-left">
                             <div className="flex justify-start">{action}</div>
                           </td>
                         </tr>

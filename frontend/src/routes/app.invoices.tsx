@@ -369,6 +369,14 @@ export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) 
                                   IRN ✓ {String(i.irn).slice(0, 8)}…{String(i.irn).slice(-4)}
                                 </div>
                               ) : null}
+                              {i.ewb_number ? (
+                                <div
+                                  className="text-[10px] text-primary"
+                                  title={`e-Way Bill: ${i.ewb_number}${i.ewb_valid_until ? ` · valid to ${i.ewb_valid_until}` : ""}${i.transporter ? ` · ${i.transporter}` : ""}`}
+                                >
+                                  EWB {String(i.ewb_number)}
+                                </div>
+                              ) : null}
                               {i.po_number && (
                                 <div className="text-[10px] text-muted-foreground">
                                   PO {i.po_number}
@@ -1611,8 +1619,24 @@ function InvoiceDetailModal({ invoice, onClose, hideIrn = false }: { invoice: In
               ) : (
                 <D label="IRN" value={<span className="text-muted-foreground">Not recorded</span>} />
               ))}
-            {invoice.ewb_number && (
-              <D label="e-Way Bill No." value={invoice.ewb_number} />
+            {(invoice.ewb_number || invoice.ewb_valid_until || invoice.transporter || invoice.vehicle_number || invoice.lr_ref) && (
+              <>
+                {invoice.ewb_number && (
+                  <D label="e-Way Bill No." value={invoice.ewb_number} />
+                )}
+                {invoice.ewb_valid_until && (
+                  <D label="EWB valid until" value={fmtDate(invoice.ewb_valid_until)} />
+                )}
+                {invoice.transporter && (
+                  <D label="Transporter" value={invoice.transporter} />
+                )}
+                {invoice.vehicle_number && (
+                  <D label="Vehicle No." value={invoice.vehicle_number} />
+                )}
+                {invoice.lr_ref && (
+                  <D label="LR / Doc ref" value={invoice.lr_ref} />
+                )}
+              </>
             )}
             {invoice.po_amount != null && invoice.po_amount > 0 && (
               <D

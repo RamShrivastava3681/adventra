@@ -2409,21 +2409,41 @@ router.post("/invoices/:id/irn", authMiddleware, async (req, res) => {
         const invFull = await Invoice.get(updated.id);
         const soForDispatch = invFull?.goodsSalesOrderId ? await GoodsSO.get(invFull.goodsSalesOrderId).catch(() => null) : null;
         const invLines: any[] = (invFull as any)?.lines ?? [];
-        const dispLines = invLines.map((l: any) => ({
-          productId: l.productId,
-          sku: l.sku ?? null,
-          name: l.name,
-          unit: l.unit || "unit",
-          orderedQty: Number(soForDispatch?.lines?.find((x: any) => x.productId === l.productId)?.orderedQty ?? l.quantity) || 0,
-          dispatchedQty: 0,
-          deliveredQty: 0,
-          returnedQty: 0,
-          unitPrice: Number(l.unitPrice) || 0,
-          discountPct: l.discountPct ?? null,
-          gstRate: l.gstRate ?? null,
-          lineValue: 0,
-          notes: null,
-        }));
+        // Skip when a live dispatch order already references this invoice.
+        const existingForInvoice = await GoodsDispatch.list((updated as any).clientId)
+          .then((all: any[]) => all.some((d) => d.linkedSalesInvoiceId === updated.id || d.finalInvoiceId === updated.id))
+          .catch(() => false);
+        if (!existingForInvoice) {
+        const dispLines = invLines
+          .map((l: any) => {
+            const soLine = soForDispatch?.lines?.find((x: any) => x.productId === l.productId);
+            const orderedQty = Number(soLine?.orderedQty ?? l.quantity) || 0;
+            const alreadyDispatched = Number(soLine?.dispatchedQty ?? 0) || 0;
+            const pendingQty = Math.max(0, orderedQty - alreadyDispatched);
+            // Fall back to the full invoice quantity when the SO link is absent.
+            const qty = pendingQty > 0 ? pendingQty : Number(l.quantity) || 0;
+            const unitPrice = Number(l.unitPrice) || 0;
+            const discountPct = l.discountPct ?? null;
+            return {
+              productId: l.productId,
+              sku: l.sku ?? null,
+              name: l.name,
+              unit: l.unit || "unit",
+              orderedQty,
+              dispatchedQty: qty,
+              deliveredQty: 0,
+              returnedQty: 0,
+              unitPrice,
+              discountPct,
+              gstRate: l.gstRate ?? null,
+              lineValue: Math.round(qty * unitPrice * (1 - (discountPct ?? 0) / 100) * 100) / 100,
+              notes: null,
+            };
+          })
+          .filter((l: any) => l.dispatchedQty > 0);
+        if (dispLines.length === 0) {
+          console.error("  ⚠ Auto dispatch-order skipped: no pending quantities on invoice");
+        } else {
         const dispatch = await GoodsDispatch.create({
           clientId: (updated as any).clientId,
           goodsSalesOrderId: invFull?.goodsSalesOrderId || "",
@@ -2463,6 +2483,8 @@ router.post("/invoices/:id/irn", authMiddleware, async (req, res) => {
             ...(invFull?.goodsSalesOrderId ? [{ type: "sales_order", id: invFull.goodsSalesOrderId, number: invFull.goodsSalesOrderNumber }] : []),
           ],
         }, { timelineKind: "system", docType: "dispatch", appPath: "/app/dispatches" });
+        } // end if (dispLines.length)
+        } // end if (!existingForInvoice)
       } catch (e: any) {
         console.error("  ⚠ Auto dispatch-order creation failed:", e?.message ?? e);
       }
@@ -5494,7 +5516,7 @@ async function buildInvoiceTallyBuffer(
 async function assembleInvoiceEwb(inv: any, debtor: any, seller: any): Promise<any | null> {
   const dispatches = await GoodsDispatch.list(inv.clientId).catch(() => [] as any[]);
   const dispatch = (dispatches as any[])
-    .filter((d) => d.linkedSalesInvoiceId === inv.id && d.status !== "cancelled")
+    .filter((d) => (d.linkedSalesInvoiceId === inv.id || (d as any).finalInvoiceId === inv.id) && d.status !== "cancelled")
     .sort((a, b) => String(b.createdAt ?? "").localeCompare(String(a.createdAt ?? "")))[0] ?? null;
   let record: any = null;
   if (dispatch) {
@@ -5503,8 +5525,12 @@ async function assembleInvoiceEwb(inv: any, debtor: any, seller: any): Promise<a
       record = await EWB.getByDispatchId(dispatch.id);
     } catch { record = null; }
   }
+  // EWB number may come from the NIC record, the manual record-ewb on the
+  // dispatch (Tally flow), or the mirrored invoice fields.
   const ewbNo =
-    record?.ewbNumber ?? inv.ewbNumber ?? inv.ewb_number ?? null;
+    record?.ewbNumber
+    ?? (dispatch as any)?.ewayBillNumber
+    ?? inv.ewbNumber ?? inv.ewb_number ?? null;
   if (!ewbNo) return null;
   const short = (iso: any): string => {
     if (!iso) return "";
@@ -5537,11 +5563,20 @@ async function assembleInvoiceEwb(inv: any, debtor: any, seller: any): Promise<a
     ackNo: inv.ackNo ?? inv.ack_no ?? null,
     ackDate: short(inv.ackDate ?? inv.ack_date ?? ""),
     ewbNo: String(ewbNo),
-    mode: "",
-    generatedDate: short(record?.generatedAt ?? record?.createdAt ?? new Date().toISOString()),
+    mode: (dispatch as any)?.transportMode ?? "",
+    generatedDate: short(
+      record?.generatedAt ?? record?.createdAt
+      ?? (dispatch as any)?.ewayBillGeneratedAt ?? new Date().toISOString(),
+    ),
     generatedBy: seller?.gstin ?? "",
-    approxDistance: record?.approxDistance ? `${record.approxDistance} KM` : "",
-    validUpto: short(record?.validUntil ?? ""),
+    approxDistance: (() => {
+      const km = record?.approxDistance ?? (dispatch as any)?.distanceKm ?? null;
+      return km != null && km !== "" ? `${km} KM` : "";
+    })(),
+    validUpto: short(
+      record?.validUntil ?? (dispatch as any)?.ewayBillValidUntil
+      ?? inv.ewbValidUntil ?? inv.ewb_valid_until ?? "",
+    ),
     supplyType: "Outward-Supply",
     txnType: "Bill From - Dispatch From",
     fromName: seller?.name ?? "",
@@ -5557,11 +5592,11 @@ async function assembleInvoiceEwb(inv: any, debtor: any, seller: any): Promise<a
     otherAmt: Math.round((grandTotal - subtotal - taxTotal) * 100) / 100,
     totalInvAmt: grandTotal,
     igstAmt: taxTotal,
-    transporterId: record?.transporterGstin ?? record?.transporterId ?? "",
-    transporterName: dispatch?.transporterName ?? record?.transporterName ?? "",
-    transportDocNo: dispatch?.trackingNumber ?? "",
-    transportDocDate: "",
-    vehicleNo: record?.vehicleNumber ?? "",
+    transporterId: (dispatch as any)?.transporterId ?? record?.transporterGstin ?? record?.transporterId ?? "",
+    transporterName: dispatch?.transporterName ?? record?.transporterName ?? inv.transporter ?? "",
+    transportDocNo: (dispatch as any)?.transportDocNumber ?? dispatch?.trackingNumber ?? inv.lrRef ?? inv.lr_ref ?? "",
+    transportDocDate: short((dispatch as any)?.transportDocDate ?? ""),
+    vehicleNo: (dispatch as any)?.vehicleNumber ?? (dispatch as any)?.actualVehicleNumber ?? record?.vehicleNumber ?? inv.vehicleNumber ?? inv.vehicle_number ?? "",
     vehicleFrom: String(seller?.stateName || "").toUpperCase(),
     cewbNo: record?.consolidatedEwbNumber ?? "",
   };
@@ -6570,17 +6605,27 @@ router.post(
       for (const k of ["cartonCount", "packageType", "grossWeight", "grossWeightUnit", "handlingInstructions", "internalDispatchNotes", "plannedDispatchAt", "transportMode", "transporterName", "transporterId", "distanceKm", "vehicleNumber", "vehicleType", "transportDocType", "transportDocNumber", "transportDocDate", "driverName", "driverMobile", "deliveryCity", "deliveryState", "deliveryPincode"]) {
         if ((req.body || {})[k] !== undefined) pack[k] = (req.body || {})[k];
       }
+      // Entering dispatch details moves the warehouse pipeline to Picking.
+      const prevShip = (dispatch as any).shippingStatus ?? "awaiting_pick";
       const updated = await GoodsDispatch.update(dispatch.id, {
         ...pack,
         status: "details_submitted" as any,
         submittedAt: db.nowISO(),
         submittedBy: req.user!.email,
+        ...(prevShip === "awaiting_pick" || !prevShip
+          ? {
+              shippingStatus: "picking" as any,
+              shippingStatusAt: new Date().toISOString(),
+              shippingStatusBy: req.user!.email,
+              shippingNotes: `Dispatch details entered — moved to Picking (${d.transporterName ?? "—"})`,
+            }
+          : {}),
       });
       trackAction(req, "dispatch.submitted", dispatch.id, {
         entityType: "dispatch", entityRef: dispatch.dispatchNumber,
       });
       timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
-        "draft", "details_submitted", `Warehouse submitted packing + transport (${d.transporterName}, ${d.transportMode})`);
+        "draft", "details_submitted", `Warehouse submitted packing + transport (${d.transporterName}, ${d.transportMode}) — moved to Picking`);
       advanceWorkflow(req, {
         workflowType: "dispatch",
         stage: "generate_ewb",
@@ -6825,10 +6870,30 @@ router.post(
         const metaUpdated = await GoodsDispatch.update(dispatch.id, metaPatch);
         return res.json(metaUpdated);
       }
-      if (!GoodsDispatch.isValidShippingTransition(current, to as any))
+      // Awaiting Pickup carries the transporter/upload form: entering it
+      // saves transporter + vehicle/doc details (visible to Finance).
+      // Picking → Awaiting Pickup is allowed as the details handoff even
+      // though the pipeline is otherwise forward-only.
+      const isAwaitingPickupHandoff = to === "awaiting_pick" && current === "picking";
+      if (!isAwaitingPickupHandoff && !GoodsDispatch.isValidShippingTransition(current, to as any))
         return res.status(400).json({
           error: `Invalid transition: ${current} → ${to} (forward only — a dispatch can never move backwards)`,
         });
+      if (to === "awaiting_pick") {
+        const merged: any = { ...dispatch, ...(req.body || {}) };
+        const tName = merged.transporterName ?? merged.carrier ?? null;
+        const tMode = merged.transportMode ?? null;
+        const dist = Number(merged.distanceKm);
+        const veh = merged.vehicleNumber ?? null;
+        const docNo = merged.transportDocNumber ?? merged.trackingNumber ?? null;
+        const missing: string[] = [];
+        if (!tName) missing.push("transporter name");
+        if (!tMode) missing.push("transport mode");
+        if (!(dist > 0)) missing.push("approximate distance");
+        if (!veh && !docNo) missing.push("vehicle number or transport document number");
+        if (missing.length > 0)
+          return res.status(400).json({ error: `Transporter details required for Awaiting Pickup: ${missing.join(", ")}` });
+      }
       // ── "Dispatched": the ONLY move that debits inventory. ──
       // Re-validates against the live sales order, resolves the default
       // Central Warehouse when none was selected, blocks negative stock in
@@ -6926,6 +6991,13 @@ router.post(
         patch.transporterName = req.body.carrier || null;
       if (req.body?.trackingNumber !== undefined)
         patch.trackingNumber = req.body.trackingNumber || null;
+      // Transporter/upload details saved on the Awaiting Pickup handoff
+      // (also accepted on any other pipeline move for corrections).
+      for (const k of ["transporterName", "transporterId", "transportMode", "distanceKm", "vehicleNumber", "vehicleType", "transportDocType", "transportDocNumber", "transportDocDate", "driverName", "driverMobile", "plannedDispatchAt", "deliveryCity", "deliveryState", "deliveryPincode"]) {
+        if ((req.body || {})[k] !== undefined) (patch as any)[k] = (req.body || {})[k];
+      }
+      if ((req.body || {}).carrier !== undefined && (req.body || {}).transporterName === undefined)
+        patch.transporterName = (req.body || {}).carrier || null;
       // Physical-dispatch actuals (PDF-1 step 12) are captured at "dispatched".
       if (to === "dispatched") {
         if (req.body?.actualDispatchedAt !== undefined) patch.actualDispatchedAt = String(req.body.actualDispatchedAt);
@@ -6941,6 +7013,10 @@ router.post(
         shippingStatus: to,
         previous: current,
       });
+      if (to === "awaiting_pick") {
+        timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
+          current, "awaiting_pick", `Transporter assigned: ${(updated as any).transporterName ?? "—"}${(updated as any).vehicleNumber ? ` · Vehicle ${(updated as any).vehicleNumber}` : ""}${(updated as any).transportDocNumber ? ` · Doc ${(updated as any).transportDocNumber}` : ""} — visible to Finance`);
+      }
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message });

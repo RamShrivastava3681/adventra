@@ -40,6 +40,21 @@ export function isEmailConfigured(): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Currency — every outbound mail shows amounts in Indian Rupees (₹, en-IN).
+// Never use "$" for money in mails; `${...}` interpolations are code, not
+// currency, so only the explicit "$" prefixes below were converted.
+// ---------------------------------------------------------------------------
+
+export function inr(value: number | null | undefined, fractionDigits = 2): string {
+  const n = Number(value);
+  const safe = Number.isFinite(n) ? n : 0;
+  return `₹${safe.toLocaleString("en-IN", {
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits,
+  })}`;
+}
+
+// ---------------------------------------------------------------------------
 // HTML templates
 // ---------------------------------------------------------------------------
 
@@ -221,9 +236,9 @@ export async function sendInvoiceReminder(params: {
       ${invoiceTableRow("Issue date", params.issueDate || "—")}
       ${invoiceTableRow("Due date", params.dueDate)}
       ${invoiceTableRow("Status", statusBadge(params.status))}
-      ${invoiceTableRow("Amount", `<strong>$${params.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>`)}
-      ${params.subtotal != null ? invoiceTableRow("Subtotal", `$${params.subtotal.toLocaleString()}`) : ""}
-      ${params.taxRate > 0 ? invoiceTableRow("Tax", `${(params.taxRate * 100).toFixed(1)}% ($${params.taxAmount.toFixed(2)})`) : ""}
+      ${invoiceTableRow("Amount", `<strong>${inr(params.amount)}</strong>`)}
+      ${params.subtotal != null ? invoiceTableRow("Subtotal", inr(params.subtotal)) : ""}
+      ${params.taxRate > 0 ? invoiceTableRow("Tax", `${(params.taxRate * 100).toFixed(1)}% (${inr(params.taxAmount)})`) : ""}
       ${invoiceTableRow(params.type === "sales" ? "Customer" : "Vendor", params.counterpartyName)}
       ${params.counterpartyEmail ? invoiceTableRow("Contact email", params.counterpartyEmail) : ""}
       ${params.clientName ? invoiceTableRow("Client", params.clientName) : ""}
@@ -242,8 +257,8 @@ export async function sendInvoiceReminder(params: {
       <div style="font-size:12px;font-weight:600;color:#0369a1;margin-bottom:6px;">💡 Suggested Action</div>
       <p style="margin:0;font-size:13px;color:#475569;line-height:1.5;">
         ${params.isOverdue
-          ? `This invoice is <strong>${absDays} day${absDays === 1 ? "" : "s"} overdue</strong>. Contact ${params.counterpartyName} immediately regarding payment of <strong>$${params.amount.toLocaleString()}</strong>.`
-          : `This invoice is due in <strong>${absDays} day${absDays === 1 ? "" : "s"}</strong> (${params.dueDate}). Ensure payment arrangements are in place for <strong>$${params.amount.toLocaleString()}</strong>.`}
+          ? `This invoice is <strong>${absDays} day${absDays === 1 ? "" : "s"} overdue</strong>. Contact ${params.counterpartyName} immediately regarding payment of <strong>${inr(params.amount)}</strong>.`
+          : `This invoice is due in <strong>${absDays} day${absDays === 1 ? "" : "s"}</strong> (${params.dueDate}). Ensure payment arrangements are in place for <strong>${inr(params.amount)}</strong>.`}
       </p>
     </div>
 
@@ -299,7 +314,7 @@ function submissionFieldsHTML(data: Record<string, any>): string {
   return Object.entries(data)
     .filter(([k]) => labels[k])
     .map(([k, v]) => {
-      const val = k === "amount" ? `$${Number(v).toLocaleString()}` : String(v);
+      const val = k === "amount" ? inr(Number(v)) : String(v);
       return invoiceTableRow(labels[k], val);
     }).join("");
 }
@@ -451,7 +466,7 @@ export async function sendDebtorReminder(params: {
       ${invoiceTableRow("Invoice #", params.invoiceNumber)}
       ${invoiceTableRow("Issue date", params.issueDate || "—")}
       ${invoiceTableRow("Due date", params.dueDate)}
-      ${invoiceTableRow("Amount", `<strong>$${params.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>`)}
+      ${invoiceTableRow("Amount", `<strong>${inr(params.amount)}</strong>`)}
     </table>
 
     ${lineItemsHTML}
@@ -465,8 +480,8 @@ export async function sendDebtorReminder(params: {
     <div style="margin-top:24px;padding:16px;background:#f8fafc;border-radius:8px;">
       <p style="margin:0;font-size:13px;color:#64748b;line-height:1.6;">
         ${params.isOverdue
-          ? `We kindly request that you arrange payment of <strong>$${params.amount.toLocaleString()}</strong> at your earliest convenience. If you have any questions, please contact us immediately.`
-          : `We kindly request that you arrange payment of <strong>$${params.amount.toLocaleString()}</strong> by <strong>${params.dueDate}</strong>. Please let us know if you have any questions.`}
+          ? `We kindly request that you arrange payment of <strong>${inr(params.amount)}</strong> at your earliest convenience. If you have any questions, please contact us immediately.`
+          : `We kindly request that you arrange payment of <strong>${inr(params.amount)}</strong> by <strong>${params.dueDate}</strong>. Please let us know if you have any questions.`}
       </p>
     </div>
 
@@ -524,10 +539,7 @@ export async function sendInvoiceNoaEmail(params: {
     return false;
   }
 
-  const total = params.amount.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  const total = inr(params.amount);
   const safe = {
     number: esc(params.invoiceNumber),
     companyName: esc(params.companyName),
@@ -553,7 +565,7 @@ export async function sendInvoiceNoaEmail(params: {
       ${invoiceTableRow("Invoice #", safe.number)}
       ${invoiceTableRow("Issue date", params.issueDate || "—")}
       ${invoiceTableRow("Due date", params.dueDate || "—")}
-      ${invoiceTableRow("Amount", `<strong>$${total}</strong>`)}
+      ${invoiceTableRow("Amount", `<strong>${total}</strong>`)}
       ${invoiceTableRow("Assigned by", safe.companyName)}
     </table>
 
@@ -626,10 +638,7 @@ export async function sendDocumentApprovalEmail(params: {
   const kindLabel =
     params.kind === "purchase_order" ? "Purchase Order" : "Sales Order";
   const subject = `${kindLabel} ${params.number} from ${params.companyName} — please review and approve`;
-  const total = params.grandTotal.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  const total = inr(params.grandTotal);
   const validLabel = "Expected delivery";
   const recipientLabel = params.kind === "purchase_order" ? "Supplier" : "Customer";
   const safe = {
@@ -652,7 +661,7 @@ export async function sendDocumentApprovalEmail(params: {
 
     <table cellpadding="0" cellspacing="0" style="width:100%;">
       ${invoiceTableRow(kindLabel + " #", safe.number)}
-      ${invoiceTableRow("Amount (grand total)", `<strong>$${total}</strong>`)}
+      ${invoiceTableRow("Amount (grand total)", `<strong>${total}</strong>`)}
       ${params.validUntil ? invoiceTableRow(validLabel, params.validUntil) : ""}
       ${invoiceTableRow(recipientLabel, safe.customerName)}
       ${invoiceTableRow("Issued by", safe.companyName)}
