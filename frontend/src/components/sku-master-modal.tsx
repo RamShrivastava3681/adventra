@@ -301,7 +301,7 @@ export function MasterSkuModal({
                           .slice(0, 6),
                       })
                     }
-                    placeholder="HD"
+                    placeholder="Code *"
                   />
                   <button
                     type="button"

@@ -354,13 +354,14 @@ const api = {
     cancel: (id: string) => api.post<any>(`/goods-dispatches/${id}/cancel`, {}),
     deliver: (id: string, data: any) => api.post<any>(`/goods-dispatches/${id}/deliver`, data),
     return: (id: string, data: any) => api.post<any>(`/goods-dispatches/${id}/return`, data),
-    // Move the warehouse pipeline forward (Awaiting Pickup → Picking →
-    // Packing → Dispatched → In Transit → Delivered). Only the move to
-    // Dispatched debits inventory. Sending the current status again saves
-    // carrier/tracking/notes without moving.
+    // Move the warehouse pipeline forward (Picking → Packing →
+    // Awaiting Pickup → Dispatched → In Transit → Delivered). Only the move to
+    // Dispatched debits inventory. Moving to Awaiting Pickup opens the
+    // transporter form and sends the details to Finance. Sending the current
+    // status again saves carrier/tracking/notes without moving.
     shippingStatus: (
       id: string,
-      status: "awaiting_pick" | "picking" | "packed" | "dispatched" | "in_transit" | "delivered",
+      status: "picking" | "packed" | "awaiting_pick" | "dispatched" | "in_transit" | "delivered",
       data?: { carrier?: string | null; trackingNumber?: string | null; notes?: string },
     ) => api.post<any>(`/goods-dispatches/${id}/shipping-status`, { status, ...data }),
     // PDF-1 packing + transport handoff: save on draft, submit to Finance,

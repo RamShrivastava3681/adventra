@@ -1024,11 +1024,21 @@ function DispatchCreateModal({
       });
       
       // If an initial status was specified, confirm first (the pipeline
-      // starts on confirmed dispatches) and then set it. Only the move to
+      // starts on confirmed dispatches) and then set it. New dispatches
+      // already start at Picking, so that move is a no-op. Only the move to
       // Dispatched debits inventory.
       if (initialStatus && created?.id) {
         await api.goodsDispatches.confirm(created.id, {});
-        await api.goodsDispatches.shippingStatus(created.id, initialStatus as any, {});
+        const currentShip = (created as any).shipping_status ?? (created as any).shippingStatus ?? null;
+        if (!currentShip || currentShip !== initialStatus) {
+          try {
+            await api.goodsDispatches.shippingStatus(created.id, initialStatus as any, {});
+          } catch (e) {
+            // Already at the requested stage (e.g. Picking is the default) —
+            // not a failure.
+            if (!(e instanceof Error && /already/i.test(e.message))) throw e;
+          }
+        }
       }
 
       return created;

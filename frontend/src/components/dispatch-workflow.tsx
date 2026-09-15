@@ -612,9 +612,9 @@ export function AwaitingPickupTransportModal({
 // actual_dispatched_at, delivered_at…). Re-renders automatically because it
 // shares the ["timeline", "dispatch", id] query with DocumentTimelinePanel.
 const JOURNEY_STAGES = [
-  { key: "awaiting_pick", label: "Awaiting Pickup" },
   { key: "picking", label: "Picking" },
   { key: "packed", label: "Packed" },
+  { key: "awaiting_pick", label: "Awaiting Pickup" },
   { key: "dispatched", label: "Dispatched" },
   { key: "in_transit", label: "In Transit" },
   { key: "delivered", label: "Delivered" },
@@ -661,7 +661,7 @@ export function DispatchStatusTimeline({ dispatch }: { dispatch: any }) {
     const st = String(d.status ?? "").toLowerCase();
     if (st === "delivered") currentIdx = 5;
     else if (st === "partially_delivered") currentIdx = 3;
-    else if (st === "confirmed" || st === "ready_for_dispatch") currentIdx = 1;
+    else if (st === "confirmed" || st === "ready_for_dispatch") currentIdx = 0;
     else if (st === "details_submitted") currentIdx = 0;
   }
 

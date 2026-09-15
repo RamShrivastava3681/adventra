@@ -148,7 +148,7 @@ export function FinanceDispatchOrdersPanel() {
                         {d.so_number ?? "—"} · {d.customer_name ?? "—"} · {fmtDate(d.dispatch_date)}
                       </div>
                       <div className="text-[10px] text-muted-foreground">
-                        {(d.shipping_status ?? "awaiting_pick").replace(/_/g, " ")}
+                        {(d.shipping_status ?? "picking").replace(/_/g, " ")}
                         {d.distance_km ? ` · ${d.distance_km} km` : ""}
                         {d.transport_mode ? ` · ${d.transport_mode}` : ""}
                       </div>

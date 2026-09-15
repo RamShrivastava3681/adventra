@@ -35,24 +35,27 @@ export type GoodsDispatchStatus =
 
 /**
  * Shipping pipeline — the warehouse moves a confirmed dispatch through
- * awaiting_pick → picking → packed → dispatched → in_transit → delivered.
+ * picking → packed → awaiting_pick → dispatched → in_transit → delivered.
  * Stock is debited exactly once, when the pipeline reaches "dispatched"
  * (markStockDebited, idempotent via the stockDebited flag); every other move
  * is logistics metadata only. Delivered still flows through the existing
  * markDelivered path so per-line delivered quantities stay accurate.
+ *
+ * "awaiting_pick" (Awaiting Pickup) is the Finance handoff: the transporter
+ * form is mandatory on that move and the details become visible to Finance.
  */
 export type ShippingStatus =
-  | "awaiting_pick"
   | "picking"
   | "packed"
+  | "awaiting_pick"
   | "dispatched"
   | "in_transit"
   | "delivered";
 
 export const SHIPPING_STATUSES: ShippingStatus[] = [
-  "awaiting_pick",
   "picking",
   "packed",
+  "awaiting_pick",
   "dispatched",
   "in_transit",
   "delivered",
@@ -228,7 +231,7 @@ export interface GoodsDispatch {
   lines: GoodsDispatchLine[];
 
   // ── Shipping pipeline (logistics only — never affects stock) ──
-  /** Awaiting pick → picking → packed → dispatched → in transit → delivered. */
+  /** Picking → packing → Awaiting Pickup → dispatched → in transit → delivered. */
   shippingStatus: ShippingStatus | null;
   /** ISO timestamp of the last shipping-status move. */
   shippingStatusAt: string | null;
@@ -391,7 +394,7 @@ export async function create(data: Partial<GoodsDispatch> & { clientId: string; 
     shippingStatus:
       (SHIPPING_STATUSES as string[]).includes(data.shippingStatus as string)
         ? (data.shippingStatus as ShippingStatus)
-        : "awaiting_pick",
+        : "picking",
     shippingStatusAt: data.shippingStatusAt || null,
     shippingStatusBy: data.shippingStatusBy || null,
     shippingNotes: data.shippingNotes || null,

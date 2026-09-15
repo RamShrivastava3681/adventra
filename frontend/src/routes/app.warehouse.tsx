@@ -50,11 +50,13 @@ export const Route = createFileRoute("/app/warehouse")({
   }),
 });
 
-// --- Warehouse dispatch pipeline: stock debits only on Dispatched ---
+// --- Warehouse dispatch pipeline: picking → packing → awaiting pickup → dispatched → … ---
+// Stock debits only on Dispatched. Awaiting Pickup is the Finance handoff:
+// selecting it pops the transporter form and the details go to Finance.
 const SHIPPING_STATUSES = [
-  "awaiting_pick",
   "picking",
   "packed",
+  "awaiting_pick",
   "dispatched",
   "in_transit",
   "delivered",
@@ -920,7 +922,7 @@ export function WarehousePage() {
                       {SHIPPING_LABEL[s]}
                     </div>
                     <div className="num mt-1 text-2xl">
-                      {dispatches.filter((d) => (d.shipping_status ?? "awaiting_pick") === s && d.status !== "cancelled")
+                      {dispatches.filter((d) => (d.shipping_status ?? "picking") === s && d.status !== "cancelled")
                         .length}
                     </div>
                   </div>
@@ -946,10 +948,10 @@ export function WarehousePage() {
                       </span>
                       <span
                         className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${shippingTone(
-                          d.shipping_status ?? "awaiting_pick",
+                          d.shipping_status ?? "picking",
                         )}`}
                       >
-                        {SHIPPING_LABEL[d.shipping_status ?? "awaiting_pick"]}
+                        {SHIPPING_LABEL[d.shipping_status ?? "picking"]}
                       </span>
                     </li>
                   ))}
@@ -1371,7 +1373,7 @@ function DispatchTable({
   const saveMeta = (d: Dispatch) => {
     onMove({
       id: d.id,
-      status: (d.shipping_status ?? "awaiting_pick") as ShippingStatus,
+      status: (d.shipping_status ?? "picking") as ShippingStatus,
       carrier: carrier || null,
       trackingNumber: tracking || null,
     });
@@ -1405,7 +1407,7 @@ function DispatchTable({
       >
         {dispatches.map((d) => {
           const closed = ["cancelled", "returned"].includes(d.status);
-          const current = (d.shipping_status ?? "awaiting_pick") as ShippingStatus;
+          const current = (d.shipping_status ?? "picking") as ShippingStatus;
           const forward = SHIPPING_STATUSES.slice(
             SHIPPING_STATUSES.indexOf(current) + 1,
           ) as ShippingStatus[];
@@ -1495,7 +1497,7 @@ function DispatchTable({
                           }
                           onMove({ id: d.id, status: next });
                         }}
-                        title="Awaiting Pickup → Picking → Packing → Dispatched (debits stock) → In Transit → Delivered"
+                        title="Picking → Packing → Awaiting Pickup (transporter form, sent to Finance) → Dispatched (debits stock) → In Transit → Delivered"
                       >
                         <option value={current}>{SHIPPING_LABEL[current]}</option>
                         {forward.map((s) => (
@@ -1547,10 +1549,10 @@ function DispatchTable({
         })}
       </Table>
       <p className="mt-4 text-xs text-muted-foreground">
-        The pipeline moves forward only (Awaiting Pickup → Picking → Packing → Dispatched → In Transit → Delivered).
+        The pipeline moves forward only (Picking → Packing → Awaiting Pickup → Dispatched → In Transit → Delivered).
         Only the move to Dispatched debits inventory. Selecting
         "Delivered" records delivery against the dispatch. Selecting "Awaiting Pickup"
-        opens the transporter/upload form — those details are fetched on the Finance Dispatch Orders tab.
+        opens the transporter/upload form — those details are sent to Finance (Finance Dispatch Orders tab).
       </p>
       {awaitingPickupFor && (
         <AwaitingPickupTransportModal

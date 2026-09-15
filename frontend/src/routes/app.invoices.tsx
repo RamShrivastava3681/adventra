@@ -224,6 +224,9 @@ export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) 
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["invoices"] });
+      qc.invalidateQueries({ queryKey: ["queue-sales"] });
+      qc.invalidateQueries({ queryKey: ["sales-workbench-invoices"] });
+      qc.invalidateQueries({ queryKey: ["checker-sales"] });
       toast.success("UTR recorded");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),

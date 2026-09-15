@@ -346,10 +346,18 @@ export async function create(data: Partial<Invoice> & { clientId: string; debtor
 export async function update(id: string, updates: Partial<Invoice>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
   const allowed = ["amount","status","paidDate","amountReceived","receiptDate","shortPayment","lateDays","advanceRate","feeRate","poNumber","poDate","poAmount","purchaseInvoiceId","purchaseOrderId","supplierId","lineItems","subtotal","taxRate","taxAmount","notes","documents","noaStatus","noaSentAt","noaRespondedAt","noaComments","issueDate","dueDate","expectedDate","invoiceNumber","debtorId",      "lastOverdueReminderDate","debtorReminderToken","customerContact","billingAddress","deliveryAddress","goodsSalesOrderId","goodsSalesOrderNumber","paymentTerms","paymentTermsType","advancePct","lines","subtotalGoods","totalDiscount","gstTotal","freight","grandTotal","linkedCustomerProformaId","linkedCustomerProformaNumber","advanceDeducted","expectedDispatchDate","utr_reference","payment_amount",
+  // camelCase variants arrive here because the global snake→camel request
+  // transform rewrites `utr_reference` → `utrReference` (same for
+  // `payment_amount`). Accept both so Sales UTR saves are not silently dropped.
+  "utrReference","paymentAmount",
   // Manual e-invoice fields (IRN set via the dedicated endpoint; the rest editable pre-IRN).
   "ackNo","ackDate","irnSource","irnEnteredBy","irnEnteredAt","signedQr","ewbNumber","ewbDate","placeOfSupply","consigneeName","consigneeAddress","consigneeGstin","consigneePan","consigneeState","consigneeStateCode","buyerGstin","buyerPan","buyerState","buyerStateCode","deliveryNoteRef","deliveryNoteDate","otherReferences","buyerOrderDate","dispatchDocNumber","destination","termsOfDelivery",
   "ewbGeneratedAt","ewbValidUntil","tallyVoucherRef","tallyInvoiceNumber","transporter","vehicleNumber","lrRef"]; /* "irn" intentionally excluded — written only by recordIrn/clearIrn */
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
+  // Normalize the camelCase variants to the snake_case storage keys.
+  if (patch.utrReference !== undefined && patch.utr_reference === undefined) patch.utr_reference = patch.utrReference;
+  if (patch.paymentAmount !== undefined && patch.payment_amount === undefined) patch.payment_amount = patch.paymentAmount;
+  delete patch.utrReference; delete patch.paymentAmount;
   // Recompute line totals + document totals whenever lines/freight/advance change.
   if (
     updates.lines !== undefined ||

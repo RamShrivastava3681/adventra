@@ -6605,19 +6605,20 @@ router.post(
       for (const k of ["cartonCount", "packageType", "grossWeight", "grossWeightUnit", "handlingInstructions", "internalDispatchNotes", "plannedDispatchAt", "transportMode", "transporterName", "transporterId", "distanceKm", "vehicleNumber", "vehicleType", "transportDocType", "transportDocNumber", "transportDocDate", "driverName", "driverMobile", "deliveryCity", "deliveryState", "deliveryPincode"]) {
         if ((req.body || {})[k] !== undefined) pack[k] = (req.body || {})[k];
       }
-      // Entering dispatch details moves the warehouse pipeline to Picking.
-      const prevShip = (dispatch as any).shippingStatus ?? "awaiting_pick";
+      // Dispatches start at Picking (the first pipeline stage), so entering
+      // details only stamps the pipeline when none was set (legacy docs).
+      const prevShip = (dispatch as any).shippingStatus ?? "picking";
       const updated = await GoodsDispatch.update(dispatch.id, {
         ...pack,
         status: "details_submitted" as any,
         submittedAt: db.nowISO(),
         submittedBy: req.user!.email,
-        ...(prevShip === "awaiting_pick" || !prevShip
+        ...(!prevShip
           ? {
               shippingStatus: "picking" as any,
               shippingStatusAt: new Date().toISOString(),
               shippingStatusBy: req.user!.email,
-              shippingNotes: `Dispatch details entered — moved to Picking (${d.transporterName ?? "—"})`,
+              shippingNotes: `Dispatch details entered — at Picking (${d.transporterName ?? "—"})`,
             }
           : {}),
       });
@@ -6625,7 +6626,7 @@ router.post(
         entityType: "dispatch", entityRef: dispatch.dispatchNumber,
       });
       timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
-        "draft", "details_submitted", `Warehouse submitted packing + transport (${d.transporterName}, ${d.transportMode}) — moved to Picking`);
+        "draft", "details_submitted", `Warehouse submitted packing + transport (${d.transporterName}, ${d.transportMode}) — at Picking`);
       advanceWorkflow(req, {
         workflowType: "dispatch",
         stage: "generate_ewb",
@@ -6777,10 +6778,12 @@ router.post(
 /** PUT /goods-dispatches/:id — edit a DRAFT only (no stock impact). */
 /**
  * POST /goods-dispatches/:id/shipping-status — move the warehouse pipeline
- * forward (awaiting_pick → picking → packed → dispatched → in_transit →
+ * forward (picking → packed → awaiting_pick → dispatched → in_transit →
  * delivered). Every move except "dispatched" is logistics metadata only.
  * Moving to "dispatched" debits inventory exactly once (idempotent via the
  * stockDebited flag) and folds the dispatched qty into the sales order.
+ * Moving to "awaiting_pick" (Awaiting Pickup) is the Finance handoff: the
+ * transporter form is mandatory and a task is raised for Finance.
  * Carrier and tracking can be set/edited at any pipeline stage.
  */
 router.post(
@@ -6850,7 +6853,7 @@ router.post(
           error: `status must be one of ${GoodsDispatch.SHIPPING_STATUSES.join(", ")} (or use the delivered flow)`,
         });
       const current =
-        dispatch.shippingStatus ?? "awaiting_pick";
+        dispatch.shippingStatus ?? "picking";
       if (to === current) {
         // Metadata-only update: carrier / tracking / notes can be saved without
         // moving the pipeline (PUT /goods-dispatches only edits drafts).
@@ -6872,12 +6875,12 @@ router.post(
       }
       // Awaiting Pickup carries the transporter/upload form: entering it
       // saves transporter + vehicle/doc details (visible to Finance).
-      // Picking → Awaiting Pickup is allowed as the details handoff even
-      // though the pipeline is otherwise forward-only.
-      const isAwaitingPickupHandoff = to === "awaiting_pick" && current === "picking";
-      if (!isAwaitingPickupHandoff && !GoodsDispatch.isValidShippingTransition(current, to as any))
+      // The pipeline is forward-only — picking → packed → awaiting_pick is
+      // a normal forward move. Skipping a stage (e.g. picking → awaiting_pick)
+      // is allowed, moving backwards never is.
+      if (!GoodsDispatch.isValidShippingTransition(current, to as any))
         return res.status(400).json({
-          error: `Invalid transition: ${current} → ${to} (forward only — a dispatch can never move backwards)`,
+          error: `Invalid transition: ${current} → ${to} (forward only — order is picking → packed → awaiting pickup → dispatched → in transit → delivered)`,
         });
       if (to === "awaiting_pick") {
         const merged: any = { ...dispatch, ...(req.body || {}) };
@@ -6950,7 +6953,7 @@ router.post(
           const fresh = (await GoodsDispatch.get(dispatch.id)) ?? marked;
           await debitSalesOrder(clientId, fresh, so);
           timelineStatus(req, { clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
-            dispatch.shippingStatus ?? "awaiting_pick", "dispatched",
+            dispatch.shippingStatus ?? "picking", "dispatched",
             `Warehouse moved ${dispatch.dispatchNumber} to Dispatched from ${sourceLocation.name}${req.body?.lrNumber ? ` · LR ${req.body.lrNumber}` : ""} — inventory debited`);
           timelineStatus(req, { clientId, docType: "sales_order", docId: so.id, docNumber: so.soNumber },
             so.status, "dispatched", `Goods dispatched via ${dispatch.dispatchNumber} — visible to Sales, Finance and Treasury`);
@@ -7016,6 +7019,25 @@ router.post(
       if (to === "awaiting_pick") {
         timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
           current, "awaiting_pick", `Transporter assigned: ${(updated as any).transporterName ?? "—"}${(updated as any).vehicleNumber ? ` · Vehicle ${(updated as any).vehicleNumber}` : ""}${(updated as any).transportDocNumber ? ` · Doc ${(updated as any).transportDocNumber}` : ""} — visible to Finance`);
+        // Awaiting Pickup is the Finance handoff: raise a task for Finance so
+        // the transporter details are actioned (E-Way Bill / pickup follow-up).
+        advanceWorkflow(req, {
+          workflowType: "dispatch",
+          stage: "awaiting_pickup",
+          docType: "dispatch",
+          docId: dispatch.id,
+          docNumber: dispatch.dispatchNumber,
+          counterparty: dispatch.customerName,
+          docStatus: (updated as any).status ?? dispatch.status,
+          ownerRole: "treasury",
+          requiredAction: `Verify transporter for ${dispatch.dispatchNumber} (${(updated as any).transporterName ?? "—"})`,
+          nextAction: "Move to Dispatched",
+          amount: (dispatch as any).invoicedValue ?? null,
+          linkedDocs: [
+            ...(dispatch.finalInvoiceId ? [{ type: "sales_invoice", id: dispatch.finalInvoiceId, number: dispatch.finalInvoiceNumber }] : []),
+            { type: "sales_order", id: dispatch.goodsSalesOrderId, number: dispatch.soNumber },
+          ],
+        }, { timelineKind: "system", docType: "dispatch", appPath: "/app/finance-workbench" });
       }
       res.json(updated);
     } catch (err: any) {
