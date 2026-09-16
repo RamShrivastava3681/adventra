@@ -101,8 +101,12 @@ export function TransactionFilters<T>({
     filtered = filtered.filter((item) => config.statusField!(item) === status);
   }
   if (dateFrom || dateTo) {
+    // Compare YYYY-MM-DD only — some dates arrive as full ISO timestamps
+    // ("2026-09-10T08:30:00Z"), which would fail the inclusive "to" check
+    // ("…T08:30:00Z" > "2026-09-10") and make the date filter look broken.
     filtered = filtered.filter((item) => {
-      const d = config.dateField(item) ?? "";
+      const d = String(config.dateField(item) ?? "").slice(0, 10);
+      if (!d) return false;
       if (dateFrom && d < dateFrom) return false;
       if (dateTo && d > dateTo) return false;
       return true;

@@ -114,14 +114,8 @@ export function SuppliersPage() {
     mutationFn: async () => {
       if (!form.company_name.trim()) throw new Error("Company name is required");
       const termsPayload = toTermsPayload(form);
-      // No balance-due-days input on this form: delivery-based terms are
-      // always due on delivery/invoice date (0 days) at master level.
-      if (
-        termsPayload.paymentTermsType === "on_delivery" ||
-        termsPayload.paymentTermsType === "advance_partial"
-      ) {
-        termsPayload.paymentTermsDays = 0;
-      }
+      // Delivery-based terms always carry 0 balance days (toPayload enforces
+      // it) — the due date is the invoice date entered by the user.
       const payload = {
         company_name: form.company_name.trim(),
         contact_name: form.contact_name || null,
@@ -454,7 +448,6 @@ export function SuppliersPage() {
                   advancePct={form.payment_terms_advance_pct}
                   paymentTermsDays={form.payment_terms_days}
                   daysLabel="Net days"
-                  hideBalanceDays
                   onChange={(patch) => setForm({ ...form, ...patch })}
                 />
               </F>

@@ -1235,7 +1235,7 @@ function POModal({
           await api.purchaseOrders.create({
             clientId: userId,
             side: "purchase",
-            status: "received",
+            status: "reviewed",
             proformaStatus: "draft",
             proformaNumber: pfForm.proforma_number.trim(),
             proformaDate: pfForm.proforma_date,

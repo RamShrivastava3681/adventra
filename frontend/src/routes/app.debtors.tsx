@@ -358,15 +358,8 @@ function DebtorModal({
         }))
         .filter((a) => a.address || a.city || a.state || a.postalCode);
       const termsPayload = toTermsPayload(form);
-      // The debtor form has no balance-due-days input: delivery-based terms
-      // are always due on delivery/invoice date (0 days) at master level.
-      // Per-customer variations live in the approved-terms manager.
-      if (
-        termsPayload.paymentTermsType === "on_delivery" ||
-        termsPayload.paymentTermsType === "advance_partial"
-      ) {
-        termsPayload.paymentTermsDays = 0;
-      }
+      // Delivery-based terms always carry 0 balance days (toPayload enforces
+      // it) — the due date is the invoice date entered by the user.
       const payload = {
         name: form.name.trim(),
         industry: form.industry || null,
@@ -859,7 +852,6 @@ function DebtorModal({
                           advancePct={form.payment_terms_advance_pct}
                           paymentTermsDays={form.payment_terms_days}
                           daysLabel="Net days"
-                          hideBalanceDays
                           onChange={(patch) => setForm({ ...form, ...patch })}
                         />
                       </L>
@@ -879,7 +871,6 @@ function DebtorModal({
                       advancePct={form.payment_terms_advance_pct}
                       paymentTermsDays={form.payment_terms_days}
                       daysLabel="Net days"
-                      hideBalanceDays
                       onChange={(patch) => setForm({ ...form, ...patch })}
                     />
                   </L>

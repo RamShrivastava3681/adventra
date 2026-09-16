@@ -6,8 +6,10 @@
  *
  *  - credit:          Net N days (paymentTermsDays).
  *  - advance_full:    100% advance before dispatch/delivery.
- *  - advance_partial: user-entered % advance; remainder due N days after invoice.
- *  - on_delivery:     100% payment due N days after invoice (0 = on delivery).
+ *  - advance_partial: user-entered % advance; remainder due N days after the
+ *                     user-entered invoice date.
+ *  - on_delivery:     100% payment due N days after the user-entered invoice
+ *                     date (0 = due on the invoice date itself).
  */
 export type PaymentTermsType =
   | "credit"
@@ -21,8 +23,8 @@ export const PAYMENT_TERMS_TYPE_OPTIONS: Array<{
 }> = [
   { value: "credit", label: "Credit — Net days" },
   { value: "advance_full", label: "Advance payment — 100%" },
-  { value: "advance_partial", label: "Partial advance — % + balance Net days" },
-  { value: "on_delivery", label: "Payment on delivery + Net days" },
+  { value: "advance_partial", label: "Partial advance — % + balance on invoice date" },
+  { value: "on_delivery", label: "Payment on delivery" },
 ];
 
 export interface PaymentTermsValue {
@@ -62,14 +64,21 @@ export function pickTerms(row: any): PaymentTermsValue {
   };
 }
 
-/** Balance/net days driving the invoice due date (invoice date + N). */
+/**
+ * Balance/net days driving the invoice due date. The due date is ALWAYS
+ * computed from the invoice date entered by the user (invoice date + N);
+ * on-delivery / partial-advance terms are fixed at N = 0 (due on the invoice
+ * date) — the old delivery-based "balance due days" input was removed.
+ */
 export function balanceDaysFor(t: Partial<PaymentTermsValue>): number {
   const type = normalizePaymentTermsType(t.paymentTermsType);
   if (!type || type === "advance_full") return 0;
+  // Delivery-based terms carry NO balance days: the balance is due on the
+  // invoice date entered by the user (the old delivery-based input is gone).
+  if (type === "on_delivery" || type === "advance_partial") return 0;
   const raw = t.paymentTermsDays as unknown;
   if (raw === undefined || raw === null || raw === "") {
-    // No days stored anywhere: credit defaults to Net 30, delivery-based
-    // terms default to due on delivery/invoice date.
+    // No days stored anywhere: credit defaults to Net 30.
     return type === "credit" ? 30 : 0;
   }
   const n = Number(t.paymentTermsDays);
@@ -106,14 +115,13 @@ export function formatPaymentTerms(
   if (!type) return (t.paymentTerms ?? t.payment_terms ?? "").trim() || "—";
   const days = Number(t.paymentTermsDays) || 0;
   if (type === "advance_full") return "100% advance";
-  if (type === "on_delivery") return days > 0 ? `On delivery Net ${days}` : "Payment on delivery";
+  if (type === "on_delivery")
+    return "Payment on delivery (due on invoice date)";
   if (type === "advance_partial") {
     const pct = normalizeAdvancePct(t.advancePct);
     const rest = pct != null ? Math.round((100 - pct) * 100) / 100 : null;
-    if (pct == null || rest == null) return days > 0 ? `Advance + balance Net ${days}` : "Advance payment";
-    return days > 0
-      ? `${pct}% advance + ${rest}% Net ${days}`
-      : `${pct}% advance + ${rest}% on delivery`;
+    if (pct == null || rest == null) return "Advance payment";
+    return `${pct}% advance + ${rest}% due on invoice date`;
   }
   return days > 0 ? `Net ${days}` : "—";
 }
@@ -125,7 +133,11 @@ export function formatPaymentTerms(
  * `payment_terms_days` (snake_case form fields, matching the pages' form
  * conventions). `payment_terms_days` doubles as the balance-due days for
  * on-delivery / partial-advance terms and drives the invoice due date
- * (invoice date + N; 0 = due on delivery/invoice date).
+ * (invoice date + N; 0 = due on the invoice date).
+ *
+ * The former "Balance due days · 0 = on delivery" input is intentionally
+ * GONE: due-date calculation is always made from the invoice date entered by
+ * the user (see `dueDateFor`), never from a delivery date.
  */
 export function PaymentTermsFields({
   type,
@@ -134,7 +146,6 @@ export function PaymentTermsFields({
   onChange,
   disabled = false,
   daysLabel = "Net days",
-  hideBalanceDays = false,
 }: {
   /** Selected structured type. */
   type: PaymentTermsType;
@@ -148,8 +159,6 @@ export function PaymentTermsFields({
   disabled?: boolean;
   /** Label for the Net-days input (e.g. "Customer net days"). */
   daysLabel?: string;
-  /** Hide the balance-due-days input for on-delivery / partial terms (days stay 0). */
-  hideBalanceDays?: boolean;
 }) {
   const cls =
     "inp w-full rounded border border-border bg-background px-3 py-2 text-sm";
@@ -210,21 +219,10 @@ export function PaymentTermsFields({
         </div>
       )}
 
-      {!hideBalanceDays && (type === "on_delivery" || type === "advance_partial") && (
-        <div className="flex items-center gap-2">
-          <input
-            type="number"
-            min={0}
-            className={smallCls}
-            value={paymentTermsDays}
-            placeholder="0"
-            disabled={disabled}
-            onChange={(e) => onChange({ payment_terms_days: e.target.value })}
-          />
-          <span className="whitespace-nowrap text-xs text-muted-foreground">
-            Balance due days · 0 = on delivery
-          </span>
-        </div>
+      {(type === "on_delivery" || type === "advance_partial") && (
+        <p className="text-xs text-muted-foreground">
+          Balance due on the invoice date (no extra days).
+        </p>
       )}
 
       {type === "advance_full" && (
@@ -250,16 +248,24 @@ export function toFormFields(row: any): {
       type === "advance_partial" && t.advancePct != null
         ? String(t.advancePct)
         : "",
+    // Delivery-based terms always keep 0 days — the due date is the invoice
+    // date entered by the user; only credit terms carry net days.
     payment_terms_days:
-      t.paymentTermsDays != null
-        ? String(t.paymentTermsDays)
-        : type === "credit"
-          ? "30"
-          : "0",
+      type === "on_delivery" || type === "advance_partial"
+        ? "0"
+        : t.paymentTermsDays != null
+          ? String(t.paymentTermsDays)
+          : type === "credit"
+            ? "30"
+            : "0",
   };
 }
 
-/** Build the API payload for the structured fields (null clears). */
+/**
+ * Build the API payload for the structured fields (null clears).
+ * Delivery-based terms always send 0 days — the due date is the invoice
+ * date entered by the user, never a delivery date.
+ */
 export function toPayload(f: {
   payment_terms_type: PaymentTermsType;
   payment_terms_advance_pct: string;
@@ -272,7 +278,7 @@ export function toPayload(f: {
     paymentTermsType: type,
     advancePct: type === "advance_partial" ? normalizeAdvancePct(f.payment_terms_advance_pct) : null,
     paymentTermsDays:
-      type === "advance_full"
+      type === "advance_full" || type === "on_delivery" || type === "advance_partial"
         ? 0
         : finiteDays ?? (type === "credit" ? 30 : 0),
   };

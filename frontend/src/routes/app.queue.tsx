@@ -190,15 +190,22 @@ export function QueuePage() {
       id,
       amount_paid,
       paid_date,
+      payment_reference,
     }: {
       id: string;
       amount_paid: number;
       paid_date: string;
+      payment_reference: string;
     }) => {
       // Status is derived from amountPaid vs the payable: full → paid,
       // partial → partially_paid. The purchase invoice itself never creates
       // stock — it only records the supplier payable being settled.
-      await api.purchaseInvoices.update(id, { amount_paid, paid_date });
+      // UTR-first: the payment reference is mandatory and stored on the invoice.
+      await api.purchaseInvoices.update(id, {
+        amount_paid,
+        paid_date,
+        payment_reference: payment_reference,
+      });
     },
     onSuccess: (_d, vars) => {
       qc.invalidateQueries({ queryKey: ["queue-purchases"] });
@@ -852,7 +859,10 @@ export function QueuePage() {
           row={payFor}
           onClose={() => setPayFor(null)}
           onSubmit={(vals) => {
-            payPurchase.mutate({ id: payFor.id, ...vals }, { onSuccess: () => setPayFor(null) });
+            payPurchase.mutate(
+              { id: payFor.id, ...vals },
+              { onSuccess: () => setPayFor(null) },
+            );
           }}
         />
       )}
@@ -907,10 +917,11 @@ function PayPurchaseModal({
 }: {
   row: Row;
   onClose: () => void;
-  onSubmit: (v: { amount_paid: number; paid_date: string }) => void;
+  onSubmit: (v: { amount_paid: number; paid_date: string; payment_reference: string }) => void;
 }) {
   const [amt, setAmt] = useState(String(row.balance));
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [utr, setUtr] = useState("");
   const alreadyPaid = row.amount_paid || 0;
   // amountPaid on the invoice is cumulative — this payment adds to what's paid.
   const payNow = Number(amt) || 0;
@@ -968,6 +979,21 @@ function PayPurchaseModal({
               className="w-full rounded-md border border-border bg-background p-2"
             />
           </label>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+              UTR / payment reference *
+            </span>
+            <input
+              required
+              value={utr}
+              onChange={(e) => setUtr(e.target.value)}
+              placeholder="e.g. UTIB1234567 — paste the UTR first"
+              className="w-full rounded-md border border-border bg-background p-2"
+            />
+          </label>
+          <p className="text-[10px] text-muted-foreground">
+            The UTR is stored on the invoice before the payment is recorded.
+          </p>
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-md border border-border bg-background/40 p-3">
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -990,7 +1016,13 @@ function PayPurchaseModal({
             Cancel
           </button>
           <button
-            onClick={() => onSubmit({ amount_paid: totalPaid, paid_date: date })}
+            onClick={() => {
+              if (!utr.trim()) {
+                toast.error("Enter the UTR / payment reference before recording the payment");
+                return;
+              }
+              onSubmit({ amount_paid: totalPaid, paid_date: date, payment_reference: utr.trim() });
+            }}
             className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
           >
             <ArrowUpFromLine className="h-3.5 w-3.5" />

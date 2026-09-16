@@ -113,8 +113,9 @@ type PF = {
 
 // Document statuses for proformas — purchase (supplier quotations) and
 // sales (customer proformas entered/uploaded into the system).
+// Recorded proformas enter the lifecycle as "reviewed" — there is no
+// separate "received" step anymore.
 const PF_DOC_STATUSES = [
-  "received",
   "reviewed",
   "converted_to_po",
   "converted_to_so",
@@ -122,7 +123,6 @@ const PF_DOC_STATUSES = [
   "cancelled",
 ];
 const PF_DOC_LABELS: Record<string, string> = {
-  received: "Received",
   reviewed: "Reviewed",
   converted_to_po: "Converted to PO",
   converted_to_so: "Converted to Sales Order",
@@ -130,7 +130,6 @@ const PF_DOC_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 const PF_DOC_TONES: Record<string, string> = {
-  received: "bg-sky-500/10 text-sky-600 border-sky-500/30",
   reviewed:
     "bg-sem-info/10 text-sem-info border-sem-info/30",
   converted_to_po: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
@@ -430,7 +429,7 @@ function ProformasPageContent({
                     <tbody>
                       {filtered.map((p) => {
                         const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
-                        // Doc lifecycle: received → reviewed → converted (PO/SO) → expired/cancelled.
+                        // Doc lifecycle: reviewed → converted (PO/SO) → expired/cancelled.
                         // Applies to BOTH sides — sales proformas are customer proformas entered
                         // into the system, purchase proformas are supplier quotations.
                         const docStatus = PF_DOC_LABELS[p.status] ? p.status : null;
@@ -442,8 +441,8 @@ function ProformasPageContent({
                           docStatus === "converted_to_so" ? p.linked_goods_so_id : null;
                         const editableDoc =
                           p.side === "purchase"
-                            ? ["received", "reviewed"].includes(p.status)
-                            : ["received", "reviewed", "proforma"].includes(p.status);
+                            ? p.status === "reviewed"
+                            : ["reviewed", "proforma"].includes(p.status);
                         // Once submitted for review (or approved) the maker can no
                         // longer change the proforma — the checker/treasury own it.
                         const underReview = ["pending_review", "approved"].includes(
@@ -933,7 +932,7 @@ function SalesProformaModal({
           ...payload,
           clientId: userId,
           side: "sales",
-          status: "received",
+          status: "reviewed",
           proformaStatus: "draft",
         });
       }
@@ -1581,7 +1580,7 @@ function PurchaseProformaModal({
           ...payload,
           clientId: userId,
           side: "purchase",
-          status: "received",
+          status: "reviewed",
           proformaStatus: "draft",
         });
       }
@@ -1997,12 +1996,15 @@ function FundModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: (
     mutationFn: async () => {
       const amt = Number(form.amount);
       if (!amt || amt <= 0) throw new Error("Amount must be > 0");
+      // UTR-first: a payment reference is mandatory before funding.
+      const utr = form.reference.trim();
+      if (!utr) throw new Error("Enter the UTR / payment reference before confirming");
       await api.purchaseOrders.update(pf.id, {
         proforma_status: "funded",
         proforma_funded_by: userId,
         proforma_funded_at: new Date().toISOString(),
         proforma_funded_amount: amt,
-        proforma_funding_reference: form.reference || null,
+        proforma_funding_reference: utr,
       });
       await api.advances.create({
         clientId: pf.client_id,
@@ -2010,7 +2012,7 @@ function FundModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: (
         purchaseOrderId: pf.id,
         amount: amt,
         advanceDate: form.advance_date,
-        reference: form.reference || `${pf.proforma_number ?? pf.po_number}`,
+        reference: utr,
         status: "open",
       });
     },
@@ -2064,15 +2066,20 @@ function FundModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: (
             onChange={(e) => setForm({ ...form, advance_date: e.target.value })}
           />
         </L>
-        <L label="Reference">
+        <L label="UTR / payment reference *">
           <input
+            required
             className={inputBase}
             value={form.reference}
             onChange={(e) => setForm({ ...form, reference: e.target.value })}
-            placeholder="Wire ref / transaction id"
+            placeholder="e.g. UTIB1234567 — paste the UTR before confirming"
           />
         </L>
-        <Actions onClose={onClose} pending={fund.isPending} label="Confirm" />
+        <p className="text-[11px] text-muted-foreground">
+          The UTR is stored on the funding record and the advance — confirm it matches
+          your bank statement before continuing.
+        </p>
+        <Actions onClose={onClose} pending={fund.isPending} label="Confirm with UTR" />
       </form>
     </Modal>
   );

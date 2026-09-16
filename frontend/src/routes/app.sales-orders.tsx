@@ -800,7 +800,13 @@ function SOModal({
         payment_term_id: def.id,
         payment_terms_type: def.paymentTermsType ?? def.payment_terms_type ?? "credit",
         payment_terms_advance_pct: String(def.advancePct ?? def.advance_pct ?? ""),
-        payment_terms_days: String(def.balanceDueDays ?? def.balance_due_days ?? "30"),
+        // Delivery-based terms carry no balance days — the due date is computed
+        // from the invoice date entered by the user, never from delivery.
+        payment_terms_days:
+          (def.paymentTermsType ?? def.payment_terms_type) === "on_delivery" ||
+          (def.paymentTermsType ?? def.payment_terms_type) === "advance_partial"
+            ? "0"
+            : String(def.balanceDueDays ?? def.balance_due_days ?? "30"),
       }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1005,7 +1011,13 @@ function SOModal({
         ? {
             payment_terms_type: t.paymentTermsType ?? t.payment_terms_type ?? "credit",
             payment_terms_advance_pct: String(t.advancePct ?? t.advance_pct ?? ""),
-            payment_terms_days: String(t.balanceDueDays ?? t.balance_due_days ?? "30"),
+            // Delivery-based terms carry no balance days — the due date is
+            // computed from the invoice date entered by the user.
+            payment_terms_days:
+              (t.paymentTermsType ?? t.payment_terms_type) === "on_delivery" ||
+              (t.paymentTermsType ?? t.payment_terms_type) === "advance_partial"
+                ? "0"
+                : String(t.balanceDueDays ?? t.balance_due_days ?? "30"),
           }
         : {}),
     }));
@@ -1660,10 +1672,10 @@ function SOModal({
             ) : (
               <div className="space-y-2">
                 <div className="hidden grid-cols-12 gap-2 text-[9px] uppercase tracking-widest text-muted-foreground md:grid">
-                  <div className="col-span-4">SKU / Product</div>
+                  <div className="col-span-3">SKU / Product</div>
                   <div className="col-span-1">Unit</div>
                   <div className="col-span-1">Ordered qty</div>
-                  <div className="col-span-1">Tier</div>
+                  <div className="col-span-2">Tier</div>
                   <div className="col-span-1">Unit price</div>
                   <div className="col-span-1">Disc %</div>
                   <div className="col-span-1">GST %</div>
@@ -1687,7 +1699,7 @@ function SOModal({
                   return (
                     <div key={i} className="space-y-2 rounded-md border border-border/50 p-2">
                       <div className="grid grid-cols-2 items-end gap-2 md:grid-cols-12">
-                        <div className="col-span-2 md:col-span-4">
+                        <div className="col-span-2 md:col-span-3">
                           <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
                             Product
                           </span>
@@ -1734,7 +1746,7 @@ function SOModal({
                               type="number"
                               min="1"
                               step="0.001"
-                              className={`inp ${overDispatched ? "!border-sem-attention" : ""}`}
+                              className={`inp max-w-20 ${overDispatched ? "!border-sem-attention" : ""}`}
                               value={l.ordered_qty}
                               onChange={(e) => setLine(i, { ordered_qty: e.target.value })}
                               disabled={!editable}
@@ -1745,7 +1757,7 @@ function SOModal({
                             </div>
                           )}
                         </div>
-                        <div className="md:col-span-1">
+                        <div className="md:col-span-2">
                           {l.product_id ? (
                             <>
                               <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">

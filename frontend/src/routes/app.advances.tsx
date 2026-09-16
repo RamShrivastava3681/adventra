@@ -9,12 +9,14 @@ import { TableSkeleton } from "@/components/skeletons";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { toast } from "sonner";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
+import { inputBase } from "@/components/dialog";
 
 export const Route = createFileRoute("/app/advances")({
   component: AdvancesPage,
 });
 
-function AdvancesPage() {
+/** Named export — the Finance workbench lazy-loads this page as a tab. */
+export function AdvancesPage() {
   const { user, isAdmin, isClient, isChecker, isTreasury } = useAuth();
   const canWrite = isAdmin || (isClient && !isChecker && !isTreasury);
   const qc = useQueryClient();

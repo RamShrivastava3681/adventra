@@ -3282,6 +3282,13 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
         return res
           .status(403)
           .json({ error: "Only treasury/admin can record payments" });
+      // UTR-first: a payment reference is required with any new payment.
+      const utr = String(body.paymentReference ?? "").trim();
+      if (!utr && !String(current.paymentReference ?? "").trim()) {
+        return res
+          .status(400)
+          .json({ error: "Enter the UTR / payment reference before recording the payment" });
+      }
     }
     // ── Closed invoices are frozen (payment/status only) ──
     if (current.status === "paid" || current.status === "cancelled") {
@@ -3589,6 +3596,21 @@ router.post("/purchase-orders", authMiddleware, async (req, res) => {
       amount: item.poAmount ?? item.amount,
       status: item.proformaStatus,
     });
+    // A recorded proforma (sales or purchase) enters the unified queue: the
+    // maker owns it until it is submitted to the checker.
+    advanceWorkflow(req, {
+      workflowType: "proforma",
+      stage: "maker_draft",
+      docType: "proforma",
+      docId: item.id,
+      docNumber: (item as any).proformaNumber ?? item.poNumber ?? null,
+      counterparty: (item as any).debtorName ?? (item as any).vendorName ?? null,
+      docStatus: "draft",
+      ownerRole: "procurement",
+      requiredAction: "Complete the proforma and submit to checker",
+      nextAction: "Submit for checker approval",
+      amount: Number((item as any).poAmount ?? item.amount) || 0,
+    }, { timelineKind: "system", docType: "proforma", appPath: "/app/proformas" });
     res.status(201).json(item);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -3791,6 +3813,43 @@ router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
           reviewPath: s === "pending_review" ? "/app/checker" : "/app/queue",
         });
       }
+      // Every proforma transition opens the next workflow task so the
+      // document shows up in My Queue (maker → checker → treasury).
+      if (["pending_review", "approved", "rejected", "funded"].includes(s)) {
+        const stageByStatus: Record<string, string> = {
+          pending_review: "checker_approval",
+          approved: "treasury_funding",
+          rejected: "maker_draft",
+          funded: "apply_advance",
+        };
+        const actionByStatus: Record<string, string> = {
+          pending_review: "Approve or reject proforma",
+          approved: "Fund the proforma advance",
+          rejected: "Fix the proforma and resubmit",
+          funded: "Apply the advance to the final invoice",
+        };
+        const ownerByStatus: Record<string, string> = {
+          pending_review: "checker",
+          approved: "treasury",
+          rejected: "procurement",
+          funded: "treasury",
+        };
+        advanceWorkflow(req, {
+          workflowType: "proforma",
+          stage: stageByStatus[s],
+          docType: "proforma",
+          docId: current.id,
+          docNumber: (updated as any)?.proformaNumber ?? current.proformaNumber ?? current.poNumber,
+          counterparty:
+            (current as any).debtorName ?? (current as any).vendorName ?? null,
+          docStatus: s,
+          ownerRole: ownerByStatus[s],
+          requiredAction: actionByStatus[s],
+          nextAction: s === "pending_review" ? "Checker decision" : s === "approved" ? "Treasury funding" : s === "funded" ? "Invoice adjustment" : "Resubmit",
+          amount: Number((updated as any)?.poAmount ?? (updated as any)?.amount ?? current.poAmount ?? current.amount) || 0,
+          paymentStatus: s === "funded" ? "paid" : null,
+        }, { timelineKind: "system", docType: "proforma", appPath: s === "pending_review" ? "/app/checker" : "/app/proformas" });
+      }
     }
     res.json(updated);
   } catch (err: any) {
@@ -3898,12 +3957,14 @@ router.post(
           .status(400)
           .json({ error: "Proforma is already converted to a sales order" });
       }
-      if (!["received", "reviewed"].includes(pf.status)) {
+      // The lifecycle has no "received" step anymore — proformas are created
+      // as "reviewed". Legacy docs recorded as "received" stay convertible.
+      if (!["reviewed", "received"].includes(pf.status)) {
         return res
           .status(400)
           .json({
             error:
-              "Only received or reviewed proformas can be converted to a sales order",
+              "Only reviewed proformas can be converted to a sales order",
           });
       }
       // Conversion is gated on the checker's approval (same as the purchase side).
@@ -7760,7 +7821,46 @@ router.delete("/expenses/:id", authMiddleware, async (req, res) => {
 // ===================== ADVANCES =====================
 router.get("/advances", authMiddleware, async (req, res) => {
   try {
-    res.json(await Advance.list(effectiveListScope(req)));
+    const scope = effectiveListScope(req);
+    const rows = (await Advance.list(scope)) as any[];
+    // Best-effort enrichment: attach the linked proforma / invoice documents so
+    // the UI can deep-link and show counterparty names without extra calls.
+    const [debtors, vendors, invoices, purchaseInvoices] = await Promise.all([
+      Debtor.list(),
+      Vendor.list(scope),
+      Invoice.list(scope),
+      PurchaseInvoice.list(scope),
+    ]);
+    const debtorById = new Map((debtors as any[]).map((d) => [d.id, d]));
+    const vendorById = new Map((vendors as any[]).map((v) => [v.id, v]));
+    const invoiceById = new Map((invoices as any[]).map((i) => [i.id, i]));
+    const piById = new Map((purchaseInvoices as any[]).map((p) => [p.id, p]));
+    const poIds = [...new Set(rows.map((a) => a.purchaseOrderId).filter(Boolean))];
+    const proformas = await Promise.all(
+      poIds.map((id) => PurchaseOrder.get(id as string)),
+    );
+    const poById = new Map(
+      proformas.filter(Boolean).map((p) => [(p as any).id, p]),
+    );
+    const withParty = (doc: any, side: "sales" | "purchase") => {
+      if (!doc) return doc;
+      const party =
+        side === "sales"
+          ? debtorById.get(doc.debtorId) ?? null
+          : vendorById.get(doc.vendorId) ?? null;
+      return side === "sales" ? { ...doc, debtor: party } : { ...doc, vendor: party };
+    };
+    const enriched = rows.map((a) => ({
+      ...a,
+      order: a.purchaseOrderId
+        ? withParty(poById.get(a.purchaseOrderId), a.side)
+        : null,
+      invoice: a.invoiceId ? withParty(invoiceById.get(a.invoiceId), "sales") : null,
+      purchase: a.purchaseInvoiceId
+        ? withParty(piById.get(a.purchaseInvoiceId), "purchase")
+        : null,
+    }));
+    res.json(enriched);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

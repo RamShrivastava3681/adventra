@@ -169,6 +169,7 @@ type FinanceSection =
   | "sales-orders"
   | "sales-invoices"
   | "proformas"
+  | "advances"
   | "purchase-invoices"
   | "dispatch-orders"
   | "tasks";
@@ -190,6 +191,9 @@ const SalesInvoicesPanel = lazy(() =>
 );
 const ProformasPanel = lazy(() =>
   import("@/routes/app.proformas").then((m) => ({ default: m.ProformasPage })),
+);
+const AdvancesPanel = lazy(() =>
+  import("@/routes/app.advances").then((m) => ({ default: m.AdvancesPage })),
 );
 const PurchaseInvoicesPanel = lazy(() =>
   import("@/routes/app.purchases").then((m) => ({ default: m.PurchasesPage })),
@@ -419,6 +423,11 @@ function FinanceWorkbenchPage() {
               label="Proforma Invoices"
               active={section === "proformas"}
               onClick={() => setSection("proformas")}
+            />
+            <NavTab
+              label="Advances"
+              active={section === "advances"}
+              onClick={() => setSection("advances")}
             />
             <NavTab
               label="Purchase Invoices"
@@ -805,6 +814,7 @@ function FinanceWorkbenchPage() {
           {section === "sales-invoices" && <SalesInvoicesPanel />}
           {section === "proformas" && <ProformasPanel />}
           {/* Finance sees both proforma streams — no side lock. */}
+          {section === "advances" && <AdvancesPanel />}
           {section === "purchase-invoices" && <PurchaseInvoicesPanel />}
           {section === "dispatch-orders" && <DispatchOrdersPanel />}
           {section === "tasks" && <FinanceTasksPanel />}

@@ -180,14 +180,8 @@ function AddVendorModal({
       if (form.contact_email && !/^\S+@\S+\.\S+$/.test(form.contact_email))
         throw new Error("Invalid contact email");
       const termsPayload = toTermsPayload(form);
-      // No balance-due-days input on this form: delivery-based terms are
-      // always due on delivery/invoice date (0 days) at master level.
-      if (
-        termsPayload.paymentTermsType === "on_delivery" ||
-        termsPayload.paymentTermsType === "advance_partial"
-      ) {
-        termsPayload.paymentTermsDays = 0;
-      }
+      // Delivery-based terms always carry 0 balance days (toPayload enforces
+      // it) — the due date is the invoice date entered by the user.
       await api.vendors.create({
         clientId: userId,
         name: form.name.trim(),
@@ -348,7 +342,6 @@ function AddVendorModal({
                   advancePct={form.payment_terms_advance_pct}
                   paymentTermsDays={form.payment_terms_days}
                   daysLabel="Net days"
-                  hideBalanceDays
                   onChange={(patch) => setForm({ ...form, ...patch })}
                 />
               </L>
