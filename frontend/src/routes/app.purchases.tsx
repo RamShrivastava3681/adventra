@@ -1,4 +1,4 @@
-﻿import { createFileRoute, Link } from "@tanstack/react-router";
+﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
@@ -35,8 +35,18 @@ import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/purchases")({
-  component: PurchasesPage,
+  component: PurchasesPageWrapper,
+  // Queue deep link: open purchase-invoice creation pre-filled from a PO
+  // ("Record supplier invoice" task).
+  validateSearch: (search: Record<string, unknown>): { createFromPo?: string } => ({
+    createFromPo: typeof search.createFromPo === "string" ? search.createFromPo : undefined,
+  }),
 });
+
+function PurchasesPageWrapper() {
+  const search = Route.useSearch();
+  return <PurchasesPageContent createFromPo={search.createFromPo} />;
+}
 
 const PI_STATUSES = [
   "draft",
@@ -110,15 +120,42 @@ type GRNFragment = {
   }>;
 };
 
-export function PurchasesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) {
-  const { user, isAdmin, isChecker, isClient, isTreasury } = useAuth();
-  // Embedded in the Procurement Workbench as a view-only tab — purchase
-  // invoices may only be created from the Finance tab.
-  const canCreate = !viewOnly && (isAdmin || (isClient && !isChecker && !isTreasury));
+export function PurchasesPage(props: { viewOnly?: boolean; createFromPo?: string } = {}) {
+  return <PurchasesPageContent {...props} />;
+}
+
+function PurchasesPageContent({
+  viewOnly = false,
+  createFromPo,
+}: {
+  viewOnly?: boolean;
+  createFromPo?: string;
+}) {
+  const { user, isAdmin, isChecker, isClient, isTreasury, isOperations } = useAuth();
+  // Procurement (operations) records and owns supplier invoices; checker and
+  // treasury keep read-only access. Embedded view-only tabs stay read-only.
+  const canCreate = !viewOnly && (isAdmin || isOperations || (isClient && !isChecker && !isTreasury));
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [createFromPoId, setCreateFromPoId] = useState<string | null>(createFromPo ?? null);
   const [editing, setEditing] = useState<any | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
+
+  // Deep link: queue "Record supplier invoice" task → open the create form
+  // with the PO preselected (the modal auto-fills lines from it).
+  useEffect(() => {
+    if (createFromPoId && canCreate) {
+      setOpen(true);
+      try {
+        if (window.location.pathname.startsWith("/app/purchases")) {
+          navigate({ to: "/app/purchases", search: {}, replace: true });
+        }
+      } catch {
+        // embedded / no router context — nothing to clear
+      }
+    }
+  }, [createFromPoId, canCreate]);
 
   const piQ = useQuery({
     queryKey: ["purchase_invoices"],
@@ -425,9 +462,9 @@ export function PurchasesPage({ viewOnly = false }: { viewOnly?: boolean } = {})
                                     }
                                     disabled={setStatus.isPending}
                                     className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
-                                    title="Review the invoice and send it to the checker"
+                                    title="Push the invoice to the checker for approval"
                                   >
-                                    <CheckCircle2 className="h-3 w-3" /> Review
+                                    <CheckCircle2 className="h-3 w-3" /> Push to checker
                                   </button>
                                 )}
                                 {(canCreate || isAdmin) &&
@@ -459,12 +496,16 @@ export function PurchasesPage({ viewOnly = false }: { viewOnly?: boolean } = {})
       {open && user && (
         <NewPurchaseModal
           userId={user.id}
+          initialPoId={createFromPoId ?? undefined}
           vendors={vendorsQ.data ?? []}
           pos={(posQ.data ?? []).filter((p: any) => !["cancelled"].includes(p.status))}
           grns={grnsQ.data ?? []}
           isAdmin={isAdmin}
           isTreasury={isTreasury}
-          onClose={() => setOpen(false)}
+          onClose={() => {
+            setOpen(false);
+            setCreateFromPoId(null);
+          }}
           onCreated={() => qc.invalidateQueries({ queryKey: ["purchase_invoices"] })}
         />
       )}
@@ -495,6 +536,7 @@ export function PurchasesPage({ viewOnly = false }: { viewOnly?: boolean } = {})
 function NewPurchaseModal({
   invoice,
   userId,
+  initialPoId,
   vendors,
   pos,
   grns,
@@ -505,6 +547,8 @@ function NewPurchaseModal({
 }: {
   invoice?: any;
   userId: string;
+  /** Queue deep link — preselect this purchase order (auto-fills lines). */
+  initialPoId?: string;
   vendors: any[];
   pos: POFragment[];
   grns: GRNFragment[];
@@ -669,6 +713,20 @@ function NewPurchaseModal({
 
   const setLine = (i: number, patch: Partial<LineDraft>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+
+  // Queue deep link: once the PO list is loaded, auto-pick the requested
+  // order so the form arrives pre-filled (same path as a manual pick).
+  const initialPoApplied = useRef(false);
+  useEffect(() => {
+    if (!initialPoId || isEdit || initialPoApplied.current) return;
+    const po = pos.find((p) => p.id === initialPoId);
+    if (po) {
+      initialPoApplied.current = true;
+      // Preselect the PO's supplier first, then pick the PO for the lines.
+      setForm((f) => ({ ...f, vendor_id: (po as any).supplier_id ?? f.vendor_id }));
+      pickPo(initialPoId);
+    }
+  }, [initialPoId, isEdit, pos]);
 
   const totals = useMemo(() => {
     let subtotal = 0;

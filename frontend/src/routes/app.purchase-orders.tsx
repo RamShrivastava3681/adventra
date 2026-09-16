@@ -203,30 +203,6 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-const PRICE_TIERS = [
-  { value: "", label: "Default" },
-  { value: "mrp", label: "MRP" },
-  { value: "ecommerce", label: "E-commerce" },
-  { value: "retailer", label: "Retailer" },
-  { value: "distributor", label: "Distributor" },
-  { value: "flexible", label: "Flexible" },
-];
-
-function resolveTierPrice(
-  p: CatalogueProduct | undefined | null,
-  tier: string,
-): string | null {
-  if (!p) return null;
-  switch (tier) {
-    case "mrp": return p.mrp != null ? String(p.mrp) : null;
-    case "ecommerce": return p.ecommerce_price != null ? String(p.ecommerce_price) : null;
-    case "retailer": return p.retailer_price != null ? String(p.retailer_price) : null;
-    case "distributor": return p.distributor_price != null ? String(p.distributor_price) : null;
-    case "flexible": return p.flexible_price != null ? String(p.flexible_price) : null;
-    default: return null;
-  }
-}
-
 export function PurchaseOrdersPage() {
   const { user, isSalesRep, isAdmin, isChecker } = useAuth();
   const canWrite = !isSalesRep && !!user;
@@ -298,28 +274,6 @@ export function PurchaseOrdersPage() {
     },
   });
 
-  // Last supplier price per product — most recent PO line price or GRN unit cost.
-  const lastPrices = useMemo(() => {
-    const map = new Map<string, number>();
-    const entries: Array<{ date: string; productId: string; price: number }> = [];
-    for (const po of (posQ.data ?? []) as PO[]) {
-      for (const l of po.lines ?? []) {
-        entries.push({ date: po.po_date || "", productId: l.product_id, price: l.unit_price });
-      }
-    }
-    for (const g of (grnsQ.data ?? []) as GRN[]) {
-      for (const l of g.lines ?? []) {
-        entries.push({ date: g.received_date || "", productId: l.product_id, price: l.unit_cost });
-      }
-    }
-    entries
-      .sort((a, b) => b.date.localeCompare(a.date))
-      .forEach((e) => {
-        if (!map.has(e.productId) && e.price >= 0) map.set(e.productId, e.price);
-      });
-    return map;
-  }, [posQ.data, grnsQ.data]);
-
   // Row-level workflow: submit for checker review / cancel.
   const submitReview = useMutation({
     mutationFn: async (id: string) => {
@@ -386,7 +340,7 @@ export function PurchaseOrdersPage() {
       <PageHeader
         eyebrow="Procurement"
         title="Purchase orders"
-        description="System PO number, supplier, delivery warehouse, payment term for this order and product lines. Submit for Approval when ready."
+        description="System PO number, supplier, payment term for this order and product lines. Push to checker when ready."
         icon={<ClipboardList className="h-5 w-5" />}
         actions={
           canWrite ? (
@@ -586,7 +540,6 @@ export function PurchaseOrdersPage() {
           po={editing}
           products={productsQ.data ?? []}
           suppliers={suppliersQ.data ?? []}
-          lastPrices={lastPrices}
           canWrite={canWrite}
           canApprove={isAdmin || isChecker}
           onClose={() => setOpen(false)}
@@ -642,7 +595,6 @@ type LineDraft = {
   unit_price: string;
   gst_rate: string;
   received_qty: number;
-  price_tier: string;
 };
 
 type PiLineDraft = {
@@ -684,7 +636,6 @@ function POModal({
   po,
   products,
   suppliers,
-  lastPrices,
   canWrite,
   canApprove,
   onClose,
@@ -695,7 +646,6 @@ function POModal({
   po: PO | null;
   products: CatalogueProduct[];
   suppliers: Array<{ id: string; name: string }>;
-  lastPrices: Map<string, number>;
   canWrite: boolean;
   canApprove: boolean;
   onClose: () => void;
@@ -771,7 +721,6 @@ function POModal({
       unit_price: String(l.unit_price),
       gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
       received_qty: l.received_qty ?? 0,
-      price_tier: "",
     })),
   );
   const [docs, setDocs] = useState<DocMeta[]>(po?.documents ?? []);
@@ -1040,17 +989,6 @@ function POModal({
   const setLine = (i: number, patch: Partial<LineDraft>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
 
-  const changePriceTier = (i: number, tier: string) => {
-    const line = lines[i];
-    const p = products.find((x) => x.id === line.product_id);
-    const tierPrice = resolveTierPrice(p, tier);
-    if (tierPrice != null) {
-      setLine(i, { price_tier: tier, unit_price: tierPrice });
-    } else {
-      setLine(i, { price_tier: tier });
-    }
-  };
-
   // Snapshot a catalogue product (an existing pick, or a SKU just created via
   // the inline popups) into the line — defaults follow the catalogue record.
   const applyProductToLine = (
@@ -1070,13 +1008,9 @@ function POModal({
       fabric: "",
       hsn_code: String(pa.hsn_code ?? pa.hsnCode ?? ""),
       unit: p.unit_of_measure || "piece",
-      unit_price: lastPrices.has(p.id)
-        ? String(lastPrices.get(p.id))
-        : p.unit_cost != null
-          ? String(p.unit_cost)
-          : "",
+      // Unit price always comes from the SKU's cost in the catalogue.
+      unit_price: p.unit_cost != null ? String(p.unit_cost) : "",
       gst_rate: p.gst_rate != null ? String(p.gst_rate) : "",
-      price_tier: "",
     });
   };
 
@@ -1111,7 +1045,6 @@ function POModal({
     unit_price: "",
     gst_rate: "",
     received_qty: 0,
-    price_tier: "",
   });
 
   const addLine = () => setLines((ls) => [...ls, emptyLine()]);
@@ -1289,8 +1222,9 @@ function POModal({
       }
 
       // Create the selected document from this PO — either a purchase proforma
-      // (saved in the Proforma invoices tab, submitted to the checker) or a
-      // purchase invoice (recorded in the Purchase invoices tab as a draft).
+      // (saved as a DRAFT in the Proforma invoices tab; the maker submits it
+      // to the checker from there) or a purchase invoice (recorded in the
+      // Purchase invoices tab as a draft).
       // The PO is already saved by this point, so a document failure must not
       // look like the whole save failed (that would tempt a retry and
       // duplicate the PO) — it is surfaced as a distinct warning instead.
@@ -1301,7 +1235,7 @@ function POModal({
             clientId: userId,
             side: "purchase",
             status: "received",
-            proformaStatus: "pending_review",
+            proformaStatus: "draft",
             proformaNumber: pfForm.proforma_number.trim(),
             proformaDate: pfForm.proforma_date,
             vendorId: pfForm.supplier_id,
@@ -1514,42 +1448,6 @@ function POModal({
                   placeholder="Select supplier…"
                   disabled={!editable}
                   options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
-                />
-              </L>
-              <L label="Delivery warehouse / store">
-                <input
-                  className={inputBase}
-                  value={f.warehouse}
-                  onChange={(e) => setF({ ...f, warehouse: e.target.value })}
-                  placeholder="e.g. Main store"
-                  disabled={!editable}
-                />
-              </L>
-              <L label="Expected delivery date">
-                <input
-                  type="date"
-                  className={inputBase}
-                  value={f.expected_delivery_date}
-                  onChange={(e) => setF({ ...f, expected_delivery_date: e.target.value })}
-                  disabled={!editable}
-                />
-              </L>
-              <L label="Payment due date">
-                <input
-                  type="date"
-                  className={inputBase}
-                  value={f.due_date}
-                  onChange={(e) => setF({ ...f, due_date: e.target.value })}
-                  disabled={!editable}
-                />
-              </L>
-              <L label="Expected cash payment date">
-                <input
-                  type="date"
-                  className={inputBase}
-                  value={f.expected_date}
-                  onChange={(e) => setF({ ...f, expected_date: e.target.value })}
-                  disabled={!editable}
                 />
               </L>
               <L label="Payment terms">
@@ -1902,10 +1800,9 @@ function POModal({
             ) : (
               <div className="space-y-2">
                 <div className="hidden grid-cols-12 gap-2 text-[9px] uppercase tracking-widest text-muted-foreground md:grid">
-                  <div className="col-span-4">SKU / Product</div>
+                  <div className="col-span-5">SKU / Product</div>
                   <div className="col-span-1">Unit</div>
                   <div className="col-span-2">Ordered qty</div>
-                  <div className="col-span-1">Tier</div>
                   <div className="col-span-1">Unit price</div>
                   <div className="col-span-1">GST %</div>
                   <div className="col-span-1 text-right">Line total</div>
@@ -1922,7 +1819,7 @@ function POModal({
                       key={i}
                       className="grid grid-cols-2 items-end gap-2 rounded-md border border-border/50 p-2 md:grid-cols-12"
                     >
-                      <div className="col-span-2 md:col-span-4">
+                      <div className="col-span-2 md:col-span-5">
                         <L label="Product">
                           <ProductVariantPicker
                             products={products}
@@ -1974,27 +1871,25 @@ function POModal({
                         )}
                       </div>
                       <div>
-                        <L label="Unit">
-                          <input
-                            className={inputBase}
-                            value={l.unit}
-                            onChange={(e) => setLine(i, { unit: e.target.value })}
-                            disabled={!editable}
-                          />
-                        </L>
+                        <input
+                          aria-label="Unit"
+                          className={inputBase}
+                          value={l.unit}
+                          onChange={(e) => setLine(i, { unit: e.target.value })}
+                          disabled={!editable}
+                        />
                       </div>
                       <div className="md:col-span-2">
-                        <L label="Ordered qty">
-                          <input
-                            type="number"
-                            min="1"
-                            step="0.001"
-                            className={`inp ${overReceived ? "!border-sem-attention" : ""}`}
-                            value={l.ordered_qty}
-                            onChange={(e) => setLine(i, { ordered_qty: e.target.value })}
-                            disabled={!editable}
-                          />
-                        </L>
+                        <input
+                          type="number"
+                          min="1"
+                          step="0.001"
+                          aria-label="Ordered qty"
+                          className={`inp ${overReceived ? "!border-sem-attention" : ""}`}
+                          value={l.ordered_qty}
+                          onChange={(e) => setLine(i, { ordered_qty: e.target.value })}
+                          disabled={!editable}
+                        />
                         {overReceived && (
                           <div className="mt-0.5 text-[9px] text-sem-attention">
                             Cannot go below received ({l.received_qty})
@@ -2002,61 +1897,44 @@ function POModal({
                         )}
                       </div>
                       <div className="md:col-span-1">
-                        {l.product_id ? (
-                          <L label="Price tier">
-                            <select
-                              className={inputBase}
-                              value={l.price_tier ?? ""}
-                              onChange={(e) => changePriceTier(i, e.target.value)}
-                              disabled={!editable}
-                            >
-                              {PRICE_TIERS.map((t) => (
-                                <option key={t.value} value={t.value}>
-                                  {t.label}
-                                </option>
-                              ))}
-                            </select>
-                          </L>
-                        ) : null}
-                      </div>
-                      <div className="md:col-span-1">
-                        <L label="Unit price">
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            className={inputBase}
-                            value={l.unit_price}
-                            onChange={(e) => setLine(i, { unit_price: e.target.value })}
-                            disabled={!editable}
-                            placeholder={
-                              lastPrices.has(l.product_id)
-                                ? `Last: ${lastPrices.get(l.product_id)}`
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          aria-label="Unit price"
+                          className={inputBase}
+                          value={l.unit_price}
+                          onChange={(e) => setLine(i, { unit_price: e.target.value })}
+                          disabled={!editable}
+                          placeholder={
+                            l.product_id
+                              ? products.find((x) => x.id === l.product_id)?.unit_cost != null
+                                ? `Cost: ${products.find((x) => x.id === l.product_id)!.unit_cost}`
                                 : ""
-                            }
-                          />
-                        </L>
+                              : ""
+                          }
+                        />
                       </div>
                       <div>
-                        <L label="GST %">
-                          <input
-                            list="po-gst-rates"
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            className={inputBase}
-                            value={l.gst_rate}
-                            onChange={(e) => setLine(i, { gst_rate: e.target.value })}
-                            disabled={!editable}
-                          />
-                        </L>
+                        <input
+                          list="po-gst-rates"
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          aria-label="GST %"
+                          className={inputBase}
+                          value={l.gst_rate}
+                          onChange={(e) => setLine(i, { gst_rate: e.target.value })}
+                          disabled={!editable}
+                        />
                       </div>
                       <div className="text-right">
-                        <L label="Line total">
-                          <div className="inp text-right font-mono tabular-nums">
-                            {fmtMoney(lineTotal)}
-                          </div>
-                        </L>
+                        <div
+                          aria-label="Line total"
+                          className="inp text-right font-mono tabular-nums"
+                        >
+                          {fmtMoney(lineTotal)}
+                        </div>
                       </div>
                       <div className="flex items-end justify-end gap-1 pb-1">
                         {l.received_qty > 0 && (
@@ -2282,15 +2160,6 @@ function POModal({
                       onChange={(e) =>
                         setPfForm({ ...pfForm, expected_delivery_date: e.target.value })
                       }
-                      disabled={!editable}
-                    />
-                  </L>
-                  <L label="Expected cash payment date">
-                    <input
-                      type="date"
-                      className={inputBase}
-                      value={f.expected_date}
-                      onChange={(e) => setF({ ...f, expected_date: e.target.value })}
                       disabled={!editable}
                     />
                   </L>
@@ -2534,7 +2403,7 @@ function POModal({
                   onClick={() => changeStatus("pending_review")}
                   className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
                 >
-                  <Send className="h-3.5 w-3.5" /> Submit for review
+                  <Send className="h-3.5 w-3.5" /> Push to checker
                 </button>
               )}
               {isEdit && status === "pending_review" && canApprove && (

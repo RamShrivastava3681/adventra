@@ -306,7 +306,7 @@ function SalesWorkbenchPage() {
               onClick={() => setSection("sales-orders")}
             />
             <NavTab
-              label="Sales Proforma"
+              label="Proforma Invoices"
               active={section === "proformas"}
               onClick={() => setSection("proformas")}
             />
@@ -619,7 +619,7 @@ function SalesWorkbenchPage() {
         <Suspense fallback={<SectionFallback />}>
           {section === "customers" && <DebtorsPanel />}
           {section === "sales-orders" && <SalesOrdersPanel />}
-          {section === "proformas" && <ProformasPanel />}
+          {section === "proformas" && <ProformasPanel side="sales" />}
           {section === "invoices" && <InvoicesPanel />}
           {section === "notes" && <NotesPanel />}
           {section === "tasks" && <TasksPanel />}

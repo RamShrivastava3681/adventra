@@ -1,4 +1,5 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import api from "@/lib/api-client";
@@ -41,8 +42,18 @@ import { ProductVariantPicker } from "@/components/product-variant-picker";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/proformas")({
-  component: ProformasPage,
+  component: ProformasPageWrapper,
+  // Queue deep link: open the sales-proforma creation form pre-filled from a
+  // sales order ("Create advance proforma" task).
+  validateSearch: (search: Record<string, unknown>): { createFromSo?: string } => ({
+    createFromSo: typeof search.createFromSo === "string" ? search.createFromSo : undefined,
+  }),
 });
+
+function ProformasPageWrapper() {
+  const search = Route.useSearch();
+  return <ProformasPageContent createFromSo={search.createFromSo} />;
+}
 
 type PFLine = {
   product_id: string;
@@ -125,6 +136,7 @@ const PF_DOC_TONES: Record<string, string> = {
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
 };
 const FUNDING_TONES: Record<string, string> = {
+  draft: "border-border text-muted-foreground",
   pending_review: "border-sem-attention/50 text-sem-attention",
   approved: "border-primary/50 text-primary",
   funded: "border-sem-success/50 text-sem-success",
@@ -162,31 +174,56 @@ type GoodsPOForConvert = {
   status?: string;
 };
 
-export function ProformasPage() {
+export function ProformasPage(
+  props: { createFromSo?: string; side?: "sales" | "purchase" } = {},
+) {
+  return <ProformasPageContent {...props} />;
+}
+
+/**
+ * `side` locks the page to one proforma stream: only that side is listed and
+ * only its create button is offered (Sales workbench → sales, Procurement
+ * workbench → purchase). Unset = both sides with All/Sales/Purchase chips
+ * (Finance workbench and the standalone route).
+ */
+function ProformasPageContent({
+  createFromSo,
+  side,
+}: {
+  createFromSo?: string;
+  side?: "sales" | "purchase";
+}) {
   const { user, isAdmin, isClient, isChecker, isTreasury } = useAuth();
   const canCreate = isAdmin || (isClient && !isChecker && !isTreasury);
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [open, setOpen] = useState<null | "sales" | "purchase">(null);
-  const [tab, setTab] = useState<"all" | "sales" | "purchase">("all");
-  const [reviewFor, setReviewFor] = useState<PF | null>(null);
+  const [createFromSoId, setCreateFromSoId] = useState<string | null>(createFromSo ?? null);
+  const [tab, setTab] = useState<"all" | "sales" | "purchase">(side ?? "all");
   const [editingPf, setEditingPf] = useState<PF | null>(null);
   const [viewingPf, setViewingPf] = useState<PF | null>(null);
 
   const listQ = useQuery({
     queryKey: ["proformas"],
     queryFn: async () => {
-      const data = (await api.purchaseOrders.list()) as PF[];
-      return data.reverse().map((p) => ({
-        ...p,
-        // Rescue proformas created before proformaStatus was persisted by the
-        // backend — they were stored as "draft" but are actually pending review.
-        proforma_status:
-          p.proforma_status === "draft" && p.status === "proforma"
-            ? "pending_review"
-            : p.proforma_status,
-      }));
+      return ((await api.purchaseOrders.list()) as PF[]).reverse();
     },
   });
+
+  // Deep link: queue "Create advance proforma" task → open the sales-proforma
+  // creation form pre-filled from the sales order.
+  useEffect(() => {
+    if (createFromSoId && canCreate) {
+      setOpen("sales");
+      try {
+        if (window.location.pathname.startsWith("/app/proformas")) {
+          navigate({ to: "/app/proformas", search: {}, replace: true });
+        }
+      } catch {
+        // embedded / no router context — nothing to clear
+      }
+    }
+  }, [createFromSoId, canCreate]);
 
   // Catalogue + suppliers for the purchase (supplier quotation) proforma form.
   const productsQ = useQuery({
@@ -225,18 +262,32 @@ export function ProformasPage() {
               .filter(Boolean)
               .join(" · "),
             gstin: (s as any).gstin ?? null,
+            // Agreed terms from the supplier master — pre-fills the proforma's
+            // payment terms and the auto-computed advance %.
+            paymentTermsType: s.paymentTermsType ?? s.payment_terms_type ?? null,
+            advancePct: s.advancePct ?? s.advance_pct ?? null,
+            paymentTermsDays: s.paymentTermsDays ?? s.payment_terms_days ?? null,
+            paymentTerms: s.paymentTerms ?? s.payment_terms ?? null,
           }),
         ),
-        ...vendors.map((v: { id: string; name?: string }) => ({
+        ...vendors.map((v: { id: string; name?: string } & Record<string, any>) => ({
           id: v.id,
           name: v.name ?? v.id,
           contact: "",
+          gstin: null,
+          paymentTermsType: v.paymentTermsType ?? v.payment_terms_type ?? null,
+          advancePct: v.advancePct ?? v.advance_pct ?? null,
+          paymentTermsDays: v.paymentTermsDays ?? v.payment_terms_days ?? null,
+          paymentTerms: v.paymentTerms ?? v.payment_terms ?? null,
         })),
       ].sort((a, b) => a.name.localeCompare(b.name));
     },
   });
 
-  const rows = ((listQ.data ?? []) as PF[]).filter((p) => tab === "all" || p.side === tab);
+  const rows = ((listQ.data ?? []) as PF[]).filter(
+    (p) =>
+      (side ? p.side === side : true) && (tab === "all" || p.side === tab),
+  );
 
   const pfConfig: TxFiltersConfig<PF> = {
     searchPlaceholder: "Search by proforma / PO number, counterparty…",
@@ -248,12 +299,13 @@ export function ProformasPage() {
     ],
     statusField: (p) => p.proforma_status,
     statusLabel: {
+      draft: "Draft",
       pending_review: "Pending review",
       approved: "Funding queue",
       funded: "Funded",
       rejected: "Rejected",
     },
-    statusOrder: ["pending_review", "approved", "funded", "rejected"],
+    statusOrder: ["draft", "pending_review", "approved", "funded", "rejected"],
     dateField: (p) => p.issue_date,
     dateLabel: "Issue date",
     sortFields: [
@@ -275,28 +327,52 @@ export function ProformasPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  // Maker action: explicitly submit a draft (or checker-rejected) proforma to
+  // the checker. Approval itself only ever happens on the Checker workbench —
+  // procurement/finance can never approve from here.
+  const submitForReview = useMutation({
+    mutationFn: async (id: string) => {
+      await api.purchaseOrders.update(id, { proforma_status: "pending_review" });
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["proformas"] });
+      toast.success("Submitted to checker for review");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
   return (
     <div>
       <PageHeader
-        eyebrow="Sales"
+        eyebrow={side === "purchase" ? "Procurement" : "Sales"}
         title="Proforma Invoices"
-        description="Create a Proforma only when an advance is required. Linked to the accepted Sales Order — advance requested and balance payable shown clearly."
+        description={
+          side === "purchase"
+            ? "Supplier proforma invoices — record, review and convert them to purchase orders, with the agreed advance feeding the funding pipeline."
+            : side === "sales"
+              ? "Create a Proforma only when an advance is required. Linked to the accepted Sales Order — advance requested and balance payable shown clearly."
+              : "Customer and supplier proforma invoices — the advance requested on each flows through review and treasury funding."
+        }
         icon={<FileSignature className="h-5 w-5" />}
         actions={
           canCreate ? (
             <div className="flex gap-2">
-              <button
-                onClick={() => setOpen("sales")}
-                className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
-              >
-                <Plus className="h-4 w-4" /> Sales proforma
-              </button>
-              <button
-                onClick={() => setOpen("purchase")}
-                className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm"
-              >
-                <Plus className="h-4 w-4" /> Purchase proforma
-              </button>
+              {side !== "purchase" && (
+                <button
+                  onClick={() => setOpen("sales")}
+                  className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
+                >
+                  <Plus className="h-4 w-4" /> Sales proforma
+                </button>
+              )}
+              {side !== "sales" && (
+                <button
+                  onClick={() => setOpen("purchase")}
+                  className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm"
+                >
+                  <Plus className="h-4 w-4" /> Purchase proforma
+                </button>
+              )}
             </div>
           ) : (
             <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -307,21 +383,23 @@ export function ProformasPage() {
       />
 
       <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
-        <div className="flex flex-wrap gap-2">
-          {(["all", "sales", "purchase"] as const).map((s) => (
-            <button
-              key={s}
-              onClick={() => setTab(s)}
-              className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
-                tab === s
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {s === "all" ? "All" : s === "sales" ? "Sales" : "Purchase"}
-            </button>
-          ))}
-        </div>
+        {!side && (
+          <div className="flex flex-wrap gap-2">
+            {(["all", "sales", "purchase"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setTab(s)}
+                className={`rounded-full border px-3 py-1 text-xs uppercase tracking-widest transition ${
+                  tab === s
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {s === "all" ? "All" : s === "sales" ? "Sales" : "Purchase"}
+              </button>
+            ))}
+          </div>
+        )}
 
         <TransactionFilters data={rows} config={pfConfig}>
           {(filtered) => (
@@ -475,17 +553,24 @@ export function ProformasPage() {
                                       Edit
                                     </button>
                                   )}
-                                {(isChecker || isAdmin) &&
+                                {canCreate &&
+                                  (isAdmin || p.client_id === user?.id) &&
                                   !docClosed &&
-                                  p.proforma_status === "pending_review" &&
-                                  (isAdmin || p.client_id !== user?.id) && (
+                                  ["draft", "rejected"].includes(p.proforma_status) &&
+                                  p.status !== "invoiced" &&
+                                  p.status !== "cancelled" && (
                                     <button
-                                      onClick={() => setReviewFor(p)}
-                                      className="rounded-md border border-sem-attention/50 px-2 py-0.5 text-[10px] text-sem-attention hover:bg-sem-attention/10"
+                                      onClick={() => submitForReview.mutate(p.id)}
+                                      disabled={submitForReview.isPending}
+                                      className="rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
                                     >
-                                      Review
+                                      Submit to checker
                                     </button>
                                   )}
+                                {/* No approve/reject here: approval is a
+                                  checker-only decision made on the Checker
+                                  workbench — never from procurement, sales
+                                  or finance views. */}
                                 {canCreate &&
                                   p.status !== "invoiced" &&
                                   p.status !== "cancelled" &&
@@ -512,18 +597,22 @@ export function ProformasPage() {
 
         <Card title="How this works">
           <ol className="ml-4 list-decimal space-y-1 text-xs text-muted-foreground">
-            <li>
-              <span className="font-medium text-foreground">Purchase proforma</span> — record a
-              supplier quotation (catalogue lines, totals, attachment) as Received, review it, and
-              convert it to a Purchase order.
-            </li>
-            <li>
-              <span className="font-medium text-foreground">Sales proforma</span> — record the
-              customer's proforma invoice (catalogue lines, totals, attachment) as Received, review
-              it, and convert it to a Sales order (a draft SO is auto-created, never stock). An
-              optional advance request flows through the checker/treasury pipeline and is applied to
-              the final invoice with the same PO number.
-            </li>
+            {side !== "sales" && (
+              <li>
+                <span className="font-medium text-foreground">Purchase proforma</span> — record a
+                supplier quotation (catalogue lines, totals, attachment) as Received, review it, and
+                convert it to a Purchase order.
+              </li>
+            )}
+            {side !== "purchase" && (
+              <li>
+                <span className="font-medium text-foreground">Sales proforma</span> — record the
+                customer's proforma invoice (catalogue lines, totals, attachment) as Received,
+                review it, and convert it to a Sales order (a draft SO is auto-created, never
+                stock). An optional advance request flows through the checker/treasury pipeline and
+                is applied to the final invoice with the same PO number.
+              </li>
+            )}
             <li>
               Advances recorded against a PO are auto-deducted when the final invoice is raised —
               the balance shows as due or outstanding.
@@ -535,8 +624,12 @@ export function ProformasPage() {
       {open && user && open === "sales" && (
         <SalesProformaModal
           userId={user.id}
+          initialSoId={createFromSoId ?? undefined}
           products={(productsQ.data ?? []) as CatalogueProduct[]}
-          onClose={() => setOpen(null)}
+          onClose={() => {
+            setOpen(null);
+            setCreateFromSoId(null);
+          }}
         />
       )}
       {open && user && open === "purchase" && (
@@ -568,9 +661,6 @@ export function ProformasPage() {
           onClose={() => setEditingPf(null)}
         />
       )}
-      {reviewFor && user && (
-        <ReviewModal pf={reviewFor} userId={user.id} onClose={() => setReviewFor(null)} />
-      )}
       {viewingPf && <ProformaDetailModal pf={viewingPf} onClose={() => setViewingPf(null)} />}
     </div>
   );
@@ -596,11 +686,14 @@ function StatusPill({ label, tone }: { label: string; tone?: string }) {
 function SalesProformaModal({
   userId,
   pf,
+  initialSoId,
   products,
   onClose,
 }: {
   userId: string;
   pf?: PF;
+  /** Queue deep link — preselect this sales order and auto-fill from it. */
+  initialSoId?: string;
   products: CatalogueProduct[];
   onClose: () => void;
 }) {
@@ -718,6 +811,18 @@ function SalesProformaModal({
     queryFn: async () => api.goodsSalesOrders.list(),
   });
 
+  // Queue deep link: once the SO list is loaded, auto-pick the requested
+  // order so the form arrives pre-filled (same path as a manual pick).
+  const initialSoApplied = useRef(false);
+  useEffect(() => {
+    if (!initialSoId || isEdit || initialSoApplied.current) return;
+    const so = (sosQ.data ?? []).find((x: any) => x.id === initialSoId);
+    if (so) {
+      initialSoApplied.current = true;
+      pickSo(initialSoId);
+    }
+  }, [initialSoId, isEdit, sosQ.data]);
+
   // Pick a sales order → auto-fill customer + contact + GSTIN + terms + dates + lines.
   const pickSo = (id: string) => {
     if (!id) {
@@ -827,13 +932,15 @@ function SalesProformaModal({
           clientId: userId,
           side: "sales",
           status: "received",
-          proformaStatus: "pending_review",
+          proformaStatus: "draft",
         });
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["proformas"] });
-      toast.success(isEdit ? "Proforma updated" : "Proforma recorded — submitted for review");
+      toast.success(
+        isEdit ? "Proforma updated" : "Proforma saved as draft — submit it to the checker when ready",
+      );
       onClose();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -1163,9 +1270,10 @@ function SalesProformaModal({
             </L>
           </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
-            A proforma never creates inventory — stock only reduces after a confirmed dispatch. If
-            an advance is requested it is submitted for checker review, then received by treasury.
-            Convert the proforma to a Sales order from the list to hand it to the sales workflow.
+            A proforma never creates inventory — stock only reduces after a confirmed dispatch. It
+            is saved as a draft: submit it to the checker from the list for approval, and any
+            advance is then received by treasury. Convert the proforma to a Sales order from the
+            list to hand it to the sales workflow.
           </p>
         </fieldset>
 
@@ -1208,11 +1316,24 @@ function PurchaseProformaModal({
   userId: string;
   pf?: PF;
   products: CatalogueProduct[];
-  suppliers: Array<{ id: string; name: string; contact: string; gstin?: string | null }>;
+  suppliers: Array<{
+    id: string;
+    name: string;
+    contact: string;
+    gstin?: string | null;
+    paymentTermsType?: string | null;
+    advancePct?: number | null;
+    paymentTermsDays?: number | null;
+    paymentTerms?: string | null;
+  }>;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
   const isEdit = !!pf;
+  // Tracks whether the user hand-edited the advance amount — auto-compute
+  // stays active until they take control. Edits of an existing proforma never
+  // auto-overwrite the stored amount.
+  const advanceTouched = useRef(isEdit);
   const [f, setF] = useState({
     proforma_number: pf?.proforma_number ?? "",
     proforma_date:
@@ -1359,6 +1480,36 @@ function PurchaseProformaModal({
     return { subtotal, gstTotal, freight, grandTotal: round2(subtotal + gstTotal + freight) };
   }, [lines, f.freight]);
 
+  /* ── Auto-computed advance (purchase side) ──
+   * The supplier's payment terms drive the advance: advance_partial → % ×
+   * proforma grand total; advance_full → the whole total; credit/on_delivery
+   * → no advance. Runs until the user hand-edits the amount (tracked via
+   * advanceTouched) — after that their override sticks. */
+  useEffect(() => {
+    if (advanceTouched.current) return;
+    const type = f.payment_terms_type;
+    let next = "";
+    if (type === "advance_partial") {
+      const pct = Number(f.payment_terms_advance_pct) || 0;
+      next = pct > 0 ? String(round2((totals.grandTotal * pct) / 100)) : "";
+    } else if (type === "advance_full") {
+      next = totals.grandTotal > 0 ? String(totals.grandTotal) : "";
+    }
+    setF((prev) => (prev.amount === next ? prev : { ...prev, amount: next }));
+  }, [f.payment_terms_type, f.payment_terms_advance_pct, totals.grandTotal]);
+
+  // The % of the proforma total the advance represents — shown as a hint and
+  // persisted (with the total as poAmount) so funding and invoice deduction
+  // compute the same figure.
+  const advancePctForTotal = useMemo(() => {
+    if (f.payment_terms_type === "advance_full") return totals.grandTotal > 0 ? 100 : null;
+    if (f.payment_terms_type === "advance_partial") {
+      const pct = Number(f.payment_terms_advance_pct) || 0;
+      return pct > 0 ? pct : null;
+    }
+    return null;
+  }, [f.payment_terms_type, f.payment_terms_advance_pct, totals.grandTotal]);
+
   const save = useMutation({
     mutationFn: async () => {
       if (!f.proforma_number.trim()) throw new Error("Proforma invoice number is required");
@@ -1398,7 +1549,11 @@ function PurchaseProformaModal({
           return stripped ? `PF-${stripped}` : undefined;
         })(),
         amount: Number(f.amount) || 0,
-        poAmount: null,
+        // The advance % (from the supplier's terms) and the proforma grand
+        // total as the % base — this is what the funding pre-fill and the
+        // purchase-invoice advance deduction compute from.
+        advancePct: advancePctForTotal,
+        poAmount: advancePctForTotal != null ? totals.grandTotal : null,
         issueDate: f.proforma_date,
         freight: Number(f.freight) || 0,
         documents: docs,
@@ -1412,13 +1567,15 @@ function PurchaseProformaModal({
           clientId: userId,
           side: "purchase",
           status: "received",
-          proformaStatus: "pending_review",
+          proformaStatus: "draft",
         });
       }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["proformas"] });
-      toast.success(isEdit ? "Proforma updated" : "Proforma recorded — submitted for review");
+      toast.success(
+        isEdit ? "Proforma updated" : "Proforma saved as draft — submit it to the checker when ready",
+      );
       onClose();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -1461,16 +1618,34 @@ function PurchaseProformaModal({
                 value={f.supplier_id}
                 onChange={(v) => {
                   const s = suppliers.find((x) => x.id === v) as any;
-                  setF({
-                    ...f,
+                  setF((prev) => ({
+                    ...prev,
                     supplier_id: v,
-                    supplier_contact: s?.contact ?? f.supplier_contact,
-                    supplier_gstin: s?.gstin ?? f.supplier_gstin,
-                  });
+                    supplier_contact: s?.contact ?? prev.supplier_contact,
+                    supplier_gstin: s?.gstin ?? prev.supplier_gstin,
+                    // Pre-fill payment terms from the supplier master (editable).
+                    ...(s ? toTermsFormFields(s) : {}),
+                  }));
                 }}
                 placeholder="Select supplier…"
                 options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
               />
+              {(() => {
+                const s = suppliers.find((x) => x.id === f.supplier_id) as any;
+                const label = s
+                  ? formatPaymentTerms({
+                      paymentTermsType: s.paymentTermsType ?? null,
+                      advancePct: s.advancePct ?? null,
+                      paymentTermsDays: s.paymentTermsDays ?? null,
+                      paymentTerms: s.paymentTerms ?? null,
+                    })
+                  : "";
+                return label && label !== "—" ? (
+                  <p className="mt-1 text-[11px] text-muted-foreground">
+                    Agreed terms: {label}
+                  </p>
+                ) : null;
+              })()}
             </L>
             <L label="Supplier contact">
               <input
@@ -1733,7 +1908,10 @@ function PurchaseProformaModal({
                 min="0"
                 className={inputBase}
                 value={f.amount}
-                onChange={(e) => setF({ ...f, amount: e.target.value })}
+                onChange={(e) => {
+                  advanceTouched.current = true;
+                  setF((prev) => ({ ...prev, amount: e.target.value }));
+                }}
                 placeholder="Optional"
               />
             </L>
@@ -1766,69 +1944,6 @@ function PurchaseProformaModal({
         <option value="18" />
         <option value="28" />
       </datalist>
-    </Modal>
-  );
-}
-
-function ReviewModal({ pf, onClose }: { pf: PF; userId: string; onClose: () => void }) {
-  const qc = useQueryClient();
-  const [comments, setComments] = useState("");
-  const review = useMutation({
-    mutationFn: async (proforma_status: string) => {
-      await api.purchaseOrders.update(pf.id, {
-        proforma_status,
-        // Optional checker note — travels with the proforma on approval and
-        // is mandatory context on rejection (set by the caller below).
-        proforma_review_comments: comments.trim() || null,
-      });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["proformas"] });
-      onClose();
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-  const reject = () => {
-    if (!comments.trim()) {
-      toast.error("A reason is required to reject the proforma");
-      return;
-    }
-    review.mutate("rejected");
-  };
-  const isRejected = pf.proforma_status === "rejected";
-
-  return (
-    <Modal
-      title={`Review proforma · ${pf.proforma_number ?? pf.po_number}`}
-      onClose={onClose}
-    >
-      <div className="space-y-3 p-5">
-        <div className="flex justify-between">
-          <span className="text-muted-foreground">Amount</span>
-          <span className="num">{fmtMoney(pf.amount)}</span>
-        </div>
-        <L label="Review note (required to reject)">
-          <textarea
-            className="inp min-h-20"
-            value={comments}
-            onChange={(e) => setComments(e.target.value)}
-            placeholder={isRejected ? "Rejection reason…" : "Optional note for the maker…"}
-          />
-        </L>
-        {isRejected && pf.proforma_review_comments && (
-          <p className="text-xs text-sem-attention">
-            Previously rejected: {pf.proforma_review_comments}
-          </p>
-        )}
-        <Actions
-          onClose={onClose}
-          pending={review.isPending}
-          label="Approve"
-          onPrimary={() => review.mutate("approved")}
-          onSecondary={reject}
-          secondaryLabel="Reject"
-        />
-      </div>
     </Modal>
   );
 }

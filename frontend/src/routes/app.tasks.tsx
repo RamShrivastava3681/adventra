@@ -86,27 +86,53 @@ const PRIORITY_TONE: Record<string, string> = {
   low: "bg-muted/40 text-muted-foreground border-border",
 };
 
-/** Where does this document live in the app? Used by the Open Task button. */
-function docAppPath(t: Task): string {
+/**
+ * Where does the NEXT STEP of this task live? Used by the Open Task button.
+ * The link targets the page where the required action is performed — and when
+ * that action is "create the next document", the page is opened in create
+ * mode pre-filled from this task's document (e.g. a sales order's "Create tax
+ * invoice" task opens the sales-invoice creation form with the SO selected),
+ * not just the current document's list.
+ */
+function taskTarget(t: Task): { to: string; search?: Record<string, string> } {
+  const stage = (t.stage ?? "").toLowerCase();
+  const id = t.doc_id;
   switch (t.doc_type) {
     case "sales_order":
-      return "/app/sales-orders";
+      // Finance stages on a sales order create the NEXT document from it.
+      if (stage === "create_invoice")
+        return { to: "/app/invoices", search: { createFromSo: id } };
+      if (stage === "create_proforma")
+        return { to: "/app/proformas", search: { createFromSo: id, side: "sales" } };
+      return { to: "/app/sales-orders" };
     case "sales_invoice":
-      return "/app/invoices";
+      if (stage === "record_irn") return { to: "/app/invoices", search: { irnFor: id } };
+      if (stage === "record_utr" || stage === "await_payment")
+        return { to: "/app/invoices", search: { utrFor: id } };
+      if (stage === "prepare_dispatch" || stage === "confirm_dispatch")
+        return { to: "/app/dispatches", search: { createFromInvoice: id } };
+      return { to: "/app/invoices" };
     case "proforma":
-      return "/app/proformas";
+      return { to: "/app/proformas" };
     case "purchase_order":
-      return "/app/purchase-orders";
+      // After approval the next steps are downstream documents, not the PO.
+      if (stage === "record_supplier_invoice")
+        return { to: "/app/purchases", search: { createFromPo: id } };
+      if (stage === "await_goods" || stage === "create_grn")
+        return { to: "/app/grn", search: { createFromPo: id } };
+      return { to: "/app/purchase-orders" };
     case "purchase_invoice":
-      return "/app/purchases";
+      if (stage === "await_goods" || stage === "create_grn")
+        return { to: "/app/grn", search: { createFromPo: (t.linked_docs ?? []).find((d) => d.type === "purchase_order")?.id ?? "" } };
+      return { to: "/app/purchases" };
     case "grn":
-      return "/app/grn";
+      return { to: "/app/grn" };
     case "dispatch":
-      return "/app/dispatches";
+      return { to: "/app/dispatches" };
     case "payment":
-      return "/app/queue";
+      return { to: "/app/queue" };
     default:
-      return "/app/dashboard";
+      return { to: "/app/dashboard" };
   }
 }
 
@@ -409,7 +435,8 @@ function TaskRow({ task: t, done }: { task: Task; done: boolean }) {
             </span>
           )}
           <Link
-            to={docAppPath(t)}
+            to={taskTarget(t).to}
+            search={taskTarget(t).search}
             className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/10"
           >
             <ExternalLink className="h-3 w-3" /> Open task

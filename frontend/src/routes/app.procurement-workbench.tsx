@@ -897,7 +897,7 @@ function ProcurementWorkbenchPage() {
         <Suspense fallback={<SectionFallback />}>
           {section === "suppliers" && <SuppliersPanel />}
           {section === "purchase-orders" && <PurchaseOrdersPanel />}
-          {section === "proformas" && <ProformasPanel />}
+          {section === "proformas" && <ProformasPanel side="purchase" />}
           {section === "purchase-invoices" && <PurchaseInvoicesPanel />}
           {section === "tasks" && <ProcTasksPanel />}
         </Suspense>

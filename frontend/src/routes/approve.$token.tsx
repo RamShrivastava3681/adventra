@@ -38,6 +38,13 @@ function ApprovePage() {
   const qc = useQueryClient();
   const [mode, setMode] = useState<null | "approved" | "rejected">(null);
   const [comments, setComments] = useState("");
+  // The response token is one-time: once used, GET /approvals/:token 404s. We
+  // snapshot the decision locally so the confirmation card renders after
+  // responding (and survives refetches) instead of showing the form again.
+  const [respondedDoc, setRespondedDoc] = useState<{
+    decision: "approved" | "rejected";
+    comments: string;
+  } | null>(null);
 
   const q = useQuery({
     queryKey: ["approval", token],
@@ -61,8 +68,9 @@ function ApprovePage() {
     }) => {
       await api.approvals.respond(token, decision, comments || undefined);
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["approval", token] });
+    onSuccess: (_res, vars) => {
+      setRespondedDoc({ decision: vars.decision, comments: vars.comments });
+      qc.removeQueries({ queryKey: ["approval", token] });
       toast.success("Response recorded");
       setMode(null);
       setComments("");
@@ -90,23 +98,44 @@ function ApprovePage() {
       </div>
     );
 
+  // The public endpoint returns camelCase fields; accept either casing so the
+  // page renders correctly if the backend shape ever changes.
+  const docAny = doc as any;
+  const pick = (camel: string, snake: string) => docAny[camel] ?? docAny[snake];
+
   const isPurchaseOrder = data.kind === "purchase_order";
   const docLabel = isPurchaseOrder ? "purchase order" : "sales order";
-  const number = isPurchaseOrder ? doc.po_number : doc.so_number;
-  const dateField = isPurchaseOrder ? doc.po_date : doc.order_date;
-  const validUntil = doc.expected_delivery_date;
-  const lines: ApproveLine[] = doc.lines ?? [];
-  const responded = doc.debtor_approval_status === "approved" || doc.debtor_approval_status === "rejected";
+  const number = isPurchaseOrder ? pick("poNumber", "po_number") : pick("soNumber", "so_number");
+  const dateField = isPurchaseOrder ? pick("poDate", "po_date") : pick("orderDate", "order_date");
+  const validUntil = pick("expectedDeliveryDate", "expected_delivery_date");
+  const lines: ApproveLine[] = (docAny.lines ?? []).map((l: any) => ({
+    sku: l.sku ?? null,
+    name: l.name,
+    unit: l.unit,
+    quantity: l.quantity,
+    unit_price: l.unitPrice ?? l.unit_price,
+    updated_unit_price: l.updatedUnitPrice ?? l.updated_unit_price ?? null,
+    ordered_qty: l.orderedQty ?? l.ordered_qty,
+    discount_type: l.discountType ?? l.discount_type ?? null,
+    discount_value: l.discountValue ?? l.discount_value ?? null,
+    discount_pct: l.discountPct ?? l.discount_pct ?? null,
+    gst_rate: l.gstRate ?? l.gst_rate ?? null,
+    line_total: l.lineTotal ?? l.line_total,
+  }));
+  const approvalStatus =
+    respondedDoc?.decision ?? pick("debtorApprovalStatus", "debtor_approval_status");
+  const approvalComments = respondedDoc?.comments ?? pick("debtorApprovalComments", "debtor_approval_comments");
+  const responded = approvalStatus === "approved" || approvalStatus === "rejected";
   const statusLabel =
-    doc.debtor_approval_status === "approved"
+    approvalStatus === "approved"
       ? "✅ Approved by you"
-      : doc.debtor_approval_status === "rejected"
+      : approvalStatus === "rejected"
         ? "❌ Rejected by you"
         : null;
 
-  const effPrice = (l: ApproveLine) =>
-    l.updated_unit_price != null ? l.updated_unit_price : l.unit_price;
+  const effPrice = (l: ApproveLine) => l.updated_unit_price != null ? l.updated_unit_price : l.unit_price;
   const qty = (l: ApproveLine) => l.ordered_qty ?? l.quantity;
+  const num = (v: unknown) => Number(v) || 0;
 
   return (
     <div className="min-h-screen bg-muted/30">
@@ -138,12 +167,12 @@ function ApprovePage() {
             <p className="mt-2 text-sm text-muted-foreground">
               Thank you — your response has been recorded and shared with the sender.
             </p>
-            {doc.debtor_approval_comments && (
+            {approvalComments && (
               <div className="mt-4 rounded-md border border-border bg-muted/30 p-3 text-sm">
                 <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
                   Your comments
                 </div>
-                {doc.debtor_approval_comments}
+                {approvalComments}
               </div>
             )}
           </div>
@@ -160,17 +189,17 @@ function ApprovePage() {
                 <dt className="text-xs uppercase tracking-widest text-muted-foreground">
                   {isPurchaseOrder ? "PO #" : "SO #"}
                 </dt>
-                <dd className="font-mono">{number}</dd>
+                <dd className="font-mono">{number ?? "—"}</dd>
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-widest text-muted-foreground">
                   {isPurchaseOrder ? "Supplier" : "Customer"}
                 </dt>
-                <dd>{doc.customer_name ?? "—"}</dd>
+                <dd>{pick("customerName", "customer_name") ?? "—"}</dd>
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-widest text-muted-foreground">Contact</dt>
-                <dd>{doc.contact_person ?? "—"}</dd>
+                <dd>{pick("contactPerson", "contact_person") ?? "—"}</dd>
               </div>
               <div>
                 <dt className="text-xs uppercase tracking-widest text-muted-foreground">
@@ -188,7 +217,7 @@ function ApprovePage() {
                 <dt className="text-xs uppercase tracking-widest text-muted-foreground">
                   Grand total
                 </dt>
-                <dd className="num font-semibold">{fmtMoney(Number(doc.grand_total))}</dd>
+                <dd className="num font-semibold">{fmtMoney(num(pick("grandTotal", "grand_total")))}</dd>
               </div>
             </dl>
 
@@ -212,11 +241,11 @@ function ApprovePage() {
                         <div className="font-medium">{l.name}</div>
                         {l.sku && <div className="font-mono text-xs text-muted-foreground">{l.sku}</div>}
                       </td>
-                      <td className="py-2 pr-2 text-right">{qty(l).toLocaleString()}</td>
+                      <td className="py-2 pr-2 text-right">{(qty(l) || 0).toLocaleString()}</td>
                       <td className="py-2 pr-2 text-right">{l.unit}</td>
-                      <td className="py-2 pr-2 text-right num">{fmtMoney(effPrice(l))}</td>
+                      <td className="py-2 pr-2 text-right num">{fmtMoney(num(effPrice(l)))}</td>
                       <td className="py-2 pr-2 text-right">{l.gst_rate != null ? `${l.gst_rate}%` : "—"}</td>
-                      <td className="py-2 text-right num">{fmtMoney(Number(l.line_total))}</td>
+                      <td className="py-2 text-right num">{fmtMoney(num(l.line_total))}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -227,30 +256,30 @@ function ApprovePage() {
             <div className="ml-auto mt-4 w-64 space-y-1 text-sm">
               <div className="flex justify-between text-muted-foreground">
                 <span>Subtotal</span>
-                <span className="num">{fmtMoney(Number(doc.subtotal))}</span>
+                <span className="num">{fmtMoney(num(pick("subtotal", "subtotal")))}</span>
               </div>
               <div className="flex justify-between text-muted-foreground">
                 <span>Discount</span>
-                <span className="num">-{fmtMoney(Number(doc.total_discount))}</span>
+                <span className="num">-{fmtMoney(num(pick("totalDiscount", "total_discount")))}</span>
               </div>
               <div className="flex justify-between text-muted-foreground">
                 <span>GST total</span>
-                <span className="num">{fmtMoney(Number(doc.gst_total))}</span>
+                <span className="num">{fmtMoney(num(pick("gstTotal", "gst_total")))}</span>
               </div>
               <div className="flex justify-between text-muted-foreground">
                 <span>Freight</span>
-                <span className="num">{fmtMoney(Number(doc.freight))}</span>
+                <span className="num">{fmtMoney(num(pick("freight", "freight")))}</span>
               </div>
               <div className="flex justify-between border-t-2 border-slate-900 pt-1.5 font-semibold">
                 <span>Grand total</span>
-                <span className="num">{fmtMoney(Number(doc.grand_total))}</span>
+                <span className="num">{fmtMoney(num(pick("grandTotal", "grand_total")))}</span>
               </div>
             </div>
 
-            {doc.notes && (
+            {pick("notes", "notes") && (
               <div className="mt-6 rounded-md border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
                 <div className="text-[10px] uppercase tracking-widest">Notes</div>
-                {doc.notes}
+                {pick("notes", "notes")}
               </div>
             )}
 

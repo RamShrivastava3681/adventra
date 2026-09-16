@@ -416,7 +416,7 @@ function FinanceWorkbenchPage() {
               onClick={() => setSection("sales-invoices")}
             />
             <NavTab
-              label="Sales Proforma"
+              label="Proforma Invoices"
               active={section === "proformas"}
               onClick={() => setSection("proformas")}
             />
@@ -804,6 +804,7 @@ function FinanceWorkbenchPage() {
           {section === "sales-orders" && <SalesOrdersPanel />}
           {section === "sales-invoices" && <SalesInvoicesPanel />}
           {section === "proformas" && <ProformasPanel />}
+          {/* Finance sees both proforma streams — no side lock. */}
           {section === "purchase-invoices" && <PurchaseInvoicesPanel />}
           {section === "dispatch-orders" && <DispatchOrdersPanel />}
           {section === "tasks" && <FinanceTasksPanel />}

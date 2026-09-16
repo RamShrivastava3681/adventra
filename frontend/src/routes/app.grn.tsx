@@ -1,6 +1,6 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
@@ -37,8 +37,18 @@ import { TableSkeleton } from "@/components/skeletons";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/grn")({
-  component: GrnPage,
+  component: GrnPageWrapper,
+  // Queue deep link: open GRN creation pre-filled from a purchase order
+  // ("Receive goods" / "Create GRN" tasks).
+  validateSearch: (search: Record<string, unknown>): { createFromPo?: string } => ({
+    createFromPo: typeof search.createFromPo === "string" ? search.createFromPo : undefined,
+  }),
 });
+
+function GrnPageWrapper() {
+  const search = Route.useSearch();
+  return <GrnPageContent createFromPo={search.createFromPo} />;
+}
 
 // ─── Types (snake_case — the API transform middleware shapes responses) ───
 type POLine = {
@@ -138,12 +148,33 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function GrnPage() {
+export function GrnPage(props: { createFromPo?: string } = {}) {
+  return <GrnPageContent {...props} />;
+}
+
+function GrnPageContent({ createFromPo }: { createFromPo?: string }) {
   const { user, isSalesRep, isReportingManager, isAdmin, isChecker } = useAuth();
   const canWrite = !!user && !isSalesRep && !isReportingManager;
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [createFromPoId, setCreateFromPoId] = useState<string | null>(createFromPo ?? null);
   const [editing, setEditing] = useState<GRN | null>(null);
+
+  // Deep link: queue "Receive goods" task → open the GRN create form with
+  // the PO preselected (lines auto-fill from it).
+  useEffect(() => {
+    if (createFromPoId && canWrite) {
+      setOpen(true);
+      try {
+        if (window.location.pathname.startsWith("/app/grn")) {
+          navigate({ to: "/app/grn", search: {}, replace: true });
+        }
+      } catch {
+        // embedded / no router context — nothing to clear
+      }
+    }
+  }, [createFromPoId, canWrite]);
   const [viewing, setViewing] = useState<GRN | null>(null);
   const [pendingCancel, setPendingCancel] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
@@ -494,6 +525,7 @@ export function GrnPage() {
         <GrnModal
           userId={user.id}
           grn={editing}
+          initialPoId={createFromPoId ?? undefined}
           pos={(posQ.data ?? []).filter(
             (p) =>
               p.status === "approved" || p.status === "sent" || p.status === "partially_received",
@@ -502,7 +534,10 @@ export function GrnPage() {
           stockLocations={(stockLocationsQ.data ?? []) as any[]}
           purchaseInvoices={purchaseInvoicesQ.data ?? []}
           canApproveOverReceipt={isAdmin || isChecker}
-          onClose={() => setOpen(false)}
+          onClose={() => {
+            setOpen(false);
+            setCreateFromPoId(null);
+          }}
           onSaved={invalidate}
         />
       )}
@@ -529,6 +564,7 @@ type LineDraft = {
 function GrnModal({
   userId,
   grn,
+  initialPoId,
   pos,
   products,
   purchaseInvoices,
@@ -539,6 +575,8 @@ function GrnModal({
 }: {
   userId: string;
   grn: GRN | null;
+  /** Queue deep link — preselect this purchase order (auto-fills lines). */
+  initialPoId?: string;
   pos: GoodsPO[];
   products: CatalogueProduct[];
   purchaseInvoices: PurchaseInvoice[];
@@ -588,6 +626,17 @@ function GrnModal({
     const samePo = purchaseInvoices.filter((pi) => (pi.goods_po_number ?? "") === po.po_number);
     return samePo.length > 0 ? samePo : purchaseInvoices;
   }, [purchaseInvoices, pos, f.po_id]);
+
+  // Queue deep link: once the PO list is loaded, auto-pick the requested
+  // order so the form arrives pre-filled (same path as a manual pick).
+  const initialPoApplied = useRef(false);
+  useEffect(() => {
+    if (!initialPoId || isEdit || initialPoApplied.current) return;
+    if (pos.some((p) => p.id === initialPoId)) {
+      initialPoApplied.current = true;
+      pickPo(initialPoId);
+    }
+  }, [initialPoId, isEdit, pos]);
 
   // When the linked PO changes, auto-fill supplier/warehouse + lines from the PO.
   const pickPo = (id: string) => {

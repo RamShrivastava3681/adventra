@@ -3119,6 +3119,24 @@ router.post("/purchase-invoices", authMiddleware, async (req, res) => {
         console.error("  ⚠ Cash-flow sync after purchase invoice creation failed:", err?.message ?? err);
       }
     })();
+    // A recorded supplier invoice enters the queue: procurement owns it until
+    // it is verified and pushed to the checker.
+    advanceWorkflow(req, {
+      workflowType: "purchase_invoice",
+      stage: "record_supplier_invoice",
+      docType: "purchase_invoice",
+      docId: item.id,
+      docNumber: item.invoiceNumber ?? null,
+      counterparty: item.supplierName ?? null,
+      docStatus: item.status ?? "draft",
+      ownerRole: "procurement",
+      requiredAction: "Verify the supplier invoice and push to checker",
+      nextAction: "Submit for checker approval",
+      amount: Number(item.amount) || 0,
+      linkedDocs: item.goodsPurchaseOrderId
+        ? [{ type: "purchase_order", id: item.goodsPurchaseOrderId, number: item.goodsPoNumber ?? null }]
+        : [],
+    }, { timelineKind: "system", docType: "purchase_invoice", appPath: "/app/purchases" });
     // Instant reminder check for purchase invoices too
     if (
       item.dueDate &&
@@ -3143,6 +3161,7 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
     const isAdmin = roles.includes("factor_admin");
     const isChecker = roles.includes("checker");
     const isTreasury = roles.includes("treasury");
+    const isOperations = roles.includes("operations");
     const isCreator = req.user!.userId === current.clientId;
 
     // ── Role guards on status changes ──
@@ -3156,7 +3175,8 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
             : toStatus === "approved_for_payment"
               ? isAdmin || isChecker
               : toStatus === "verified"
-                ? isAdmin || isCreator
+                ? // Procurement pushes its invoices to the checker (verified).
+                  isAdmin || isCreator || isOperations
                 : toStatus === "draft"
                   ? isAdmin || isCreator || isChecker
                   : false;
@@ -3467,9 +3487,11 @@ router.post("/purchase-orders", authMiddleware, async (req, res) => {
         .status(400)
         .json({ error: "Advance percentage must be between 0 and 100" });
     }
-    // Recording a proforma always submits it to the checker for review — the
-    // funding workflow is maker → checker approval → treasury funding.
-    body.proformaStatus = "pending_review";
+    // A recorded proforma starts as a maker DRAFT. It only enters the
+    // checker's queue when the maker explicitly submits it for review
+    // (PUT with proformaStatus "pending_review") — the funding workflow is
+    // maker → submit → checker approval → treasury funding.
+    body.proformaStatus = "draft";
     const item = await PurchaseOrder.create({
       ...body,
       clientId: req.user!.userId,
@@ -3480,14 +3502,6 @@ router.post("/purchase-orders", authMiddleware, async (req, res) => {
       side: item.side,
       amount: item.poAmount ?? item.amount,
       status: item.proformaStatus,
-    });
-    // Submitted to checker → mail admin, treasury and checker users.
-    notifyPendingQueue(req, {
-      stage: "checker",
-      kind: "proforma",
-      number: item.proformaNumber ?? item.poNumber,
-      amount: Number(item.poAmount ?? item.amount) || 0,
-      reviewPath: "/app/checker",
     });
     res.status(201).json(item);
   } catch (err: any) {
@@ -3559,10 +3573,17 @@ router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
         }
         case "pending_review": {
           // Maker (re-)submits — allowed from draft or after a rejection.
+          // This is the ONLY way a proforma reaches the checker's queue:
+          // approval/funding stay checker/treasury decisions.
           if (["approved", "funded"].includes(current.proformaStatus)) {
             return res
               .status(400)
               .json({ error: "This proforma is already approved or funded" });
+          }
+          if (current.clientId !== req.user!.userId && !isAdmin) {
+            return res.status(403).json({
+              error: "Only the maker (or admin) can submit a proforma for review",
+            });
           }
           break;
         }
@@ -4122,6 +4143,21 @@ router.post("/goods-purchase-orders", authMiddleware, async (req, res) => {
       buyerName:
         body.buyerName !== undefined ? body.buyerName : req.user!.email,
     });
+    // A new PO enters the unified queue immediately (PDF-3 §3): procurement
+    // owns it until it is pushed to the checker.
+    advanceWorkflow(req, {
+      workflowType: "purchase_order",
+      stage: "draft_submission",
+      docType: "purchase_order",
+      docId: item.id,
+      docNumber: (item as any).poNumber ?? null,
+      counterparty: (item as any).supplierName ?? null,
+      docStatus: "draft",
+      ownerRole: "procurement",
+      requiredAction: "Complete the PO and push to checker",
+      nextAction: "Submit for checker approval",
+      amount: Number((item as any).grandTotal) || 0,
+    }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchase-orders" });
     res.status(201).json(item);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -4496,6 +4532,26 @@ router.post("/goods-receipts", authMiddleware, async (req, res) => {
       receivingLocationId: receivingLocation.id,
     });
     await syncLinkedPurchaseInvoice(receipt);
+    // Draft GRN prepared — procurement/warehouse tracks it until confirmation
+    // (stock is only credited on confirm).
+    advanceWorkflow(req, {
+      workflowType: "grn",
+      stage: "create_grn",
+      docType: "grn",
+      docId: receipt.id,
+      docNumber: receipt.receiptNumber ?? null,
+      counterparty: receipt.supplierName ?? null,
+      docStatus: "draft",
+      ownerRole: "operations",
+      requiredAction: "Confirm the GRN to credit inventory",
+      nextAction: "Credit inventory",
+      amount: (receipt.lines ?? []).reduce(
+        (s: number, l: any) => s + Number(l.lineValue ?? 0),
+        0,
+      ),
+      inventoryStatus: "pending",
+      linkedDocs: [{ type: "purchase_order", id: po.id, number: po.poNumber ?? null }],
+    }, { timelineKind: "system", docType: "grn", appPath: "/app/grn" });
     res.status(201).json(receipt);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -4561,9 +4617,31 @@ router.post("/goods-receipts/:id/confirm", authMiddleware, async (req, res) => {
     });
     timelineStatus(req, { clientId, docType: "grn", docId: receipt.id, docNumber: receipt.receiptNumber },
       "draft", "confirmed", `Warehouse confirmed GRN — inventory credited against ${receipt.poNumber}`);
-    await WorkflowTask.closeTasksForDoc("purchase_order", po.id, req.user, "Goods received");
+    await WorkflowTask.closeTasksForDoc("grn", receipt.id, req.user, "GRN confirmed — stock credited");
     await syncLinkedPurchaseInvoice(flipped);
     recomputeForecast(clientId);
+    // Refresh the queue from the live PO: a full receipt closes the PO's open
+    // task (goods in), a partial one keeps procurement chasing the balance.
+    const poAfterReceipt = await GoodsPO.get(po.id);
+    if (poAfterReceipt?.status === "fully_received") {
+      await WorkflowTask.closeTasksForDoc("purchase_order", po.id, req.user, "Goods fully received");
+    } else {
+      advanceWorkflow(req, {
+        workflowType: "purchase_order",
+        stage: "await_goods",
+        docType: "purchase_order",
+        docId: po.id,
+        docNumber: po.poNumber ?? null,
+        counterparty: po.supplierName ?? null,
+        docStatus: poAfterReceipt?.status ?? "partially_received",
+        ownerRole: "operations",
+        requiredAction: "Receive the remaining goods (GRN)",
+        nextAction: "Complete the receipt",
+        amount: Number(po.grandTotal) || 0,
+        inventoryStatus: "partial",
+        linkedDocs: [{ type: "grn", id: receipt.id, number: receipt.receiptNumber ?? null }],
+      }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/grn" });
+    }
     res.json(flipped);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -4592,6 +4670,24 @@ router.post("/goods-receipts/:id/cancel", authMiddleware, async (req, res) => {
     if (wasCredited) {
       const po = await GoodsPO.get(receipt.goodsPurchaseOrderId);
       if (po) await reverseGoodsReceipt(clientId, receipt, po);
+      // Reopen the PO tracking task — the goods are no longer received.
+      const poAfterRevoke = await GoodsPO.get(receipt.goodsPurchaseOrderId).catch(() => null);
+      if (poAfterRevoke && poAfterRevoke.status !== "cancelled") {
+        advanceWorkflow(req, {
+          workflowType: "purchase_order",
+          stage: "await_goods",
+          docType: "purchase_order",
+          docId: poAfterRevoke.id,
+          docNumber: poAfterRevoke.poNumber ?? null,
+          counterparty: poAfterRevoke.supplierName ?? null,
+          docStatus: poAfterRevoke.status,
+          ownerRole: "operations",
+          requiredAction: "Receive the goods (GRN cancelled)",
+          nextAction: "Prepare a new GRN",
+          amount: Number(poAfterRevoke.grandTotal) || 0,
+          inventoryStatus: "reversed",
+        }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/grn" });
+      }
       trackAction(req, "grn.cancelled", receipt.id, {
         entityType: "grn",
         entityRef: receipt.receiptNumber,
@@ -6039,6 +6135,31 @@ router.post(
           emailKind: "rejection",
           docType: "sales_order",
           appPath: "/app/warehouse",
+        });
+      }
+      // Supplier rejection reopens the procurement task on the PO (PDF-3 §3):
+      // procurement re-works the order and re-sends it to the supplier.
+      if (kind === "purchase_order" && decision !== "approved" && !locked) {
+        const fakeReq = { user: { userId: (claimed as any).clientId, email: "system", roles: [] } } as any;
+        advanceWorkflow(fakeReq, {
+          clientId: (claimed as any).clientId,
+          workflowType: "purchase_order",
+          stage: "track_supplier",
+          docType: "purchase_order",
+          docId: (claimed as any).id,
+          docNumber: (claimed as any).poNumber,
+          counterparty: (claimed as any).supplierName,
+          docStatus: "draft",
+          ownerRole: "procurement",
+          requiredAction: "Resolve supplier rejection and re-send PO",
+          nextAction: "Re-send to supplier",
+          amount: Number((claimed as any).grandTotal) || 0,
+        }, {
+          timelineKind: "rejection",
+          timelineText: `Supplier rejected the PO: ${comments}`,
+          emailKind: "rejection",
+          docType: "purchase_order",
+          appPath: "/app/purchase-orders",
         });
       }
       res.json({

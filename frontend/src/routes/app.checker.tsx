@@ -258,23 +258,37 @@ function CheckerPage() {
     queryKey: ["checker-proformas"],
     queryFn: async () => {
       const data = await api.purchaseOrders.list();
-      // Never surface closed proformas for review (expired/cancelled/converted keep
-      // the old proforma_status, but the document lifecycle has ended).
+      // Only explicitly SUBMITTED proformas await review here. Drafts stay on
+      // the maker's desk until they submit — procurement/finance can never
+      // approve, and the checker must never see un-submitted drafts.
       return data.filter(
         (p: any) =>
           !["cancelled", "expired", "converted_to_po"].includes(p.status) &&
-          (p.proforma_status === "pending_review" ||
-            (p.status === "proforma" && p.proforma_status === "draft")),
+          p.proforma_status === "pending_review",
       );
     },
   });
 
   const reviewProforma = useMutation({
-    mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "rejected" }) => {
+    mutationFn: async ({
+      id,
+      decision,
+      comments,
+    }: {
+      id: string;
+      decision: "approved" | "rejected";
+      comments?: string | null;
+    }) => {
+      // Rejection requires a reason — it travels back to the maker so they
+      // know what to fix before re-submitting.
+      if (decision === "rejected" && !comments?.trim()) {
+        throw new Error("A reason is required to reject the proforma");
+      }
       await api.purchaseOrders.update(id, {
         proforma_status: decision,
         proforma_reviewed_by: user!.id,
         proforma_reviewed_at: new Date().toISOString(),
+        proforma_review_comments: comments?.trim() || null,
       });
     },
     onSuccess: () => {
@@ -285,6 +299,9 @@ function CheckerPage() {
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
+
+  // Reject-with-reason prompt state for proformas (approval is one click).
+  const [pfRejectFor, setPfRejectFor] = useState<{ id: string; number: string } | null>(null);
 
   // Resolve counterparty names for proformas (debtor for sales, supplier/vendor for purchase)
   const partiesQ = useQuery({
@@ -610,7 +627,7 @@ function CheckerPage() {
         selfCreated: p.client_id === user?.id && !isAdmin,
         onReview: () => setViewPf(p),
         onApprove: () => reviewProforma.mutate({ id: p.id, decision: "approved" }),
-        onReject: () => reviewProforma.mutate({ id: p.id, decision: "rejected" }),
+        onReject: () => setPfRejectFor({ id: p.id, number: p.proforma_number ?? p.po_number ?? "" }),
         approveLabel: "Approve",
         rejectLabel: "Reject",
         approvePending: reviewProforma.isPending,
@@ -1133,11 +1150,11 @@ function CheckerPage() {
                                   className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
                                   title={
                                     it.onReview
-                                      ? "Review document details"
+                                      ? "View document details"
                                       : "No detail view exists for this document — approve directly"
                                   }
                                 >
-                                  Review
+                                  View
                                 </button>
                                 <DropdownMenu>
                                   <DropdownMenuTrigger asChild>
@@ -1320,6 +1337,90 @@ function CheckerPage() {
             }}
           />
         )}
+
+        {pfRejectFor && (
+          <RejectProformaModal
+            pfNumber={pfRejectFor.number}
+            pending={reviewProforma.isPending}
+            onClose={() => setPfRejectFor(null)}
+            onSubmit={(comments) => {
+              reviewProforma.mutate(
+                { id: pfRejectFor.id, decision: "rejected", comments },
+                { onSuccess: () => setPfRejectFor(null) },
+              );
+            }}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ── Reject-with-reason dialog for proforma advances ──
+ * Rejection sends the proforma back to the maker with the reason recorded
+ * (shown on the proformas list). Approval stays a single click. */
+function RejectProformaModal({
+  pfNumber,
+  pending,
+  onClose,
+  onSubmit,
+}: {
+  pfNumber: string;
+  pending: boolean;
+  onClose: () => void;
+  onSubmit: (comments: string) => void;
+}) {
+  const [comments, setComments] = useState("");
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-xl border border-border bg-card shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-border px-5 py-3">
+          <h3 className="font-display text-base">Reject proforma · {pfNumber}</h3>
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSubmit(comments);
+          }}
+          className="space-y-4 p-5"
+        >
+          <div>
+            <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+              Reason (required — sent to the maker)
+            </label>
+            <textarea
+              autoFocus
+              required
+              rows={3}
+              className="w-full rounded-[10px] border border-border bg-input px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-all placeholder:text-muted-foreground/60 focus:border-primary/60 focus:ring-[3px] focus:ring-primary/15"
+              value={comments}
+              onChange={(e) => setComments(e.target.value)}
+              placeholder="What should the maker fix before re-submitting?"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={pending}
+              className="rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+            >
+              Reject proforma
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

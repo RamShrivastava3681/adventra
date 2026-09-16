@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
@@ -40,7 +40,14 @@ import {
 import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 
 export const Route = createFileRoute("/app/invoices")({
-  component: InvoicesPage,
+  component: InvoicesPageWrapper,
+  // Deep links from the workflow queue: open creation pre-filled from a sales
+  // order, or jump straight to the UTR / IRN modal of a specific invoice.
+  validateSearch: (search: Record<string, unknown>): { createFromSo?: string; utrFor?: string; irnFor?: string } => ({
+    createFromSo: typeof search.createFromSo === "string" ? search.createFromSo : undefined,
+    utrFor: typeof search.utrFor === "string" ? search.utrFor : undefined,
+    irnFor: typeof search.irnFor === "string" ? search.irnFor : undefined,
+  }),
 });
 
 type InvLine = {
@@ -139,7 +146,39 @@ const DOC_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
-export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) {
+/**
+ * Standalone-route wrapper: reads queue deep links (?createFromSo=…, ?utrFor=…,
+ * ?irnFor=…) and passes them into the page. The embedded (viewOnly) workbench
+ * tab renders InvoicesPageContent directly — there is no search context there.
+ */
+function InvoicesPageWrapper() {
+  const search = Route.useSearch();
+  return (
+    <InvoicesPageContent
+      createFromSo={search.createFromSo}
+      utrForId={search.utrFor}
+      irnForId={search.irnFor}
+    />
+  );
+}
+
+export function InvoicesPage(
+  props: { viewOnly?: boolean; createFromSo?: string; utrForId?: string; irnForId?: string } = {},
+) {
+  return <InvoicesPageContent {...props} />;
+}
+
+function InvoicesPageContent({
+  viewOnly = false,
+  createFromSo,
+  utrForId,
+  irnForId,
+}: {
+  viewOnly?: boolean;
+  createFromSo?: string;
+  utrForId?: string;
+  irnForId?: string;
+}) {
   const { isAdmin, isChecker, isClient, isTreasury, user } = useAuth();
   // Embedded in the Sales Workbench as a view-only tab — invoices may only
   // be created from the Finance tab.
@@ -151,7 +190,9 @@ export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) 
   // records or sees it.
   const canRecordIrn = !viewOnly && (isAdmin || isChecker || isTreasury);
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [createFromSoId, setCreateFromSoId] = useState<string | null>(createFromSo ?? null);
   const [editing, setEditing] = useState<Inv | null>(null);
   const [viewing, setViewing] = useState<Inv | null>(null);
   const [utrFor, setUtrFor] = useState<Inv | null>(null);
@@ -186,6 +227,35 @@ export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) 
   // from the debtor master so the Debtor column always shows the actual name.
   const debtorName = (id?: string | null) =>
     (debtorsQ.data ?? []).find((d) => d.id === id)?.name ?? null;
+
+  // Deep link: queue "Create tax invoice" task → open the create form with
+  // the sales order preselected (the modal auto-fills from it).
+  useEffect(() => {
+    if (createFromSoId && !viewOnly) {
+      setOpen(true);
+      clearInvoiceSearch();
+    }
+  }, [createFromSoId, viewOnly]);
+
+  // Deep link: queue payment/IRN tasks → open the matching modal directly.
+  useEffect(() => {
+    if (!utrForId && !irnForId) return;
+    const inv = (invoicesQ.data ?? []).find((i) => i.id === utrForId || i.id === irnForId);
+    if (!inv) return; // list not loaded yet — retries when data arrives
+    if (utrForId && canUploadUtr) setUtrFor(inv);
+    if (irnForId && canRecordIrn) setIrnFor(inv);
+    clearInvoiceSearch();
+  }, [utrForId, irnForId, invoicesQ.data, canUploadUtr, canRecordIrn]);
+
+  const clearInvoiceSearch = () => {
+    try {
+      if (window.location.pathname.startsWith("/app/invoices")) {
+        navigate({ to: "/app/invoices", search: {}, replace: true });
+      }
+    } catch {
+      // embedded / no router context — nothing to clear
+    }
+  };
 
   const review = useMutation({
     mutationFn: async (id: string) => api.invoices.issue(id),
@@ -538,7 +608,11 @@ export function InvoicesPage({ viewOnly = false }: { viewOnly?: boolean } = {}) 
 
       {open && (
         <NewInvoiceModal
-          onClose={() => setOpen(false)}
+          initialSoId={createFromSoId ?? undefined}
+          onClose={() => {
+            setOpen(false);
+            setCreateFromSoId(null);
+          }}
           debtors={debtorsQ.data ?? []}
           userId={user!.id}
         />
@@ -613,11 +687,14 @@ type LineDraft = {
 
 function NewInvoiceModal({
   invoice,
+  initialSoId,
   onClose,
   debtors,
   userId,
 }: {
   invoice?: Inv;
+  /** Queue deep link — preselect this sales order and auto-fill from it. */
+  initialSoId?: string;
   onClose: () => void;
   debtors: any[];
   userId: string;
@@ -762,6 +839,18 @@ function NewInvoiceModal({
       linked_customer_proforma_number: pf.proforma_number ?? pf.po_number ?? "",
     }));
   }, [poLookupQ.data, form.linked_customer_proforma_id]);
+
+  // Queue deep link: once the SO list is loaded, auto-pick the requested
+  // order so the form arrives pre-filled (same path as a manual pick).
+  const initialSoApplied = useRef(false);
+  useEffect(() => {
+    if (!initialSoId || isEdit || initialSoApplied.current) return;
+    const so = (sosQ.data ?? []).find((x: any) => x.id === initialSoId);
+    if (so) {
+      initialSoApplied.current = true;
+      pickSo(initialSoId);
+    }
+  }, [initialSoId, isEdit, sosQ.data]);
 
   // Pick a sales order → auto-fill lines + customer + addresses + terms.
   const pickSo = (id: string) => {

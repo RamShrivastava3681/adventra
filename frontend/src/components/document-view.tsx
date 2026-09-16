@@ -432,7 +432,12 @@ export function ProformaDetailModal({ pf, onClose }: { pf: any; onClose: () => v
             ],
             ["Side", p.side],
             ["Document status", docLabel],
-            ["Funding stage", p.proforma_status ?? "—"],
+            [
+              "Funding stage",
+              PF_FUNDING_STAGE_LABELS[p.proforma_status ?? ""] ??
+                p.proforma_status ??
+                "—",
+            ],
             ["Amount", fmtMoney(p.amount)],
             ...(p.po_amount != null && p.po_amount > 0
               ? ([["PO amount", fmtMoney(p.po_amount)]] as Array<[string, ReactNode]>)
@@ -528,6 +533,17 @@ export function ProformaDetailModal({ pf, onClose }: { pf: any; onClose: () => v
     </DocModal>
   );
 }
+
+/** Funding-stage labels for proformas (maker → checker → treasury). */
+const PF_FUNDING_STAGE_LABELS: Record<string, string> = {
+  draft: "Draft — not submitted",
+  pending_review: "Awaiting checker",
+  approved: "Approved — awaiting funding",
+  funded: "Funded",
+  rejected: "Rejected",
+  paid: "Paid",
+  sent: "Sent to client",
+};
 
 const PO_STATUS_LABELS: Record<string, string> = {
   draft: "Draft",

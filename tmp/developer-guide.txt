@@ -1,0 +1,452 @@
+                                                                                                                                           WHIZUNIK COMMAND
+
+Workflow Clarity and Closure Developer
+Guide
+
+Implementation requirements from the platform walkthrough review
+
+Purpose. This guide converts the walkthrough review into a focused implementation scope. It does not
+redesign the existing platform. It makes document hand-offs clearer, reduces first-use complexity and
+completes the operational closing flow from an accepted Sales Order through invoice, IRN, dispatch, E-way
+Bill, payment and inventory debit.
+
+Delivery objective
+
+A user must be able to open any work item and immediately understand: what the document is, its current
+status, who owns the next action, what needs to happen next, whether stock has moved and whether
+available cash has changed.
+
+In scope
+
+· A shared document-status strip for Sales Orders, Purchase Orders, Proformas, Sales Invoices, Purchase
+     Invoices, GRNs and Dispatch Orders.
+
+· Progressive disclosure in dense Purchase Order and Dispatch Order forms.
+· Clearer role queues and a common queue record layout.
+· The complete post-customer-acceptance sales execution flow, including manual IRN and E-way Bill stages for
+
+     now.
+· Idempotent task creation, notification events, audit history and acceptance tests.
+
+Out of scope
+
+· A direct government-portal or Tally integration. IRN and E-way Bill values remain manually recorded in this
+     release.
+
+· Changing current commercial approval policy. The implementation must use the approval rules already
+     configured for the tenant.
+
+· Changing historical stock, invoice or payment records.
+
+Workflow clarity and closure developer guide
+                                                               WHIZUNIK COMMAND
+
+1 Shared document status strip
+
+Add the same status strip to the detail page and preview drawer for every operational document. It should sit
+directly below the page title and above the normal document fields.
+
+Field                                                          Requirement
+Document reference
+Lifecycle status                                               Show type and system reference, for example Sales Order
+Current owner                                                  SO 12345.
+Next action
+Inventory impact                                               Use the current workflow status. Display a short, human-
+                                                               readable label rather than an internal code.
+Cash impact
+                                                               Show the role or named user who must act next.
+Linked records
+                                                               Use an action phrase, for example Record IRN, Prepare
+                                                               dispatch details or Approve invoice.
+
+                                                               Show one of No stock movement, Stock credited, Stock
+                                                               reserved if used, Stock debited, or Location transfer only.
+
+                                                               Show one of No cash impact, Expected receipt, Expected
+                                                               payment, Actual receipt recorded, or Actual payment
+                                                               recorded.
+
+                                                               Use compact links to parent and downstream records such as
+                                                               SO, Invoice, Proforma, GRN, Dispatch Order and payment.
+
+Status presentation rules
+
+State type                                    Colour           Examples
+Needs action                                  Amber
+                                                               Waiting for Warehouse, Record IRN,
+In review or approved                         Blue             Payment overdue
+
+Completed or paid                             Green            Sent for approval, Approved, Customer
+                                                               acceptance pending
+Blocked or exception                          Red
+Informational                                 Grey             IRN recorded, Payment received, Fully
+                                                               dispatched
+
+                                                               Rejected, Cancelled, Overdue, Dispatch
+                                                               blocked
+
+                                                               Draft, Archived, No stock movement
+
+Use colour as a secondary cue only. The text label and next-action statement must always be present. Do
+not rely on colour alone.
+
+2 Form simplification
+
+Keep all current data fields and document output behaviour. Change only what is shown first. A new user
+should complete the basic transaction without being asked for information that is optional or used only for
+printing, references or compliance later in the workflow.
+
+Form                                          Open by default  Move under Additional details
+
+Workflow clarity and closure developer guide
+Purchase Order                                Supplier, PO date, delivery warehouse,                           WHIZUNIK COMMAND
+Dispatch Order                                expected delivery date, payment term,
+Sales Order                                   expected payment date, item lines,        Quotation/reference fields, vendor print
+Sales Invoice                                 attachments and notes.                    data, delivery clauses, packaging,
+                                                                                        cancellation/delay/notification clauses
+                                                                                        and other print-only details.
+
+                                              Source warehouse, customer and            Packing notes, optional delivery
+                                              delivery address, item lines, quantity,   instructions, print notes and any non-
+                                              dispatch date, transporter/mode, vehicle  mandatory transport references.
+                                              number, distance and transporter
+                                              document details.
+
+                                              Customer, saved billing/shipping          Optional print references and additional
+                                              address, child SKU lines, selected        remarks.
+                                              payment term, expected dispatch/
+                                              delivery dates, customer order/
+                                              reference and notes.
+
+                                              Linked Sales Order, invoice date,         Optional reference and output-only
+                                              customer, payment term, due/expected      fields already obtained from linked
+                                              receipt date, line values, advance        records.
+                                              adjustment and notes.
+
+Implement each collapsed area as a labelled expandable section. Never hide a mandatory field. If an optional
+field becomes mandatory because of a selected payment term, transport mode or compliance state, expand
+its section and show the reason.
+
+Workflow clarity and closure developer guide
+                                              WHIZUNIK COMMAND
+
+3 Queue and workspace behaviour
+
+The queues are the primary operating surface. Each team should work from its own queue, not from a general
+document list. Maintain the existing role permissions.
+
+Queue item field                              Requirement
+Document
+Status and age                                Reference, type, linked parent document and customer or
+Next action                                   supplier.
+Owner
+Financial and stock cue                       Current status plus age in status. Highlight overdue tasks.
+
+One primary action                            Use the exact task wording. This is the main decision cue.
+
+                                              Named user where assigned; otherwise role.
+
+                                              Show a compact cash or inventory impact based on the
+                                              document.
+
+                                              Open, approve, record payment, prepare dispatch, or similar.
+                                              Keep secondary actions inside the detail view.
+
+Required role queues                          Must show
+
+ Role                                         Sales Orders awaiting warehouse confirmation, customer
+ Sales                                        acceptance, UTRs to share with Treasury and returned items.
+ Procurement
+ Checker                                      PO drafts, POs awaiting Checker, supplier invoices awaiting
+ Finance                                      review and expected receipts.
+ Treasury
+                                              All approval items, with document type, total, creator, linked
+ Warehouse                                    documents and approve return reject actions.
+
+                                              Proforma tasks, final-invoice tasks, invoice approval items if
+                                              configured, Record IRN tasks and Record E-way Bill tasks.
+
+                                              Expected customer receipts, advance receipts, supplier
+                                              payment tasks, submitted UTRs, unallocated payments and
+                                              overdue items.
+
+                                              GRNs, stock transfers, Prepare Dispatch Order tasks, Ready
+                                              to Dispatch tasks, sample/internal-use movements and return
+                                              tasks.
+
+Every transition must create exactly one next task when one is required. Reprocessing the same transition
+must not create duplicate tasks, duplicate notifications or duplicate stock movements.
+
+Workflow clarity and closure developer guide
+                                                              WHIZUNIK COMMAND
+
+4 Notifications and audit trail
+
+· Create an in-app notification and email notification when a new task is assigned to a role or user.
+· Record a timeline event for every creation, submission, approval, return, acceptance, compliance number
+
+     entry, payment record, dispatch confirmation, cancellation and reversal.
+· Timeline events must show timestamp, acting user, action, previous status, new status and linked reference
+
+     where applicable.
+· Email should contain document reference, counterparty, amount if relevant, next action and a direct platform
+
+     link. It must not include sensitive bank details.
+
+5 Sales execution flow after customer acceptance
+
+This is the required closing workflow. It begins only after Warehouse has confirmed availability, Checker has
+approved the Sales Order and the customer has accepted it. A Sales Order alone never debits inventory.
+
+Step                                          Owner           System action and gate
+1 Customer accepts SO                         System / Sales
+                                                              Set Sales Order to Customer Accepted.
+2 Route by payment term                       System          Create exactly one Finance task based
+                                                              on the selected payment term.
+3 Create Proforma where needed                Finance
+                                                              For 100 percent advance or part
+4 Record advance                              Treasury        advance: create Create Proforma task.
+                                                              For credit, on delivery or non-advance
+5 Create final invoice                        Finance         terms: create Create Final Invoice task.
+6 Invoice issued                              System
+                                                              Create a Proforma linked to the Sales
+                                                              Order. Create Treasury task to record
+                                                              the required advance. Do not create
+                                                              final invoice task until the required
+                                                              advance is recorded.
+
+                                                              Record receipt against Proforma using
+                                                              payment date, amount, method and
+                                                              UTR or reference where available.
+                                                              Update actual available cash. When the
+                                                              required advance threshold is met,
+                                                              create final invoice task.
+
+                                                              Create invoice from the accepted Sales
+                                                              Order. Auto-fill customer, addresses,
+                                                              payment term, due date, SKU lines,
+                                                              taxes and permitted advance
+                                                              adjustment. Apply existing invoice
+                                                              approval policy if configured.
+
+                                                              When invoice is approved or issued
+                                                              according to tenant policy, create
+                                                              Finance task Record IRN. Inventory
+                                                              remains unchanged.
+
+Workflow clarity and closure developer guide
+                                                         WHIZUNIK COMMAND
+
+5 Sales execution flow continued
+
+The final invoice must be complete before the warehouse is released to physically dispatch goods.
+Compliance and payment gates determine the next task. Inventory changes only when Warehouse confirms
+physical dispatch.
+
+Step                                          Owner      System action and gate
+7 Record IRN                                  Finance
+8 Prepare Dispatch Order                      Warehouse  For the current release, record IRN
+9 Record E-way Bill                           Finance    manually, validate 64 characters and
+10 Release for dispatch                       System     allow IRN date and attachment. On
+11 Confirm physical dispatch                  Warehouse  success, create Warehouse task
+                                                         Prepare Dispatch Order.
+12 Record balance receipt                     Treasury
+                                                         Create or complete Dispatch Order
+                                                         linked to the invoice. Capture dispatch
+                                                         and transport information. Do not debit
+                                                         inventory yet.
+
+                                                         Once Warehouse marks dispatch details
+                                                         complete, create Finance task Record
+                                                         E-way Bill. Store E-way Bill number,
+                                                         date, valid until and attachment.
+
+                                                         Set Dispatch Order to Ready to
+                                                         Dispatch only when invoice is issued,
+                                                         IRN is recorded, E-way Bill is recorded
+                                                         where required and any advance gate is
+                                                         satisfied.
+
+                                                         Warehouse confirms goods have left.
+                                                         Create one immutable outbound stock
+                                                         movement, update dispatched
+                                                         quantities and set partial or full dispatch
+                                                         status.
+                                                         For credit or balance-after-dispatch
+                                                         terms, record receipt when actually
+                                                         received. Update actual cash and
+                                                         invoice balance. Overdue expected
+                                                         receipts remain projected until Treasury
+                                                         records them.
+
+Workflow clarity and closure developer guide
+                                                                                                  WHIZUNIK COMMAND
+
+6 Dispatch Order data and validation
+
+The Dispatch Order is a separate operational document linked to the final invoice. The invoice provides
+customer, product, tax and commercial data. Warehouse adds the actual movement and transport details.
+When saved, permitted dispatch values should be available to the final invoice output automatically; the
+system should not require Finance to retype them.
+
+Section                                       Required fields                         Validation
+Linked document
+                                              Final invoice, Sales Order, source      Quantity cannot exceed invoice quantity
+Dispatch details                              warehouse, customer, ship-to address,   less previously dispatched quantity.
+                                              item lines and quantities.              Source warehouse must hold the
+Transport                                                                             required available stock.
+Packing
+Compliance                                    Planned dispatch date, dispatch         Required before warehouse can mark
+                                              document number if used, delivery note  dispatch details complete.
+                                              reference if used, dispatch contact/
+                                              instructions.
+
+                                              Mode, transporter name or ID, vehicle   Apply required fields by selected mode
+                                              number, transporter document number/    and E-way Bill requirement. Vehicle
+                                              date, distance and destination PIN      number format validation should be
+                                              code.                                   configurable.
+
+                                              Number of packages and package          Optional unless business rules require it
+                                              details where used.                     for the selected shipment.
+
+                                              IRN reference inherited from invoice. E- E-way Bill task cannot be completed
+
+                                              way Bill fields are read-only to        unless IRN is present when e-invoicing
+
+                                              Warehouse after Finance records them. applies.
+
+Manual compliance behaviour for this release
+
+· IRN is manually entered by Finance against the approved or issued final invoice. Validate exactly 64
+     alphanumeric characters. Do not generate a placeholder automatically.
+
+· E-way Bill number is manually entered by Finance only after warehouse dispatch details are complete. Store
+     number, date, valid-until value and supporting attachment where available.
+
+· The compliance timeline must show who entered or changed the number. A correction must retain the previous
+     value in audit history.
+
+· Future Tally integration will replace manual capture. Invoice and dispatch data will be entered once in
+     WhizUnik, transmitted through Tally and returned with IRN and E-way Bill results. Keep integration hooks
+     separate from the current manual workflow.
+
+Workflow clarity and closure developer guide
+                                                                                      WHIZUNIK COMMAND
+
+7 Inventory and cash rules
+
+Event                         Inventory                    Available cash             Projected cash
+                              No movement                  No change
+Sales Order / Proforma /                                                              Expected customer receipt
+Invoice                                                                               follows payment term once
+                                                                                      invoice or expected date
+Approved Purchase Order       No movement                  No change                  exists.
+
+GRN                           Credit receiving location    No change                  Expected supplier outflow
+Internal warehouse transfer   Move between locations only  No change                  from expected payment date.
+Sample or internal-use issue  Debit stock                  No change
+Physical dispatch confirmed   Debit outbound stock         No change                  No change
+
+Treasury receipt or payment No movement                    Change only when actually  No change
+                                                           recorded
+                                                                                      No change
+
+                                                                                      No change
+
+                                                                                      Remove or reduce
+                                                                                      corresponding expected cash
+                                                                                      item.
+
+Workflow clarity and closure developer guide
+                                              WHIZUNIK COMMAND
+
+8 Data model and event requirements
+
+Use the current schema where possible. Add only the fields and event records required to support the
+behaviour below.
+
+Entity                                        Required additions or checks
+Workflow task
+Document timeline                             Unique task key comprising tenant, document type, document
+Sales Invoice                                 ID and task type; status; owner role/user; created/completed
+Dispatch Order                                timestamps; next action label; deep link.
+Stock movement
+Payment allocation                            Append-only events with actor, action, old/new status,
+                                              metadata and linked record references.
+
+                                              IRN value, IRN date, IRN attachment ID, E-way Bill value, E-
+                                              way Bill date, valid-until date and E-way Bill attachment ID.
+
+                                              Invoice ID, Sales Order ID, source location, transport data,
+                                              dispatch-detail-complete timestamp, readiness state and
+                                              physical-dispatch confirmation timestamp.
+
+                                              Immutable event with movement type, source/destination,
+                                              SKU child ID, quantity, linked Dispatch Order or GRN and
+                                              actor.
+
+                                              Payment ID, linked invoice/proforma, allocated amount,
+                                              reference/UTR and status. No actual-cash update until
+                                              Treasury confirms.
+
+Event names
+
+Use explicit domain events: sales_order_customer_accepted, finance_proforma_required, advance_received,
+final_invoice_required, invoice_issued, irn_recorded, dispatch_preparation_required,
+dispatch_details_completed, eway_bill_required, eway_bill_recorded, dispatch_released,
+physical_dispatch_confirmed, stock_debited, receipt_recorded and payment_overdue.
+
+Event handlers must be idempotent. Store and check an event ID or task uniqueness key before creating a
+downstream task or stock movement.
+
+Workflow clarity and closure developer guide
+9 Acceptance tests                                                                                WHIZUNIK COMMAND
+
+ Scenario                                     Expected result
+ Credit terms with goods in stock
+                                              Customer accepts SO; Finance final-invoice task appears;
+ 100 percent advance with goods in stock      invoice is issued; Finance records IRN; Warehouse
+                                              completes Dispatch Order; Finance records E-way Bill;
+ Part advance and balance later               Warehouse confirms dispatch; inventory debits once;
+ IRN missing                                  Treasury can record receipt later.
+ E-way Bill missing where required
+ Repeated submit or refresh                   Customer accepts SO; Finance Proforma task appears;
+ Dispatch correction or return                Treasury records full advance; final-invoice task appears only
+                                              after payment; subsequent IRN, dispatch and E-way Bill
+                                              steps follow; dispatch cannot confirm before the advance
+                                              gate.
+                                              Proforma displays advance required; Treasury records
+                                              advance; final invoice shows gross invoice and advance
+                                              adjustment; outstanding balance and due date are correct;
+                                              balance receipt can be recorded after dispatch.
+
+                                              Warehouse may not release dispatch. The status strip says
+                                              Waiting for Finance to record IRN.
+
+                                              Warehouse may complete dispatch details but cannot confirm
+                                              physical dispatch. Finance receives the E-way Bill task.
+
+                                              No duplicate finance, warehouse or treasury tasks; no
+                                              duplicate notification; no duplicate stock movement.
+
+                                              Do not edit completed stock history. Use the approved return,
+                                              reversal, credit note or debit note workflow and append
+                                              timeline events.
+
+Definition of done
+
+· The status strip and queue layout work consistently across the listed operational documents.
+· Dense forms use required-first sections without removing existing fields or document-output data.
+· All four payment-term routes complete correctly: credit, 100 percent advance, part advance plus balance and
+
+     goods in transit.
+· IRN and E-way Bill manual capture, task gating, audit history and validation are complete.
+· Physical dispatch creates exactly one stock debit and Treasury records actual cash only when payment is
+
+     confirmed.
+· The acceptance-test scenarios are verified in a clean test tenant and recorded with screenshots or test
+
+     evidence.
+
+Workflow clarity and closure developer guide
+
