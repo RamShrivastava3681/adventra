@@ -597,7 +597,7 @@ export function PurchaseOrderDetailModal({ po, onClose }: { po: any; onClose: ()
             <D label="Expected delivery" value={fmtDate(p.expected_delivery_date)} />
           )}
           {p.payment_terms && <D label="Payment terms" value={p.payment_terms} />}
-          {p.buyer_name && <D label="Buyer / created by" value={p.buyer_name} />}
+          {p.buyer_name && <D label="PO created by" value={p.buyer_name} />}
           {p.created_at && <D label="Created" value={fmtDate(p.created_at)} />}
           {supplierApproval && (
             <>

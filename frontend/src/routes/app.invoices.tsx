@@ -708,8 +708,6 @@ function NewInvoiceModal({
       (invoice?.issue_date ?? new Date().toISOString().slice(0, 10))?.slice(0, 10) ??
       new Date().toISOString().slice(0, 10),
     due_date: (invoice?.due_date ?? "")?.slice(0, 10) ?? "",
-    expected_date: (invoice?.expected_date ?? "")?.slice(0, 10) ?? "",
-    expected_dispatch_date: (invoice?.expected_dispatch_date ?? "")?.slice(0, 10) ?? "",
     customer_contact: invoice?.customer_contact ?? "",
     billing_address: invoice?.billing_address ?? "",
     delivery_address: invoice?.delivery_address ?? "",
@@ -757,16 +755,40 @@ function NewInvoiceModal({
     queryFn: async () => api.goodsSalesOrders.list(),
   });
 
+  // SOs that already have a live invoice — hidden from the picker (one sales
+  // order → one invoice). Cancelled/rejected invoices don't count. When
+  // editing, the invoice's own SO stays available.
+  const allInvoicesQ = useQuery({
+    queryKey: ["invoices", "list"],
+    queryFn: async () => api.invoices.list(),
+  });
+  const invoicedSoIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const inv of (allInvoicesQ.data ?? []) as any[]) {
+      if (
+        inv.goods_sales_order_id &&
+        !["cancelled", "rejected"].includes(inv.status) &&
+        inv.id !== invoice?.id
+      ) {
+        ids.add(inv.goods_sales_order_id);
+      }
+    }
+    return ids;
+  }, [allInvoicesQ.data, invoice?.id]);
+
   // Only open (confirmed+) sales orders can be invoiced. Keep the currently
   // linked order visible when editing an invoice tied to a draft/cancelled one.
   const soOptions = useMemo(() => {
-    const open = (sosQ.data ?? []).filter((s: any) => !["draft", "cancelled"].includes(s.status));
+    const open = (sosQ.data ?? []).filter(
+      (s: any) =>
+        !["draft", "cancelled"].includes(s.status) && !invoicedSoIds.has(s.id),
+    );
     if (soSource && !open.some((s: any) => s.id === soSource)) {
       const cur = (sosQ.data ?? []).find((s: any) => s.id === soSource);
       if (cur) return [...open, cur];
     }
     return open;
-  }, [sosQ.data, soSource]);
+  }, [sosQ.data, soSource, invoicedSoIds]);
 
   // Sales proformas available to formally link (drives the advance deduction).
   const proformasQ = useQuery({
@@ -1019,6 +1041,13 @@ function NewInvoiceModal({
       if (["draft", "cancelled"].includes(linkedSo.status)) {
         throw new Error("Confirm the sales order before invoicing");
       }
+      // One sales order → one invoice (the picker hides invoiced orders;
+      // this is the backstop for stale data).
+      if (!isEdit && invoicedSoIds.has(soId)) {
+        throw new Error(
+          `Sales order ${linkedSo.so_number ?? ""} already has an invoice — one sales order can create only one invoice`,
+        );
+      }
       if (form.debtor_id && linkedSo.customer_id && form.debtor_id !== linkedSo.customer_id) {
         throw new Error("The invoice customer must match the linked sales order's customer");
       }
@@ -1037,8 +1066,6 @@ function NewInvoiceModal({
         invoice_number: form.invoice_number.trim() || undefined,
         issue_date: form.issue_date,
         due_date: effectiveDue,
-        expected_date: form.expected_date || effectiveDue,
-        expected_dispatch_date: form.expected_dispatch_date || null,
         source: "goods",
         customer_contact: form.customer_contact.trim() || null,
         billing_address: form.billing_address.trim() || null,
@@ -1273,34 +1300,6 @@ function NewInvoiceModal({
                   onChange={(e) => setForm({ ...form, due_date: e.target.value })}
                 />
               </Field>
-              <Field label="Expected cash receipt date">
-                <input
-                  type="date"
-                  className={inputBase}
-                  value={form.expected_date}
-                  onChange={(e) => setForm({ ...form, expected_date: e.target.value })}
-                />
-              </Field>
-              <Field label="Expected dispatch date">
-                <input
-                  type="date"
-                  className={inputBase}
-                  value={form.expected_dispatch_date}
-                  onChange={(e) => setForm({ ...form, expected_dispatch_date: e.target.value })}
-                />
-              </Field>
-              {isEdit &&
-                invoice!.status === "draft" &&
-                (
-                  <Field label="Expected dispatch date">
-                    <input
-                      type="date"
-                      className={inputBase}
-                      value={form.expected_dispatch_date}
-                      onChange={(e) => setForm({ ...form, expected_dispatch_date: e.target.value })}
-                    />
-                  </Field>
-                )}
             </div>
             <div className="mt-3">
               <Field label="Notes (shown on the printed invoice)">

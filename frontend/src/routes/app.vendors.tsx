@@ -17,6 +17,12 @@ import {
 import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 import { Plus, X, Loader2, Building2 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  PaymentTermsFields,
+  formatPaymentTerms,
+  toFormFields as toTermsFormFields,
+  toPayload as toTermsPayload,
+} from "@/components/payment-terms";
 
 export const Route = createFileRoute("/app/vendors")({
   component: VendorsPage,
@@ -108,7 +114,12 @@ function VendorsPage() {
                         {[v.city, v.country].filter(Boolean).join(", ") || "—"}
                       </td>
                       <td className="px-5 py-3 text-right text-muted-foreground">
-                        Net {v.payment_terms_days}
+                        {formatPaymentTerms({
+                          paymentTermsType: (v as any).paymentTermsType ?? (v as any).payment_terms_type,
+                          advancePct: (v as any).advancePct ?? (v as any).advance_pct,
+                          paymentTermsDays: (v as any).paymentTermsDays ?? (v as any).payment_terms_days,
+                          paymentTerms: (v as any).paymentTerms ?? (v as any).payment_terms,
+                        })}
                       </td>
                       <td className="px-5 py-3 text-right num">{fmtMoney(openFor(v.id))}</td>
                     </tr>
@@ -124,7 +135,12 @@ function VendorsPage() {
         <AddVendorModal
           userId={user.id}
           onClose={() => setOpen(false)}
-          onCreated={() => qc.invalidateQueries({ queryKey: ["vendors"] })}
+          onCreated={() =>
+            qc.invalidateQueries({
+              predicate: (q) =>
+                q.queryKey.some((k) => typeof k === "string" && /supplier|vendor/i.test(k)),
+            })
+          }
         />
       )}
     </div>
@@ -143,7 +159,7 @@ function AddVendorModal({
   const [form, setForm] = useState({
     name: "",
     industry: "",
-    payment_terms_days: "30",
+    ...toTermsFormFields(null),
     address_line: "",
     city: "",
     country: "",
@@ -163,14 +179,20 @@ function AddVendorModal({
       if (!form.name.trim()) throw new Error("Name is required");
       if (form.contact_email && !/^\S+@\S+\.\S+$/.test(form.contact_email))
         throw new Error("Invalid contact email");
+      const termsPayload = toTermsPayload(form);
+      // No balance-due-days input on this form: delivery-based terms are
+      // always due on delivery/invoice date (0 days) at master level.
+      if (
+        termsPayload.paymentTermsType === "on_delivery" ||
+        termsPayload.paymentTermsType === "advance_partial"
+      ) {
+        termsPayload.paymentTermsDays = 0;
+      }
       await api.vendors.create({
         clientId: userId,
         name: form.name.trim(),
         industry: form.industry || null,
-        payment_terms_days: (() => {
-          const n = Number(form.payment_terms_days);
-          return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 30;
-        })(),
+        ...termsPayload,
         address_line: form.address_line || null,
         city: form.city || null,
         country: form.country || null,
@@ -319,15 +341,15 @@ function AddVendorModal({
           </Section>
 
           <Section title="Terms">
-            <div className="grid gap-3 md:grid-cols-3">
-              <L label="Payment terms (days)">
-                <input
-                  required
-                  type="number"
-                  min="0"
-                  className={inputBase}
-                  value={form.payment_terms_days}
-                  onChange={set("payment_terms_days")}
+            <div className="grid gap-3 md:grid-cols-2">
+              <L label="Payment terms">
+                <PaymentTermsFields
+                  type={form.payment_terms_type}
+                  advancePct={form.payment_terms_advance_pct}
+                  paymentTermsDays={form.payment_terms_days}
+                  daysLabel="Net days"
+                  hideBalanceDays
+                  onChange={(patch) => setForm({ ...form, ...patch })}
                 />
               </L>
             </div>

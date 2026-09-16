@@ -40,11 +40,10 @@ export async function syncInvoiceToInflow(invoice: any): Promise<void> {
     }
   }
 
-  // Determine expected date per priority chain:
-  // 1. Customer-promised payment date (if entered)
-  // 2. Invoice due date
-  // 3. Invoice date + customer credit period
-  let expectedDate = invoice.expectedDate || invoice.promisedPaymentDate || invoice.dueDate || null;
+  // Determine expected date: the invoice due date (paid amounts are tracked
+  // on the paid date by the caller/engine). Falls back to issue date +
+  // customer credit period when no due date is set.
+  let expectedDate = invoice.dueDate || null;
   if (!expectedDate && invoice.issueDate) {
     const d = new Date(invoice.issueDate + "T00:00:00Z");
     d.setUTCDate(d.getUTCDate() + creditPeriodDays);

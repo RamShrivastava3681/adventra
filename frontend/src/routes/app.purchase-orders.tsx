@@ -28,7 +28,6 @@ import {
   Trash2,
   Pencil,
   Truck,
-  FileDown,
   Download,
   CircleDollarSign,
   Layers,
@@ -49,6 +48,18 @@ import {
   QuickAddVariantModal,
   type QuickCreatedProduct,
 } from "@/components/product-quick-create";
+import {
+  LineItemsSection,
+  LineHead,
+  MiniLabel,
+  PctInput,
+  LineTotal,
+  RemoveLineButton,
+  TotalRow,
+  TotalsPanel,
+  lineInputCls,
+  PO_LINE_GRID,
+} from "@/components/doc-lines";
 import { TableSkeleton } from "@/components/skeletons";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
@@ -274,18 +285,7 @@ export function PurchaseOrdersPage() {
     },
   });
 
-  // Row-level workflow: submit for checker review / cancel.
-  const submitReview = useMutation({
-    mutationFn: async (id: string) => {
-      await api.goodsPurchaseOrders.update(id, { status: "pending_review" });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["goods-pos"] });
-      toast.success("Purchase order submitted for review");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
+  // Row-level workflow: cancel.
   const cancel = useMutation({
     mutationFn: async (id: string) => {
       await api.goodsPurchaseOrders.update(id, { status: "cancelled" });
@@ -489,16 +489,6 @@ export function PurchaseOrdersPage() {
                                     title="Edit"
                                   >
                                     <Pencil className="h-3 w-3" />
-                                  </button>
-                                )}
-                                {canWrite && p.status === "draft" && (
-                                  <button
-                                    onClick={() => submitReview.mutate(p.id)}
-                                    disabled={submitReview.isPending}
-                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
-                                    title="Review the purchase order and send it to the checker"
-                                  >
-                                    <FileDown className="h-3 w-3" /> Review
                                   </button>
                                 )}
                                 <button
@@ -1469,7 +1459,7 @@ function POModal({
                   disabled={!editable}
                 />
               </L>
-              <L label="Buyer / created by">
+              <L label="PO created by">
                 <input
                   className={inputBase}
                   value={f.buyer_name}
@@ -1779,10 +1769,12 @@ function POModal({
           </fieldset>
 
           {/* Line items */}
-          <fieldset className="rounded-lg border border-border/60 p-4">
-            <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              Purchase order item lines
-            </legend>
+          <LineItemsSection
+            title="Purchase Order Items"
+            count={lines.length}
+            onAdd={editable ? addLine : undefined}
+            addLabel="Add line"
+          >
             {products.length === 0 && lines.length === 0 ? (
               <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
                 No active products in the catalogue yet — add products in the Product catalogue tab
@@ -1798,182 +1790,160 @@ function POModal({
                 )}
               </div>
             ) : (
-              <div className="space-y-2">
-                <div className="hidden grid-cols-12 gap-2 text-[9px] uppercase tracking-widest text-muted-foreground md:grid">
-                  <div className="col-span-5">SKU / Product</div>
-                  <div className="col-span-1">Unit</div>
-                  <div className="col-span-2">Ordered qty</div>
-                  <div className="col-span-1">Unit price</div>
-                  <div className="col-span-1">GST %</div>
-                  <div className="col-span-1 text-right">Line total</div>
-                  <div className="col-span-1"></div>
-                </div>
-                {lines.map((l, i) => {
-                  const lineTotal = round2(
-                    (Number(l.ordered_qty) || 0) * (Number(l.unit_price) || 0),
-                  );
-                  const overReceived =
-                    editable && l.received_qty > 0 && Number(l.ordered_qty) < l.received_qty;
-                  return (
-                    <div
-                      key={i}
-                      className="grid grid-cols-2 items-end gap-2 rounded-md border border-border/50 p-2 md:grid-cols-12"
-                    >
-                      <div className="col-span-2 md:col-span-5">
-                        <L label="Product">
+              <>
+                <LineHead
+                  grid={PO_LINE_GRID}
+                  cols={[
+                    { label: "Product" },
+                    { label: "Fabric / Specification" },
+                    { label: "Unit", align: "center" },
+                    { label: "Ordered qty", align: "right" },
+                    { label: "Unit price", align: "right" },
+                    { label: "GST %", align: "center" },
+                    { label: "Line total", align: "right" },
+                    { label: "" },
+                  ]}
+                />
+                <div className="divide-y divide-border/60">
+                  {lines.map((l, i) => {
+                    const lineTotal = round2(
+                      (Number(l.ordered_qty) || 0) * (Number(l.unit_price) || 0),
+                    );
+                    const overReceived =
+                      editable && l.received_qty > 0 && Number(l.ordered_qty) < l.received_qty;
+                    return (
+                      <div
+                        key={i}
+                        className={`grid grid-cols-6 gap-x-2 gap-y-2 py-2.5 ${PO_LINE_GRID}`}
+                      >
+                        <div className="col-span-6 md:col-span-1">
+                          <MiniLabel>Product</MiniLabel>
                           <ProductVariantPicker
                             products={products}
                             value={l.product_id}
                             onChange={(v) => pickProduct(i, v)}
                             disabled={!editable}
+                            placeholder="Search product or SKU..."
                           />
-                        </L>
-                        {l.name && (
-                          <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
-                        )}
-                        {(() => {
-                          const cat = (products ?? []).find((x: any) => x.id === l.product_id) as any;
-                          const bits = [
-                            l.color || cat?.color || null,
-                            l.size ? `Size ${l.size}` : cat?.size ? `Size ${cat.size}` : null,
-                            l.hsn_code || cat?.hsn_code || cat?.hsnCode
-                              ? `HSN ${l.hsn_code || cat?.hsn_code || cat?.hsnCode}`
-                              : null,
-                          ].filter(Boolean);
-                          return bits.length ? (
-                            <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                              {bits.join(" · ")}
-                            </div>
-                          ) : null;
-                        })()}
-                        <div className="mt-1">
-                          <L label="Fabric (PO print)">
-                            <input
-                              className={inputBase}
-                              value={l.fabric}
-                              onChange={(e) => setLine(i, { fabric: e.target.value })}
-                              placeholder="e.g. Rib Stop"
-                              disabled={!editable}
-                            />
-                          </L>
-                        </div>
-                        {editable && variantTargetFor(i) && (
-                          <div className="mt-1 flex flex-wrap items-center gap-3">
+                          {l.name && (
+                            <div className="mt-1 truncate text-[11px] text-muted-foreground">{l.name}</div>
+                          )}
+                          {(() => {
+                            const cat = (products ?? []).find((x: any) => x.id === l.product_id) as any;
+                            const bits = [
+                              l.color || cat?.color || null,
+                              l.size ? `Size ${l.size}` : cat?.size ? `Size ${cat.size}` : null,
+                              l.hsn_code || cat?.hsn_code || cat?.hsnCode
+                                ? `HSN ${l.hsn_code || cat?.hsn_code || cat?.hsnCode}`
+                                : null,
+                            ].filter(Boolean);
+                            return bits.length ? (
+                              <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                                {bits.join(" · ")}
+                              </div>
+                            ) : null;
+                          })()}
+                          {editable && variantTargetFor(i) && (
                             <button
                               type="button"
                               onClick={() => setVariantLine(i)}
-                              className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline"
-                              title="Add a colour/size variant SKU under this product"
+                              className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                              title="Pick a colour, then select or create sizes for this product"
                             >
-                              <Layers className="h-3 w-3" /> Add variant
+                              <Layers className="h-3 w-3" /> Colour / size
                             </button>
-                          </div>
-                        )}
-                      </div>
-                      <div>
-                        <input
-                          aria-label="Unit"
-                          className={inputBase}
-                          value={l.unit}
-                          onChange={(e) => setLine(i, { unit: e.target.value })}
-                          disabled={!editable}
-                        />
-                      </div>
-                      <div className="md:col-span-2">
-                        <input
-                          type="number"
-                          min="1"
-                          step="0.001"
-                          aria-label="Ordered qty"
-                          className={`inp ${overReceived ? "!border-sem-attention" : ""}`}
-                          value={l.ordered_qty}
-                          onChange={(e) => setLine(i, { ordered_qty: e.target.value })}
-                          disabled={!editable}
-                        />
-                        {overReceived && (
-                          <div className="mt-0.5 text-[9px] text-sem-attention">
-                            Cannot go below received ({l.received_qty})
-                          </div>
-                        )}
-                      </div>
-                      <div className="md:col-span-1">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          aria-label="Unit price"
-                          className={inputBase}
-                          value={l.unit_price}
-                          onChange={(e) => setLine(i, { unit_price: e.target.value })}
-                          disabled={!editable}
-                          placeholder={
-                            l.product_id
-                              ? products.find((x) => x.id === l.product_id)?.unit_cost != null
-                                ? `Cost: ${products.find((x) => x.id === l.product_id)!.unit_cost}`
-                                : ""
-                              : ""
-                          }
-                        />
-                      </div>
-                      <div>
-                        <input
-                          list="po-gst-rates"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          aria-label="GST %"
-                          className={inputBase}
-                          value={l.gst_rate}
-                          onChange={(e) => setLine(i, { gst_rate: e.target.value })}
-                          disabled={!editable}
-                        />
-                      </div>
-                      <div className="text-right">
-                        <div
-                          aria-label="Line total"
-                          className="inp text-right font-mono tabular-nums"
-                        >
-                          {fmtMoney(lineTotal)}
+                          )}
+                        </div>
+                        <div className="col-span-6 md:col-span-1">
+                          <MiniLabel>Fabric / Specification</MiniLabel>
+                          <input
+                            aria-label="Fabric / Specification"
+                            className={lineInputCls}
+                            value={l.fabric}
+                            onChange={(e) => setLine(i, { fabric: e.target.value })}
+                            placeholder="e.g. Rib Stop"
+                            disabled={!editable}
+                          />
+                        </div>
+                        <div className="col-span-2 md:col-span-1">
+                          <MiniLabel>Unit</MiniLabel>
+                          <input
+                            aria-label="Unit"
+                            className={`${lineInputCls} text-center`}
+                            value={l.unit}
+                            onChange={(e) => setLine(i, { unit: e.target.value })}
+                            disabled={!editable}
+                          />
+                        </div>
+                        <div className="col-span-4 md:col-span-1">
+                          <MiniLabel>Ordered qty</MiniLabel>
+                          <input
+                            type="number"
+                            min="1"
+                            step="0.001"
+                            aria-label="Ordered qty"
+                            placeholder="0"
+                            className={`${lineInputCls} text-right ${overReceived ? "!border-sem-attention" : ""}`}
+                            value={l.ordered_qty}
+                            onChange={(e) => setLine(i, { ordered_qty: e.target.value })}
+                            disabled={!editable}
+                          />
+                          {overReceived && (
+                            <div className="mt-1 text-[10px] text-sem-attention">
+                              Cannot go below received ({l.received_qty})
+                            </div>
+                          )}
+                          {l.received_qty > 0 && (
+                            <div className="mt-1 flex flex-wrap gap-1">
+                              <span className="rounded bg-sem-success/10 px-1.5 py-0.5 text-[9px] text-sem-success">
+                                recv {l.received_qty}
+                              </span>
+                              <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
+                                pending {Math.max(0, (Number(l.ordered_qty) || 0) - l.received_qty)}
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                        <div className="col-span-3 md:col-span-1">
+                          <MiniLabel>Unit price</MiniLabel>
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            aria-label="Unit price"
+                            placeholder="0.00"
+                            className={`${lineInputCls} text-right`}
+                            value={l.unit_price}
+                            onChange={(e) => setLine(i, { unit_price: e.target.value })}
+                            disabled={!editable}
+                          />
+                        </div>
+                        <div className="col-span-3 md:col-span-1">
+                          <MiniLabel>GST %</MiniLabel>
+                          <PctInput
+                            aria-label="GST %"
+                            list="po-gst-rates"
+                            min="0"
+                            step="0.01"
+                            value={l.gst_rate}
+                            onChange={(e) => setLine(i, { gst_rate: e.target.value })}
+                            disabled={!editable}
+                          />
+                        </div>
+                        <div className="col-span-4 md:col-span-1">
+                          <MiniLabel>Line total</MiniLabel>
+                          <LineTotal>{fmtMoney(lineTotal)}</LineTotal>
+                        </div>
+                        <div className="col-span-2 flex items-start justify-end md:col-span-1 md:items-center md:justify-center">
+                          {editable && <RemoveLineButton onClick={() => removeLine(i)} />}
                         </div>
                       </div>
-                      <div className="flex items-end justify-end gap-1 pb-1">
-                        {l.received_qty > 0 && (
-                          <>
-                            <span className="rounded bg-sem-success/10 px-1.5 py-0.5 text-[9px] text-sem-success">
-                              recv {l.received_qty}
-                            </span>
-                            <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
-                              pending {Math.max(0, (Number(l.ordered_qty) || 0) - l.received_qty)}
-                            </span>
-                          </>
-                        )}
-                        {editable && (
-                          <button
-                            type="button"
-                            onClick={() => removeLine(i)}
-                            className="rounded p-1 text-muted-foreground hover:text-destructive"
-                          >
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-                {editable && (
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={addLine}
-                      className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary"
-                    >
-                      <Plus className="h-3.5 w-3.5" /> Add line
-                    </button>
-                  </div>
-                )}
-              </div>
+                    );
+                  })}
+                </div>
+              </>
             )}
-          </fieldset>
+          </LineItemsSection>
 
           {/* Totals */}
           <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
@@ -2498,6 +2468,7 @@ function POModal({
           <div onClick={(e) => e.stopPropagation()}>
             <QuickAddVariantModal
               parent={variantTargetFor(variantLine)!}
+              initialColor={lines[variantLine]?.color ?? ""}
               onClose={() => setVariantLine(null)}
               onCreated={(created) => {
                 if (variantLine !== null) applyProductToLine(variantLine, created);

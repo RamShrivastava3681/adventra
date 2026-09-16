@@ -268,7 +268,9 @@ async function buildCashEvents(
     }
 
     const outstanding = round2(Math.max(0, totalDue - paidAmount));
-    const expectedDate = invoice.expectedDate || invoice.dueDate || invoice.promisedPaymentDate || invoice.issueDate;
+    // Inflow tracking: outstanding is expected on the invoice due date
+    // (paid amounts are tracked on the paid date above).
+    const expectedDate = invoice.dueDate || invoice.issueDate;
     if (outstanding <= 0 || !expectedDate || expectedDate > horizonEnd) continue;
 
     pushEvent({
@@ -1030,7 +1032,7 @@ async function getOwnerSummary(clientId: string): Promise<CashCommandCentreSumma
       const paidDate = invoice.paidDate || invoice.receiptDate;
       const paymentInWindow = paidAmount > 0 && paidDate >= today && paidDate <= in7;
       const outstanding = Math.max(0, totalDue - paidAmount);
-      const dueDate = invoice.expectedDate || invoice.dueDate || invoice.promisedPaymentDate || invoice.issueDate;
+      const dueDate = invoice.dueDate || invoice.issueDate;
       const unpaidInWindow = outstanding > 0 && dueDate >= today && dueDate <= in7;
       return s + (paymentInWindow ? paidAmount : 0) + (unpaidInWindow ? outstanding : 0);
     }, 0);
@@ -1142,7 +1144,7 @@ async function getOwnerSummary(clientId: string): Promise<CashCommandCentreSumma
     gstInvoiceCount += 1;
     const iv: any = invoice;
     const dueDate =
-      iv?.expectedDate || iv?.expected_date || iv?.dueDate || iv?.due_date || iv?.issueDate;
+      iv?.dueDate || iv?.due_date || iv?.expectedDate || iv?.expected_date || iv?.issueDate;
     if (outstanding > 0 && dueDate >= today && dueDate <= in7) {
       gstDueNext7Days = round2(gstDueNext7Days + outstanding);
     }
@@ -1217,7 +1219,7 @@ export async function getGstCollection(clientId: string): Promise<GstCollection>
     gstCollected = round2(gstCollected + collected);
     const iv2: any = invoice;
     const dueDate =
-      iv2?.expectedDate || iv2?.expected_date || iv2?.dueDate || iv2?.due_date || null;
+      iv2?.dueDate || iv2?.due_date || iv2?.expectedDate || iv2?.expected_date || null;
     if (outstanding > 0 && dueDate && dueDate >= today && dueDate <= in7) {
       gstDueNext7Days = round2(gstDueNext7Days + outstanding);
     }

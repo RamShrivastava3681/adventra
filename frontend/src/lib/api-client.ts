@@ -328,7 +328,7 @@ const api = {
       api.post<any>(`/goods-sales-orders/${id}/warehouse-signoff`, { status, notes }),
     warehouseApprove: (id: string, action: "approve" | "reject", notes?: string) =>
       api.post<any>(`/goods-sales-orders/${id}/warehouse-approve`, { action, notes }),
-    salesReview: (id: string, action: "submit" | "approve" | "reject", notes?: string) =>
+    salesReview: (id: string, action: "submit" | "approve" | "reject" | "push", notes?: string) =>
       api.post<any>(`/goods-sales-orders/${id}/sales-review`, { action, notes }),
     checkerApprove: (id: string, action: "approve" | "reject") =>
       api.post<any>(`/goods-sales-orders/${id}/checker-approve`, { action }),

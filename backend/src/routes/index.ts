@@ -2195,6 +2195,19 @@ router.post("/invoices", authMiddleware, async (req, res) => {
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
+    // One sales order → one invoice: block a second live invoice for the
+    // same sales order (cancelled/rejected invoices don't count).
+    const priorInvoices = await Invoice.list(clientId);
+    const dupInvoice = (priorInvoices as any[]).find(
+      (i) =>
+        i.goodsSalesOrderId === so.id &&
+        !["cancelled", "rejected"].includes(i.status),
+    );
+    if (dupInvoice) {
+      return res.status(409).json({
+        error: `Sales order ${so.soNumber} already has invoice ${dupInvoice.invoiceNumber ?? ""} — one sales order can create only one invoice`,
+      });
+    }
     // Payment-condition gate (PDF-2 §4/§7): orders carrying a permanent
     // term snapshot can only be invoiced once Treasury verified enough.
     // Legacy orders without a snapshot keep the old behavior.
@@ -2732,6 +2745,22 @@ router.put("/invoices/:id", authMiddleware, async (req, res) => {
         );
       } catch (e: any) {
         return res.status(400).json({ error: e.message });
+      }
+      // One sales order → one invoice: re-linking onto an SO that already
+      // has a different live invoice is blocked.
+      if (body.goodsSalesOrderId && body.goodsSalesOrderId !== current.goodsSalesOrderId) {
+        const siblings = await Invoice.list(effectiveListScope(req));
+        const clash = (siblings as any[]).find(
+          (i) =>
+            i.id !== current.id &&
+            i.goodsSalesOrderId === body.goodsSalesOrderId &&
+            !["cancelled", "rejected"].includes(i.status),
+        );
+        if (clash) {
+          return res.status(409).json({
+            error: `Sales order ${so.soNumber} already has invoice ${clash.invoiceNumber ?? ""} — one sales order can create only one invoice`,
+          });
+        }
       }
       if (body.goodsSalesOrderId && !body.goodsSalesOrderNumber)
         body.goodsSalesOrderNumber = so.soNumber;
@@ -5118,7 +5147,10 @@ router.get("/goods-purchase-orders/:id/pdf", authMiddleware, async (req, res) =>
   }
 });
 
-/** Sales review: draft -> pending_review -> warehouse_pending. */
+/** Sales review (legacy submit/approve/reject) + direct push: draft -> warehouse_pending.
+ * New orders skip sales approval entirely — "Push to warehouse" moves a draft
+ * straight into the warehouse workflow. Push also accepts legacy orders still
+ * parked at pending_review so they can move forward with the same button. */
 router.post(
   "/goods-sales-orders/:id/sales-review",
   authMiddleware,
@@ -5135,25 +5167,30 @@ router.post(
         submit: { from: "draft", to: "pending_review" },
         approve: { from: "pending_review", to: "warehouse_pending" },
         reject: { from: "pending_review", to: "draft" },
+        push: { from: "draft", to: "warehouse_pending" },
       };
-      const transition = transitions[action];
+      let transition = transitions[action];
+      // Legacy orders parked at pending_review use the same push button.
+      if (action === "push" && so.status === "pending_review") {
+        transition = { from: "pending_review", to: "warehouse_pending" };
+      }
       if (!transition)
-        return res.status(400).json({ error: "action must be submit, approve or reject" });
+        return res.status(400).json({ error: "action must be submit, approve, reject or push" });
       if ((action === "approve" || action === "reject") && !isSalesReviewer) {
         return res.status(403).json({ error: "Only a reporting manager or admin can review sales orders" });
-      }
+      };
       if (so.status !== transition.from)
         return res.status(409).json({ error: `Sales order must be ${transition.from}` });
 
-      const isDecision = action !== "submit";
+      const isDecision = action === "approve" || action === "reject";
       const updated = await GoodsSO.update(so.id, {
         status: transition.to as any,
         manualStatus: transition.to as any,
         salesReviewedBy: isDecision ? req.user!.userId : null,
         salesReviewedAt: isDecision ? new Date().toISOString() : null,
         salesReviewNotes: req.body?.notes ? String(req.body.notes) : null,
-        // A fresh Sales approval always starts a fresh warehouse sign-off.
-        ...(action === "approve"
+        // A fresh push/approval always starts a fresh warehouse sign-off.
+        ...(action === "approve" || action === "push"
           ? { warehouseStatus: null, warehouseApprovedBy: null, warehouseApprovedAt: null, warehouseNotes: null }
           : {}),
       });
@@ -5180,7 +5217,7 @@ router.post(
       const action = String(req.body?.action || "approve");
       const transitions: Record<string, { from: string; to: string }> = {
         approve: { from: "warehouse_pending", to: "checker_pending" },
-        reject: { from: "warehouse_pending", to: "pending_review" },
+        reject: { from: "warehouse_pending", to: "draft" },
       };
       const transition = transitions[action];
       if (!transition)
@@ -6197,6 +6234,45 @@ function assertSODispatchable(so: any) {
     );
 }
 
+// Sale dispatch types that move customer goods (and need e-invoicing).
+const IRN_GATED_DISPATCH_TYPES = ["customer_sale", "marketplace_sale", "pos_sale"];
+
+/**
+ * IRN gate: customer goods move only against a sales invoice that has its
+ * IRN uploaded. Resolves the dispatch's linked invoice(s), falling back to
+ * the SO's live invoice when none is linked. Returns an error message, or
+ * null when the dispatch may proceed. Non-sale dispatch types skip the gate.
+ */
+async function assertDispatchIrnReady(
+  clientId: string,
+  so: any,
+  linked: { linkedSalesInvoiceId?: string | null; finalInvoiceId?: string | null; dispatchType?: string | null },
+): Promise<string | null> {
+  const t = String(linked.dispatchType || "customer_sale");
+  if (!IRN_GATED_DISPATCH_TYPES.includes(t)) return null;
+  const ids = [linked.linkedSalesInvoiceId, linked.finalInvoiceId].filter(Boolean) as string[];
+  if (ids.length > 0) {
+    for (const id of ids) {
+      const inv: any = await Invoice.get(id);
+      if (!inv) return "Linked sales invoice not found";
+      if (["cancelled", "rejected"].includes(inv.status))
+        return `Invoice ${inv.invoiceNumber ?? ""} is ${inv.status} — dispatch needs a live invoice with IRN uploaded`;
+      if (!inv.irn)
+        return `Invoice ${inv.invoiceNumber ?? ""} has no IRN uploaded — upload the IRN before dispatching`;
+    }
+    return null;
+  }
+  const all = await Invoice.list(clientId);
+  const inv: any = (all as any[]).find(
+    (i) => i.goodsSalesOrderId === so.id && !["cancelled", "rejected"].includes(i.status),
+  );
+  if (!inv)
+    return `Create the sales invoice for ${so.soNumber} first — dispatch needs an invoice with IRN uploaded`;
+  if (!inv.irn)
+    return `Invoice ${inv.invoiceNumber ?? ""} has no IRN uploaded — upload the IRN before dispatching`;
+  return null;
+}
+
 /**
  * Validate dispatch lines against the SO (ordered/pending limits) and snapshot
  * them onto the dispatch note. The over-dispatch gate applies to the
@@ -6433,6 +6509,24 @@ router.post("/goods-dispatches", authMiddleware, async (req, res) => {
         .json({
           error: "Cannot create a dispatch against a cancelled sales order",
         });
+    // One sales order → one dispatch: an SO already linked to a live
+    // dispatch note cannot get another one (cancelled dispatches don't count).
+    const priorDispatches = await GoodsDispatch.list(clientId);
+    const dupDispatch = (priorDispatches as any[]).find(
+      (d) => d.goodsSalesOrderId === so.id && d.status !== "cancelled",
+    );
+    if (dupDispatch) {
+      return res.status(409).json({
+        error: `Sales order ${so.soNumber} already has dispatch ${dupDispatch.dispatchNumber ?? ""} — one sales order can create only one dispatch`,
+      });
+    }
+    // IRN gate: customer goods move only against an invoice with IRN uploaded.
+    const irnBlocker = await assertDispatchIrnReady(clientId, so, {
+      linkedSalesInvoiceId: body.linkedSalesInvoiceId || null,
+      finalInvoiceId: null,
+      dispatchType: body.dispatchType || null,
+    });
+    if (irnBlocker) return res.status(400).json({ error: irnBlocker });
     // Warehouse sign-off is a HARD GATE: a confirmed SO that the warehouse has
     // not approved (or has put on hold / rejected) cannot be dispatched.
     if ((so.warehouseStatus ?? null) !== "approved") {
@@ -6536,6 +6630,13 @@ router.post(
           req.user!.roles?.includes("checker"));
       const so = await GoodsSO.get(dispatch.goodsSalesOrderId);
       if (!so) return res.status(404).json({ error: "Sales order not found" });
+      // IRN gate: release for picking only against an invoice with IRN uploaded.
+      const irnBlocker = await assertDispatchIrnReady(clientId, so, {
+        linkedSalesInvoiceId: (dispatch as any).linkedSalesInvoiceId ?? null,
+        finalInvoiceId: (dispatch as any).finalInvoiceId ?? null,
+        dispatchType: (dispatch as any).dispatchType ?? null,
+      });
+      if (irnBlocker) return res.status(400).json({ error: irnBlocker });
       // Readiness gate for the new flow (PDF-1 steps 10–12, PDF-2 §9):
       // dispatches built from a final invoice confirm only when Ready
       // (EWB generated) or EWB-Not-Required is recorded. Legacy dispatches
@@ -6812,9 +6913,11 @@ router.post(
 );
 
 /**
- * POST /goods-dispatches/:id/record-ewb — Finance records the EWB (v1 manual;
- * later written by Tally). Saves on dispatch + invoice, moves to
- * ready_for_dispatch, opens "Confirm Physical Dispatch" for Warehouse.
+ * POST /goods-dispatches/:id/record-ewb — Finance records the EWB (manual
+ * number from Tally, or the number returned by the NIC generate call).
+ * Saves on dispatch + linked invoice. New-flow orders (draft/submitted) move
+ * to ready_for_dispatch; legacy confirmed orders keep their status so the
+ * shipping pipeline is undisturbed.
  */
 router.post(
   "/goods-dispatches/:id/record-ewb",
@@ -6824,8 +6927,8 @@ router.post(
     try {
       const dispatch = await GoodsDispatch.get(req.params.id);
       if (!dispatch) return res.status(404).json({ error: "Dispatch note not found" });
-      if (!["details_submitted", "draft"].includes(dispatch.status))
-        return res.status(400).json({ error: "E-Way Bill can only be recorded on a submitted dispatch order" });
+      if (!["details_submitted", "draft", "confirmed"].includes(dispatch.status))
+        return res.status(400).json({ error: "E-Way Bill can only be recorded on a draft, submitted or confirmed dispatch order" });
       const body = req.body || {};
       // "EWB Not Required" path with authorised reason (PDF-2 §9).
       if (body.notRequired === true) {
@@ -6854,17 +6957,22 @@ router.post(
       const ewbNumber = String(body.ewbNumber ?? "").trim();
       if (!/^\d{8,16}$/.test(ewbNumber))
         return res.status(400).json({ error: "Enter the numeric E-Way Bill number from Tally" });
+      // New-flow orders advance to ready_for_dispatch; legacy confirmed
+      // orders keep their status (their shipping pipeline drives progress).
+      const moveToReady = ["details_submitted", "draft"].includes(dispatch.status);
       const updated = await GoodsDispatch.update(dispatch.id, {
         ewayBillNumber: ewbNumber,
         ewayBillStatus: "generated",
         ewayBillGeneratedAt: body.generatedAt || db.nowISO(),
         ewayBillValidUntil: body.validUntil || null,
-        status: "ready_for_dispatch" as any,
+        ...(moveToReady ? { status: "ready_for_dispatch" as any } : {}),
       });
-      // Mirror onto the linked invoice (spec: saved against both).
-      if (dispatch.finalInvoiceId) {
+      // Mirror onto the linked invoice (final-invoice flow or the classic
+      // SO→invoice link) so the downloaded invoice PDF prints the EWB section.
+      const invoiceId = (dispatch as any).finalInvoiceId ?? (dispatch as any).linkedSalesInvoiceId ?? null;
+      if (invoiceId) {
         try {
-          await Invoice.update(dispatch.finalInvoiceId, {
+          await Invoice.update(invoiceId, {
             ewbNumber,
             ewbGeneratedAt: body.generatedAt || db.nowISO(),
             ewbValidUntil: body.validUntil || null,
@@ -6874,21 +6982,26 @@ router.post(
           } as any);
         } catch (e) { console.error("  ⚠ Invoice EWB mirror failed:", e); }
       }
-      timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
-        dispatch.status, "ready_for_dispatch", `E-Way Bill ${ewbNumber} recorded — ready for physical dispatch`);
-      advanceWorkflow(req, {
-        workflowType: "dispatch",
-        stage: "confirm_dispatch",
-        docType: "dispatch",
-        docId: dispatch.id,
-        docNumber: dispatch.dispatchNumber,
-        counterparty: dispatch.customerName,
-        docStatus: "ready_for_dispatch",
-        ownerRole: "operations",
-        requiredAction: "Confirm Physical Dispatch",
-        nextAction: "Debit inventory",
-        amount: (dispatch as any).invoicedValue ?? null,
-      }, { timelineKind: "system", docType: "dispatch", appPath: "/app/warehouse" });
+      if (moveToReady) {
+        timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
+          dispatch.status, "ready_for_dispatch", `E-Way Bill ${ewbNumber} recorded — ready for physical dispatch`);
+        advanceWorkflow(req, {
+          workflowType: "dispatch",
+          stage: "confirm_dispatch",
+          docType: "dispatch",
+          docId: dispatch.id,
+          docNumber: dispatch.dispatchNumber,
+          counterparty: dispatch.customerName,
+          docStatus: "ready_for_dispatch",
+          ownerRole: "operations",
+          requiredAction: "Confirm Physical Dispatch",
+          nextAction: "Debit inventory",
+          amount: (dispatch as any).invoicedValue ?? null,
+        }, { timelineKind: "system", docType: "dispatch", appPath: "/app/warehouse" });
+      } else {
+        timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
+          dispatch.status, dispatch.status, `E-Way Bill ${ewbNumber} recorded`);
+      }
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message });
@@ -7028,6 +7141,13 @@ router.post(
         const clientId = req.user!.userId;
         const so = await GoodsSO.get(dispatch.goodsSalesOrderId);
         if (!so) return res.status(404).json({ error: "Sales order not found" });
+        // IRN gate: stock debits only against an invoice with IRN uploaded.
+        const irnBlocker = await assertDispatchIrnReady(clientId, so, {
+          linkedSalesInvoiceId: (dispatch as any).linkedSalesInvoiceId ?? null,
+          finalInvoiceId: (dispatch as any).finalInvoiceId ?? null,
+          dispatchType: (dispatch as any).dispatchType ?? null,
+        });
+        if (irnBlocker) return res.status(400).json({ error: irnBlocker });
         const allowOver =
           !!req.body?.allowOverDispatch &&
           (req.user!.roles?.includes("factor_admin") ||

@@ -39,13 +39,13 @@ export async function create(data: Partial<Supplier> & { companyName: string }) 
     addressLine: data.addressLine || null, city: data.city || null, country: data.country || null, postalCode: data.postalCode || null,
     status: data.status || "prospect", notes: data.notes || null,
     paymentTermsDays: (() => {
-      const raw = (data as any).paymentTermsDays;
+      const raw = (data as any).paymentTermsDays ?? (data as any).payment_terms_days;
       if (raw === undefined || raw === null || raw === "") return 30;
       const n = Number(raw);
       return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 30;
     })(),
-    paymentTermsType: normalizePaymentTermsType(data.paymentTermsType) || "credit",
-    advancePct: normalizeAdvancePct(data.advancePct),
+    paymentTermsType: normalizePaymentTermsType((data as any).paymentTermsType ?? (data as any).payment_terms_type) || "credit",
+    advancePct: normalizeAdvancePct((data as any).advancePct ?? (data as any).advance_pct),
     gstin: data.gstin || null,
     panCardNo: data.panCardNo || null,
     stateCode: data.stateCode || (data.gstin ? data.gstin.slice(0, 2) : null),
@@ -59,6 +59,11 @@ export async function update(id: string, updates: Partial<Supplier>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
   const allowed = ["companyName","contactName","contactEmail","contactPhone","industry","addressLine","city","country","postalCode","status","notes","paymentTermsDays","paymentTermsType","advancePct","gstin","panCardNo","stateCode"];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
+  // Accept snake_case aliases too (silent drops used to reset terms to defaults).
+  const alias: Record<string, string> = { payment_terms_days: "paymentTermsDays", payment_terms_type: "paymentTermsType", advance_pct: "advancePct", pan_card_no: "panCardNo", company_name: "companyName", contact_name: "contactName", contact_email: "contactEmail", contact_phone: "contactPhone", address_line: "addressLine", postal_code: "postalCode", state_code: "stateCode" };
+  for (const [sk, ck] of Object.entries(alias)) {
+    if ((updates as any)[sk] !== undefined && patch[ck] === undefined) patch[ck] = (updates as any)[sk];
+  }
   return db.updateItem(`SUPPLIER#${id}`, `SUPPLIER#${id}`, patch);
 }
 

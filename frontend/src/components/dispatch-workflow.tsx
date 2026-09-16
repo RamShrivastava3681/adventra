@@ -10,8 +10,9 @@ import api from "@/lib/api-client";
  * Dispatch workflow forms (PDF-1):
  *  - DispatchPackingModal: warehouse fills packing + transport details and
  *    submits them to Finance ("Submit Dispatch Details to Finance").
- *  - RecordEwbModal: Finance records the E-Way Bill from Tally (or marks it
- *    "not required" with an authorised reason).
+ *  - RecordEwbModal: Finance enters the E-Way Bill number from Tally,
+ *    generates it via the NIC API, or marks it "not required" with an
+ *    authorised reason.
  *  - ConfirmDispatchModal: warehouse confirms the physical dispatch with
  *    actuals (date/time, vehicle, packed qty, LR number) — released for
  *    picking; inventory debits only when the status moves to Dispatched.
@@ -242,20 +243,34 @@ export function DispatchPackingModal({
 // ─── Record E-Way Bill (Finance) ────────────────────────────────────────────
 export function RecordEwbModal({
   dispatch,
+  invoice,
   onClose,
   onDone,
 }: {
   dispatch: any;
+  /** Linked sales invoice (optional) — pre-fills the recipient GSTIN for API generation. */
+  invoice?: any;
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [mode, setMode] = useState<"generate" | "notRequired">("generate");
+  const [mode, setMode] = useState<"generate" | "api" | "notRequired">("generate");
   const [ewbNumber, setEwbNumber] = useState(dispatch.eway_bill_number ?? "");
   const [generatedAt, setGeneratedAt] = useState("");
   const [validUntil, setValidUntil] = useState(dispatch.eway_bill_valid_until?.slice(0, 10) ?? "");
   const [notRequiredReason, setNotRequiredReason] = useState("");
   const [sendBackOpen, setSendBackOpen] = useState(false);
   const [sendBackReason, setSendBackReason] = useState("");
+  // API-generation inputs (NIC E-Way Bill API via stored credentials).
+  const [supplierGstin, setSupplierGstin] = useState("");
+  const [recipientGstin, setRecipientGstin] = useState(
+    invoice?.buyer_gstin ?? invoice?.buyerGstin ?? "",
+  );
+  const [distance, setDistance] = useState(
+    dispatch.distance_km != null ? String(dispatch.distance_km) : "",
+  );
+  const [vehicleNumber, setVehicleNumber] = useState(dispatch.vehicle_number ?? "");
+  const [transporterName, setTransporterName] = useState(dispatch.transporter_name ?? "");
+  const [transporterGstin, setTransporterGstin] = useState(dispatch.transporter_id ?? "");
 
   const record = useMutation({
     mutationFn: () =>
@@ -285,6 +300,40 @@ export function RecordEwbModal({
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
+
+  // Generate via the NIC E-Way Bill API, then record the returned number
+  // through the standard path so dispatch status + invoice mirroring apply.
+  // The API requires a confirmed (non-draft) dispatch.
+  const [generating, setGenerating] = useState(false);
+  const generateViaApi = async () => {
+    if (!supplierGstin.trim() || !recipientGstin.trim()) {
+      toast.error("Enter both supplier and recipient GSTINs to generate via API");
+      return;
+    }
+    setGenerating(true);
+    try {
+      const res: any = await api.ewayBill.generate({
+        dispatchId: dispatch.id,
+        supplierGstin: supplierGstin.trim(),
+        recipientGstin: recipientGstin.trim(),
+        distance: distance ? Number(distance) : undefined,
+        transportMode: String(dispatch.transport_mode || "road").toLowerCase(),
+        vehicleNumber: vehicleNumber.trim() || undefined,
+        transporterGstin: transporterGstin.trim() || undefined,
+        transporterName: transporterName.trim() || undefined,
+      });
+      const ewbNo = String(res?.ewayBill?.ewbNumber ?? res?.gspResult?.ewbNo ?? "").trim();
+      if (!/^\d{8,16}$/.test(ewbNo)) throw new Error("API did not return an E-Way Bill number");
+      await api.goodsDispatches.recordEwb(dispatch.id, { ewbNumber: ewbNo });
+      toast.success(`E-Way Bill ${ewbNo} generated — dispatch is ready for physical dispatch`);
+      onDone();
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   const sendBack = useMutation({
     mutationFn: () => api.goodsDispatches.sendBack(dispatch.id, sendBackReason.trim()),
@@ -321,12 +370,18 @@ export function RecordEwbModal({
         </div>
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button
           onClick={() => setMode("generate")}
           className={`rounded-md border px-3 py-1.5 text-xs ${mode === "generate" ? "border-primary text-primary" : "border-border"}`}
         >
-          EWB generated
+          Enter EWB number
+        </button>
+        <button
+          onClick={() => setMode("api")}
+          className={`rounded-md border px-3 py-1.5 text-xs ${mode === "api" ? "border-primary text-primary" : "border-border"}`}
+        >
+          Generate via API
         </button>
         <button
           onClick={() => setMode("notRequired")}
@@ -348,6 +403,37 @@ export function RecordEwbModal({
             <input type="date" className={inputCls} value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
           </Field>
         </div>
+      ) : mode === "api" ? (
+        <div className="grid grid-cols-2 gap-3">
+          {dispatch.status === "draft" ? (
+            <p className="col-span-2 rounded-md border border-sem-attention/40 bg-sem-attention/10 p-2 text-[11px] text-sem-attention">
+              Confirm the dispatch first — the NIC API generates E-Way Bills only for confirmed dispatches.
+            </p>
+          ) : (
+            <p className="col-span-2 text-[11px] text-muted-foreground">
+              Generates the E-Way Bill on the NIC portal using your stored API credentials, then records the
+              number on the dispatch and the linked invoice (the downloaded invoice PDF prints it).
+            </p>
+          )}
+          <Field label="Supplier GSTIN *">
+            <input className={inputCls} value={supplierGstin} onChange={(e) => setSupplierGstin(e.target.value)} placeholder="Your 15-digit GSTIN" maxLength={15} />
+          </Field>
+          <Field label="Recipient GSTIN *">
+            <input className={inputCls} value={recipientGstin} onChange={(e) => setRecipientGstin(e.target.value)} placeholder="Buyer 15-digit GSTIN" maxLength={15} />
+          </Field>
+          <Field label="Distance (km)">
+            <input type="number" min="1" className={inputCls} value={distance} onChange={(e) => setDistance(e.target.value)} placeholder={String(dispatch.distance_km ?? 100)} />
+          </Field>
+          <Field label="Vehicle number">
+            <input className={inputCls} value={vehicleNumber} onChange={(e) => setVehicleNumber(e.target.value)} placeholder="KA01AB1234" />
+          </Field>
+          <Field label="Transporter name">
+            <input className={inputCls} value={transporterName} onChange={(e) => setTransporterName(e.target.value)} placeholder="Transporter" />
+          </Field>
+          <Field label="Transporter GSTIN / TRANSIN">
+            <input className={inputCls} value={transporterGstin} onChange={(e) => setTransporterGstin(e.target.value)} placeholder="Optional" maxLength={15} />
+          </Field>
+        </div>
       ) : (
         <Field label="Authorised reason (required)" wide>
           <input className={inputCls} value={notRequiredReason} onChange={(e) => setNotRequiredReason(e.target.value)} placeholder="e.g. consignment value below threshold / exempt goods" />
@@ -355,18 +441,33 @@ export function RecordEwbModal({
       )}
 
       <div className="flex flex-wrap gap-2 border-t border-border pt-3">
-        <button
-          onClick={() => (mode === "generate" ? record.mutate() : markNotRequired.mutate())}
-          disabled={record.isPending || markNotRequired.isPending}
-          className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10 disabled:opacity-50"
-        >
-          {record.isPending || markNotRequired.isPending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <FileCheck className="h-3.5 w-3.5" />
-          )}
-          {mode === "generate" ? "Record E-Way Bill" : "Mark Not Required"}
-        </button>
+        {mode === "api" ? (
+          <button
+            onClick={generateViaApi}
+            disabled={generating || dispatch.status === "draft"}
+            className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10 disabled:opacity-50"
+          >
+            {generating ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileCheck className="h-3.5 w-3.5" />
+            )}
+            Generate E-Way Bill
+          </button>
+        ) : (
+          <button
+            onClick={() => (mode === "generate" ? record.mutate() : markNotRequired.mutate())}
+            disabled={record.isPending || markNotRequired.isPending}
+            className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10 disabled:opacity-50"
+          >
+            {record.isPending || markNotRequired.isPending ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <FileCheck className="h-3.5 w-3.5" />
+            )}
+            {mode === "generate" ? "Record E-Way Bill" : "Mark Not Required"}
+          </button>
+        )}
         <button
           onClick={() => setSendBackOpen((v) => !v)}
           className="inline-flex items-center gap-1.5 rounded-md border border-sem-attention/40 px-3 py-1.5 text-xs font-medium text-sem-attention hover:bg-sem-attention/10"

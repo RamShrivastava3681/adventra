@@ -11,13 +11,12 @@ import {
   ClipboardList,
   PackageCheck,
   PackageOpen,
-  Ban,
   Trash2,
   Pencil,
   FileDown,
   Mail,
   Send,
-  CheckCircle2,
+  Layers,
   CircleDollarSign,
   ShoppingBag,
   type LucideIcon,
@@ -35,6 +34,19 @@ import {
 } from "@/components/customer-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductVariantPicker } from "@/components/product-variant-picker";
+import { QuickAddVariantModal } from "@/components/product-quick-create";
+import {
+  LineItemsSection,
+  LineHead,
+  MiniLabel,
+  PctInput,
+  LineTotal,
+  RemoveLineButton,
+  TotalRow,
+  TotalsPanel,
+  lineInputCls,
+  SO_LINE_GRID,
+} from "@/components/doc-lines";
 import { TableSkeleton } from "@/components/skeletons";import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 import {
   Dialog,
@@ -298,7 +310,7 @@ function resolveTierPrice(
 }
 
 export function SalesOrdersPage() {
-  const { user, isSalesRep, isAdmin, isReportingManager } = useAuth();
+  const { user, isSalesRep } = useAuth();
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -659,7 +671,6 @@ export function SalesOrdersPage() {
           products={productsQ.data ?? []}
           customers={customersQ.data ?? []}
           canWrite={canWrite}
-          canApprove={isAdmin || isReportingManager}
           onClose={() => setOpen(false)}
           onSaved={() => {
             qc.invalidateQueries({ queryKey: ["goods-sos"] });
@@ -696,7 +707,6 @@ function SOModal({
   products,
   customers,
   canWrite,
-  canApprove,
   onClose,
   onSaved,
 }: {
@@ -705,7 +715,6 @@ function SOModal({
   products: CatalogueProduct[];
   customers: Customer[];
   canWrite: boolean;
-  canApprove: boolean;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -1018,6 +1027,42 @@ function SOModal({
     });
   };
 
+  // Inline variant creation from the line editor (mirrors purchase orders):
+  // "Variant" opens the colour/size popup and snapshots the created SKU into
+  // the originating line, so sizes can be selected or created per line.
+  const [variantLine, setVariantLine] = useState<number | null>(null);
+
+  // The top-level product a line's "Variant" action targets — the selected
+  // SKU itself when it is a parent, otherwise its parent (variants are one
+  // level deep, so a variant line adds siblings under its parent).
+  const variantTargetFor = (i: number) => {
+    const p = products.find((x) => x.id === lines[i]?.product_id);
+    if (!p) return null;
+    return (p as any).parent_id
+      ? (products.find((x) => x.id === (p as any).parent_id) ?? null)
+      : p;
+  };
+
+  const applyVariantToLine = (i: number, v: any) => {
+    setLine(i, {
+      product_id: v.id,
+      name: v.name ?? "",
+      sku: v.sku ?? null,
+      unit: v.unit_of_measure ?? lines[i]?.unit ?? "piece",
+      color: v.color ?? "",
+      size: v.size != null ? String(v.size) : "",
+      product_code: v.model || v.sku || "",
+      hsn_code: String(v.hsn_code ?? v.hsnCode ?? ""),
+      mrp: v.mrp != null ? String(v.mrp) : "",
+      unit_price: v.unit_price != null ? String(v.unit_price) : lines[i]?.unit_price ?? "",
+      gst_rate: v.gst_rate != null ? String(v.gst_rate) : lines[i]?.gst_rate ?? "",
+      price_tier: "",
+    });
+  };
+
+  // Expandable per-line notes (secondary detail row, not a main column).
+  const [notesOpen, setNotesOpen] = useState<Record<number, boolean>>({});
+
   const addLine = () =>
     setLines((ls) => [
       ...ls,
@@ -1172,18 +1217,12 @@ function SOModal({
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  const changeStatus = async (next: string) => {
+  const pushToWarehouse = async () => {
     if (!so) return;
     try {
-        const action = next === "pending_review" ? "submit" : next === "warehouse_pending" ? "approve" : "reject";
-        await api.goodsSalesOrders.salesReview(so.id, action);
+      await api.goodsSalesOrders.salesReview(so.id, "push");
       onSaved();
-      const msg: Record<string, string> = {
-        pending_review: "SO submitted for Sales review",
-        draft: "SO returned to draft",
-        warehouse_pending: "Sales review approved — sent to Warehouse sign-off",
-      };
-      toast.success(msg[next] ?? `SO ${SO_STATUS_LABELS[next] ?? next}`);
+      toast.success("SO pushed to Warehouse");
       onClose();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed");
@@ -1193,32 +1232,14 @@ function SOModal({
   const footer = (
     <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
       <div className="flex flex-wrap gap-2">
-        {isEdit && canWrite && status === "draft" && (
+        {isEdit && canWrite && ["draft", "pending_review"].includes(status) && (
           <button
             type="button"
-            onClick={() => changeStatus("pending_review")}
+            onClick={pushToWarehouse}
             className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
           >
-            <Send className="h-3.5 w-3.5" /> Submit for review
+            <Send className="h-3.5 w-3.5" /> Push to warehouse
           </button>
-        )}
-        {isEdit && status === "pending_review" && canApprove && (
-          <>
-            <button
-              type="button"
-              onClick={() => changeStatus("warehouse_pending")}
-              className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10"
-            >
-              <CheckCircle2 className="h-3.5 w-3.5" /> Approve and send to Warehouse
-            </button>
-            <button
-              type="button"
-              onClick={() => changeStatus("draft")}
-              className="inline-flex items-center gap-1.5 rounded-md border border-destructive/50 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
-            >
-              <X className="h-3.5 w-3.5" /> Reject
-            </button>
-          </>
         )}
         {isEdit &&
           canWrite &&
@@ -1229,15 +1250,6 @@ function SOModal({
               {so?.debtor_approval_email ? ` (sent to ${so.debtor_approval_email})` : ""}
             </span>
           )}
-        {isEdit && !["cancelled", "fully_dispatched"].includes(status) && (
-          <button
-            type="button"
-            onClick={() => changeStatus("cancelled")}
-            className="inline-flex items-center gap-1.5 rounded-md border border-destructive/40 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
-          >
-            <Ban className="h-3.5 w-3.5" /> Cancel order
-          </button>
-        )}
         <p className="w-full text-[10px] text-muted-foreground md:w-auto md:self-center">
           Dispatched quantities and the partially/fully dispatched status are updated
           automatically from dispatch notes.
@@ -1662,14 +1674,15 @@ function SOModal({
                     <div key={i} className="space-y-2 rounded-md border border-border/50 p-2">
                       <div className="grid grid-cols-2 items-end gap-2 md:grid-cols-12">
                         <div className="col-span-2 md:col-span-4">
-                          <L label="Product">
-                            <ProductVariantPicker
+                          <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                            Product
+                          </span>
+                          <ProductVariantPicker
                               products={products}
                               value={l.product_id}
                               onChange={(v) => pickProduct(i, v)}
                               disabled={!editable}
                             />
-                          </L>
                           {l.name && (
                             <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
                           )}
@@ -1689,18 +1702,21 @@ function SOModal({
                           )}
                         </div>
                         <div>
-                          <L label="Unit">
-                            <input
+                          <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                            Unit
+                          </span>
+                          <input
                               className={inputBase}
                               value={l.unit}
                               onChange={(e) => setLine(i, { unit: e.target.value })}
                               disabled={!editable}
                             />
-                          </L>
                         </div>
                         <div className="md:col-span-1">
-                          <L label="Ordered qty">
-                            <input
+                          <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                            Ordered qty
+                          </span>
+                          <input
                               type="number"
                               min="1"
                               step="0.001"
@@ -1709,7 +1725,6 @@ function SOModal({
                               onChange={(e) => setLine(i, { ordered_qty: e.target.value })}
                               disabled={!editable}
                             />
-                          </L>
                           {overDispatched && (
                             <div className="mt-0.5 text-[9px] text-sem-attention">
                               Cannot go below dispatched ({l.dispatched_qty})
@@ -1718,7 +1733,10 @@ function SOModal({
                         </div>
                         <div className="md:col-span-1">
                           {l.product_id ? (
-                            <L label="Price tier">
+                            <>
+                              <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                                Price tier
+                              </span>
                               <select
                                 className={inputBase}
                                 value={l.price_tier ?? ""}
@@ -1731,12 +1749,14 @@ function SOModal({
                                   </option>
                                 ))}
                               </select>
-                            </L>
+                            </>
                           ) : null}
                         </div>
                         <div className="md:col-span-1">
-                          <L label="Unit price">
-                            <input
+                          <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                            Unit price
+                          </span>
+                          <input
                               type="number"
                               min="0"
                               step="0.01"
@@ -1746,11 +1766,12 @@ function SOModal({
                               disabled={!editable}
                               placeholder="Selling price"
                             />
-                          </L>
                         </div>
                         <div>
-                          <L label="Disc %">
-                            <input
+                          <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                            Disc %
+                          </span>
+                          <input
                               type="number"
                               min="0"
                               max="100"
@@ -1761,11 +1782,12 @@ function SOModal({
                               disabled={!editable}
                               placeholder="0"
                             />
-                          </L>
                         </div>
                         <div>
-                          <L label="GST %">
-                            <input
+                          <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                            GST %
+                          </span>
+                          <input
                               list="so-gst-rates"
                               type="number"
                               min="0"
@@ -1775,14 +1797,14 @@ function SOModal({
                               onChange={(e) => setLine(i, { gst_rate: e.target.value })}
                               disabled={!editable}
                             />
-                          </L>
                         </div>
                         <div className="text-right">
-                          <L label="Line total">
-                            <div className="inp text-right font-mono tabular-nums">
+                          <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                            Line total
+                          </span>
+                          <div className="inp text-right font-mono tabular-nums">
                               {fmtMoney(lineTotal)}
                             </div>
-                          </L>
                         </div>
                         <div className="flex items-end justify-end gap-1 pb-1">
                           {l.dispatched_qty > 0 && (
@@ -1866,38 +1888,20 @@ function SOModal({
               <span className="num text-base">{fmtMoney(totals.grandTotal)}</span>
             </div>
           </div>
-
-          {/* Totals */}
-          <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
-            <Row
-              label="Total quantity"
-              value={lines.reduce((s, l) => s + (Number(l.ordered_qty) || 0), 0).toLocaleString()}
-            />
-            <Row label="Subtotal" value={fmtMoney(totals.subtotal)} />
-            <Row label="Total discount" value={fmtMoney(totals.totalDiscount)} />
-            <Row label="GST total" value={fmtMoney(totals.gstTotal)} />
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                Freight / charges
-              </span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                className="inp !w-28 !py-1 text-right"
-                value={f.freight}
-                onChange={(e) => setF({ ...f, freight: e.target.value })}
-                disabled={!editable}
-              />
-            </div>
-            <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                Grand total
-              </span>
-              <span className="num text-base">{fmtMoney(totals.grandTotal)}</span>
-            </div>
-          </div>
         </form>
+        {/* Inline variant popup — new colour/size variants for the line's
+            product. Snapshots the created SKU into the originating line. */}
+        {variantLine !== null && variantTargetFor(variantLine) !== null && (
+          <QuickAddVariantModal
+            parent={variantTargetFor(variantLine)!}
+            initialColor={lines[variantLine]?.color ?? ""}
+            onClose={() => setVariantLine(null)}
+            onCreated={(created) => {
+              if (variantLine !== null) applyVariantToLine(variantLine, created);
+              setVariantLine(null);
+            }}
+          />
+        )}
         <datalist id="so-gst-rates">
           <option value="0" />
           <option value="5" />

@@ -207,14 +207,15 @@ export function FinanceDispatchOrdersPanel() {
                     </td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex justify-end gap-1.5">
-                        {d.status === "details_submitted" && (
-                          <button
-                            onClick={() => setEwbFor(d)}
-                            className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/10"
-                          >
-                            <FileCheck className="h-3 w-3" /> EWB
-                          </button>
-                        )}
+                        {!d.eway_bill_number && !d.ewb_not_required &&
+                          ["draft", "details_submitted", "confirmed"].includes(d.status) && (
+                            <button
+                              onClick={() => setEwbFor(d)}
+                              className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/10"
+                            >
+                              <FileCheck className="h-3 w-3" /> EWB
+                            </button>
+                          )}
                         <a
                           href={`/app/invoice-preview/${d.final_invoice_id ?? d.linked_sales_invoice_id ?? ""}`}
                           onClick={(e) => {
@@ -240,6 +241,7 @@ export function FinanceDispatchOrdersPanel() {
       {ewbFor && (
         <RecordEwbModal
           dispatch={ewbFor}
+          invoice={rows.find((r) => r.id === ewbFor.id)?.invoice ?? null}
           onClose={() => setEwbFor(null)}
           onDone={refresh}
         />

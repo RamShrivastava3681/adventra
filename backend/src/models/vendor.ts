@@ -42,13 +42,13 @@ export async function create(data: Partial<Vendor> & { clientId: string; name: s
     contactName: data.contactName || null, contactEmail: data.contactEmail || null,
     contactDesignation: data.contactDesignation || null, contactPhone: data.contactPhone || null,
     paymentTermsDays: (() => {
-      const raw = (data as any).paymentTermsDays;
+      const raw = (data as any).paymentTermsDays ?? (data as any).payment_terms_days;
       if (raw === undefined || raw === null || raw === "") return 30;
       const n = Number(raw);
       return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 30;
     })(),
-    paymentTermsType: normalizePaymentTermsType(data.paymentTermsType) || "credit",
-    advancePct: normalizeAdvancePct(data.advancePct),
+    paymentTermsType: normalizePaymentTermsType((data as any).paymentTermsType ?? (data as any).payment_terms_type) || "credit",
+    advancePct: normalizeAdvancePct((data as any).advancePct ?? (data as any).advance_pct),
     notes: data.notes || null, vendorCode: code,
     createdAt: now, updatedAt: now,
   };
@@ -60,6 +60,11 @@ export async function update(id: string, updates: Partial<Vendor>) {
   const allowed = ["name","industry","addressLine","city","country","postalCode","phone","website","contactName","contactEmail","contactDesignation","contactPhone","paymentTermsDays","paymentTermsType","advancePct","notes"];
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
+  // Accept snake_case aliases too (silent drops used to reset terms to defaults).
+  const alias: Record<string, string> = { payment_terms_days: "paymentTermsDays", payment_terms_type: "paymentTermsType", advance_pct: "advancePct", address_line: "addressLine", postal_code: "postalCode", contact_name: "contactName", contact_email: "contactEmail", contact_designation: "contactDesignation", contact_phone: "contactPhone" };
+  for (const [sk, ck] of Object.entries(alias)) {
+    if ((updates as any)[sk] !== undefined && patch[ck] === undefined) patch[ck] = (updates as any)[sk];
+  }
   return db.updateItem(`VENDOR#${id}`, `VENDOR#${id}`, patch);
 }
 

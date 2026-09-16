@@ -1656,13 +1656,13 @@ export function CashFlowPage() {
               <TabsContent value="sales-inflows" className="space-y-5">
                 <div className="rounded-2xl border bg-card p-5 shadow-xs">
                   <h3 className="text-base font-semibold text-foreground">Sales Invoice Inflows</h3>
-                  <p className="text-xs text-muted-foreground">Sales invoice values and their expected collection dates.</p>
+                  <p className="text-xs text-muted-foreground">Sales invoice values and their due dates — paid date once paid.</p>
                 </div>
                 <div className="rounded-2xl border border-border bg-card shadow-xs overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
                       <thead><tr className="border-b border-border bg-muted/40 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        <th className="px-5 py-3.5">Invoice</th><th className="px-5 py-3.5">Customer</th><th className="px-5 py-3.5">Expected Date</th><th className="px-5 py-3.5 text-right">Invoice Value</th><th className="px-5 py-3.5 text-right">Outstanding</th><th className="px-5 py-3.5 text-center">Status</th>
+                        <th className="px-5 py-3.5">Invoice</th><th className="px-5 py-3.5">Customer</th><th className="px-5 py-3.5">Due Date</th><th className="px-5 py-3.5 text-right">Invoice Value</th><th className="px-5 py-3.5 text-right">Outstanding</th><th className="px-5 py-3.5 text-center">Status</th>
                       </tr></thead>
                       <tbody className="divide-y divide-border/60">
                         {salesInvoicesQ.isLoading ? (
@@ -1673,10 +1673,14 @@ export function CashFlowPage() {
                           const value = Number(invoice.grand_total ?? invoice.grandTotal ?? invoice.amount ?? 0) || 0;
                           const received = Number(invoice.amount_received ?? invoice.amountReceived ?? 0) || 0;
                           const advance = Number(invoice.advance_deducted ?? invoice.advanceDeducted ?? 0) || 0;
+                          const isPaid = String(invoice.status || "").toLowerCase() === "paid";
+                          const trackDate = isPaid
+                            ? (invoice.paid_date ?? invoice.paidDate ?? invoice.receipt_date ?? invoice.receiptDate ?? invoice.due_date ?? invoice.dueDate ?? "—")
+                            : (invoice.due_date ?? invoice.dueDate ?? "—");
                           return <tr key={invoice.id} className="hover:bg-muted/20">
                             <td className="px-5 py-3.5 font-mono text-xs">{invoice.invoice_number ?? invoice.invoiceNumber ?? "—"}</td>
                             <td className="px-5 py-3.5">{invoice.debtor_id ?? invoice.debtorId ?? "—"}</td>
-                            <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{invoice.expected_date ?? invoice.expectedDate ?? invoice.due_date ?? invoice.dueDate ?? "—"}</td>
+                            <td className="px-5 py-3.5 font-mono text-xs text-muted-foreground">{trackDate}</td>
                             <td className="px-5 py-3.5 text-right font-mono font-bold text-sem-success">+{fmtFull(value)}</td>
                             <td className="px-5 py-3.5 text-right font-mono">{fmtFull(Math.max(0, value - advance - received))}</td>
                             <td className="px-5 py-3.5 text-center"><span className="sev-badge sev-info">{invoice.status || "—"}</span></td>

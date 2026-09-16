@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, StatusPill, fmtMoney } from "@/components/ledger-ui";
@@ -28,6 +28,16 @@ import { toast } from "sonner";
 export const Route = createFileRoute("/app/suppliers")({
   component: SuppliersPage,
 });
+
+// Supplier/vendor master edits feed every purchase form's terms prefill —
+// invalidate all derived lists, not just this page (picker keys differ per
+// page: suppliers-for-po, suppliers-for-pf, pi-for-vendors, ...).
+export function invalidateSupplierQueries(qc: QueryClient) {
+  qc.invalidateQueries({
+    predicate: (q) =>
+      q.queryKey.some((k) => typeof k === "string" && /supplier|vendor/i.test(k)),
+  });
+}
 
 type SupplierStatus = "prospect" | "active" | "suspended" | "offboarded";
 
@@ -136,7 +146,7 @@ export function SuppliersPage() {
     },
     onSuccess: () => {
       toast.success(editing ? "Supplier updated" : "Supplier onboarded");
-      qc.invalidateQueries({ queryKey: ["suppliers"] });
+      invalidateSupplierQueries(qc);
       setOpen(false);
       setEditing(null);
       setForm(emptyForm);

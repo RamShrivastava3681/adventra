@@ -151,16 +151,6 @@ function daysOverdue(due: string | null | undefined): number {
 
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
 
-type FilterKey = "all" | "purchase_orders" | "invoices" | "grns" | "payments";
-
-const FILTERS: Array<{ key: FilterKey; label: string }> = [
-  { key: "all", label: "All" },
-  { key: "purchase_orders", label: "Purchase Orders" },
-  { key: "invoices", label: "Purchase Invoices" },
-  { key: "grns", label: "GRNs" },
-  { key: "payments", label: "Supplier Payments" },
-];
-
 const PAGE_SIZE = 15;
 
 /* ── Same-page sections — tab clicks switch content below, never navigate ── */
@@ -183,7 +173,7 @@ const ProformasPanel = lazy(() =>
 );
 const PurchaseInvoicesPanel = lazy(() =>
   import("@/routes/app.purchases").then((m) => ({
-    default: () => <m.PurchasesPage viewOnly />,
+    default: m.PurchasesPage,
   })),
 );
 const ProcTasksPanel = lazy(() =>
@@ -211,12 +201,12 @@ const OPEN_PO_STATUSES = new Set([
 const PENDING_PI_STATUSES = new Set(["draft", "pending", "verified", "overdue", "disputed"]);
 
 function ProcurementWorkbenchPage() {
-  const { isAdmin, isOperations } = useAuth();
-  void isAdmin;
-  void isOperations;
+  const { isAdmin, isOperations, isClient, isChecker, isTreasury } = useAuth();
+  // Procurement (operations) records and owns supplier invoices — same rule
+  // as the standalone page; everyone else stays read-only in this tab.
+  const invoicesReadOnly = !(isAdmin || isOperations || (isClient && !isChecker && !isTreasury));
   const navigate = useNavigate();
   const [section, setSection] = useState<ProcSection>("workbench");
-  const [filter, setFilter] = useState<FilterKey>("all");
   const [query, setQuery] = useState("");
   const [supplier, setSupplier] = useState("all");
   const [owner, setOwner] = useState("all");
@@ -307,15 +297,9 @@ function ProcurementWorkbenchPage() {
     return { posAwaiting, invoicesPending, deliveriesDue, grnsPending };
   }, [pos, pis, grns]);
 
-  /* ── Work-items: filter tabs + compact search/selects (all client-side) ── */
+  /* ── Work-items: compact search/selects (all client-side) ── */
   const filtered = useMemo(() => {
     let list = tasks;
-    if (filter === "purchase_orders")
-      list = list.filter((t) => t.workflow_type === "purchase_order");
-    else if (filter === "invoices")
-      list = list.filter((t) => t.workflow_type === "purchase_invoice");
-    else if (filter === "grns") list = list.filter((t) => t.workflow_type === "grn");
-    else if (filter === "payments") list = list.filter((t) => t.workflow_type === "payment");
     const q = query.trim().toLowerCase();
     if (q) {
       list = list.filter((t) =>
@@ -338,10 +322,10 @@ function ProcurementWorkbenchPage() {
         (a.due_date ?? "9999").localeCompare(b.due_date ?? "9999") ||
         String(b.created_at).localeCompare(String(a.created_at)),
     );
-  }, [tasks, filter, query, supplier, owner]);
+  }, [tasks, query, supplier, owner]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
-  useEffect(() => setPage(1), [filter, query, supplier, owner]);
+  useEffect(() => setPage(1), [query, supplier, owner]);
   const safePage = Math.min(page, totalPages);
   const pageItems = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
@@ -488,7 +472,6 @@ function ProcurementWorkbenchPage() {
                 sub="Needs checker review"
                 icon={<ClipboardList className="h-[18px] w-[18px]" />}
                 tone="amber"
-                onClick={() => setFilter("purchase_orders")}
               />
               <KpiCard
                 label="Supplier Invoices Pending"
@@ -496,7 +479,6 @@ function ProcurementWorkbenchPage() {
                 sub="Awaiting processing"
                 icon={<FileText className="h-[18px] w-[18px]" />}
                 tone="amber"
-                onClick={() => setFilter("invoices")}
               />
               <KpiCard
                 label="Deliveries Due This Week"
@@ -504,7 +486,6 @@ function ProcurementWorkbenchPage() {
                 sub="Expected deliveries"
                 icon={<Truck className="h-[18px] w-[18px]" />}
                 tone="blue"
-                onClick={() => setFilter("purchase_orders")}
               />
               <KpiCard
                 label="GRNs Pending"
@@ -512,27 +493,13 @@ function ProcurementWorkbenchPage() {
                 sub="Awaiting receipt"
                 icon={<PackageCheck className="h-[18px] w-[18px]" />}
                 tone="amber"
-                onClick={() => setFilter("grns")}
               />
             </>
           )}
         </div>
 
-        {/* ── Workbench filter tabs + compact search/selects ── */}
+        {/* ── Compact search/selects ── */}
         <div className="flex flex-wrap items-center gap-1.5">
-          {FILTERS.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors ${
-                filter === f.key
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <input
               value={query}
@@ -898,7 +865,7 @@ function ProcurementWorkbenchPage() {
           {section === "suppliers" && <SuppliersPanel />}
           {section === "purchase-orders" && <PurchaseOrdersPanel />}
           {section === "proformas" && <ProformasPanel side="purchase" />}
-          {section === "purchase-invoices" && <PurchaseInvoicesPanel />}
+          {section === "purchase-invoices" && <PurchaseInvoicesPanel viewOnly={invoicesReadOnly} />}
           {section === "tasks" && <ProcTasksPanel />}
         </Suspense>
       )}

@@ -313,34 +313,45 @@ export function QuickCreateProductModal({
  */
 export function QuickAddVariantModal({
   parent,
+  initialColor = "",
+  initialSize = "",
   onClose,
   onCreated,
 }: {
   parent: { id: string; sku: string | null; name: string };
+  /** Prefill when the document line already carries a colour (rapid multi-size entry). */
+  initialColor?: string;
+  initialSize?: string;
   onClose: () => void;
   /** Fired with the freshly created variant before the modal closes. */
   onCreated: (variant: QuickCreatedProduct) => void;
 }) {
   const qc = useQueryClient();
-  const [f, setF] = useState({ color: "", size: "", sku: "" });
+  const [f, setF] = useState({ color: initialColor, size: initialSize, sku: "" });
 
   const save = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (opts?: { another?: boolean }) => {
       const color = f.color.trim() || null;
       const size = f.size.trim() || null;
       if (!color && !size) throw new Error("Enter a colour or a size for this variant");
-      return (await api.products.create({
+      const created = (await api.products.create({
         parent_id: parent.id,
         color,
         size,
         sku: f.sku.trim() || undefined,
       })) as QuickCreatedProduct;
+      return { created, another: !!opts?.another };
     },
-    onSuccess: (created) => {
+    onSuccess: ({ created, another }) => {
       invalidateCatalogue(qc);
       toast.success(`${created.sku ?? created.name} variant added`);
       onCreated(created);
-      onClose();
+      if (another) {
+        // Keep the colour, clear size + SKU — rapid entry of multiple sizes.
+        setF((prev) => ({ ...prev, size: "", sku: "" }));
+      } else {
+        onClose();
+      }
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to create variant"),
   });
@@ -414,6 +425,16 @@ export function QuickAddVariantModal({
               className="rounded-md border border-border px-4 py-2 text-sm"
             >
               Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => save.mutate({ another: true })}
+              disabled={save.isPending}
+              title="Save this size and keep the colour for the next size"
+              className="inline-flex items-center gap-2 rounded-[10px] border border-border px-4 py-2 text-sm font-medium text-muted-foreground transition-all hover:border-primary hover:text-primary disabled:opacity-60"
+            >
+              {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+              Save & add another size
             </button>
             <button
               disabled={save.isPending}

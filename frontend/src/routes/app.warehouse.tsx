@@ -23,11 +23,6 @@ import {
   X,
   Loader2,
   FileText,
-  MapPin,
-  RotateCcw,
-  Package,
-  MoreVertical,
-  ChevronRight,
   Clock3,
   AlertTriangle,
 } from "lucide-react";
@@ -155,40 +150,14 @@ type Movement = {
   destination_location_id: string | null;
 };
 
-type Tab = "overview" | "orders" | "ready" | "dispatches" | "movements" | "reports";
-
-type WorkItemTone = "amber" | "blue" | "green" | "red" | "neutral";
-
-type WorkItem = {
-  id: string;
-  docNumber: string;
-  docType: string;
-  location: string;
-  status: string;
-  tone: WorkItemTone;
-  nextStep: string;
-  owner: string;
-  openHref: string;
-  openLabel: string;
-};
-
-function toneClass(t: WorkItemTone) {
-  if (t === "amber") return "bg-sem-attention/12 text-sem-attention border-sem-attention/25";
-  if (t === "blue") return "bg-primary/10 text-primary border-primary/20";
-  if (t === "green") return "bg-sem-success/12 text-sem-success border-sem-success/25";
-  if (t === "red") return "bg-destructive/10 text-destructive border-destructive/25";
-  return "bg-muted text-muted-foreground border-border";
-}
+type Tab = "overview" | "orders" | "ready" | "dispatches" | "movements";
 
 export function WarehousePage() {
   const { user, isAdmin, isOperations } = useAuth();
   const canWrite = isAdmin || isOperations;
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("overview");
-  // Workbench-level UI state (presentation only â€” no workflow change)
-  const [locationFilter, setLocationFilter] = useState("");
-  const [showAllWorkItems, setShowAllWorkItems] = useState(false);
-  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  // Workbench-level UI state (presentation only — no workflow change)
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
@@ -212,22 +181,11 @@ export function WarehousePage() {
     queryKey: ["wh_movements"],
     queryFn: () => api.stockMovements.list(),
   });
-  // Additive read-only queries for the location card + header selector.
-  const locationsQ = useQuery({
-    queryKey: ["wh_stock_locations"],
-    queryFn: () => api.stockLocations.list(),
-  });
-  const stockSummaryQ = useQuery({
-    queryKey: ["wh_stock_summary"],
-    queryFn: () => api.stockSummary.list(),
-  });
 
   const orders = (ordersQ.data ?? []) as SO[];
   const dispatches = (dispatchesQ.data ?? []) as Dispatch[];
   const invoices = (invoicesQ.data ?? []) as any[];
   const movements = (movementsQ.data ?? []) as Movement[];
-  const locations = (locationsQ.data ?? []) as any[];
-  const stockSummary = (stockSummaryQ.data ?? []) as any[];
 
   // Get all dispatch IDs that are linked to invoices
   const dispatchedInvoiceIds = useMemo(() => {
@@ -239,31 +197,6 @@ export function WarehousePage() {
     }
     return ids;
   }, [dispatches]);
-
-  // â”€â”€ Stock on hand + valuation (confirmed movements only) â”€â”€
-  const stock = useMemo(() => {
-    const m = new Map<
-      string,
-      { item: string; sku: string | null; unit: string; qty: number; value: number; lastCost: number; lastDate: string }
-    >();
-    for (const r of movements) {
-      if (r.status !== "confirmed") continue;
-      const k = `${r.item_name}|${r.unit}`;
-      const sign = r.direction === "in" ? 1 : -1;
-      const cur =
-        m.get(k) ??
-        { item: r.item_name, sku: r.sku ?? null, unit: r.unit, qty: 0, value: 0, lastCost: 0, lastDate: r.movement_date };
-      cur.qty += sign * Number(r.quantity);
-      cur.value += sign * Number(r.quantity) * Number(r.unit_cost ?? 0);
-      if (r.direction === "in" && r.unit_cost) cur.lastCost = Number(r.unit_cost);
-      if (!cur.sku && r.sku) cur.sku = r.sku;
-      m.set(k, cur);
-    }
-    return [...m.values()].sort((a, b) => a.item.localeCompare(b.item));
-  }, [movements]);
-
-  const totalStockValue = stock.reduce((s, r) => s + r.value, 0);
-  const totalUnits = stock.reduce((s, r) => s + r.qty, 0);
 
   // ── Live in-stock quantity per product (confirmed movements only) ──
   // Used by the Pending Sales Order approval check: every SO line is
@@ -309,17 +242,18 @@ export function WarehousePage() {
       .filter((o) => o.pendingQty > 0);
   }, [signoffOrders]);
 
-  // â”€â”€ Ready to dispatch from invoices: approved invoices with expected dispatch date â”€â”€
+  // ── Ready to dispatch from invoices: approved invoices with a target date
+  // (expected dispatch date, falling back to the invoice due date) ──
   const readyInvoices = useMemo(() => {
     return invoices
       .filter((inv: any) => {
-        if (!inv.expected_dispatch_date) return false;
+        if (!(inv.expected_dispatch_date ?? inv.due_date)) return false;
         if (inv.status === 'paid' || inv.status === 'cancelled' || inv.status === 'rejected') return false;
         // Skip invoices that already have a dispatch linked
         if (inv.linked_sales_invoice_id && dispatchedInvoiceIds.has(inv.linked_sales_invoice_id)) return false;
         return true;
       })
-      .sort((a: any, b: any) => (a.expected_dispatch_date ?? '').localeCompare(b.expected_dispatch_date ?? ''));
+      .sort((a: any, b: any) => ((a.expected_dispatch_date ?? a.due_date ?? '').localeCompare(b.expected_dispatch_date ?? b.due_date ?? '')));
   }, [invoices, dispatchedInvoiceIds]);
 
   // â”€â”€ Ready POs: approved POs with pending receipt quantity â”€â”€
@@ -329,164 +263,14 @@ export function WarehousePage() {
     (d) => !["delivered", "cancelled", "returned"].includes(d.status),
   );
 
-  // â”€â”€ Returns awaiting inspection (real data only) â”€â”€
-  const returnsAwaiting = useMemo(() => {
-    const returnedDispatches = dispatches.filter((d) => d.status === "returned");
-    const draftCustomerReturns = movements.filter(
-      (m) =>
-        m.status === "draft" &&
-        /customer return/i.test(String((m as any).reason ?? "")),
-    );
-    return { returnedDispatches, draftCustomerReturns, count: returnedDispatches.length + draftCustomerReturns.length };
-  }, [dispatches, movements]);
-
-  // â”€â”€ Dispatches due today (real data: ready orders + invoices due today/overdue) â”€â”€
-  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
-  const dispatchesDueToday = useMemo(() => {
-    const dueInvoices = readyInvoices.filter((inv: any) => {
-      const d = String(inv.expected_dispatch_date ?? "").slice(0, 10);
-      return d !== "" && d <= todayStr;
-    });
-    return { dueInvoices, count: readyOrders.length + dueInvoices.length };
-  }, [readyInvoices, readyOrders, todayStr]);
+  // Returns + due-today memos removed with the KPI cards.
 
   // â”€â”€ Unified operational work items (presentation layer over existing memos) â”€â”€
-  const workItems: WorkItem[] = useMemo(() => {
-    const items: WorkItem[] = [];
-    for (const o of pendingSignoffs.slice(0, 20)) {
-      items.push({
-        id: `so-${o.id}`,
-        docNumber: o.so_number,
-        docType: "Sales Order",
-        location: (o as any).warehouse ?? "â€”",
-        status: "Awaiting warehouse decision",
-        tone: "amber",
-        nextStep: "Approve or reject sign-off",
-        owner: "Warehouse team",
-        openHref: "#wh-detail-queues",
-        openLabel: "Open",
-      });
-    }
-    for (const o of readyOrders.slice(0, 20)) {
-      items.push({
-        id: `ready-${o.id}`,
-        docNumber: o.so_number,
-        docType: "Dispatch Order",
-        location: (o as any).warehouse ?? "â€”",
-        status: "Ready to dispatch",
-        tone: "green",
-        nextStep: "Add dispatch details and confirm",
-        owner: o.customer_name ?? "Warehouse team",
-        openHref: `/app/dispatches?createFromSO=${encodeURIComponent(o.id)}&initialStatus=picking`,
-        openLabel: "Open",
-      });
-    }
-    for (const inv of readyInvoices.slice(0, 10) as any[]) {
-      items.push({
-        id: `inv-${inv.id}`,
-        docNumber: String(inv.invoice_number ?? inv.id),
-        docType: "Dispatch Order",
-        location: "â€”",
-        status: "Ready to dispatch",
-        tone: "green",
-        nextStep: "Add dispatch details and confirm",
-        owner: inv.debtor?.name ?? "Warehouse team",
-        openHref: `/app/dispatches?createFromInvoice=${encodeURIComponent(inv.id)}&initialStatus=picking`,
-        openLabel: "Open",
-      });
-    }
-    for (const d of openDispatches.filter((x) => ["picking", "packed"].includes(String(x.shipping_status ?? ""))).slice(0, 20)) {
-      const packed = d.shipping_status === "packed";
-      items.push({
-        id: `pipe-${d.id}`,
-        docNumber: d.dispatch_number,
-        docType: "Dispatch Order",
-        location: d.warehouse ?? "â€”",
-        status: packed ? "Packed" : "In progress",
-        tone: packed ? "green" : "blue",
-        nextStep: packed ? "Ready to dispatch" : "Pick, pack and update pipeline",
-        owner: d.shipping_status_by ?? d.customer_name ?? "Warehouse team",
-        openHref: "/app/dispatches",
-        openLabel: "Open",
-      });
-    }
-    for (const d of returnsAwaiting.returnedDispatches.slice(0, 20)) {
-      items.push({
-        id: `ret-${d.id}`,
-        docNumber: d.dispatch_number,
-        docType: "Customer Return",
-        location: d.warehouse ?? "â€”",
-        status: "Awaiting inspection",
-        tone: "red",
-        nextStep: "Inspect and record condition",
-        owner: d.shipping_status_by ?? d.customer_name ?? "Inspection area",
-        openHref: "/app/dispatches",
-        openLabel: "Open",
-      });
-    }
-    for (const m of returnsAwaiting.draftCustomerReturns.slice(0, 10)) {
-      items.push({
-        id: `retm-${m.id}`,
-        docNumber: m.linked_document_number ?? m.item_name,
-        docType: "Customer Return",
-        location: m.warehouse ?? "â€”",
-        status: "Awaiting inspection",
-        tone: "red",
-        nextStep: "Inspect and record condition",
-        owner: "Inspection area",
-        openHref: "/app/inventory",
-        openLabel: "Open",
-      });
-    }
-    return items;
-  }, [pendingSignoffs, readyOrders, readyInvoices, openDispatches, returnsAwaiting]);
+  // Work-items memo removed with the work-items table.
 
-  const filteredWorkItems = useMemo(() => {
-    if (!locationFilter) return workItems;
-    return workItems.filter((w) => w.location === locationFilter || w.location === "â€”");
-  }, [workItems, locationFilter]);
+  // Work-items filter removed with the work-items table.
 
-  const visibleWorkItems = showAllWorkItems ? filteredWorkItems : filteredWorkItems.slice(0, 8);
-  const workItemsLoading =
-    ordersQ.isLoading || dispatchesQ.isLoading || invoicesQ.isLoading || movementsQ.isLoading;
-
-  // â”€â”€ Stock by location (real data: stock-summary location breakdown, legacy fallback) â”€â”€
-  const locationStock = useMemo(() => {
-    const totals = new Map<string, number>();
-    for (const s of stockSummary as any[]) {
-      const breakdown: any[] = s.location_breakdown ?? s.locationBreakdown ?? [];
-      for (const lb of breakdown) {
-        const name: string = lb.location_name ?? lb.locationName ?? "â€”";
-        const qty = Number(lb.quantity ?? 0);
-        totals.set(name, (totals.get(name) ?? 0) + qty);
-      }
-    }
-    if (totals.size > 0) {
-      return [...totals.entries()]
-        .map(([name, qty]) => ({ name, qty }))
-        .sort((a, b) => b.qty - a.qty);
-    }
-    // Legacy fallback: group confirmed stock by free-text warehouse field.
-    const fb = new Map<string, number>();
-    for (const r of movements) {
-      if (r.status !== "confirmed") continue;
-      const name = r.warehouse?.trim() || "Unallocated";
-      const sign = r.direction === "in" ? 1 : -1;
-      fb.set(name, (fb.get(name) ?? 0) + sign * Number(r.quantity));
-    }
-    return [...fb.entries()].map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty);
-  }, [stockSummary, movements]);
-
-  const locationOptions = useMemo(() => {
-    const names = new Set<string>();
-    for (const l of locations as any[]) {
-      const n = l.name ?? l.location_name;
-      if (n) names.add(String(n));
-    }
-    for (const ls of locationStock) names.add(ls.name);
-    for (const w of workItems) if (w.location && w.location !== "â€”") names.add(w.location);
-    return [...names].sort();
-  }, [locations, locationStock, workItems]);
+  // Location options: warehouse master only (location card removed).
 
 
 
@@ -582,14 +366,11 @@ export function WarehousePage() {
     { id: "ready", label: "Ready to dispatch", icon: PackageCheck, count: readyOrders.length + readyInvoices.length },
     { id: "dispatches", label: "Dispatches", icon: Truck, count: openDispatches.length },
     { id: "movements", label: "Inventory movements", icon: Boxes, count: movements.length },
-    { id: "reports", label: "Movement reports", icon: FileText },
   ];
 
   const profileInitial = (user?.contactName ?? user?.email ?? "W").trim().charAt(0).toUpperCase() || "W";
   const dateStr = now.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
   const timeStr = now.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
-
-  const kpiLoading = ordersQ.isLoading || dispatchesQ.isLoading || movementsQ.isLoading || invoicesQ.isLoading;
 
   return (
     <div id="top" className="min-h-screen bg-[#f5f7fa]">
@@ -610,21 +391,6 @@ export function WarehousePage() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2.5">
-            <label className="sr-only" htmlFor="wh-location">Warehouse location</label>
-            <div className="relative">
-              <MapPin className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-              <select
-                id="wh-location"
-                value={locationFilter}
-                onChange={(e) => setLocationFilter(e.target.value)}
-                className="appearance-none rounded-lg border border-border bg-white py-2 pl-8 pr-8 text-[13px] text-foreground shadow-sm focus:border-primary focus:outline-none"
-              >
-                <option value="">All warehouses</option>
-                {locationOptions.map((n) => (
-                  <option key={n} value={n}>{n}</option>
-                ))}
-              </select>
-            </div>
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-2 text-[12px] tabular-nums text-muted-foreground shadow-sm">
               <Clock3 className="h-3.5 w-3.5" />
               {dateStr} Â· {timeStr}
@@ -647,270 +413,44 @@ export function WarehousePage() {
 
       <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
         {/* â”€â”€ 3. KPI cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-        {kpiLoading ? (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {[0, 1, 2, 3].map((i) => (
-              <div key={i} className="animate-pulse rounded-xl border border-border bg-white p-5">
-                <div className="h-3 w-28 rounded bg-muted" />
-                <div className="mt-3 h-8 w-16 rounded bg-muted" />
-                <div className="mt-2 h-3 w-24 rounded bg-muted" />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <KpiCard
-              title="Pending Sales Order"
-              value={String(pendingSignoffs.length)}
-              hint="Awaiting warehouse decision"
-              icon={<ClipboardCheck className="h-5 w-5" />}
-              iconBg="bg-sem-attention/15 text-sem-attention"
-              accent="amber"
-            />
-            <KpiCard
-              title="Ready to Dispatch"
-              value={String(readyOrders.length + readyInvoices.length)}
-              hint="Approved orders + invoices"
-              icon={<PackageCheck className="h-5 w-5" />}
-              iconBg="bg-sem-success/15 text-sem-success"
-            />
-            <KpiCard
-              title="Dispatches Due Today"
-              value={String(dispatchesDueToday.count)}
-              hint="To pick, pack and dispatch"
-              icon={<Package className="h-5 w-5" />}
-              iconBg="bg-primary/10 text-primary"
-            />
-            <KpiCard
-              title="Returns Awaiting Inspection"
-              value={String(returnsAwaiting.count)}
-              hint="In inspection area"
-              icon={<RotateCcw className="h-5 w-5" />}
-              iconBg="bg-destructive/10 text-destructive"
-              accent="red"
-            />
-          </div>
-        )}
+        {/* Tabs first — Overview, orders, readiness, dispatches, movements */}
+        <div className="flex flex-wrap gap-2">
+          {tabs.map((t) => {
+            const Icon = t.icon;
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs uppercase tracking-widest transition ${
+                  active
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" /> {t.label}
+                {t.count ? (
+                  <span className="rounded-full bg-primary/15 px-1.5 text-[10px] text-primary">{t.count}</span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
 
         {/* â”€â”€ 4. Main work area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
         <div className="grid gap-6 lg:grid-cols-4">
           {/* â”€â”€ 5. Warehouse work items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-          <div id="wh-work-items" className="overflow-hidden rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,31,56,0.05)] lg:col-span-3">
-            <div className="flex items-center justify-between gap-3 border-b border-border/80 px-5 py-3.5">
-              <h2 className="text-[15px] font-semibold tracking-tight text-[#0f1f38]">
-                Warehouse work items
-                <span className="ml-2 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
-                  {filteredWorkItems.length}
-                </span>
-              </h2>
-              <button
-                onClick={() => setShowAllWorkItems((v) => !v)}
-                className="inline-flex items-center gap-1 text-[13px] font-medium text-primary hover:underline"
-              >
-                {showAllWorkItems ? "Show less" : "View all"}
-                <ChevronRight className="h-3.5 w-3.5" />
-              </button>
-            </div>
-            {workItemsLoading ? (
-              <div className="p-5"><TableSkeleton rows={6} cols={6} /></div>
-            ) : visibleWorkItems.length === 0 ? (
-              <EmptyState
-                icon={<PackageCheck className="h-5 w-5" />}
-                title={locationFilter ? `No work items in ${locationFilter}` : "All caught up"}
-                description="Approved orders and ready dispatches will appear here as actionable work items."
-              />
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[860px] text-sm">
-                  <thead>
-                    <tr className="border-b border-border text-left text-[11px] uppercase tracking-widest text-muted-foreground">
-                      <th className="px-5 py-2.5 font-medium">Document</th>
-                      <th className="px-5 py-2.5 font-medium">Location</th>
-                      <th className="px-5 py-2.5 font-medium">Current Status</th>
-                      <th className="px-5 py-2.5 font-medium">Next Step</th>
-                      <th className="px-5 py-2.5 font-medium">Owner</th>
-                      <th className="px-5 py-2.5 text-right font-medium">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {visibleWorkItems.map((w) => (
-                      <tr key={w.id} className="border-b border-border/60 last:border-0 hover:bg-muted/20">
-                        <td className="px-5 py-3">
-                          <div className="font-mono text-[13px] font-medium text-foreground">{w.docNumber}</div>
-                          <div className="text-[11px] text-muted-foreground">{w.docType}</div>
-                        </td>
-                        <td className="px-5 py-3 text-[13px] text-muted-foreground">{w.location}</td>
-                        <td className="px-5 py-3">
-                          <span className={`inline-flex items-center whitespace-nowrap rounded-md border px-2 py-0.5 text-[11px] font-medium ${toneClass(w.tone)}`}>
-                            {w.status}
-                          </span>
-                        </td>
-                        <td className="max-w-[240px] px-5 py-3 text-[13px] text-foreground">{w.nextStep}</td>
-                        <td className="max-w-[140px] truncate px-5 py-3 text-[13px] text-muted-foreground">{w.owner}</td>
-                        <td className="px-5 py-3">
-                          <div className="relative flex items-center justify-end gap-1.5">
-                            <a
-                              href={w.openHref}
-                              className="rounded-md bg-primary px-3 py-1.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90"
-                            >
-                              {w.openLabel}
-                            </a>
-                            <button
-                              aria-label={`More actions for ${w.docNumber}`}
-                              onClick={() => setOpenMenuId((v) => (v === w.id ? null : w.id))}
-                              className="rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
-                            >
-                              <MoreVertical className="h-4 w-4" />
-                            </button>
-                            {openMenuId === w.id && (
-                              <>
-                                <button
-                                  aria-label="Close menu"
-                                  className="fixed inset-0 z-10 cursor-default"
-                                  onClick={() => setOpenMenuId(null)}
-                                />
-                                <div className="absolute right-0 top-9 z-20 w-52 rounded-lg border border-border bg-white py-1 shadow-lg">
-                                  <a href={w.openHref} className="block px-3 py-2 text-[13px] hover:bg-muted/50">
-                                    Open document
-                                  </a>
-                                  {w.id.startsWith("so-") && canWrite && (
-                                    <>
-                                      <button
-                                        onClick={() => {
-                                          setOpenMenuId(null);
-                                          setTab("orders");
-                                          document
-                                            .getElementById("wh-detail-queues")
-                                            ?.scrollIntoView({ behavior: "smooth" });
-                                        }}
-                                        className="block w-full px-3 py-2 text-left text-[13px] hover:bg-muted/50"
-                                      >
-                                        Verify & approve
-                                      </button>
-                                      <button
-                                        onClick={() => {
-                                          setOpenMenuId(null);
-                                          signoff.mutate({ id: w.id.replace("so-", ""), action: "reject" });
-                                        }}
-                                        className="block w-full px-3 py-2 text-left text-[13px] text-destructive hover:bg-muted/50"
-                                      >
-                                        Reject sign-off
-                                      </button>
-                                    </>
-                                  )}
-                                  {(w.id.startsWith("ready-") || w.id.startsWith("inv-")) && (
-                                    <a href={w.openHref} className="block px-3 py-2 text-[13px] hover:bg-muted/50">
-                                      Create dispatch
-                                    </a>
-                                  )}
-                                  {(w.id.startsWith("pipe-") || w.id.startsWith("ret-")) && (
-                                    <a href="/app/dispatches" className="block px-3 py-2 text-[13px] hover:bg-muted/50">
-                                      Go to dispatch register
-                                    </a>
-                                  )}
-                                </div>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
+          {/* Work-items table removed — tabs below hold every queue. */}
 
           {/* â”€â”€ 6. Stock by location â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-          <aside className="h-fit overflow-hidden rounded-xl border border-border bg-white shadow-[0_1px_2px_rgba(15,31,56,0.05)]">
-            <div className="border-b border-border/80 px-5 py-3.5">
-              <h2 className="text-[15px] font-semibold tracking-tight text-[#0f1f38]">Stock by location</h2>
-            </div>
-            <div className="px-5 py-2">
-              {stockSummaryQ.isLoading || movementsQ.isLoading ? (
-                <div className="space-y-3 py-3" aria-label="Loading stock by location">
-                  {[0, 1, 2, 3, 4].map((i) => (
-                    <div key={i} className="flex animate-pulse items-center justify-between py-1.5">
-                      <div className="h-3 w-24 rounded bg-muted" />
-                      <div className="h-3 w-14 rounded bg-muted" />
-                    </div>
-                  ))}
-                </div>
-              ) : locationStock.length === 0 ? (
-                <p className="py-6 text-center text-[13px] text-muted-foreground">
-                  No stock recorded yet â€” confirmed stock will appear here by location.
-                </p>
-              ) : (
-                <ul className="divide-y divide-border/60">
-                  {locationStock.slice(0, 5).map((l) => (
-                    <li key={l.name} className="flex items-baseline justify-between gap-3 py-2.5">
-                      <span className="truncate text-[13px] text-foreground">{l.name}</span>
-                      <span className="shrink-0 text-[13px] tabular-nums text-muted-foreground">
-                        {Math.round(l.qty).toLocaleString()} items
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="px-5 pb-4 pt-1">
-              <a
-                href="/app/inventory"
-                className="block rounded-lg border border-border px-3 py-2 text-center text-[13px] font-medium text-primary transition hover:border-primary/50 hover:bg-primary/5"
-              >
-                View inventory by location â†’
-              </a>
-            </div>
-          </aside>
+          {/* Stock-by-location aside removed — stock lives under Inventory and the movements tab. */}
         </div>
 
         {/* â”€â”€ 7. Bottom operations strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-white px-5 py-3.5">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[13px]">
-            <span className="font-semibold text-[#0f1f38]">Keep stock moving</span>
-            <span className="mx-1 text-muted-foreground">Â·</span>
-            {["Pick", "Pack", "Dispatch"].map((s, i, arr) => (
-              <span key={s} className="inline-flex items-center gap-2">
-                <span className="text-muted-foreground">{s}</span>
-                {i < arr.length - 1 && <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/50" />}
-              </span>
-            ))}
-          </div>
-          <p className="text-[12px] text-muted-foreground">Accurate stock. On time. Every time.</p>
-        </div>
+        {/* Bottom operations strip removed. */}
 
         {/* â”€â”€ Detail queues (existing functionality, preserved) â”€â”€ */}
-        <div id="wh-detail-queues" className="scroll-mt-6">
-          <Card
-            title="Detail queues"
-            action={
-              <span className="text-[11px] text-muted-foreground">
-                {totalUnits.toLocaleString()} units Â· {fmtMoney(totalStockValue)}
-              </span>
-            }
-          >
-            <div className="mb-4 flex flex-wrap gap-2">
-              {tabs.map((t) => {
-                const Icon = t.icon;
-                const active = tab === t.id;
-                return (
-                  <button
-                    key={t.id}
-                    onClick={() => setTab(t.id)}
-                    className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs uppercase tracking-widest transition ${
-                      active
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border text-muted-foreground hover:text-foreground"
-                    }`}
-                  >
-                    <Icon className="h-3.5 w-3.5" /> {t.label}
-                    {t.count ? (
-                      <span className="rounded-full bg-primary/15 px-1.5 text-[10px] text-primary">{t.count}</span>
-                    ) : null}
-                  </button>
-                );
-              })}
-            </div>
+        {/* Detail queues card unwrapped — tabs render first at the top of the page. */}
 
         {tab === "overview" && (
           <div id="wh-activity" className="grid scroll-mt-6 gap-6 lg:grid-cols-2">
@@ -1111,13 +651,14 @@ export function WarehousePage() {
                 <EmptyState
                   icon={<FileText className="h-5 w-5" />}
                   title="No invoices waiting"
-                  description="Approved invoices with an expected dispatch date appear here. Create a dispatch to ship the goods."
+                   description="Approved invoices with a target date (due date) appear here. Create a dispatch to ship the goods."
                 />
               ) : (
                 <Table head={["Invoice", "Customer", "Amount", "Expected dispatch", "Days left", ""]}>
                   {readyInvoices.map((inv: any) => {
-                    const daysLeft = inv.expected_dispatch_date
-                      ? Math.max(0, Math.round((new Date(inv.expected_dispatch_date).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))
+                    const targetDate = inv.expected_dispatch_date ?? inv.due_date;
+                    const daysLeft = targetDate
+                      ? Math.max(0, Math.round((new Date(targetDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24)))
                       : 0;
                     return (
                       <tr key={inv.id} className="border-b border-border/60 hover:bg-muted/30">
@@ -1129,7 +670,7 @@ export function WarehousePage() {
                         </td>
                         <td className="px-5 py-3">{inv.debtor?.name ?? "â€”"}</td>
                         <td className="num px-5 py-3 text-right">{fmtMoney(inv.grand_total ?? inv.amount)}</td>
-                        <td className="px-5 py-3 text-muted-foreground">{fmtDate(inv.expected_dispatch_date)}</td>
+                        <td className="px-5 py-3 text-muted-foreground">{fmtDate(inv.expected_dispatch_date ?? inv.due_date)}</td>
                         <td className="px-5 py-3 text-center">
                           {daysLeft === 0 ? (
                             <span className="inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] text-destructive">
@@ -1230,104 +771,13 @@ export function WarehousePage() {
           </Card>
         )}
 
-        {tab === "reports" && (
-          <div className="space-y-6">
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="rounded-lg border border-border bg-white p-4">
-                <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Total in</div>
-                <div className="num mt-1 text-2xl">
-                  {movements
-                    .filter((m) => m.status === "confirmed" && m.direction === "in")
-                    .reduce((s, m) => s + Number(m.quantity ?? 0), 0)
-                    .toLocaleString()}
-                </div>
-              </div>
-              <div className="rounded-lg border border-border bg-white p-4">
-                <div className="text-[11px] uppercase tracking-widest text-muted-foreground">Total out</div>
-                <div className="num mt-1 text-2xl">
-                  {movements
-                    .filter((m) => m.status === "confirmed" && m.direction === "out")
-                    .reduce((s, m) => s + Number(m.quantity ?? 0), 0)
-                    .toLocaleString()}
-                </div>
-              </div>
-              <div className="rounded-lg border border-border bg-white p-4">
-                <div className="text-[11px] uppercase tracking-widest text-muted-foreground">On hand value</div>
-                <div className="num mt-1 text-2xl">{fmtMoney(totalStockValue)}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {totalUnits.toLocaleString()} units across {stock.length} items
-                </div>
-              </div>
-            </div>
-            <Card title="Stock on hand by item">
-              {movementsQ.isLoading ? (
-                <TableSkeleton rows={5} />
-              ) : stock.length === 0 ? (
-                <EmptyState
-                  icon={<FileText className="h-5 w-5" />}
-                  title="No stock to report"
-                  description="Confirm movements to build the stock report."
-                />
-              ) : (
-                <Table head={["Item", "SKU", "Qty", "Value", "Last cost"]}>
-                  {stock.map((r) => (
-                    <tr key={`${r.item}|${r.unit}`} className="border-b border-border/60 hover:bg-muted/30">
-                      <td className="px-5 py-3">
-                        {r.item} <span className="text-xs text-muted-foreground">· {r.unit}</span>
-                      </td>
-                      <td className="px-5 py-3 text-muted-foreground">{r.sku ?? "—"}</td>
-                      <td className="num px-5 py-3 text-right">{Number(r.qty).toLocaleString()}</td>
-                      <td className="num px-5 py-3 text-right">{fmtMoney(r.value)}</td>
-                      <td className="num px-5 py-3 text-right">{fmtMoney(r.lastCost)}</td>
-                    </tr>
-                  ))}
-                </Table>
-              )}
-            </Card>
-          </div>
-        )}
-          </Card>
-        </div>
+        {/* Movement-reports tab removed — Overview, orders, readiness, dispatches and movements only. */}
       </div>
     </div>
   );
 }
 
-// â”€â”€â”€ KPI card (spec Â§3 â€” light bg, navy number, tinted icon, amber/red accents) â”€â”€
-function KpiCard({
-  title,
-  value,
-  hint,
-  icon,
-  iconBg,
-  accent,
-}: {
-  title: string;
-  value: string;
-  hint: string;
-  icon: React.ReactNode;
-  iconBg: string;
-  accent?: "amber" | "red";
-}) {
-  return (
-    <div
-      className={`rounded-xl border bg-white p-5 shadow-[0_1px_2px_rgba(15,31,56,0.05)] ${
-        accent === "amber" ? "border-sem-attention/30" : accent === "red" ? "border-destructive/25" : "border-border"
-      }`}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <p className="text-[13px] font-medium text-muted-foreground">{title}</p>
-        <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${iconBg}`}>{icon}</span>
-      </div>
-      <p className="num mt-1 text-[30px] font-semibold leading-none tracking-tight text-[#0f1f38]">{value}</p>
-      <p className={`mt-1.5 text-[12px] ${accent === "red" ? "text-destructive" : accent === "amber" ? "text-sem-attention" : "text-muted-foreground"}`}>
-        {hint}
-      </p>
-    </div>
-  );
-}
-
-// â”€â”€â”€ Dispatches tab â€” pipeline dropdown + inline carrier/tracking editor â”€â”€
+// ─── Dispatches tab ─ pipeline dropdown + inline carrier/tracking editor ───
 function DispatchTable({
   dispatches,
   loading,

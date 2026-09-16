@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate, StatusPill } from "@/components/ledger-ui";
@@ -330,32 +330,52 @@ export function DispatchesPageContent({
     return ids;
   }, [dispatchQ.data]);
 
-  // Pending invoices: those with an expected dispatch date but no linked dispatch yet.
+  // SOs already linked to a live dispatch note — hidden from the dispatch
+  // SO picker (one sales order → one dispatch). Cancelled dispatches free
+  // the SO again.
+  const dispatchedSoIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const d of dispatchQ.data ?? []) {
+      if (d.goods_sales_order_id && d.status !== "cancelled") {
+        ids.add(d.goods_sales_order_id);
+      }
+    }
+    return ids;
+  }, [dispatchQ.data]);
+
+  // Pending invoices: those with a target dispatch date (expected dispatch
+  // date, falling back to the invoice due date) but no linked dispatch yet.
   // These are invoices waiting to be dispatched so the goods can be shipped.
   // Only shows invoices that have been approved/pending (after checker approval).
   const pendingInvoices = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
     return (invoicesQ.data ?? [])
-      .filter(
-        (inv: any) =>
-          inv.expected_dispatch_date &&
-          inv.expected_dispatch_date >= today &&
+      .filter((inv: any) => {
+        const target = inv.expected_dispatch_date ?? inv.due_date;
+        return (
+          target &&
+          target >= today &&
           inv.status !== "paid" &&
           inv.status !== "cancelled" &&
           inv.status !== "rejected" &&
-          !dispatchedInvoiceIds.has(inv.id), // Not yet dispatched (no dispatch links to this invoice)
-      )
-      .map((inv: any) => ({
-        ...inv,
-        daysRemaining: Math.max(
-          0,
-          Math.round(
-            (new Date(inv.expected_dispatch_date).getTime() - new Date(today).getTime()) /
-              (1000 * 60 * 60 * 24),
+          !dispatchedInvoiceIds.has(inv.id) // Not yet dispatched (no dispatch links to this invoice)
+        );
+      })
+      .map((inv: any) => {
+        const target = inv.expected_dispatch_date ?? inv.due_date;
+        return {
+          ...inv,
+          dispatchTargetDate: target,
+          daysRemaining: Math.max(
+            0,
+            Math.round(
+              (new Date(target).getTime() - new Date(today).getTime()) /
+                (1000 * 60 * 60 * 24),
+            ),
           ),
-        ),
-      }))
-      .sort((a: any, b: any) => a.expected_dispatch_date.localeCompare(b.expected_dispatch_date));
+        };
+      })
+      .sort((a: any, b: any) => a.dispatchTargetDate.localeCompare(b.dispatchTargetDate));
   }, [invoicesQ.data, dispatchedInvoiceIds]);
   const stockLocationsQ = useQuery({
     queryKey: ["stock-locations-for-dispatch"],
@@ -501,7 +521,7 @@ export function DispatchesPageContent({
                       </td>
                       <td className="px-5 py-3 text-right num">{fmtMoney(inv.amount)}</td>
                       <td className="px-5 py-3 text-sm">
-                        {fmtDate(inv.expected_dispatch_date)}
+                        {fmtDate(inv.dispatchTargetDate)}
                         <div className="text-[10px] text-muted-foreground">
                           {inv.daysRemaining === 0
                             ? "Due today"
@@ -669,6 +689,7 @@ export function DispatchesPageContent({
           proformas={proformasQ.data ?? []}
           invoices={invoicesQ.data ?? []}
           dispatchedInvoiceIds={dispatchedInvoiceIds}
+          dispatchedSoIds={dispatchedSoIds}
           stockLocations={(stockLocationsQ.data ?? []) as any[]}
           onClose={() => setCreateOpen(false)}
           onDone={invalidateAll}
@@ -714,6 +735,8 @@ type InvoiceData = {
   delivery_address: string | null;
   lines: any[];
   grand_total: number;
+  irn?: string | null;
+  status?: string | null;
 };
 
 function DispatchCreateModal({
@@ -728,6 +751,7 @@ function DispatchCreateModal({
   proformas,
   invoices,
   dispatchedInvoiceIds,
+  dispatchedSoIds,
   stockLocations,
   onClose,
   onDone,
@@ -744,6 +768,8 @@ function DispatchCreateModal({
   invoices: Array<{ id: string; number: string }>;
   /** Invoice ids already linked to a dispatch — hidden from the linked-invoice picker. */
   dispatchedInvoiceIds: Set<string>;
+  /** SO ids already linked to a live dispatch — hidden from the SO picker. */
+  dispatchedSoIds: Set<string>;
   stockLocations: any[];
   onClose: () => void;
   onDone: () => void;
@@ -792,14 +818,32 @@ function DispatchCreateModal({
     return debtors.find((d) => d.id === so.customer_id) ?? null;
   }, [so, selectedInvoice, debtors, createFromInvoice]);
 
-  // Dispatchable SOs (dropdown) — the pre-selected SO is always resolvable
-  // from the full list, even if it is not yet in a dispatchable status.
+  // Dispatchable SOs (dropdown) — the pre-selected / currently picked SO is
+  // always resolvable from the full list, even if it is not dispatchable.
+  // SOs already linked to a live dispatch are hidden (one SO → one dispatch).
   const dispatchableSos = useMemo(
-    () => sos.filter((s) => ["confirmed", "partially_dispatched"].includes(s.status)),
-    [sos],
+    () =>
+      sos.filter(
+        (s) =>
+          ["confirmed", "partially_dispatched"].includes(s.status) &&
+          (s.id === soId || !dispatchedSoIds.has(s.id)),
+      ),
+    [sos, dispatchedSoIds, soId],
   );
   const preselectedSoMissing =
     !!preselectSoId && !sos.some((s) => s.id === preselectSoId);
+
+  // The SO's live invoice (for the IRN gate hint in SO mode).
+  const soInvoiceForIrn = useMemo(() => {
+    if (createFromInvoice || !soId) return null;
+    return (
+      (allInvoices.find(
+        (inv) =>
+          inv.goods_sales_order_id === soId &&
+          !["cancelled", "rejected"].includes(String((inv as any).status ?? "")),
+      ) as any) ?? null
+    );
+  }, [allInvoices, soId, createFromInvoice]);
 
   // When the SO is picked, preload lines with pending quantity, customer
   // context and delivery address so the form is never empty.
@@ -974,10 +1018,51 @@ function DispatchCreateModal({
     setScan("");
   };
 
+  // Synchronous double-submit guard: React Query's isPending flips a render
+  // later, so two rapid submits (double-click / Enter+click) would otherwise
+  // both fire and create two dispatch notes.
+  const submitGuard = useRef(false);
+
   const save = useMutation({
     mutationFn: async () => {
       const sourceId = createFromInvoice ? invoiceId : soId;
       if (!sourceId) throw new Error(createFromInvoice ? "Select an invoice to dispatch against" : "Select a sales order to dispatch against");
+      // IRN gate (sale dispatches): goods move only against an invoice with
+      // IRN uploaded — mirror of the server check, for an instant message.
+      const saleTypes = ["customer_sale", "marketplace_sale", "pos_sale"];
+      if (saleTypes.includes(String(f.dispatch_type || "customer_sale"))) {
+        if (createFromInvoice) {
+          if (!selectedInvoice?.irn) {
+            throw new Error(
+              `Invoice ${selectedInvoice?.invoice_number ?? ""} has no IRN uploaded — upload the IRN before dispatching`,
+            );
+          }
+        } else {
+          const soInv = allInvoices.find(
+            (inv) =>
+              inv.goods_sales_order_id === soId &&
+              !["cancelled", "rejected"].includes(String((inv as any).status ?? "")),
+          ) as any;
+          if (!soInv) {
+            throw new Error(
+              `Create the sales invoice for ${so?.so_number ?? ""} first — dispatch needs an invoice with IRN uploaded`,
+            );
+          }
+          if (!soInv.irn) {
+            throw new Error(
+              `Invoice ${soInv.invoice_number ?? ""} has no IRN uploaded — upload the IRN before dispatching`,
+            );
+          }
+        }
+      }
+      // One sales order → one dispatch: stop here with a clear message
+      // instead of letting the server reject a duplicate.
+      if (!createFromInvoice && dispatchedSoIds.has(soId)) {
+        const dup = (sos.find((s) => s.id === soId) as SO | undefined)?.so_number ?? "";
+        throw new Error(
+          `Sales order ${dup} already has a dispatch — one sales order can create only one dispatch`,
+        );
+      }
       
       const payloadLines = lines
         .filter((l) => (Number(l.dispatched_qty) || 0) > 0)
@@ -1054,6 +1139,11 @@ function DispatchCreateModal({
       onClose();
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+    // Release the double-submit guard once the attempt settles (success
+    // unmounts via onClose; failure lets the user retry).
+    onSettled: () => {
+      submitGuard.current = false;
+    },
   });
 
   const qtyTotal = lines.reduce((s, l) => s + (Number(l.dispatched_qty) || 0), 0);
@@ -1082,6 +1172,8 @@ function DispatchCreateModal({
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            if (save.isPending || submitGuard.current) return;
+            submitGuard.current = true;
             save.mutate();
           }}
           className="space-y-5 p-5"
@@ -1140,10 +1232,15 @@ function DispatchCreateModal({
                         .map((inv: any) => ({
                           value: inv.id,
                           label: inv.invoice_number,
-                          hint: `${inv.debtor?.name ?? "—"}${inv.expected_dispatch_date ? ` · Expected: ${fmtDate(inv.expected_dispatch_date)}` : ""}`,
+                          hint: `${inv.debtor?.name ?? "—"}${inv.expected_dispatch_date ? ` · Expected: ${fmtDate(inv.expected_dispatch_date)}` : ""}${inv.irn ? " · IRN ✓" : " · No IRN"}`,
                         })),
                     ]}
                   />
+                  {invoiceId && !selectedInvoice?.irn && (
+                    <div className="mt-1 text-[10px] text-destructive">
+                      No IRN uploaded on this invoice — dispatch is blocked until the IRN is recorded.
+                    </div>
+                  )}
                 </L>
               ) : (
                 <L label="Linked sales order">
@@ -1165,6 +1262,13 @@ function DispatchCreateModal({
                         })),
                     ]}
                   />
+                  {soId && !soInvoiceForIrn?.irn && (
+                    <div className="mt-1 text-[10px] text-destructive">
+                      {!soInvoiceForIrn
+                        ? "No sales invoice for this order yet — dispatch needs an invoice with IRN uploaded."
+                        : `Invoice ${soInvoiceForIrn.invoice_number ?? ""} has no IRN uploaded — dispatch is blocked until the IRN is recorded.`}
+                    </div>
+                  )}
                 </L>
               )}
               <L label="Dispatch date">

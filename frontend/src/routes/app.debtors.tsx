@@ -622,9 +622,38 @@ function DebtorModal({
             }
           >
             {sameAsBilling ? (
-              <p className="text-[11px] text-muted-foreground">
-                Shipping address will be saved as a copy of the billing address. Untick to enter separate delivery locations.
-              </p>
+              <div className="grid gap-3">
+                {form.billing_addresses.map((a, i) => (
+                  <div key={i} className="rounded-md border border-border/60 bg-muted/30 p-2">
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                        Shipping address {i + 1} — same as billing
+                      </span>
+                    </div>
+                    <div className="grid gap-2">
+                      <input
+                        readOnly
+                        tabIndex={-1}
+                        className={`${inputBase} bg-muted/40 text-muted-foreground`}
+                        value={a.label}
+                        placeholder="Label — e.g. HQ, Branch, Warehouse 1"
+                      />
+                      <textarea
+                        readOnly
+                        tabIndex={-1}
+                        rows={2}
+                        className={`${textareaBase} bg-muted/40 text-muted-foreground`}
+                        value={formatAddr(a)}
+                        placeholder="Fill the billing address above — it appears here automatically"
+                      />
+                    </div>
+                  </div>
+                ))}
+                <p className="text-[11px] text-muted-foreground">
+                  Same as billing — editing a billing address updates shipping automatically.
+                  Untick to enter separate delivery locations.
+                </p>
+              </div>
             ) : (
             <div className="grid gap-3">
               {form.shipping_addresses.map((a, i) => (
