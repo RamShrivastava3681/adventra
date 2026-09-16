@@ -223,7 +223,7 @@ function FinanceWorkbenchPage() {
   const [section, setSection] = useState<FinanceSection>("workbench");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [query, setQuery] = useState("");
-  const [owner, setOwner] = useState("all");
+  const [owner, setOwner] = useState(isTreasury ? "treasury" : "all");
   const [page, setPage] = useState(1);
 
   /* Row-level open: stay in-page when the doc has its own tab, else deep-link. */

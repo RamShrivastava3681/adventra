@@ -10,6 +10,7 @@ import {
   fmtMoney,
   fmtDate,
 } from "@/components/ledger-ui";
+import { statusLabel } from "@/lib/doc-impact";
 import {
   ClipboardCheck,
   Check,
@@ -154,6 +155,8 @@ type QueueItem = {
   key: string;
   type: ItemType;
   docNumber: string;
+  /* Lifecycle status code — displayed via the shared statusLabel() helper. */
+  statusCode?: string | null;
   createdBy: string | null;
   value: number;
   valueSub?: string | null;
@@ -527,6 +530,7 @@ function CheckerPage() {
         key: `so-${s.id}`,
         type: "sales_order",
         docNumber: s.so_number,
+        statusCode: s.status,
         createdBy: creatorFor(s.salesperson_name, s.client_id),
         value: Number(s.grand_total) || 0,
         submittedOn: s.created_at,
@@ -552,6 +556,7 @@ function CheckerPage() {
         key: `po-${p.id}`,
         type: "purchase_order",
         docNumber: p.po_number,
+        statusCode: p.status,
         createdBy: creatorFor(p.buyer_name, p.client_id),
         value: Number(p.grand_total) || 0,
         submittedOn: p.created_at,
@@ -573,6 +578,7 @@ function CheckerPage() {
         key: `pi-${p.id}`,
         type: "purchase_invoice",
         docNumber: p.invoice_number,
+        statusCode: p.status,
         createdBy: creatorFor(null, p.client_id),
         value: Number(p.amount ?? p.grand_total ?? 0),
         submittedOn: p.created_at,
@@ -595,6 +601,7 @@ function CheckerPage() {
         key: `si-${r.id}`,
         type: "sales_invoice",
         docNumber: r.invoice_number,
+        statusCode: r.raw?.status,
         createdBy: creatorFor(r.raw?.salesperson_name, r.client_id),
         value: r.amount,
         valueSub: r.advance > 0 ? `Net ${fmtMoney(r.net)}` : null,
@@ -619,6 +626,7 @@ function CheckerPage() {
         key: `pf-${p.id}`,
         type: "proforma",
         docNumber: p.proforma_number ?? "—",
+        statusCode: p.proforma_status ?? p.status,
         createdBy: creatorFor(null, p.client_id),
         value: Number(p.amount) || 0,
         submittedOn: p.created_at,
@@ -641,6 +649,7 @@ function CheckerPage() {
         key: `note-${n.id}`,
         type: "note",
         docNumber: n.note_number,
+        statusCode: n.status,
         createdBy: creatorFor(null, n.client_id),
         value: Number(n.amount) || 0,
         submittedOn: n.created_at,
@@ -1097,6 +1106,11 @@ function CheckerPage() {
                               <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
                                 {TYPE_LABEL[it.type]}
                               </span>
+                              {it.statusCode && (
+                                <span className="text-[10px] font-medium text-muted-foreground" title="Lifecycle status">
+                                  · {statusLabel(it.type, it.statusCode)}
+                                </span>
+                              )}
                               <AgeDot days={it.ageDays} />
                             </div>
                             {it.type === "sales_invoice" && it.noaStatus && (

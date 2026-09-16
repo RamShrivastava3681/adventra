@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { DocumentStatusStripCompact } from "@/components/document-status-strip";
+import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
   Dialog,
@@ -948,6 +950,19 @@ function SalesProformaModal({
 
   return (
     <Modal title={`${isEdit ? "Edit" : "New"} sales proforma`} onClose={onClose} wide>
+      
+      {isEdit && pf && (
+        <DocumentStatusStripCompact
+          docType="Proforma"
+          docNumber={pf.proforma_number ?? pf.po_number ?? "—"}
+          status={pf.status}
+          statusLabel={statusLabel("proforma", pf.status)}
+          owner={ownerLabel((pf as any).owner_role, (pf as any).assigned_user_name)}
+          nextAction={(pf as any).next_action ?? "None"}
+          inventoryImpact={inventoryImpact("proforma", pf)}
+          cashImpact={cashImpact("proforma", pf)}
+        />
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault();

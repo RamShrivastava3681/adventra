@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { DocumentStatusStripCompact } from "@/components/document-status-strip";
+import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
 import { PageHeader, Card, fmtMoney, fmtDate, StatusPill } from "@/components/ledger-ui";
 import {
   Plus,
@@ -1779,6 +1781,17 @@ function DispatchDetailModal({
           </div>
 
           <div className="space-y-4 p-5 text-sm">
+            {/* Read-only status strip (WHIZUNIK §1) */}
+            <DocumentStatusStripCompact
+              docType="Dispatch"
+              docNumber={d.dispatch_number ?? "—"}
+              status={d.status}
+              statusLabel={DISPATCH_STATUS_LABELS[d.status] ?? statusLabel("dispatch", d.status)}
+              owner={ownerLabel((d as any).owner_role, (d as any).assigned_user_name)}
+              nextAction={(d as any).next_action ?? "None"}
+              inventoryImpact={inventoryImpact("dispatch", d)}
+              cashImpact={cashImpact("dispatch", d)}
+            />
             {/* Header info */}
             <div className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-lg border border-border/60 p-4 md:grid-cols-3">
               <D label="Customer" value={d.customer_name ?? "—"} />

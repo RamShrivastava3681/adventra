@@ -11,6 +11,8 @@ import {
   fmtDate,
   daysBetween,
 } from "@/components/ledger-ui";
+import { DocumentStatusStripCompact } from "@/components/document-status-strip";
+import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
 import {
   Plus,
   X,
@@ -1503,18 +1505,29 @@ function PurchaseDetailModal({
           </button>
         </div>
         <div className="space-y-5 p-5 text-sm">
+          {/* Read-only status strip (WHIZUNIK §1) */}
+          <DocumentStatusStripCompact
+            docType="Purchase invoice"
+            docNumber={invoice.invoice_number ?? "—"}
+            status={invoice.status}
+            statusLabel={PI_STATUS_LABELS[invoice.status] ?? statusLabel("purchase_invoice", invoice.status)}
+            owner={ownerLabel(invoice.owner_role, invoice.assigned_user_name)}
+            nextAction={invoice.next_action ?? "None"}
+            inventoryImpact={inventoryImpact("purchase_invoice", invoice)}
+            cashImpact={cashImpact("purchase_invoice", invoice)}
+          />
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            <D label="Supplier" value={invoice.supplier_name ?? invoice.vendor?.name ?? "â€”"} />
+            <D label="Supplier" value={invoice.supplier_name ?? invoice.vendor?.name ?? "—"} />
             <D
               label="Invoice date"
-              value={invoice.issue_date ? fmtDate(invoice.issue_date) : "â€”"}
+              value={invoice.issue_date ? fmtDate(invoice.issue_date) : "—"}
             />
             <D
               label="Received date"
-              value={invoice.received_date ? fmtDate(invoice.received_date) : "â€”"}
+              value={invoice.received_date ? fmtDate(invoice.received_date) : "—"}
             />
-            <D label="Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "â€”"} />
-            <D label="Linked PO" value={invoice.goods_po_number ?? invoice.po_number ?? "â€”"} />
+            <D label="Due date" value={invoice.due_date ? fmtDate(invoice.due_date) : "—"} />
+            <D label="Linked PO" value={invoice.goods_po_number ?? invoice.po_number ?? "—"} />
             {invoice.linked_supplier_proforma_number && (
               <D label="Linked proforma" value={invoice.linked_supplier_proforma_number} />
             )}

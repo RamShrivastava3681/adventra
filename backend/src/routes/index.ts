@@ -138,6 +138,7 @@ import * as StockLocation from "../models/stock-location.js";
 import * as DebtorTerm from "../models/debtor-payment-term.js";
 import * as WorkflowTask from "../models/workflow-task.js";
 import * as DocTimeline from "../models/doc-timeline.js";
+import { writeEvent } from "../models/domain-event.js";
 import * as PaymentReceipt from "../models/payment-receipt.js";
 import * as NotificationLog from "../models/notification-log.js";
 import * as WorkflowSettings from "../models/workflow-settings.js";
@@ -2217,6 +2218,18 @@ router.post("/invoices", authMiddleware, async (req, res) => {
       } catch (e: any) {
         return res.status(400).json({ error: e.message });
       }
+    } else {
+      // Additive dry-run (WHIZUNIK §5): legacy orders without a term snapshot
+      // are evaluated against the gate as-if, and the result is LOGGED ONLY —
+      // the response is unchanged. No enforcement, no task, no timeline entry.
+      void (async () => {
+        try {
+          await assertPaymentConditionForInvoice(so, body.lines ?? []);
+          console.log(`  ℹ [dry-run pass] invoice would satisfy payment condition for SO ${so.soNumber ?? so.id}`);
+        } catch (e: any) {
+          console.warn(`  ⚠ [dry-run block] invoice would be blocked by payment condition for SO ${so.soNumber ?? so.id}: ${e?.message ?? e}`);
+        }
+      })();
     }
     if (!body.goodsSalesOrderNumber) body.goodsSalesOrderNumber = so.soNumber;
     // Resolve the linked customer proforma (formal field or PO-number match)
@@ -2353,6 +2366,16 @@ router.post("/invoices/:id/issue", authMiddleware, async (req, res) => {
       entityRef: current.invoiceNumber,
       status: "approved",
     });
+    // Fire-and-forget domain event (log-only, deduped).
+    void writeEvent({
+      clientId: (current as any).clientId,
+      name: "invoice_issued",
+      docType: "sales_invoice",
+      docId: current.id,
+      docNumber: current.invoiceNumber ?? null,
+      actorId: req.user!.userId,
+      payload: { amount: Number((current as any).grandTotal ?? current.amount) || 0 },
+    }).catch(() => {});
     timelineStatus(req, { clientId: (current as any).clientId, docType: "sales_invoice", docId: current.id, docNumber: current.invoiceNumber },
       "draft", "approved", `Finance issued ${current.invoiceNumber} straight to the funding queue — no checker approval`);
     // Approved → pending in treasury: mail admin, treasury, checker.
@@ -2415,6 +2438,16 @@ router.post("/invoices/:id/irn", authMiddleware, async (req, res) => {
       });
       timelineStatus(req, { clientId: (updated as any).clientId, docType: "sales_invoice", docId: updated.id, docNumber: (updated as any).invoiceNumber },
         "approved", "irn_generated", `IRN recorded (${String((updated as any).irn).slice(0, 12)}…) — invoice locked`);
+      // Fire-and-forget domain event (log-only, deduped).
+      void writeEvent({
+        clientId: (updated as any).clientId,
+        name: "irn_recorded",
+        docType: "sales_invoice",
+        docId: updated.id,
+        docNumber: (updated as any).invoiceNumber ?? null,
+        actorId: req.user!.userId,
+        payload: { irn: String((updated as any).irn ?? ""), source: (updated as any).irnSource ?? null },
+      }).catch(() => {});
       await WorkflowTask.closeTasksForDoc("sales_invoice", updated.id, req.user, "IRN recorded");
       // IRN → auto-create the Dispatch Order pre-filled from invoice + SO
       // (PDF-1 step 8: warehouse receives "Prepare Dispatch Order").
@@ -2540,6 +2573,20 @@ router.delete("/invoices/:id/irn", authMiddleware, async (req, res) => {
         entityType: "invoice",
         entityRef: (updated as any).invoiceNumber,
       });
+      // Additive: record the IRN clear in the document timeline for visibility.
+      void DocTimeline.addEntry({
+        clientId: (updated as any).clientId ?? (req.user as any)?.userId,
+        docType: "sales_invoice",
+        docId: updated.id,
+        docNumber: (updated as any).invoiceNumber ?? null,
+        kind: "system",
+        actorId: req.user!.userId,
+        actorEmail: req.user!.email ?? null,
+        actorRoles: req.user!.roles ?? [],
+        text: `IRN cleared${req.body?.reason ? ` — ${String(req.body.reason).slice(0, 120)}` : ""}`,
+        prevStatus: "approved",
+        newStatus: (updated as any).status ?? null,
+      });
       res.json(updated);
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
@@ -2589,6 +2636,16 @@ router.delete("/invoices/:id/irn", authMiddleware, async (req, res) => {
       amountReceived: amt,
       amountPaid: updated?.amountPaid ?? 0,
     });
+    // Fire-and-forget domain event (log-only, deduped).
+    void writeEvent({
+      clientId: (current as any).clientId,
+      name: "receipt_recorded",
+      docType: "sales_invoice",
+      docId: current.id,
+      docNumber: current.invoiceNumber ?? null,
+      actorId: req.user!.userId,
+      payload: { amount: amt },
+    }).catch(() => {});
     // Cash-flow sync: update expected inflow when payment is recorded
     (async () => {
       try {
@@ -6736,6 +6793,15 @@ router.post(
       timelineStatus(req, { clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
         dispatch.status, "confirmed",
         `Warehouse confirmed ${dispatch.dispatchNumber} — released for picking. Stock debits when the status moves to Dispatched.`);
+      // Fire-and-forget domain event (log-only, deduped).
+      void writeEvent({
+        clientId,
+        name: "dispatch_released",
+        docType: "dispatch",
+        docId: dispatch.id,
+        docNumber: dispatch.dispatchNumber ?? null,
+        actorId: req.user!.userId,
+      }).catch(() => {});
       await WorkflowTask.closeTasksForDoc("dispatch", dispatch.id, req.user, "Dispatch confirmed — released for picking");
       recomputeForecast(clientId);
       res.json(flipped);
@@ -6847,6 +6913,29 @@ router.post(
       trackAction(req, "dispatch.submitted", dispatch.id, {
         entityType: "dispatch", entityRef: dispatch.dispatchNumber,
       });
+      // Additive warning-only qty check (WHIZUNIK §6): dispatch quantity may
+      // not exceed the invoiced quantity per line. NEVER blocks — logs only.
+      try {
+        if ((dispatch as any).finalInvoiceId) {
+          const inv = await Invoice.get((dispatch as any).finalInvoiceId);
+          if (inv) {
+            const invQty = new Map<string, number>();
+            for (const l of (inv as any).lines ?? []) {
+              const pid = String(l.productId ?? l.product_id ?? "");
+              if (pid) invQty.set(pid, (invQty.get(pid) ?? 0) + (Number(l.quantity) || 0));
+            }
+            for (const l of (dispatch.lines ?? []) as any[]) {
+              const pid = String(l.productId ?? l.product_id ?? "");
+              const dq = Number(l.dispatchedQty ?? l.quantity ?? 0);
+              if (pid && invQty.has(pid) && dq > (invQty.get(pid) ?? 0)) {
+                console.warn(`  ⚠ [warning-only] Dispatch ${dispatch.dispatchNumber}: qty ${dq} exceeds invoiced qty ${invQty.get(pid)} for product ${pid}`);
+              }
+            }
+          }
+        }
+      } catch (e: any) {
+        console.error("  ⚠ Invoice-qty warning check failed:", e?.message ?? e);
+      }
       timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
         "draft", "details_submitted", `Warehouse submitted packing + transport (${d.transporterName}, ${d.transportMode}) — at Picking`);
       advanceWorkflow(req, {
@@ -6967,6 +7056,16 @@ router.post(
         ewayBillValidUntil: body.validUntil || null,
         ...(moveToReady ? { status: "ready_for_dispatch" as any } : {}),
       });
+      // Fire-and-forget domain event (log-only, deduped).
+      void writeEvent({
+        clientId: dispatch.clientId,
+        name: "eway_bill_recorded",
+        docType: "dispatch",
+        docId: dispatch.id,
+        docNumber: dispatch.dispatchNumber ?? null,
+        actorId: req.user!.userId,
+        payload: { ewbNumber },
+      }).catch(() => {});
       // Mirror onto the linked invoice (final-invoice flow or the classic
       // SO→invoice link) so the downloaded invoice PDF prints the EWB section.
       const invoiceId = (dispatch as any).finalInvoiceId ?? (dispatch as any).linkedSalesInvoiceId ?? null;
@@ -7193,6 +7292,23 @@ router.post(
         if (marked) {
           const fresh = (await GoodsDispatch.get(dispatch.id)) ?? marked;
           await debitSalesOrder(clientId, fresh, so);
+          // Fire-and-forget domain events (log-only, deduped).
+          void writeEvent({
+            clientId,
+            name: "physical_dispatch_confirmed",
+            docType: "dispatch",
+            docId: dispatch.id,
+            docNumber: dispatch.dispatchNumber ?? null,
+            actorId: req.user!.userId,
+          }).catch(() => {});
+          void writeEvent({
+            clientId,
+            name: "stock_debited",
+            docType: "dispatch",
+            docId: dispatch.id,
+            docNumber: dispatch.dispatchNumber ?? null,
+            actorId: req.user!.userId,
+          }).catch(() => {});
           timelineStatus(req, { clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
             dispatch.shippingStatus ?? "picking", "dispatched",
             `Warehouse moved ${dispatch.dispatchNumber} to Dispatched from ${sourceLocation.name}${req.body?.lrNumber ? ` · LR ${req.body.lrNumber}` : ""} — inventory debited`);

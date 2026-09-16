@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { DocumentStatusStripCompact } from "@/components/document-status-strip";
+import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
   Dialog,
@@ -803,6 +805,22 @@ function GrnModal({
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {isEdit && grn && (
+          <div className="px-5 pt-4">
+            {/* Read-only status strip (WHIZUNIK §1) */}
+            <DocumentStatusStripCompact
+              docType="GRN"
+              docNumber={grn.receipt_number ?? "—"}
+              status={grn.status}
+              statusLabel={GRN_STATUS_LABELS[grn.status] ?? statusLabel("grn", grn.status)}
+              owner={ownerLabel((grn as any).owner_role, (grn as any).assigned_user_name)}
+              nextAction={(grn as any).next_action ?? "None"}
+              inventoryImpact={inventoryImpact("grn", grn)}
+              cashImpact={cashImpact("grn", grn)}
+            />
+          </div>
+        )}
 
         <form
           onSubmit={(e) => {

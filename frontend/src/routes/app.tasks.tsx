@@ -369,6 +369,17 @@ export function TasksPage() {
 function TaskRow({ task: t, done }: { task: Task; done: boolean }) {
   const overdue = t.overdue || (!!t.due_date && t.due_date < todayYMD());
   const dueToday = (t.due_date ?? "").slice(0, 10) === todayYMD();
+  
+  const diffMs = Date.now() - new Date(t.created_at).getTime();
+  const diffDays = Math.max(0, Math.floor(diffMs / (1000 * 60 * 60 * 24)));
+  const ageStr = diffDays === 0 ? "<1d" : `${diffDays}d`;
+  
+  const stageLower = (t.stage ?? "").toLowerCase();
+  let actionLabel = "Open";
+  if (stageLower.includes("approve") || stageLower.includes("review") || stageLower.includes("checker")) actionLabel = "Approve";
+  else if (stageLower.includes("record") || stageLower.includes("generate")) actionLabel = "Record";
+  else if (stageLower.includes("confirm")) actionLabel = "Confirm";
+
   return (
     <div
       className={`rounded-lg border bg-card p-4 transition-colors ${
@@ -414,11 +425,17 @@ function TaskRow({ task: t, done }: { task: Task; done: boolean }) {
             </p>
           </div>
 
-          {t.latest_update && (
-            <p className="mt-1.5 truncate text-xs italic text-muted-foreground">
-              Latest: {t.latest_update}
-            </p>
-          )}
+          <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            {t.latest_update && (
+              <span className="truncate italic">
+                Latest: {t.latest_update}
+              </span>
+            )}
+            {t.latest_update && <span>&bull;</span>}
+            <span className={overdue ? "text-destructive font-medium" : ""}>
+              {ageStr} in {t.required_action}
+            </span>
+          </div>
         </div>
 
         {/* Amount + due + action */}
@@ -437,9 +454,9 @@ function TaskRow({ task: t, done }: { task: Task; done: boolean }) {
           <Link
             to={taskTarget(t).to}
             search={taskTarget(t).search}
-            className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/10"
+            className="inline-flex items-center gap-1 rounded-md border border-primary/50 bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
           >
-            <ExternalLink className="h-3 w-3" /> Open task
+            {actionLabel}
           </Link>
         </div>
       </div>

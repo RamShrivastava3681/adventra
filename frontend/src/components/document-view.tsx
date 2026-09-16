@@ -2,6 +2,8 @@ import { X, FileSignature } from "lucide-react";
 import type { ReactNode } from "react";
 import { fmtMoney, fmtDate } from "@/components/ledger-ui";
 import { DocumentList, type DocMeta } from "@/components/document-uploader";
+import { DocumentStatusStripCompact } from "@/components/document-status-strip";
+import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
 
 /**
  * Read-only detail modals used by the checker desk and funding queue so
@@ -223,10 +225,17 @@ export function InvoiceDetailModal({
   const feeRate = i.fee_rate != null ? Math.round(Number(i.fee_rate) * 100) : null;
 
   return (
-    <DocModal
-      title={`${isSale ? "Sales invoice" : "Purchase invoice"} · ${i.invoice_number ?? ""}`}
-      onClose={onClose}
-    >
+    <DocModal title={`${isSale ? "Sales" : "Purchase"} invoice · ${i.invoice_number ?? i.invoice_no ?? ""}`} onClose={onClose}>
+      <DocumentStatusStripCompact
+        docType={isSale ? "Sales invoice" : "Purchase invoice"}
+        docNumber={i.invoice_number ?? i.invoice_no ?? "—"}
+        status={i.status}
+        statusLabel={statusLabel(isSale ? "sales_invoice" : "purchase_invoice", i.status)}
+        owner={ownerLabel(i.owner_role, i.assigned_user_name)}
+        nextAction={i.next_action ?? "None"}
+        inventoryImpact={inventoryImpact(isSale ? "sales_invoice" : "purchase_invoice", i)}
+        cashImpact={cashImpact(isSale ? "sales_invoice" : "purchase_invoice", i)}
+      />
       <div className="space-y-4 p-5 text-sm">
         <Summary
           rows={[
@@ -415,6 +424,16 @@ export function ProformaDetailModal({ pf, onClose }: { pf: any; onClose: () => v
 
   return (
     <DocModal title={`Proforma · ${p.proforma_number ?? p.po_number}`} onClose={onClose}>
+      <DocumentStatusStripCompact
+        docType="Proforma"
+        docNumber={p.proforma_number ?? p.po_number ?? "—"}
+        status={p.status}
+        statusLabel={statusLabel("proforma", p.status)}
+        owner={ownerLabel(p.owner_role, p.assigned_user_name)}
+        nextAction={p.next_action ?? "None"}
+        inventoryImpact={inventoryImpact("proforma", p)}
+        cashImpact={cashImpact("proforma", p)}
+      />
       <div className="space-y-4 p-5 text-sm">
         <Summary
           rows={[
@@ -576,6 +595,16 @@ export function PurchaseOrderDetailModal({ po, onClose }: { po: any; onClose: ()
   const supplierApproval = p.supplier_approval_status;
   return (
     <DocModal title={`Purchase order · ${p.po_number ?? ""}`} onClose={onClose}>
+      <DocumentStatusStripCompact
+        docType="Purchase order"
+        docNumber={p.po_number ?? "—"}
+        status={p.status}
+        statusLabel={statusLabel("purchase_order", p.status)}
+        owner={ownerLabel(p.owner_role, p.assigned_user_name)}
+        nextAction={p.next_action ?? "None"}
+        inventoryImpact={inventoryImpact("purchase_order", p)}
+        cashImpact={cashImpact("purchase_order", p)}
+      />
       <div className="space-y-4 p-5 text-sm">
         <Summary
           rows={[
@@ -674,6 +703,16 @@ export function SalesOrderDetailModal({ so, onClose }: { so: any; onClose: () =>
   const debtorApproval = s.debtor_approval_status;
   return (
     <DocModal title={`Sales order · ${s.so_number ?? ""}`} onClose={onClose}>
+      <DocumentStatusStripCompact
+        docType="Sales order"
+        docNumber={s.so_number ?? "—"}
+        status={s.status}
+        statusLabel={statusLabel("sales_order", s.status)}
+        owner={ownerLabel(s.owner_role, s.assigned_user_name)}
+        nextAction={s.next_action ?? "None"}
+        inventoryImpact={inventoryImpact("sales_order", s)}
+        cashImpact={cashImpact("sales_order", s)}
+      />
       <div className="space-y-4 p-5 text-sm">
         <Summary
           rows={[

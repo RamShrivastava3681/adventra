@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
+import { DocumentStatusStripCompact } from "@/components/document-status-strip";
+import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
 import {
   Plus,
   X,
@@ -1298,6 +1300,18 @@ function SOModal({
       wide
       footer={footer}
     >
+      {isEdit && so && (
+        <DocumentStatusStripCompact
+          docType="Sales order"
+          docNumber={so.so_number ?? "—"}
+          status={so.status}
+          statusLabel={statusLabel("sales_order", so.status)}
+          owner={ownerLabel((so as any).owner_role, (so as any).assigned_user_name)}
+          nextAction={(so as any).next_action ?? "None"}
+          inventoryImpact={inventoryImpact("sales_order", so)}
+          cashImpact={cashImpact("sales_order", so)}
+        />
+      )}
       <form
         id="so-form"
         onSubmit={(e) => {

@@ -3,6 +3,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { DocumentStatusStripCompact } from "@/components/document-status-strip";
+import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
   Dialog,
@@ -46,6 +48,7 @@ import { ClauseCombobox } from "@/components/clause-select";
 import { ProductVariantPicker } from "@/components/product-variant-picker";
 import {
   QuickAddVariantModal,
+  QuickCreateProductModal,
   type QuickCreatedProduct,
 } from "@/components/product-quick-create";
 import {
@@ -935,6 +938,8 @@ function POModal({
   // line. New products cannot be created here — only variants of catalogue
   // products.
   const [variantLine, setVariantLine] = useState<number | null>(null);
+  /** Line index whose "or create one here" product dialog is open. */
+  const [quickCreateIdx, setQuickCreateIdx] = useState<number | null>(null);
 
   // ── "Create document from this PO" section ──
   // Exactly ONE of {none, proforma, purchase_invoice} can be selected — the
@@ -1038,6 +1043,12 @@ function POModal({
   });
 
   const addLine = () => setLines((ls) => [...ls, emptyLine()]);
+
+  /** Add a line AND immediately open the product-creation dialog for it. */
+  const addLineWithNewItem = () => {
+    setQuickCreateIdx(lines.length);
+    setLines((ls) => [...ls, emptyLine()]);
+  };
 
   const removeLine = (i: number) => {
     const l = lines[i];
@@ -1387,7 +1398,20 @@ function POModal({
           </button>
         </div>
 
-        <form
+        
+      {isEdit && po && (
+        <DocumentStatusStripCompact
+          docType="Purchase order"
+          docNumber={po.po_number ?? "—"}
+          status={po.status}
+          statusLabel={statusLabel("purchase_order", po.status)}
+          owner={ownerLabel((po as any).owner_role, (po as any).assigned_user_name)}
+          nextAction={(po as any).next_action ?? "None"}
+          inventoryImpact={inventoryImpact("purchase_order", po)}
+          cashImpact={cashImpact("purchase_order", po)}
+        />
+      )}
+      <form
           onSubmit={(e) => {
             e.preventDefault();
             save.mutate();
@@ -2473,6 +2497,21 @@ function POModal({
               onCreated={(created) => {
                 if (variantLine !== null) applyProductToLine(variantLine, created);
                 setVariantLine(null);
+              }}
+            />
+          </div>
+        )}
+
+        {/* Inline catalogue-item creation — "or create one here" on an empty
+            catalogue snapshot; fills the new line once created. */}
+        {quickCreateIdx !== null && (
+          <div onClick={(e) => e.stopPropagation()}>
+            <QuickCreateProductModal
+              userId={userId}
+              onClose={() => setQuickCreateIdx(null)}
+              onCreated={(created) => {
+                if (quickCreateIdx !== null) applyProductToLine(quickCreateIdx, created);
+                setQuickCreateIdx(null);
               }}
             />
           </div>

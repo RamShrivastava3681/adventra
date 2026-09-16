@@ -38,6 +38,8 @@ import {
   textareaBase,
 } from "@/components/dialog";
 import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
+import { DocumentStatusStripCompact } from "@/components/document-status-strip";
+import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
 
 export const Route = createFileRoute("/app/invoices")({
   component: InvoicesPageWrapper,
@@ -1181,6 +1183,19 @@ function NewInvoiceModal({
       wide
       footer={footer}
     >
+      
+      {isEdit && invoice && (
+        <DocumentStatusStripCompact
+          docType="Sales invoice"
+          docNumber={invoice.invoice_number ?? "—"}
+          status={invoice.status}
+          statusLabel={statusLabel("sales_invoice", invoice.status)}
+          owner={ownerLabel((invoice as any).owner_role, (invoice as any).assigned_user_name)}
+          nextAction={(invoice as any).next_action ?? "None"}
+          inventoryImpact={inventoryImpact("sales_invoice", invoice)}
+          cashImpact={cashImpact("sales_invoice", invoice)}
+        />
+      )}
       <form
         id="invoice-form"
         onSubmit={(e) => {

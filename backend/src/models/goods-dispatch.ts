@@ -186,6 +186,7 @@ export interface GoodsDispatch {
   /** EWB generation + validity timestamps (manual paste or service). */
   ewayBillGeneratedAt: string | null;
   ewayBillValidUntil: string | null;
+  ewbAttachmentId?: string | null;
   /** "EWB Not Required" with authorised reason recorded (PDF-2 §9). */
   ewbNotRequired: boolean;
   ewbNotRequiredReason: string | null;
@@ -357,7 +358,8 @@ export async function create(data: Partial<GoodsDispatch> & { clientId: string; 
     ewayBillStatus: data.ewayBillStatus || null,
     ewayBillGeneratedAt: data.ewayBillGeneratedAt || null,
     ewayBillValidUntil: data.ewayBillValidUntil || null,
-    ewbNotRequired: data.ewbNotRequired === true,
+    ewbAttachmentId: data.ewbAttachmentId || null,
+    ewbNotRequired: data.ewbNotRequired ?? false,
     ewbNotRequiredReason: data.ewbNotRequiredReason || null,
     finalInvoiceId: data.finalInvoiceId || null,
     finalInvoiceNumber: data.finalInvoiceNumber || null,
@@ -422,7 +424,7 @@ export async function update(id: string, updates: Partial<GoodsDispatch>) {
     "returnedAt", "returnedBy", "notes", "documents", "status", "stockDebited",
     "debitedAt", "debitedBy", "cancelledAt", "cancelledBy",
     "ewayBillId", "ewayBillNumber", "ewayBillStatus",
-    "ewayBillGeneratedAt", "ewayBillValidUntil", "ewbNotRequired", "ewbNotRequiredReason",
+    "ewayBillGeneratedAt", "ewayBillValidUntil", "ewbAttachmentId", "ewbNotRequired", "ewbNotRequiredReason",
     "finalInvoiceId", "finalInvoiceNumber", "irnSnapshot", "invoicedValue", "invoicedGst",
     "cartonCount", "packageType", "grossWeight", "grossWeightUnit",
     "handlingInstructions", "internalDispatchNotes",

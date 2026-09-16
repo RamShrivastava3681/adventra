@@ -76,6 +76,9 @@ export interface Invoice {
   /** EWB generation + validity timestamps (manual paste or service). */
   ewbGeneratedAt: string | null;
   ewbValidUntil: string | null;
+  /** Optional file attachment IDs for the manual IRN and EWB records. */
+  irnAttachmentId?: string | null;
+  ewbAttachmentId?: string | null;
   // ── Tally integration fields (PDF-2 §7; v1 manual, later automatic). ──
   /** Tally voucher reference for this invoice. */
   tallyVoucherRef: string | null;
@@ -304,6 +307,8 @@ export async function create(data: Partial<Invoice> & { clientId: string; debtor
     ewbDate: data.ewbDate || null,
     ewbGeneratedAt: data.ewbGeneratedAt || null,
     ewbValidUntil: data.ewbValidUntil || null,
+    irnAttachmentId: data.irnAttachmentId || null,
+    ewbAttachmentId: data.ewbAttachmentId || null,
     tallyVoucherRef: data.tallyVoucherRef || null,
     tallyInvoiceNumber: data.tallyInvoiceNumber || null,
     transporter: data.transporter || null,
@@ -352,7 +357,7 @@ export async function update(id: string, updates: Partial<Invoice>) {
   "utrReference","paymentAmount",
   // Manual e-invoice fields (IRN set via the dedicated endpoint; the rest editable pre-IRN).
   "ackNo","ackDate","irnSource","irnEnteredBy","irnEnteredAt","signedQr","ewbNumber","ewbDate","placeOfSupply","consigneeName","consigneeAddress","consigneeGstin","consigneePan","consigneeState","consigneeStateCode","buyerGstin","buyerPan","buyerState","buyerStateCode","deliveryNoteRef","deliveryNoteDate","otherReferences","buyerOrderDate","dispatchDocNumber","destination","termsOfDelivery",
-  "ewbGeneratedAt","ewbValidUntil","tallyVoucherRef","tallyInvoiceNumber","transporter","vehicleNumber","lrRef"]; /* "irn" intentionally excluded — written only by recordIrn/clearIrn */
+  "ewbGeneratedAt","ewbValidUntil","irnAttachmentId","ewbAttachmentId","tallyVoucherRef","tallyInvoiceNumber","transporter","vehicleNumber","lrRef"]; /* "irn" intentionally excluded — written only by recordIrn/clearIrn */
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   // Normalize the camelCase variants to the snake_case storage keys.
   if (patch.utrReference !== undefined && patch.utr_reference === undefined) patch.utr_reference = patch.utrReference;
