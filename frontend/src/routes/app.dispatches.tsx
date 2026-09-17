@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   RefreshCw,
   FileCheck,
+  Pencil,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -249,6 +250,7 @@ export function DispatchesPageContent({
   const [preselectSoId, setPreselectSoId] = useState<string | null>(null);
   const [preselectInvoiceId, setPreselectInvoiceId] = useState<string | null>(null);
   const [view, setView] = useState<Dispatch | null>(null);
+  const [editingDispatch, setEditingDispatch] = useState<Dispatch | null>(null);
 
   // Coming from a Sales Order row ("Dispatch" button) — open the create modal
   // with that SO preselected.
@@ -680,6 +682,7 @@ export function DispatchesPageContent({
 
       {createOpen && user && (
         <DispatchCreateModal
+          key={editingDispatch?.id ?? "new"}
           userId={user.id}
           preselectSoId={preselectSoId}
           preselectInvoiceId={preselectInvoiceId}
@@ -693,7 +696,11 @@ export function DispatchesPageContent({
           dispatchedInvoiceIds={dispatchedInvoiceIds}
           dispatchedSoIds={dispatchedSoIds}
           stockLocations={(stockLocationsQ.data ?? []) as any[]}
-          onClose={() => setCreateOpen(false)}
+          editing={editingDispatch}
+          onClose={() => {
+            setCreateOpen(false);
+            setEditingDispatch(null);
+          }}
           onDone={invalidateAll}
         />
       )}
@@ -704,6 +711,11 @@ export function DispatchesPageContent({
           canApproveOverDispatch={isAdmin || isChecker}
           stockBalance={stockBalance}
           onClose={() => setView(null)}
+          onEdit={(d) => {
+            setView(null);
+            setEditingDispatch(d);
+            setCreateOpen(true);
+          }}
           onChanged={() => {
             invalidateAll();
             const fresh = (dispatchQ.data ?? []).find((d) => d.id === view.id);
@@ -755,6 +767,7 @@ function DispatchCreateModal({
   dispatchedInvoiceIds,
   dispatchedSoIds,
   stockLocations,
+  editing,
   onClose,
   onDone,
 }: {
@@ -773,9 +786,12 @@ function DispatchCreateModal({
   /** SO ids already linked to a live dispatch — hidden from the SO picker. */
   dispatchedSoIds: Set<string>;
   stockLocations: any[];
+  /** When set, the modal edits this draft (SO locked, submit via PUT). */
+  editing?: Dispatch | null;
   onClose: () => void;
   onDone: () => void;
 }) {
+  const isEdit = !!editing;
   const debtorsQ = useQuery({
     queryKey: ["debtors-for-dispatch"],
     queryFn: async () => api.debtors.list(),
@@ -788,25 +804,40 @@ function DispatchCreateModal({
   const allInvoices = (invoicesQ.data ?? []) as InvoiceData[];
   
   const qc = useQueryClient();
-  const [soId, setSoId] = useState<string>(preselectSoId ?? "");
-  const [invoiceId, setInvoiceId] = useState<string>(preselectInvoiceId ?? "");
-  const [createFromInvoiceState, setCreateFromInvoice] = useState(createFromInvoice || !!preselectInvoiceId);
+  const [soId, setSoId] = useState<string>(editing?.goods_sales_order_id ?? preselectSoId ?? "");
+  const [invoiceId, setInvoiceId] = useState<string>(editing?.linked_sales_invoice_id ?? preselectInvoiceId ?? "");
+  const [createFromInvoiceState, setCreateFromInvoice] = useState(
+    // Editing an invoice-linked draft keeps the invoice context; otherwise
+    // fall back to the create-mode pre-selection.
+    editing ? !!editing.linked_sales_invoice_id : (createFromInvoice || !!preselectInvoiceId),
+  );
   const [f, setF] = useState({
-    dispatch_date: new Date().toISOString().slice(0, 10),
-    warehouse: "",
-    transporter_name: "",
-    tracking_number: "",
-    delivery_challan_number: "",
-    linked_customer_proforma_id: "",
-    linked_sales_invoice_id: preselectInvoiceId ?? "",
-    notes: "",
-    delivery_address: "",
-    dispatch_type: "customer_sale",
-    source_location_id: "",
-    destination_location_id: "",
-    channel: "",
+    dispatch_date: (editing?.dispatch_date ?? new Date().toISOString().slice(0, 10)).slice(0, 10),
+    warehouse: editing?.warehouse ?? "",
+    transporter_name: editing?.transporter_name ?? "",
+    tracking_number: editing?.tracking_number ?? "",
+    delivery_challan_number: editing?.delivery_challan_number ?? "",
+    linked_customer_proforma_id: editing?.linked_customer_proforma_id ?? "",
+    linked_sales_invoice_id: editing?.linked_sales_invoice_id ?? preselectInvoiceId ?? "",
+    notes: editing?.notes ?? "",
+    delivery_address: editing?.delivery_address ?? "",
+    dispatch_type: (editing as any)?.dispatch_type ?? "customer_sale",
+    source_location_id: (editing as any)?.source_location_id ?? "",
+    destination_location_id: (editing as any)?.destination_location_id ?? "",
+    channel: (editing as any)?.channel ?? "",
   });
-  const [lines, setLines] = useState<DispatchLineDraft[]>([]);
+  const [lines, setLines] = useState<DispatchLineDraft[]>(
+    () =>
+      editing?.lines?.map((l) => ({
+        product_id: l.product_id,
+        sku: l.sku,
+        name: l.name,
+        unit: l.unit,
+        ordered_qty: l.ordered_qty,
+        dispatched_qty: String(l.dispatched_qty),
+        unit_price: String(l.unit_price),
+      })) ?? [],
+  );
   const [scan, setScan] = useState("");
   const so = sos.find((s) => s.id === soId) ?? null;
   const selectedInvoice = useMemo(() => {
@@ -1027,6 +1058,49 @@ function DispatchCreateModal({
 
   const save = useMutation({
     mutationFn: async () => {
+      const payloadLines = lines
+        .filter((l) => (Number(l.dispatched_qty) || 0) > 0)
+        .map((l) => ({
+          product_id: l.product_id,
+          dispatched_qty: Number(l.dispatched_qty) || 0,
+          unit_price: Number(l.unit_price) || 0,
+        }));
+      if (payloadLines.length === 0)
+        throw new Error("Enter a dispatched quantity for at least one line");
+
+      // Edit mode: the sales order is locked (one SO → one dispatch) and the
+      // IRN / duplicate checks already ran at creation — just validate the
+      // lines against the SO and submit via PUT (draft-only on the server).
+      if (isEdit && editing) {
+        // The SO may still be loading — only run the client-side pending
+        // check once it resolves (the server validates regardless).
+        if (so) {
+          for (const l of payloadLines) {
+            const soLine = so.lines?.find((x) => x.product_id === l.product_id);
+            const pending = Math.max(0, (soLine?.ordered_qty ?? 0) - (soLine?.dispatched_qty ?? 0));
+            if (l.dispatched_qty > pending) {
+              throw new Error(`Dispatch cannot exceed pending (${pending}) for ${soLine?.name}`);
+            }
+          }
+        }
+        return api.goodsDispatches.update(editing.id, {
+          dispatch_date: f.dispatch_date,
+          warehouse: f.warehouse.trim() || null,
+          transporter_name: f.transporter_name.trim() || null,
+          tracking_number: f.tracking_number.trim() || null,
+          delivery_challan_number: f.delivery_challan_number.trim() || null,
+          linked_customer_proforma_id: f.linked_customer_proforma_id || null,
+          linked_sales_invoice_id: f.linked_sales_invoice_id || null,
+          notes: f.notes.trim() || null,
+          lines: payloadLines,
+          dispatch_type: f.dispatch_type || null,
+          source_location_id: f.source_location_id || null,
+          destination_location_id: f.destination_location_id || null,
+          channel: f.channel || null,
+          delivery_address: f.delivery_address.trim() || null,
+        });
+      }
+
       const sourceId = createFromInvoice ? invoiceId : soId;
       if (!sourceId) throw new Error(createFromInvoice ? "Select an invoice to dispatch against" : "Select a sales order to dispatch against");
       // IRN gate (sale dispatches): goods move only against an invoice with
@@ -1065,16 +1139,6 @@ function DispatchCreateModal({
           `Sales order ${dup} already has a dispatch — one sales order can create only one dispatch`,
         );
       }
-      
-      const payloadLines = lines
-        .filter((l) => (Number(l.dispatched_qty) || 0) > 0)
-        .map((l) => ({
-          product_id: l.product_id,
-          dispatched_qty: Number(l.dispatched_qty) || 0,
-          unit_price: Number(l.unit_price) || 0,
-        }));
-      if (payloadLines.length === 0)
-        throw new Error("Enter a dispatched quantity for at least one line");
       
       // Validate against SO if creating from SO
       if (!createFromInvoice) {
@@ -1131,9 +1195,11 @@ function DispatchCreateModal({
       return created;
     },
     onSuccess: () => {
-      const msg = initialStatus
-        ? `Dispatch created with status "${initialStatus}"`
-        : "Draft dispatch note recorded — confirm it, then move it to Dispatched to debit inventory";
+      const msg = isEdit
+        ? "Draft dispatch updated"
+        : initialStatus
+          ? `Dispatch created with status "${initialStatus}"`
+          : "Draft dispatch note recorded — confirm it, then move it to Dispatched to debit inventory";
       toast.success(msg);
       onDone();
       qc.invalidateQueries({ queryKey: ["sales-proformas-for-dispatch"] });
@@ -1161,9 +1227,11 @@ function DispatchCreateModal({
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
             <div>
-              <h3 className="font-display text-lg">New dispatch</h3>
+              <h3 className="font-display text-lg">{isEdit ? `Edit draft ${editing?.dispatch_number ?? ""}` : "New dispatch"}</h3>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                Creates a draft — inventory is debited only when the status moves to Dispatched.
+                {isEdit
+                  ? "Sales order locked — inventory is debited only when the status moves to Dispatched."
+                  : "Creates a draft — inventory is debited only when the status moves to Dispatched."}
               </div>
             </div>
           <button onClick={onClose}>
@@ -1188,26 +1256,33 @@ function DispatchCreateModal({
             <div className="flex gap-2 mb-3">
               <button
                 type="button"
+                disabled={isEdit}
                 onClick={() => { setCreateFromInvoice(false); setInvoiceId(""); setSoId(preselectSoId ?? ""); }}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   !createFromInvoice
                     ? "bg-primary text-primary-foreground"
                     : "border border-border text-muted-foreground hover:border-primary hover:text-primary"
-                }`}
+                } disabled:opacity-50`}
               >
                 Sales Order
               </button>
               <button
                 type="button"
+                disabled={isEdit}
                 onClick={() => { setCreateFromInvoice(true); setSoId(""); setInvoiceId(preselectInvoiceId ?? ""); }}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   createFromInvoice
                     ? "bg-primary text-primary-foreground"
                     : "border border-border text-muted-foreground hover:border-primary hover:text-primary"
-                }`}
+                } disabled:opacity-50`}
               >
                 Invoice
               </button>
+              {isEdit && (
+                <span className="self-center text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Sales order locked on edit
+                </span>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               {preselectSoId && preselectedSoMissing && !createFromInvoiceState ? (
@@ -1220,6 +1295,7 @@ function DispatchCreateModal({
                   <SearchableSelect
                     value={invoiceId}
                     onChange={pickInvoice}
+                    disabled={isEdit}
                     placeholder="Select approved invoice…"
                     options={[
                       { value: "", label: "Select invoice…" },
@@ -1249,6 +1325,7 @@ function DispatchCreateModal({
                   <SearchableSelect
                     value={soId}
                     onChange={pickSo}
+                    disabled={isEdit}
                     placeholder="Select sales order…"
                     options={[
                       { value: "", label: "Select sales order…" },
@@ -1629,7 +1706,7 @@ function DispatchCreateModal({
                 className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
               >
                 {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-                Record draft dispatch
+                {isEdit ? "Save draft changes" : "Record draft dispatch"}
               </button>
             </div>
           </div>
@@ -1657,6 +1734,7 @@ function DispatchDetailModal({
   stockBalance,
   onClose,
   onChanged,
+  onEdit,
 }: {
   dispatch: Dispatch;
   canWrite: boolean;
@@ -1664,6 +1742,7 @@ function DispatchDetailModal({
   stockBalance: Map<string, number>;
   onClose: () => void;
   onChanged: () => void;
+  onEdit?: (d: Dispatch) => void;
 }) {
   const qc = useQueryClient();
   const debtorsQ = useQuery({
@@ -1987,6 +2066,16 @@ function DispatchDetailModal({
                     Cancel dispatch
                   </button>
                 )}
+              {canWrite && d.status === "draft" && onEdit && (
+                <button
+                  onClick={() => onEdit(d)}
+                  disabled={!!busy}
+                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit draft
+                </button>
+              )}
               {canWrite && d.status === "draft" && (
                 <button
                   onClick={() => run("delete")}

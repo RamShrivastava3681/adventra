@@ -118,6 +118,8 @@ function taskTarget(t: Task): { to: string; search?: Record<string, string> } {
       // After approval the next steps are downstream documents, not the PO.
       if (stage === "record_supplier_invoice")
         return { to: "/app/purchases", search: { createFromPo: id } };
+      if (stage === "await_supplier_response" || stage === "resolve_supplier_rejection")
+        return { to: "/app/purchase-orders" };
       if (stage === "await_goods" || stage === "create_grn")
         return { to: "/app/grn", search: { createFromPo: id } };
       return { to: "/app/purchase-orders" };

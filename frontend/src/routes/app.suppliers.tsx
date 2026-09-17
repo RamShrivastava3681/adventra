@@ -22,6 +22,7 @@ import {
   toPayload as toTermsPayload,
 } from "@/components/payment-terms";
 import { Plus, Loader2, Save, Trash2, X, Truck } from "lucide-react";
+import { CascadeDeleteDialog, summarizeDeleted } from "@/components/cascade-delete-dialog";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 
@@ -82,6 +83,7 @@ export function SuppliersPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<Supplier | null>(null);
   const [viewing, setViewing] = useState<Supplier | null>(null);
+  const [deleting, setDeleting] = useState<Supplier | null>(null);
   const [form, setForm] = useState(emptyForm);
 
   const suppliersQ = useQuery({
@@ -150,11 +152,13 @@ export function SuppliersPage() {
 
   const remove = useMutation({
     mutationFn: async (id: string) => {
-      await api.suppliers.delete(id);
+      return api.suppliers.delete(id);
     },
-    onSuccess: () => {
-      toast.success("Supplier removed");
+    onSuccess: (res: any) => {
+      const summary = summarizeDeleted(res?.deleted);
+      toast.success(summary ? `Supplier removed (${summary})` : "Supplier removed");
       qc.invalidateQueries({ queryKey: ["suppliers"] });
+      setDeleting(null);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -295,9 +299,7 @@ export function SuppliersPage() {
                             Edit
                           </button>
                           <button
-                            onClick={() => {
-                              if (confirm(`Remove ${s.company_name}?`)) remove.mutate(s.id);
-                            }}
+                            onClick={() => setDeleting(s)}
                             className="ml-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive"
                             aria-label="Remove"
                           >
@@ -319,6 +321,16 @@ export function SuppliersPage() {
           supplier={viewing}
           exposure={exposureBy(viewing.id)}
           onClose={() => setViewing(null)}
+        />
+      )}
+
+      {deleting && (
+        <CascadeDeleteDialog
+          kind="supplier"
+          name={deleting.company_name}
+          pending={remove.isPending}
+          onConfirm={() => remove.mutate(deleting.id)}
+          onClose={() => setDeleting(null)}
         />
       )}
 

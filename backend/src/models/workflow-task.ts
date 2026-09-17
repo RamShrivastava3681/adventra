@@ -31,8 +31,11 @@ export interface WorkflowTask {
   /** Stage key, e.g. "stock_check", "checker_approval", "client_acceptance",
    *  "create_proforma", "create_invoice", "payment_confirmation",
    *  "record_irn", "prepare_dispatch", "generate_ewb", "confirm_dispatch",
-   *  "send_to_supplier", "record_supplier_invoice", "treasury_payment",
-   *  "await_goods", "create_grn". Unique with docType+docId while open. */
+   *  "send_to_supplier", "await_supplier_response", "record_supplier_invoice",
+   *  "resolve_supplier_rejection", "treasury_payment", "await_goods",
+   *  "create_grn". Unique with docType+docId while open — except for
+   *  deliberate PARALLEL pairs opened with keepSiblingsOpen (a PO waits on the
+   *  supplier response AND on its invoice at the same time). */
   stage: string;
   docType: string;
   docId: string;
@@ -112,13 +115,21 @@ export async function listForDoc(docType: string, docId: string): Promise<Workfl
  * document first (exactly one open task per document), and returns the
  * existing open task untouched when the same stage is already open
  * (prevents duplicate tasks / duplicate emails).
+ *
+ * opts.keepSiblingsOpen: parallel tasks (e.g. a PO waiting on the supplier
+ * AND waiting for its supplier invoice) share one document without closing
+ * each other — pass true for the SECOND task opened at the same handoff.
  */
-export async function openTask(input: OpenTaskInput, actor?: { userId?: string | null; email?: string | null }): Promise<{ task: WorkflowTask; created: boolean }> {
+export async function openTask(
+  input: OpenTaskInput,
+  actor?: { userId?: string | null; email?: string | null },
+  opts?: { keepSiblingsOpen?: boolean },
+): Promise<{ task: WorkflowTask; created: boolean }> {
   const now = db.nowISO();
   const siblings = await listForDoc(input.docType, input.docId);
   const same = siblings.find((t) => t.status === "open" && t.stage === input.stage);
   if (same) return { task: same, created: false };
-  for (const t of siblings.filter((x) => x.status === "open")) {
+  for (const t of siblings.filter((x) => x.status === "open" && !(opts?.keepSiblingsOpen && x.stage === input.stage))) {
     const { pk, sk } = taskKey(t.id);
     await db.updateItem(pk, sk, {
       status: "done",
@@ -209,6 +220,33 @@ export async function markReminded(id: string, date: string): Promise<void> {
 export async function markEscalated(id: string, date: string): Promise<void> {
   const { pk, sk } = taskKey(id);
   await db.updateItem(pk, sk, { lastEscalationDate: date, updatedAt: db.nowISO() });
+}
+
+/**
+ * Close one open task at a specific stage for a document (used to retire one
+ * half of a parallel task pair, e.g. the supplier responded → close the
+ * "Track supplier response" half while the "Record supplier invoice" half
+ * stays open). No-op when the task does not exist.
+ */
+export async function closeTaskStage(
+  docType: string,
+  docId: string,
+  stage: string,
+  actor?: { userId?: string | null; email?: string | null },
+  note?: string,
+): Promise<void> {
+  const now = db.nowISO();
+  const tasks = await listForDoc(docType, docId);
+  for (const t of tasks.filter((x) => x.status === "open" && x.stage === stage)) {
+    const { pk, sk } = taskKey(t.id);
+    await db.updateItem(pk, sk, {
+      status: "done",
+      completedAt: now,
+      completedBy: actor?.email ?? actor?.userId ?? "system",
+      latestUpdate: note ?? "Completed",
+      updatedAt: now,
+    });
+  }
 }
 
 /** Recently completed tasks, newest first — for the queue's Completed filter. */

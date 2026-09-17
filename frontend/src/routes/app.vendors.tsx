@@ -15,7 +15,8 @@ import {
   InfoPanel,
 } from "@/components/dialog";
 import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
-import { Plus, X, Loader2, Building2 } from "lucide-react";
+import { Plus, X, Loader2, Building2, Trash2 } from "lucide-react";
+import { CascadeDeleteDialog, summarizeDeleted } from "@/components/cascade-delete-dialog";
 import { toast } from "sonner";
 import {
   PaymentTermsFields,
@@ -32,6 +33,21 @@ function VendorsPage() {
   const { user, isAdmin } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const [deleting, setDeleting] = useState<any | null>(null);
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => api.vendors.delete(id),
+    onSuccess: (res: any) => {
+      const summary = summarizeDeleted(res?.deleted);
+      toast.success(summary ? `Supplier deleted (${summary})` : "Supplier deleted");
+      qc.invalidateQueries({
+        predicate: (q) =>
+          q.queryKey.some((k) => typeof k === "string" && /supplier|vendor/i.test(k)),
+      });
+      setDeleting(null);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
 
   const vendorsQ = useQuery({
     queryKey: ["vendors"],
@@ -97,6 +113,7 @@ function VendorsPage() {
                     <th className="px-5 py-2 text-left font-normal">Location</th>
                     <th className="px-5 py-2 text-right font-normal">Terms</th>
                     <th className="px-5 py-2 text-right font-normal">Open AP</th>
+                    {isAdmin && <th className="px-5 py-2 text-right font-normal" />}
                   </tr>
                 </thead>
                 <tbody>
@@ -122,6 +139,17 @@ function VendorsPage() {
                         })}
                       </td>
                       <td className="px-5 py-3 text-right num">{fmtMoney(openFor(v.id))}</td>
+                      {isAdmin && (
+                        <td className="px-5 py-3 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => setDeleting(v)}
+                            className="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive"
+                            aria-label={`Delete ${v.name}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -141,6 +169,16 @@ function VendorsPage() {
                 q.queryKey.some((k) => typeof k === "string" && /supplier|vendor/i.test(k)),
             })
           }
+        />
+      )}
+
+      {deleting && (
+        <CascadeDeleteDialog
+          kind="vendor"
+          name={deleting.name}
+          pending={remove.isPending}
+          onConfirm={() => remove.mutate(deleting.id)}
+          onClose={() => setDeleting(null)}
         />
       )}
     </div>

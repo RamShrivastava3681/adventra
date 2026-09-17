@@ -207,15 +207,18 @@ function advanceWorkflow(
     emailKind?: "assignment" | "approval" | "rejection" | "info";
     docType?: string;
     appPath?: string;
+    /** Parallel tasks: don't close other open tasks for the same document. */
+    keepSiblingsOpen?: boolean;
   },
-) {
+): Promise<{ task: WorkflowTask.WorkflowTask; created: boolean }> {
   const actor = (req as any).user as { userId: string; email: string; roles?: string[] } | undefined;
   const clientId = task.clientId ?? actor?.userId ?? "";
-  void (async () => {
+  return (async () => {
     try {
       const { task: opened, created } = await WorkflowTask.openTask(
         { ...task, clientId },
         { userId: actor?.userId, email: actor?.email },
+        { keepSiblingsOpen: opts?.keepSiblingsOpen },
       );
       const docType = opts?.docType ?? task.docType;
       await DocTimeline.addEntry({
@@ -239,7 +242,7 @@ function advanceWorkflow(
         ownerRole: task.ownerRole,
       });
       // Email only for genuinely new assignments (dedupe by DocType+DocID+Stage).
-      if (!created) return;
+      if (!created) return { task: opened, created };
       const settings = await WorkflowSettings.get(clientId).catch(() => null);
       const emailKind = opts?.emailKind ?? "assignment";
       const allowed =
@@ -250,7 +253,7 @@ function advanceWorkflow(
             : emailKind === "rejection"
               ? settings?.emailOnRejection !== false
               : true;
-      if (!allowed) return;
+      if (!allowed) return { task: opened, created };
       const { notifyWorkflowTask } = await import("../email.js");
       const result = await notifyWorkflowTask({
         taskName: task.requiredAction,
@@ -276,8 +279,10 @@ function advanceWorkflow(
         sent: result.sent,
         error: result.sent ? null : "suppressed or failed",
       });
+      return { task: opened, created };
     } catch (err) {
       console.error("  ⚠ Workflow handoff failed:", err);
+      return { task: null as any, created: false };
     }
   })();
 }
@@ -1386,10 +1391,18 @@ router.put("/debtors/:id", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router.delete("/debtors/:id", authMiddleware, async (req, res) => {
+router.delete("/debtors/:id", authMiddleware, requireAdmin, async (req, res) => {
   try {
-    await Debtor.remove(req.params.id);
-    res.json({ success: true });
+    const existing = await Debtor.get(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Customer not found" });
+    const { cascadeDeleteCustomer } = await import("../services/party-cascade.js");
+    const deleted = await cascadeDeleteCustomer(req.params.id);
+    trackAction(req, "debtor.deleted", req.params.id, {
+      entityType: "debtor",
+      name: (existing as any).name ?? null,
+      deleted,
+    });
+    res.json({ success: true, deleted });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1718,10 +1731,18 @@ router.put("/vendors/:id", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router.delete("/vendors/:id", authMiddleware, async (req, res) => {
+router.delete("/vendors/:id", authMiddleware, requireAdmin, async (req, res) => {
   try {
-    await Vendor.remove(req.params.id);
-    res.json({ success: true });
+    const existing = await Vendor.get(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Vendor not found" });
+    const { cascadeDeleteVendor } = await import("../services/party-cascade.js");
+    const deleted = await cascadeDeleteVendor(req.params.id);
+    trackAction(req, "vendor.deleted", req.params.id, {
+      entityType: "vendor",
+      name: (existing as any).name ?? null,
+      deleted,
+    });
+    res.json({ success: true, deleted });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -1749,10 +1770,18 @@ router.put("/suppliers/:id", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router.delete("/suppliers/:id", authMiddleware, async (req, res) => {
+router.delete("/suppliers/:id", authMiddleware, requireAdmin, async (req, res) => {
   try {
-    await Supplier.remove(req.params.id);
-    res.json({ success: true });
+    const existing = await Supplier.get(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Supplier not found" });
+    const { cascadeDeleteSupplier } = await import("../services/party-cascade.js");
+    const deleted = await cascadeDeleteSupplier(req.params.id);
+    trackAction(req, "supplier.deleted", req.params.id, {
+      entityType: "supplier",
+      name: (existing as any).companyName ?? (existing as any).company_name ?? null,
+      deleted,
+    });
+    res.json({ success: true, deleted });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -3205,6 +3234,17 @@ router.post("/purchase-invoices", authMiddleware, async (req, res) => {
         console.error("  ⚠ Cash-flow sync after purchase invoice creation failed:", err?.message ?? err);
       }
     })();
+    // The PO's "Record supplier invoice" task is now satisfied — retire it
+    // (the purchase_invoice task below takes over the flow).
+    if (item.goodsPurchaseOrderId) {
+      void WorkflowTask.closeTaskStage(
+        "purchase_order",
+        item.goodsPurchaseOrderId,
+        "record_supplier_invoice",
+        req.user,
+        `Supplier invoice ${item.invoiceNumber ?? item.id} recorded`,
+      );
+    }
     // A recorded supplier invoice enters the queue: procurement owns it until
     // it is verified and pushed to the checker.
     advanceWorkflow(req, {
@@ -4374,19 +4414,37 @@ router.put("/goods-purchase-orders/:id", authMiddleware, async (req, res) => {
       } catch (e: any) {
         console.error("  ⚠ Auto supplier email failed:", e?.message ?? e);
       }
-      advanceWorkflow(req, {
+      // Two PARALLEL tasks (PDF-3 §3): the supplier may respond before the
+      // invoice arrives, and the invoice may arrive before the response is
+      // recorded — so neither closes the other. The response task retires
+      // when the supplier answers; the invoice task retires when a purchase
+      // invoice is recorded against this PO.
+      await advanceWorkflow(req, {
         workflowType: "purchase_order",
-        stage: "track_supplier",
+        stage: "await_supplier_response",
         docType: "purchase_order",
         docId: req.params.id,
         docNumber: (updated as any)?.poNumber ?? null,
         counterparty: (updated as any)?.supplierName ?? null,
         docStatus: "sent",
-        ownerRole: "client",
-        requiredAction: "Track supplier response, record supplier invoice",
-        nextAction: "Submit invoice for approval",
+        ownerRole: "procurement",
+        requiredAction: "Track supplier response",
+        nextAction: "Chase acknowledgement, then record supplier invoice",
         amount: Number((updated as any)?.grandTotal) || 0,
-      }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchases" });
+      }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchase-orders" });
+      await advanceWorkflow(req, {
+        workflowType: "purchase_order",
+        stage: "record_supplier_invoice",
+        docType: "purchase_order",
+        docId: req.params.id,
+        docNumber: (updated as any)?.poNumber ?? null,
+        counterparty: (updated as any)?.supplierName ?? null,
+        docStatus: "sent",
+        ownerRole: "procurement",
+        requiredAction: "Record supplier invoice",
+        nextAction: "Submit invoice for checker approval",
+        amount: Number((updated as any)?.grandTotal) || 0,
+      }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchases", keepSiblingsOpen: true });
     }
     if (body.status === "cancelled" && current?.status !== "cancelled") {
       const reason = String(body.notes ?? req.body?.reason ?? "").trim();
@@ -5992,6 +6050,34 @@ router.post(
         sentTo: sent.email,
         amount: po.grandTotal,
       });
+      // Re-send re-arms both parallel tasks (idempotent — existing open tasks
+      // at these stages are returned untouched, no duplicate emails).
+      await advanceWorkflow(req, {
+        workflowType: "purchase_order",
+        stage: "await_supplier_response",
+        docType: "purchase_order",
+        docId: po.id,
+        docNumber: po.poNumber ?? null,
+        counterparty: po.supplierName ?? null,
+        docStatus: "sent",
+        ownerRole: "procurement",
+        requiredAction: "Track supplier response",
+        nextAction: "Chase acknowledgement, then record supplier invoice",
+        amount: Number(po.grandTotal) || 0,
+      }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchase-orders" });
+      await advanceWorkflow(req, {
+        workflowType: "purchase_order",
+        stage: "record_supplier_invoice",
+        docType: "purchase_order",
+        docId: po.id,
+        docNumber: po.poNumber ?? null,
+        counterparty: po.supplierName ?? null,
+        docStatus: "sent",
+        ownerRole: "procurement",
+        requiredAction: "Record supplier invoice",
+        nextAction: "Submit invoice for checker approval",
+        amount: Number(po.grandTotal) || 0,
+      }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchases", keepSiblingsOpen: true });
       res.json({ success: true, sentTo: sent.email, document: updated });
     } catch (err: any) {
       res.status(400).json({ error: err.message });
@@ -6293,13 +6379,16 @@ router.post(
         });
       }
       // Supplier rejection reopens the procurement task on the PO (PDF-3 §3):
-      // procurement re-works the order and re-sends it to the supplier.
+      // procurement re-works the order and re-sends it to the supplier. The
+      // response task retires (it's answered) but the invoice task stays open —
+      // an invoice may still arrive for the re-worked order.
       if (kind === "purchase_order" && decision !== "approved" && !locked) {
         const fakeReq = { user: { userId: (claimed as any).clientId, email: "system", roles: [] } } as any;
+        await WorkflowTask.closeTaskStage("purchase_order", (claimed as any).id, "await_supplier_response", { userId: "system" }, "Supplier responded: rejected");
         advanceWorkflow(fakeReq, {
           clientId: (claimed as any).clientId,
           workflowType: "purchase_order",
-          stage: "track_supplier",
+          stage: "resolve_supplier_rejection",
           docType: "purchase_order",
           docId: (claimed as any).id,
           docNumber: (claimed as any).poNumber,
@@ -6315,7 +6404,12 @@ router.post(
           emailKind: "rejection",
           docType: "purchase_order",
           appPath: "/app/purchase-orders",
+          keepSiblingsOpen: true,
         });
+      }
+      // Supplier approval retires the response task; the invoice task stays.
+      if (kind === "purchase_order" && decision === "approved" && !locked) {
+        await WorkflowTask.closeTaskStage("purchase_order", (claimed as any).id, "await_supplier_response", { userId: "system" }, `Supplier approved${comments ? `: ${comments}` : ""}`);
       }
       res.json({
         success: true,
@@ -7507,6 +7601,23 @@ router.put("/goods-dispatches/:id", authMiddleware, async (req, res) => {
       notes: body.notes ?? dispatch.notes,
       documents: body.documents ?? dispatch.documents,
       lines,
+      // Header fields editable on a draft (the sales order itself is locked —
+      // goodsSalesOrderId is never changed here).
+      transporterName: body.transporterName ?? dispatch.transporterName,
+      trackingNumber: body.trackingNumber ?? dispatch.trackingNumber,
+      deliveryChallanNumber: body.deliveryChallanNumber ?? dispatch.deliveryChallanNumber,
+      linkedCustomerProformaId: body.linkedCustomerProformaId ?? dispatch.linkedCustomerProformaId,
+      linkedCustomerProformaNumber:
+        body.linkedCustomerProformaNumber ?? dispatch.linkedCustomerProformaNumber,
+      linkedSalesInvoiceId: body.linkedSalesInvoiceId ?? dispatch.linkedSalesInvoiceId,
+      linkedSalesInvoiceNumber:
+        body.linkedSalesInvoiceNumber ?? dispatch.linkedSalesInvoiceNumber,
+      contactPerson: body.contactPerson ?? dispatch.contactPerson,
+      deliveryAddress: body.deliveryAddress ?? dispatch.deliveryAddress,
+      dispatchType: body.dispatchType ?? dispatch.dispatchType,
+      sourceLocationId: body.sourceLocationId ?? dispatch.sourceLocationId,
+      destinationLocationId: body.destinationLocationId ?? dispatch.destinationLocationId,
+      channel: body.channel ?? dispatch.channel,
       ...packing,
     });
     res.json(updated);

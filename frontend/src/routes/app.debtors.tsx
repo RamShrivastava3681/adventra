@@ -17,12 +17,13 @@ import {
 } from "@/components/dialog";
 import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 import { CustomerTermsManager } from "@/components/customer-terms";
+import { CascadeDeleteDialog, summarizeDeleted } from "@/components/cascade-delete-dialog";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
-import { Plus, X, Loader2, ShieldAlert, Building2 } from "lucide-react";
+import { Plus, X, Loader2, ShieldAlert, Building2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/debtors")({
@@ -49,6 +50,18 @@ export function DebtorsPage() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<any | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
+  const [deleting, setDeleting] = useState<any | null>(null);
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => api.debtors.delete(id),
+    onSuccess: (res: any) => {
+      const summary = summarizeDeleted(res?.deleted);
+      toast.success(summary ? `Customer deleted (${summary})` : "Customer deleted");
+      invalidateCustomerQueries(qc);
+      setDeleting(null);
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
 
   const debtorsQ = useQuery({
     queryKey: ["debtors-full"],
@@ -167,6 +180,15 @@ export function DebtorsPage() {
                               Edit
                             </button>
                           )}
+                          {isAdmin && (
+                            <button
+                              onClick={() => setDeleting(d)}
+                              className="ml-2 rounded-md border border-border px-2 py-1 text-xs text-muted-foreground hover:border-destructive hover:text-destructive"
+                              aria-label={`Delete ${d.name}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </td>
                       </tr>
                     );
@@ -196,6 +218,15 @@ export function DebtorsPage() {
           debtor={viewing}
           exposure={exposureFor(viewing.id)}
           onClose={() => setViewing(null)}
+        />
+      )}
+      {deleting && (
+        <CascadeDeleteDialog
+          kind="customer"
+          name={deleting.name}
+          pending={remove.isPending}
+          onConfirm={() => remove.mutate(deleting.id)}
+          onClose={() => setDeleting(null)}
         />
       )}
     </div>
