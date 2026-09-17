@@ -2080,6 +2080,8 @@ export interface TallyInvoiceEwb {
 }
 
 export interface TallyInvoiceData {
+  /** Title override — purchase proformas reuse this template as "PROFORMA INVOICE". */
+  docTitle?: string | null;
   number: string;
   /** Already formatted, e.g. "8-Sep-26". */
   date: string;
@@ -2399,9 +2401,15 @@ export function buildInvoiceTallyPdf(data: TallyInvoiceData): Promise<Buffer> {
       };
 
       // ── Title + e-Invoice label ──────────────────────────────────────────
-      cell(M, y, CW, 18, "TAX INVOICE", { font: FB, size: 11, align: "center" });
-      doc.font(FB).fontSize(8).fillColor(TALLY.ink)
-        .text("e-Invoice", M, y + 3, { width: CW, align: "right" });
+      // Purchase proformas reuse this template with a "PROFORMA INVOICE"
+      // title (and no e-Invoice tag — proformas are never e-invoiced).
+      const docTitle = data.docTitle || "TAX INVOICE";
+      const isProformaTitle = docTitle !== "TAX INVOICE";
+      cell(M, y, CW, 18, docTitle, { font: FB, size: 11, align: "center" });
+      if (!isProformaTitle) {
+        doc.font(FB).fontSize(8).fillColor(TALLY.ink)
+          .text("e-Invoice", M, y + 3, { width: CW, align: "right" });
+      }
       y += 18;
 
       // ── IRN header + QR (only once the IRN is recorded) ──────────────────
@@ -2683,7 +2691,16 @@ export function buildInvoiceTallyPdf(data: TallyInvoiceData): Promise<Buffer> {
         else cell(M, y, CW, jh, "", {});
         y += jh;
         need(12);
-        cell(M, y, CW, 12, "This is a Computer Generated Invoice", { size: 7.5, align: "center" });
+        cell(
+          M,
+          y,
+          CW,
+          12,
+          data.docTitle && data.docTitle !== "TAX INVOICE"
+            ? `This is a Computer Generated ${data.docTitle}`
+            : "This is a Computer Generated Invoice",
+          { size: 7.5, align: "center" },
+        );
         y += 12;
       }
 

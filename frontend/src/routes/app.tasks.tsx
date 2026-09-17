@@ -94,6 +94,11 @@ const PRIORITY_TONE: Record<string, string> = {
  * invoice" task opens the sales-invoice creation form with the SO selected),
  * not just the current document's list.
  */
+function linkedDocId(t: Task, type: string): string | null {
+  const found = (t.linked_docs ?? []).find((d) => d.type === type);
+  return found?.id ?? null;
+}
+
 function taskTarget(t: Task): { to: string; search?: Record<string, string> } {
   const stage = (t.stage ?? "").toLowerCase();
   const id = t.doc_id;
@@ -113,20 +118,43 @@ function taskTarget(t: Task): { to: string; search?: Record<string, string> } {
         return { to: "/app/dispatches", search: { createFromInvoice: id } };
       return { to: "/app/invoices" };
     case "proforma":
-      return { to: "/app/proformas" };
+      // Open the proforma itself (view/edit) instead of the bare list.
+      return { to: "/app/proformas", search: { pfId: id } };
     case "purchase_order":
+      // Create-proforma from a PO opens the purchase-proforma form with the
+      // PO already linked (mirrors the sales-order create_proforma flow).
+      if (stage === "create_proforma")
+        return { to: "/app/proformas", search: { createFromPo: id, side: "purchase" } };
       // After approval the next steps are downstream documents, not the PO.
-      if (stage === "record_supplier_invoice")
-        return { to: "/app/purchases", search: { createFromPo: id } };
+      // Carry the linked purchase proforma (if the backend attached it) so
+      // the invoice form opens with PO + proforma already linked.
+      if (stage === "record_supplier_invoice") {
+        const pfId = linkedDocId(t, "proforma");
+        return {
+          to: "/app/purchases",
+          search: pfId ? { createFromPo: id, createFromPf: pfId } : { createFromPo: id },
+        };
+      }
       if (stage === "await_supplier_response" || stage === "resolve_supplier_rejection")
         return { to: "/app/purchase-orders" };
       if (stage === "await_goods" || stage === "create_grn")
         return { to: "/app/grn", search: { createFromPo: id } };
       return { to: "/app/purchase-orders" };
-    case "purchase_invoice":
+    case "purchase_invoice": {
       if (stage === "await_goods" || stage === "create_grn")
-        return { to: "/app/grn", search: { createFromPo: (t.linked_docs ?? []).find((d) => d.type === "purchase_order")?.id ?? "" } };
-      return { to: "/app/purchases" };
+        return { to: "/app/grn", search: { createFromPo: linkedDocId(t, "purchase_order") ?? "" } };
+      // Verify / checker / payment stages re-open the same invoice so the
+      // proforma + PO links stay visible instead of a bare list.
+      const poId = linkedDocId(t, "purchase_order");
+      const pfId = linkedDocId(t, "proforma");
+      if (poId || pfId) {
+        const search: Record<string, string> = { openInvoice: id };
+        if (poId) search.createFromPo = poId;
+        if (pfId) search.createFromPf = pfId;
+        return { to: "/app/purchases", search };
+      }
+      return { to: "/app/purchases", search: { openInvoice: id } };
+    }
     case "grn":
       return { to: "/app/grn" };
     case "dispatch":

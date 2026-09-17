@@ -1,9 +1,11 @@
-import { X, FileSignature } from "lucide-react";
-import type { ReactNode } from "react";
+import { X, FileSignature, Loader2 } from "lucide-react";
+import { useState, type ReactNode } from "react";
 import { fmtMoney, fmtDate } from "@/components/ledger-ui";
 import { DocumentList, type DocMeta } from "@/components/document-uploader";
 import { DocumentStatusStripCompact } from "@/components/document-status-strip";
 import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
+import api from "@/lib/api-client";
+import { toast } from "sonner";
 
 /**
  * Read-only detail modals used by the checker desk and funding queue so
@@ -240,7 +242,7 @@ export function InvoiceDetailModal({
         <Summary
           rows={[
             ["Status", i.status ?? "—"],
-            ["Counterparty", party],
+            [isSale ? "Customer" : "Supplier", party],
             ["Gross total", fmtMoney(gross)],
             ["Advance deducted", advance > 0 ? `− ${fmtMoney(advance)}` : "—"],
             [isSale ? "Net receivable" : "Net payable", fmtMoney(net)],
@@ -412,7 +414,22 @@ const PF_DOC_LABELS: Record<string, string> = {
 
 /** Full read-only view of a proforma (sales or purchase side). */
 export function ProformaDetailModal({ pf, onClose }: { pf: any; onClose: () => void }) {
+  const [downloading, setDownloading] = useState(false);
   const p = pf ?? {};
+  const downloadPdf = async () => {
+    if (!p.id || downloading) return;
+    setDownloading(true);
+    try {
+      await api.purchaseOrders.downloadPdf(
+        p.id,
+        p.proforma_number ?? p.po_number ?? "proforma",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not download PDF");
+    } finally {
+      setDownloading(false);
+    }
+  };
   const cp = p.side === "sales" ? p.debtor?.name : p.vendor?.name;
   const docLabel = PF_DOC_LABELS[p.status] ?? p.status;
   const advance =
@@ -469,7 +486,7 @@ export function ProformaDetailModal({ pf, onClose }: { pf: any; onClose: () => v
         />
 
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-          <D label="Counterparty" value={cp ?? "—"} />
+          <D label={p.side === "sales" ? "Customer" : "Supplier"} value={cp ?? "—"} />
           <D label="Currency" value={p.currency ?? "—"} />
           <D label="Proforma date" value={p.proforma_date ? fmtDate(p.proforma_date) : "—"} />
           {p.issue_date && <D label="Issue date" value={fmtDate(p.issue_date)} />}
@@ -536,14 +553,15 @@ export function ProformaDetailModal({ pf, onClose }: { pf: any; onClose: () => v
           ]}
         />
 
-        <div className="flex justify-end border-t border-border pt-3">
-          <a
-            href={`/proformas/${p.id}/pdf`}
-            download
-            className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted flex items-center gap-2"
+        <div className="flex justify-end gap-2 border-t border-border pt-3">
+          <button
+            onClick={downloadPdf}
+            disabled={downloading}
+            className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted flex items-center gap-2 disabled:opacity-60"
           >
-            <FileSignature className="h-4 w-4" /> Download PDF
-          </a>
+            {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />}
+            {downloading ? "Preparing…" : "Download PDF"}
+          </button>
           <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
             Close
           </button>

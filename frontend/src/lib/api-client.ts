@@ -265,6 +265,26 @@ const api = {
     delete: (id: string) => api.delete(`/purchase-orders/${id}`),
     // Auto-create a DRAFT sales order from a sales proforma and link it.
     convertToSO: (id: string) => api.post<any>(`/purchase-orders/${id}/convert-to-so`, {}),
+    // Proforma PDF download (backend renders the PDF — never link to
+    // `/proformas/:id/pdf` directly; that hits the SPA and returns HTML).
+    downloadPdf: async (id: string, filename: string) => {
+      const res = await fetch(`${API_URL}/proformas/${id}/pdf`, { credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || "Could not download PDF");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disp = res.headers.get("content-disposition") || "";
+      const m = disp.match(/filename="?([^"]+)"?/);
+      a.download = m?.[1] ?? `${filename}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
   },
 
   // Reusable purchase-order clause texts (packaging, delivery terms, …).

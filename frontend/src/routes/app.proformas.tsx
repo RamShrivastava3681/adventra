@@ -45,16 +45,37 @@ import { TransactionFilters, type TxFiltersConfig } from "@/components/transacti
 
 export const Route = createFileRoute("/app/proformas")({
   component: ProformasPageWrapper,
-  // Queue deep link: open the sales-proforma creation form pre-filled from a
-  // sales order ("Create advance proforma" task).
-  validateSearch: (search: Record<string, unknown>): { createFromSo?: string } => ({
+  // Queue deep links:
+  // - ?createFromSo=<soId> opens the sales-proforma form pre-filled from a
+  //   sales order ("Create advance proforma" task).
+  // - ?createFromPo=<poId> opens the purchase-proforma form with the PO
+  //   already linked.
+  // - ?pfId=<id> opens an existing proforma (view) from a workflow task.
+  validateSearch: (search: Record<string, unknown>): {
+    createFromSo?: string;
+    createFromPo?: string;
+    side?: string;
+    pfId?: string;
+  } => ({
     createFromSo: typeof search.createFromSo === "string" ? search.createFromSo : undefined,
+    createFromPo: typeof search.createFromPo === "string" ? search.createFromPo : undefined,
+    side: typeof search.side === "string" ? search.side : undefined,
+    pfId: typeof search.pfId === "string" ? search.pfId : undefined,
   }),
 });
 
 function ProformasPageWrapper() {
   const search = Route.useSearch();
-  return <ProformasPageContent createFromSo={search.createFromSo} />;
+  const side =
+    search.side === "sales" || search.side === "purchase" ? search.side : undefined;
+  return (
+    <ProformasPageContent
+      createFromSo={search.createFromSo}
+      createFromPo={search.createFromPo}
+      side={side}
+      pfId={search.pfId}
+    />
+  );
 }
 
 type PFLine = {
@@ -176,7 +197,7 @@ type GoodsPOForConvert = {
 };
 
 export function ProformasPage(
-  props: { createFromSo?: string; side?: "sales" | "purchase" } = {},
+  props: { createFromSo?: string; createFromPo?: string; side?: "sales" | "purchase"; pfId?: string } = {},
 ) {
   return <ProformasPageContent {...props} />;
 }
@@ -189,10 +210,14 @@ export function ProformasPage(
  */
 function ProformasPageContent({
   createFromSo,
+  createFromPo,
   side,
+  pfId,
 }: {
   createFromSo?: string;
+  createFromPo?: string;
   side?: "sales" | "purchase";
+  pfId?: string;
 }) {
   const { user, isAdmin, isClient, isChecker, isTreasury } = useAuth();
   const canCreate = isAdmin || (isClient && !isChecker && !isTreasury);
@@ -200,6 +225,7 @@ function ProformasPageContent({
   const navigate = useNavigate();
   const [open, setOpen] = useState<null | "sales" | "purchase">(null);
   const [createFromSoId, setCreateFromSoId] = useState<string | null>(createFromSo ?? null);
+  const [createFromPoId, setCreateFromPoId] = useState<string | null>(createFromPo ?? null);
   const [tab, setTab] = useState<"all" | "sales" | "purchase">(side ?? "all");
   const [editingPf, setEditingPf] = useState<PF | null>(null);
   const [viewingPf, setViewingPf] = useState<PF | null>(null);
@@ -225,6 +251,38 @@ function ProformasPageContent({
       }
     }
   }, [createFromSoId, canCreate]);
+
+  // Deep link: queue "Create proforma" task from a purchase order → open the
+  // purchase-proforma creation form with the PO already linked.
+  useEffect(() => {
+    if (createFromPoId && canCreate) {
+      setTab("purchase");
+      setOpen("purchase");
+      try {
+        if (window.location.pathname.startsWith("/app/proformas")) {
+          navigate({ to: "/app/proformas", search: {}, replace: true });
+        }
+      } catch {
+        // embedded / no router context — nothing to clear
+      }
+    }
+  }, [createFromPoId, canCreate]);
+
+  // Deep link: workflow task on a proforma → open that proforma (view).
+  useEffect(() => {
+    if (!pfId || viewingPf) return;
+    const found = ((listQ.data ?? []) as PF[]).find((p) => p.id === pfId);
+    if (found) {
+      setViewingPf(found);
+      try {
+        if (window.location.pathname.startsWith("/app/proformas")) {
+          navigate({ to: "/app/proformas", search: {}, replace: true });
+        }
+      } catch {
+        // embedded / no router context — nothing to clear
+      }
+    }
+  }, [pfId, listQ.data]);
 
   // Catalogue + suppliers for the purchase (supplier quotation) proforma form.
   const productsQ = useQuery({
@@ -290,8 +348,19 @@ function ProformasPageContent({
       (side ? p.side === side : true) && (tab === "all" || p.side === tab),
   );
 
+  const partyLabel = side === "purchase" || (!side && tab === "purchase")
+    ? "Supplier"
+    : side === "sales" || (!side && tab === "sales")
+      ? "Customer"
+      : "Counterparty";
+  const partySearchHint = side === "purchase" || (!side && tab === "purchase")
+    ? "supplier"
+    : side === "sales" || (!side && tab === "sales")
+      ? "customer"
+      : "supplier / customer";
+
   const pfConfig: TxFiltersConfig<PF> = {
-    searchPlaceholder: "Search by proforma / PO number, counterparty…",
+    searchPlaceholder: `Search by proforma / PO number, ${partySearchHint}…`,
     search: (p) => [
       p.proforma_number,
       p.po_number,
@@ -418,7 +487,7 @@ function ProformasPageContent({
                       <tr className="border-b border-border">
                         <th className="px-5 py-2 text-left font-normal">Proforma</th>
                         <th className="px-5 py-2 text-left font-normal">PO #</th>
-                        <th className="px-5 py-2 text-left font-normal">Counterparty</th>
+                        <th className="px-5 py-2 text-left font-normal">{partyLabel}</th>
                         <th className="px-5 py-2 text-left font-normal">Side</th>
                         <th className="px-5 py-2 text-right font-normal">Invoice amount</th>
                         <th className="px-5 py-2 text-right font-normal">Advance</th>
@@ -636,11 +705,15 @@ function ProformasPageContent({
       {open && user && open === "purchase" && (
         <PurchaseProformaModal
           userId={user.id}
+          initialPoId={createFromPoId ?? undefined}
           products={(productsQ.data ?? []) as CatalogueProduct[]}
           suppliers={
             (suppliersQ.data ?? []) as Array<{ id: string; name: string; contact: string }>
           }
-          onClose={() => setOpen(null)}
+          onClose={() => {
+            setOpen(null);
+            setCreateFromPoId(null);
+          }}
         />
       )}
       {editingPf && user && editingPf.side === "sales" && (
@@ -1323,12 +1396,15 @@ type LineDraft = {
 function PurchaseProformaModal({
   userId,
   pf,
+  initialPoId,
   products,
   suppliers,
   onClose,
 }: {
   userId: string;
   pf?: PF;
+  /** Queue deep link — preselect this purchase order and auto-fill from it. */
+  initialPoId?: string;
   products: CatalogueProduct[];
   suppliers: Array<{
     id: string;
@@ -1385,6 +1461,19 @@ function PurchaseProformaModal({
     queryKey: ["pf-purchase-orders"],
     queryFn: async () => api.goodsPurchaseOrders.list(),
   });
+
+  // Queue deep link: once the PO list is loaded, auto-pick the requested
+  // order so the form arrives with the PO already linked (same path as a
+  // manual pick).
+  const initialPoApplied = useRef(false);
+  useEffect(() => {
+    if (!initialPoId || isEdit || initialPoApplied.current) return;
+    const po = (posQ.data ?? []).find((x: any) => x.id === initialPoId);
+    if (po) {
+      initialPoApplied.current = true;
+      pickPo(initialPoId);
+    }
+  }, [initialPoId, isEdit, posQ.data]);
 
   // Pick a purchase order → auto-fill supplier + contact + GSTIN + terms +
   // dates + freight + lines. Everything stays editable after the fetch.
@@ -2090,6 +2179,21 @@ function FundModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: (
 // ─── Detail modal ──────────────────────────────────────────────────────────
 function ProformaDetailModal({
   pf, onClose }: { pf: PF; onClose: () => void }) {
+  const [downloading, setDownloading] = useState(false);
+  const downloadPdf = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    try {
+      await api.purchaseOrders.downloadPdf(
+        pf.id,
+        pf.proforma_number ?? pf.po_number ?? "proforma",
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Could not download PDF");
+    } finally {
+      setDownloading(false);
+    }
+  };
   const cp = pf.side === "sales" ? pf.debtor?.name : pf.vendor?.name;
   const docLabel = PF_DOC_LABELS[pf.status] ? PF_DOC_LABELS[pf.status] : pf.status;
   return (
@@ -2097,7 +2201,7 @@ function ProformaDetailModal({
       <div className="space-y-4 p-5 text-sm">
         <Summary pf={pf} />
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-          <D label="Counterparty" value={cp ?? "—"} />
+          <D label={pf.side === "sales" ? "Customer" : "Supplier"} value={cp ?? "—"} />
           <D label="Currency" value={pf.currency} />
           <D label="Side" value={pf.side} />
           <D label="Proforma date" value={pf.proforma_date ? fmtDate(pf.proforma_date) : "—"} />
@@ -2193,14 +2297,15 @@ function ProformaDetailModal({
           </div>
         )}
 
-        <div className="flex justify-end border-t border-border pt-3">
-          <a
-            href={`/proformas/${pf.id}/pdf`}
-            download
-            className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted flex items-center gap-2"
+        <div className="flex justify-end gap-2 border-t border-border pt-3">
+          <button
+            onClick={downloadPdf}
+            disabled={downloading}
+            className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted flex items-center gap-2 disabled:opacity-60"
           >
-            <FileSignature className="h-4 w-4" /> Download PDF
-          </a>
+            {downloading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileSignature className="h-4 w-4" />}
+            {downloading ? "Preparing…" : "Download PDF"}
+          </button>
           <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
             Close
           </button>

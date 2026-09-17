@@ -3906,16 +3906,130 @@ router.delete("/purchase-orders/:id", authMiddleware, async (req, res) => {
 });
 
 /**
- * GET /proformas/:id/pdf — download the Tally-style proforma PDF.
- * Sales-side proformas print as "PROFORMA INVOICE"; purchase-side proformas
- * (supplier quotations) print with the supplier name in the seller block.
+ * GET /proformas/:id/pdf — download the proforma PDF.
+ * Sales-side proformas print on the proforma template ("PROFORMA INVOICE");
+ * purchase-side proformas (supplier quotations) reuse the SAME Tally
+ * tax-invoice template as invoices (title overridden to "PROFORMA INVOICE"),
+ * with the supplier in the seller block and our company as the buyer.
  */
 router.get("/proformas/:id/pdf", authMiddleware, async (req, res) => {
   try {
     const pf = await PurchaseOrder.get(req.params.id);
     if (!pf) return res.status(404).json({ error: "Proforma not found" });
-    const { proformaToTallyData, buildProformaTallyPdf } = await import("../lib/document-pdf.js");
     const { seller, bank, bankRaw, declarationRaw, logoImage } = await resolveTallySellerParts(pf.clientId);
+    if ((pf as any).side === "purchase") {
+      const { invoiceToTallyData, buildInvoiceTallyPdf } = await import("../lib/document-pdf.js");
+      // Supplier → seller block (master first, stored fields as fallback).
+      const vendorId = (pf as any).vendorId ?? (pf as any).vendor_id ?? null;
+      let supplier: any = null;
+      if (vendorId) {
+        supplier =
+          await Supplier.get(vendorId).catch(() => null) ??
+          await Vendor.get(vendorId).catch(() => null);
+      }
+      const supplierName =
+        (supplier as any)?.companyName ??
+        (supplier as any)?.company_name ??
+        (supplier as any)?.name ??
+        null;
+      const supplierAddress = [
+        (supplier as any)?.addressLine ?? (supplier as any)?.address_line ?? null,
+        (supplier as any)?.city ?? null,
+        (supplier as any)?.country ?? null,
+      ]
+        .filter(Boolean)
+        .join(", ");
+      const supplierGstin =
+        (supplier as any)?.gstin ??
+        (pf as any).supplierGstin ??
+        (pf as any).supplier_gstin ??
+        null;
+      const supplierStateCode =
+        (supplier as any)?.stateCode ??
+        (supplier as any)?.state_code ??
+        (typeof supplierGstin === "string" && supplierGstin.length >= 2
+          ? supplierGstin.slice(0, 2)
+          : null);
+      const supplierContactParts = [
+        (supplier as any)?.contactName ?? (supplier as any)?.contact_name ?? null,
+        (supplier as any)?.contactEmail ?? (supplier as any)?.contact_email ?? null,
+        (supplier as any)?.contactPhone ??
+          (supplier as any)?.contact_phone ??
+          (supplier as any)?.phone ??
+          null,
+      ].filter(Boolean);
+      const supplierContact =
+        (pf as any).supplierContact ??
+        (pf as any).supplier_contact ??
+        (supplierContactParts.length ? supplierContactParts.join(" · ") : null);
+      // Our company → buyer block (the buyer of the supplier quotation).
+      const companyBuyer = {
+        name: seller.name || null,
+        billing_address: seller.address || null,
+        city: null,
+        country: null,
+        gstin: seller.gstin || null,
+        pan_card_no: null,
+        contact_email: seller.email || null,
+        state_code: seller.stateCode || null,
+      };
+      const invLike = {
+        invoiceNumber:
+          (pf as any).proformaNumber ?? (pf as any).proforma_number ?? (pf as any).poNumber ?? "—",
+        issueDate:
+          (pf as any).proformaDate ?? (pf as any).proforma_date ?? (pf as any).issueDate ?? "",
+        dueDate: (pf as any).validUntil ?? (pf as any).valid_until ?? null,
+        poNumber: (pf as any).poNumber ?? (pf as any).po_number ?? null,
+        paymentTermsType:
+          (pf as any).paymentTermsType ?? (pf as any).payment_terms_type ?? null,
+        paymentTerms: (pf as any).paymentTerms ?? (pf as any).payment_terms ?? null,
+        notes: (pf as any).notes ?? null,
+        subtotal: Number((pf as any).subtotal) || 0,
+        freight: Number((pf as any).freight) || 0,
+        grandTotal:
+          Number((pf as any).grandTotal ?? (pf as any).grand_total) ||
+          0,
+        buyer_state_code: seller.stateCode || null,
+        lines: ((pf as any).lines ?? []).map((l: any) => ({
+          name: l.name ?? "Item",
+          hsnCode: l.hsnCode ?? l.hsn_code ?? "",
+          quantity: Number(l.quantity) || 0,
+          unit: l.unit ?? "unit",
+          unitPrice: Number(l.unitPrice ?? l.unit_price) || 0,
+          gstRate: l.gstRate ?? l.gst_rate ?? null,
+          lineTotal:
+            Number(l.lineTotal ?? l.line_total) ||
+            (Number(l.quantity) || 0) * (Number(l.unitPrice ?? l.unit_price) || 0),
+        })),
+      };
+      const data: any = invoiceToTallyData(invLike, {
+        debtor: companyBuyer,
+        seller: {
+          name: supplierName ?? "",
+          address: supplierAddress,
+          gstin: supplierGstin ?? "",
+          stateName: "",
+          stateCode: supplierStateCode ?? "",
+          email: supplierContact ?? "",
+        },
+        // The supplier's bank is unknown — leave blank rather than printing
+        // our own bank on their quotation.
+        bank: null,
+        bankRaw: null,
+        declarationRaw: null,
+        qrImage: null,
+        ewb: null,
+      });
+      data.docTitle = "PROFORMA INVOICE";
+      const pdf = await buildInvoiceTallyPdf(data);
+      void logoImage;
+      const filename = `Proforma_${String(data.number).replace(/[^A-Za-z0-9_-]/g, "_")}.pdf`;
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+      res.send(pdf);
+      return;
+    }
+    const { proformaToTallyData, buildProformaTallyPdf } = await import("../lib/document-pdf.js");
     // Enrich the sales-side bill-to block from the debtor master so the PDF
     // prints logo + seller alongside full customer details (name, address,
     // GSTIN, PAN) even when the proforma only stores the debtor id.
@@ -4432,6 +4546,11 @@ router.put("/goods-purchase-orders/:id", authMiddleware, async (req, res) => {
         nextAction: "Chase acknowledgement, then record supplier invoice",
         amount: Number((updated as any)?.grandTotal) || 0,
       }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchase-orders" });
+      const linkedPf = await findPurchaseProformaForGoodsPo(
+        req.params.id,
+        (updated as any)?.poNumber ?? null,
+        effectiveListScope(req),
+      );
       await advanceWorkflow(req, {
         workflowType: "purchase_order",
         stage: "record_supplier_invoice",
@@ -4444,6 +4563,7 @@ router.put("/goods-purchase-orders/:id", authMiddleware, async (req, res) => {
         requiredAction: "Record supplier invoice",
         nextAction: "Submit invoice for checker approval",
         amount: Number((updated as any)?.grandTotal) || 0,
+        linkedDocs: linkedPf ? [linkedPf] : [],
       }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchases", keepSiblingsOpen: true });
     }
     if (body.status === "cancelled" && current?.status !== "cancelled") {
@@ -4470,6 +4590,46 @@ router.delete(
     }
   },
 );
+
+/**
+ * Best-effort lookup of the purchase proforma linked to a goods PO, so the
+ * "Record supplier invoice" workflow task can carry it in linkedDocs. The
+ * frontend uses it to open the invoice form with PO + proforma already
+ * linked. Never throws — returns null when there is no unambiguous match.
+ */
+async function findPurchaseProformaForGoodsPo(
+  goodsPoId: string,
+  poNumber?: string | null,
+  scope?: string | undefined,
+): Promise<{ type: string; id: string; number: string | null } | null> {
+  try {
+    const all = (await PurchaseOrder.list(scope)) as any[];
+    const purchase = all.filter((p) => p.side === "purchase");
+    const byLink = purchase.filter((p) => p.linkedGoodsPoId === goodsPoId);
+    if (byLink.length === 1) {
+      return {
+        type: "proforma",
+        id: byLink[0].id,
+        number: byLink[0].proformaNumber ?? byLink[0].poNumber ?? null,
+      };
+    }
+    if (poNumber) {
+      const byNumber = purchase.filter(
+        (p) => p.poNumber === poNumber || p.proformaNumber === poNumber,
+      );
+      if (byNumber.length === 1) {
+        return {
+          type: "proforma",
+          id: byNumber[0].id,
+          number: byNumber[0].proformaNumber ?? byNumber[0].poNumber ?? null,
+        };
+      }
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 // ===================== GOODS RECEIPTS (GRN) =====================
 // Lifecycle: draft (no stock) → confirm (credits stock with the ACCEPTED
@@ -6065,6 +6225,11 @@ router.post(
         nextAction: "Chase acknowledgement, then record supplier invoice",
         amount: Number(po.grandTotal) || 0,
       }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchase-orders" });
+      const linkedPfResend = await findPurchaseProformaForGoodsPo(
+        po.id,
+        po.poNumber ?? null,
+        effectiveListScope(req),
+      );
       await advanceWorkflow(req, {
         workflowType: "purchase_order",
         stage: "record_supplier_invoice",
@@ -6077,6 +6242,7 @@ router.post(
         requiredAction: "Record supplier invoice",
         nextAction: "Submit invoice for checker approval",
         amount: Number(po.grandTotal) || 0,
+        linkedDocs: linkedPfResend ? [linkedPfResend] : [],
       }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchases", keepSiblingsOpen: true });
       res.json({ success: true, sentTo: sent.email, document: updated });
     } catch (err: any) {

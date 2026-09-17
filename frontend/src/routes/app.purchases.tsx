@@ -38,16 +38,32 @@ import { TransactionFilters, type TxFiltersConfig } from "@/components/transacti
 
 export const Route = createFileRoute("/app/purchases")({
   component: PurchasesPageWrapper,
-  // Queue deep link: open purchase-invoice creation pre-filled from a PO
-  // ("Record supplier invoice" task).
-  validateSearch: (search: Record<string, unknown>): { createFromPo?: string } => ({
+  // Queue deep links:
+  // - ?createFromPo=<poId> opens purchase-invoice creation pre-filled from a
+  //   PO ("Record supplier invoice" task).
+  // - ?createFromPf=<pfId> pre-links the supplier proforma so advances deduct.
+  // - ?openInvoice=<id> re-opens an existing invoice (workflow task) with its
+  //   PO + proforma links visible.
+  validateSearch: (search: Record<string, unknown>): {
+    createFromPo?: string;
+    createFromPf?: string;
+    openInvoice?: string;
+  } => ({
     createFromPo: typeof search.createFromPo === "string" ? search.createFromPo : undefined,
+    createFromPf: typeof search.createFromPf === "string" ? search.createFromPf : undefined,
+    openInvoice: typeof search.openInvoice === "string" ? search.openInvoice : undefined,
   }),
 });
 
 function PurchasesPageWrapper() {
   const search = Route.useSearch();
-  return <PurchasesPageContent createFromPo={search.createFromPo} />;
+  return (
+    <PurchasesPageContent
+      createFromPo={search.createFromPo}
+      createFromPf={search.createFromPf}
+      openInvoice={search.openInvoice}
+    />
+  );
 }
 
 const PI_STATUSES = [
@@ -122,16 +138,22 @@ type GRNFragment = {
   }>;
 };
 
-export function PurchasesPage(props: { viewOnly?: boolean; createFromPo?: string } = {}) {
+export function PurchasesPage(
+  props: { viewOnly?: boolean; createFromPo?: string; createFromPf?: string; openInvoice?: string } = {},
+) {
   return <PurchasesPageContent {...props} />;
 }
 
 function PurchasesPageContent({
   viewOnly = false,
   createFromPo,
+  createFromPf,
+  openInvoice,
 }: {
   viewOnly?: boolean;
   createFromPo?: string;
+  createFromPf?: string;
+  openInvoice?: string;
 }) {
   const { user, isAdmin, isChecker, isClient, isTreasury, isOperations } = useAuth();
   // Procurement (operations) records and owns supplier invoices; checker and
@@ -141,21 +163,16 @@ function PurchasesPageContent({
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [createFromPoId, setCreateFromPoId] = useState<string | null>(createFromPo ?? null);
+  const [createFromPfId, setCreateFromPfId] = useState<string | null>(createFromPf ?? null);
   const [editing, setEditing] = useState<any | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
 
   // Deep link: queue "Record supplier invoice" task → open the create form
-  // with the PO preselected (the modal auto-fills lines from it).
+  // with the PO preselected (the modal auto-fills lines from it) and the
+  // supplier proforma already linked so advances deduct.
   useEffect(() => {
     if (createFromPoId && canCreate) {
       setOpen(true);
-      try {
-        if (window.location.pathname.startsWith("/app/purchases")) {
-          navigate({ to: "/app/purchases", search: {}, replace: true });
-        }
-      } catch {
-        // embedded / no router context — nothing to clear
-      }
     }
   }, [createFromPoId, canCreate]);
 
@@ -166,6 +183,38 @@ function PurchasesPageContent({
       return data.reverse();
     },
   });
+
+  // Deep link: workflow task on an existing purchase invoice → open it
+  // (view modal) with its PO + proforma links visible. Clears the URL once
+  // the invoice is found so refresh stays on the list.
+  const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(openInvoice ?? null);
+  useEffect(() => {
+    if (!openInvoiceId || viewing) return;
+    const found = (piQ.data ?? []).find((p: any) => p.id === openInvoiceId);
+    if (found) {
+      setViewing(found);
+      setOpenInvoiceId(null);
+      try {
+        if (window.location.pathname.startsWith("/app/purchases")) {
+          navigate({ to: "/app/purchases", search: {}, replace: true });
+        }
+      } catch {
+        // embedded / no router context — nothing to clear
+      }
+    }
+  }, [openInvoiceId, piQ.data]);
+
+  // Clear create-mode params from the URL once captured in state.
+  useEffect(() => {
+    if ((createFromPo || createFromPf) && window.location.pathname.startsWith("/app/purchases")) {
+      try {
+        navigate({ to: "/app/purchases", search: {}, replace: true });
+      } catch {
+        // embedded / no router context — nothing to clear
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const vendorsQ = useQuery({
     queryKey: ["vendors-min"],
@@ -499,6 +548,7 @@ function PurchasesPageContent({
         <NewPurchaseModal
           userId={user.id}
           initialPoId={createFromPoId ?? undefined}
+          initialPfId={createFromPfId ?? undefined}
           vendors={vendorsQ.data ?? []}
           pos={(posQ.data ?? []).filter((p: any) => !["cancelled"].includes(p.status))}
           grns={grnsQ.data ?? []}
@@ -507,6 +557,7 @@ function PurchasesPageContent({
           onClose={() => {
             setOpen(false);
             setCreateFromPoId(null);
+            setCreateFromPfId(null);
           }}
           onCreated={() => qc.invalidateQueries({ queryKey: ["purchase_invoices"] })}
         />
@@ -539,6 +590,7 @@ function NewPurchaseModal({
   invoice,
   userId,
   initialPoId,
+  initialPfId,
   vendors,
   pos,
   grns,
@@ -551,6 +603,8 @@ function NewPurchaseModal({
   userId: string;
   /** Queue deep link — preselect this purchase order (auto-fills lines). */
   initialPoId?: string;
+  /** Queue deep link — pre-link this supplier proforma (deducts advances). */
+  initialPfId?: string;
   vendors: any[];
   pos: POFragment[];
   grns: GRNFragment[];
@@ -693,16 +747,24 @@ function NewPurchaseModal({
       })),
     );
     // When this PO was turned into a purchase proforma, link that proforma
-    // automatically â€” its advance % drives the deduction and its details
-    // (supplier contact, GSTIN, termsâ€¦) are fetched into the section below.
-    // Only auto-link when the PO number maps to exactly one proforma (the
-    // backend refuses ambiguous number matches too).
-    const pfMatches = (proformasQ.data ?? []).filter(
+    // automatically — its advance % drives the deduction and its details
+    // (supplier contact, GSTIN, terms…) are fetched into the section below.
+    // Match by explicit linked_goods_po_id first, then fall back to PO-number
+    // equality (only when it maps to exactly one proforma — the backend
+    // refuses ambiguous number matches too).
+    const allPfs = (proformasQ.data ?? []) as any[];
+    const byLink = allPfs.filter(
+      (p: any) =>
+        p.side === "purchase" &&
+        (p.linked_goods_po_id === id || p.linked_goods_po_id === po.po_number),
+    );
+    const byNumber = allPfs.filter(
       (p: any) =>
         p.side === "purchase" &&
         (p.po_number === po.po_number || p.proforma_number === po.po_number),
     );
-    const pf = pfMatches.length === 1 ? pfMatches[0] : null;
+    const pf =
+      byLink.length === 1 ? byLink[0] : byNumber.length === 1 ? byNumber[0] : null;
     setForm((f) => ({
       ...f,
       goods_po_id: id,
@@ -716,19 +778,63 @@ function NewPurchaseModal({
   const setLine = (i: number, patch: Partial<LineDraft>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
 
-  // Queue deep link: once the PO list is loaded, auto-pick the requested
-  // order so the form arrives pre-filled (same path as a manual pick).
+  // Queue deep link: once the PO + proforma lists are loaded, auto-pick the
+  // requested order so the form arrives pre-filled with PO + proforma already
+  // linked (same path as a manual pick). An explicit ?createFromPf= always
+  // wins over the PO-number auto-match.
   const initialPoApplied = useRef(false);
+  const proformasReady = proformasQ.data !== undefined;
   useEffect(() => {
     if (!initialPoId || isEdit || initialPoApplied.current) return;
+    if (!proformasReady) return;
     const po = pos.find((p) => p.id === initialPoId);
     if (po) {
       initialPoApplied.current = true;
       // Preselect the PO's supplier first, then pick the PO for the lines.
       setForm((f) => ({ ...f, vendor_id: (po as any).supplier_id ?? f.vendor_id }));
       pickPo(initialPoId);
+      if (initialPfId) {
+        const pf = ((proformasQ.data ?? []) as any[]).find((p: any) => p.id === initialPfId);
+        if (pf) {
+          setForm((f) => ({
+            ...f,
+            linked_supplier_proforma_id: pf.id,
+            linked_supplier_proforma_number: pf.proforma_number ?? pf.po_number ?? "",
+            po_number: pf.po_number ?? pf.proforma_number ?? f.po_number,
+          }));
+        } else {
+          setForm((f) => ({
+            ...f,
+            linked_supplier_proforma_id: initialPfId,
+          }));
+        }
+      }
     }
-  }, [initialPoId, isEdit, pos]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPoId, initialPfId, isEdit, pos, proformasReady]);
+
+  // Queue deep link with only a proforma (no PO): pre-link it so the advance
+  // deduction applies even before a PO is picked.
+  const initialPfApplied = useRef(false);
+  useEffect(() => {
+    if (!initialPfId || initialPoId || isEdit || initialPfApplied.current) return;
+    if (!proformasReady) return;
+    const pf = ((proformasQ.data ?? []) as any[]).find((p: any) => p.id === initialPfId);
+    if (pf || initialPfId) {
+      initialPfApplied.current = true;
+      setForm((f) =>
+        f.linked_supplier_proforma_id
+          ? f
+          : {
+              ...f,
+              linked_supplier_proforma_id: pf?.id ?? initialPfId,
+              linked_supplier_proforma_number:
+                pf?.proforma_number ?? pf?.po_number ?? f.linked_supplier_proforma_number,
+              po_number: pf ? (pf.po_number ?? pf.proforma_number ?? f.po_number) : f.po_number,
+            },
+      );
+    }
+  }, [initialPfId, initialPoId, isEdit, proformasReady]);
 
   const totals = useMemo(() => {
     let subtotal = 0;
