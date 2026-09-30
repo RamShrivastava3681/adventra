@@ -91,7 +91,9 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
   const id = uuid();
   const now = db.nowISO();
   const sku = data.sku || `SKU-${id.slice(0, 8).toUpperCase()}`;
-  const existing = await list(data.clientId);
+  // Shared database: SKUs must be unique globally, not just within the
+  // creator's own records, so every user sees one consistent catalogue.
+  const existing = await list();
   if ((existing as Product[]).some((p) => p.sku?.toUpperCase() === sku.toUpperCase())) {
     throw new Error(`SKU already exists: ${sku}`);
   }
@@ -157,7 +159,8 @@ export async function update(id: string, updates: Partial<Product>) {
   const current = await get(id);
   if (!current) throw new Error("Product not found");
   if (updates.sku !== undefined && String(updates.sku).toUpperCase() !== current.sku.toUpperCase()) {
-    const siblings = await list(current.clientId);
+    // Shared database: uniqueness is checked across the whole catalogue.
+    const siblings = await list();
     if ((siblings as Product[]).some((p) => p.id !== id && p.sku?.toUpperCase() === String(updates.sku).toUpperCase())) {
       throw new Error(`SKU already exists: ${updates.sku}`);
     }
@@ -211,7 +214,11 @@ export async function nextAvailableVariantSku(
   size?: string | null,
 ): Promise<string> {
   const base = buildVariantSku(parentSku, color, size);
-  const products = await list(clientId);
+  // Shared database: collision check runs against the whole catalogue so two
+  // users can never mint the same variant SKU. `clientId` is kept in the
+  // signature for back-compat.
+  void clientId;
+  const products = await list();
   const taken = new Set((products as Product[]).map((p) => (p.sku ?? "").toUpperCase()));
   let candidate = base;
   for (let n = 2; taken.has(candidate.toUpperCase()); n++) {

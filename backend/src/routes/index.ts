@@ -480,7 +480,9 @@ router.post("/products/create-hierarchy", authMiddleware, async (req, res) => {
     const model = String(body.model ?? "").trim().toUpperCase().replace(/[^A-Z0-9]+/g, "");
     const name = String(body.name ?? "").trim(); if (!name || !model) throw new Error("Product name and model number are required");
     const parentSku = `AD-${gender.code}-${category.code}-${model}`;
-    const all = await Product.list(clientId);
+    // Shared database: SKU collision check runs against the whole catalogue
+    // so hierarchies created by different users can never collide.
+    const all = await Product.list();
     const taken = new Set((all as any[]).map((p) => String(p.sku).toUpperCase()));
     if (taken.has(parentSku)) throw new Error(`SKU already exists: ${parentSku}`);
     const colors = await Promise.all((Array.isArray(body.colorMasterIds) ? body.colorMasterIds : []).map((id: string) => SkuMaster.get(id)));
@@ -753,7 +755,9 @@ router.put("/catalogue-settings", authMiddleware, async (req, res) => {
     // hardcoded 0.4 (or null). Treat that as "not customized" and clear it so
     // every item without its own margin now inherits the new catalogue default.
     // Items with a genuinely different per-item margin keep their override.
-    const products = await Product.list(req.user!.userId);
+    // Shared database: propagate across the whole catalogue, not just the
+    // caller's own records.
+    const products = await Product.list();
     for (const p of products) {
       const m = (p as any).minimumGrossMarginPercentage;
       if (m !== null && m !== undefined && m !== 0.4) continue;

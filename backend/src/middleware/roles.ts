@@ -27,10 +27,14 @@ export const requireTreasury = requireRole("treasury", "factor_admin");
 export const requireCheckerOrTreasury = requireRole("checker", "treasury", "factor_admin");
 
 // ─── Data-visibility scoping ──────────────────────────────────────────────────
-// Roles that belong to the platform side (factor staff). Accounts holding any
-// of these roles read across the whole portfolio, exactly like the shared
-// dashboard (`scope=all`) already does. Accounts whose only role is "client"
-// stay scoped to their own records.
+// SHARED-DATABASE MODE: every authenticated user reads and works on the same
+// portfolio. List handlers receive an `undefined` scope (scan the whole
+// table) and per-record ownership guards (`clientId !== userId && !isStaff`)
+// pass for everyone, so no user is ever shown a partial dataset.
+//
+// Role checks (`requireRole(...)`) are untouched — they still gate WHO may
+// perform each action (checker approvals, treasury payments, admin screens).
+// Only the DATA each caller can see/act on is shared.
 const STAFF_ROLES = [
   "factor_admin",
   "super_admin",
@@ -41,17 +45,20 @@ const STAFF_ROLES = [
   "reporting_manager",
 ];
 
-/** True when the caller is platform staff rather than an end-client account. */
-export function isStaffAccount(roles: string[] | undefined): boolean {
-  return (roles ?? []).some((r) => STAFF_ROLES.includes(r));
+/**
+ * True for every authenticated caller in shared-database mode, so ownership
+ * guards treat all users like platform staff (full-portfolio access).
+ * STAFF_ROLES is kept for documentation of the platform-side roles.
+ */
+export function isStaffAccount(_roles: string[] | undefined): boolean {
+  void STAFF_ROLES;
+  return true;
 }
 
 /**
- * Effective client scope for GET list handlers. Returns `undefined` (read the
- * whole portfolio) for staff accounts and the caller's own user id for pure
- * "client" accounts, whose data must stay private to them.
+ * Effective client scope for GET list handlers. Always `undefined` (read the
+ * whole shared portfolio) so every user sees the same database.
  */
-export function effectiveListScope(req: Request): string | undefined {
-  const roles = req.user?.roles ?? [];
-  return isStaffAccount(roles) ? undefined : req.user!.userId;
+export function effectiveListScope(_req: Request): string | undefined {
+  return undefined;
 }

@@ -352,7 +352,30 @@ function DebtorModal({
     salesman_phone: debtor?.salesman_phone ?? "",
     salesman_email: debtor?.salesman_email ?? "",
   });
-  const [docs, setDocs] = useState<DocMeta[]>(() => (debtor?.documents ?? []) as DocMeta[]);
+  const [gstDocs, setGstDocs] = useState<DocMeta[]>(() => {
+    const all = ((debtor?.documents ?? []) as DocMeta[]);
+    // Backward compat: old combined uploads have no category — keep them under GST
+    // so they stay visible; re-saving tags them correctly.
+    return all.filter((d: any) => {
+      const c = (d as any)?.category;
+      if (c === "pan") return false;
+      if (c === "gst") return true;
+      // Fallback for legacy docs: infer from storage path, default to GST.
+      const p = String(d?.path ?? "").toLowerCase();
+      if (p.includes("/pan/") || p.includes("pan")) return false;
+      return true;
+    });
+  });
+  const [panDocs, setPanDocs] = useState<DocMeta[]>(() => {
+    const all = ((debtor?.documents ?? []) as DocMeta[]);
+    return all.filter((d: any) => {
+      const c = (d as any)?.category;
+      if (c === "pan") return true;
+      if (c === "gst") return false;
+      const p = String(d?.path ?? "").toLowerCase();
+      return p.includes("/pan/") || p.includes("pan");
+    });
+  });
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [k]: e.target.value });
   // Approved terms for this debtor (edit mode only). When terms exist, they
@@ -426,7 +449,10 @@ function DebtorModal({
         salesmanName: form.salesman_name || null,
         salesmanPhone: form.salesman_phone || null,
         salesmanEmail: form.salesman_email || null,
-        documents: docs,
+        documents: [
+          ...gstDocs.map((d) => ({ ...d, category: "gst" })),
+          ...panDocs.map((d) => ({ ...d, category: "pan" })),
+        ],
       };
       if (isEdit && debtor) {
         await api.debtors.update(debtor.id, payload);
@@ -514,14 +540,22 @@ function DebtorModal({
                 />
               </L>
             </div>
-            <div className="mt-3">
+            <div className="mt-3 grid gap-3 md:grid-cols-2">
               <DocumentUploader
                 userId={userId}
-                scope="customers"
-                docs={docs}
-                onChange={setDocs}
-                label="GST / PAN attachments"
-                hint="Upload GST certificate and PAN card (PDF/JPG/PNG, max 15 MB each)."
+                scope="customers/gst"
+                docs={gstDocs}
+                onChange={setGstDocs}
+                label="GST certificate"
+                hint="Upload GST certificate (PDF/JPG/PNG, max 15 MB each)."
+              />
+              <DocumentUploader
+                userId={userId}
+                scope="customers/pan"
+                docs={panDocs}
+                onChange={setPanDocs}
+                label="PAN card"
+                hint="Upload PAN card (PDF/JPG/PNG, max 15 MB each)."
               />
             </div>
           </Section>
@@ -1026,11 +1060,31 @@ function DebtorDetailModal({
             <D label="Website" value={debtor.website ?? "—"} />
             <D label="Phone" value={debtor.phone ?? "—"} />
           </div>
-          <div>
-            <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">
-              GST / PAN attachments
+          <div className="grid gap-3 md:grid-cols-2">
+            <div>
+              <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">
+                GST certificate
+              </div>
+              <DocumentList docs={((debtor.documents ?? []) as DocMeta[]).filter((d: any) => {
+                const c = (d as any)?.category;
+                if (c === "gst") return true;
+                if (c === "pan") return false;
+                const p = String(d?.path ?? "").toLowerCase();
+                return !(p.includes("/pan/") || p.includes("pan"));
+              })} />
             </div>
-            <DocumentList docs={(debtor.documents ?? []) as DocMeta[]} />
+            <div>
+              <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">
+                PAN card
+              </div>
+              <DocumentList docs={((debtor.documents ?? []) as DocMeta[]).filter((d: any) => {
+                const c = (d as any)?.category;
+                if (c === "pan") return true;
+                if (c === "gst") return false;
+                const p = String(d?.path ?? "").toLowerCase();
+                return p.includes("/pan/") || p.includes("pan");
+              })} />
+            </div>
           </div>
           <div>
             <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">

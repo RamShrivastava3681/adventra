@@ -45,7 +45,7 @@ import {
 } from "@/components/payment-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ClauseCombobox } from "@/components/clause-select";
-import { ProductVariantPicker } from "@/components/product-variant-picker";
+import { ProductVariantPicker, fullItemName } from "@/components/product-variant-picker";
 import {
   QuickAddVariantModal,
   QuickCreateProductModal,
@@ -158,6 +158,10 @@ type CatalogueProduct = {
   color: string | null;
   size: string | null;
   category?: string | null;
+  subcategory?: string | null;
+  brand?: string | null;
+  gender?: string | null;
+  model?: string | null;
   gst_rate: number | null;
   unit_cost: number | null;
   mrp: number | null;
@@ -992,12 +996,12 @@ function POModal({
     p: Pick<
       QuickCreatedProduct,
       "id" | "sku" | "name" | "unit_of_measure" | "unit_cost" | "gst_rate"
-    > & { color?: string | null; size?: string | null; hsn_code?: string | null; hsnCode?: string | null; subcategory?: string | null },
+    > & { color?: string | null; size?: string | null; hsn_code?: string | null; hsnCode?: string | null; subcategory?: string | null; brand?: string | null; gender?: string | null; model?: string | null },
   ) => {
     const pa = p as any;
     setLine(i, {
       product_id: p.id,
-      name: p.name ?? "",
+      name: fullItemName(pa),
       sku: p.sku ?? null,
       color: pa.color ?? "",
       size: pa.size != null ? String(pa.size) : "",
@@ -1819,7 +1823,7 @@ function POModal({
                 <LineHead
                   grid={PO_LINE_GRID}
                   cols={[
-                    { label: "Product" },
+                    { label: "Category / Item" },
                     { label: "Fabric / Specification" },
                     { label: "Unit", align: "center" },
                     { label: "Ordered qty", align: "right" },
@@ -1842,16 +1846,23 @@ function POModal({
                         className={`grid grid-cols-6 gap-x-2 gap-y-2 py-2.5 ${PO_LINE_GRID}`}
                       >
                         <div className="col-span-6 md:col-span-1">
-                          <MiniLabel>Product</MiniLabel>
+                          <MiniLabel>Category / Item</MiniLabel>
                           <ProductVariantPicker
                             products={products}
                             value={l.product_id}
                             onChange={(v) => pickProduct(i, v)}
                             disabled={!editable}
-                            placeholder="Search product or SKU..."
+                            placeholder="Select item…"
+                            childPlaceholder="Select colour / size…"
+                            categoryPlaceholder="Select category…"
                           />
                           {l.name && (
-                            <div className="mt-1 truncate text-[11px] text-muted-foreground">{l.name}</div>
+                            <div
+                              className="mt-1 break-words text-[11px] font-medium leading-snug text-foreground"
+                              title={l.name}
+                            >
+                              {l.name}
+                            </div>
                           )}
                           {(() => {
                             const cat = (products ?? []).find((x: any) => x.id === l.product_id) as any;
@@ -1863,7 +1874,7 @@ function POModal({
                                 : null,
                             ].filter(Boolean);
                             return bits.length ? (
-                              <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
+                              <div className="mt-0.5 break-words font-mono text-[10px] leading-snug text-muted-foreground">
                                 {bits.join(" · ")}
                               </div>
                             ) : null;

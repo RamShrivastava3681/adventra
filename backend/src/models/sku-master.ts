@@ -39,7 +39,9 @@ export async function create(data: { clientId: string; masterType: SkuMasterType
   const name = String(data.name ?? "").trim();
   const code = normalizeCode(data.code);
   if (!name || !code) throw new Error("Name and code are required");
-  const existing = await list(data.clientId, data.masterType);
+  // Shared database: master codes feed every user's SKUs, so uniqueness is
+  // enforced globally rather than per creator.
+  const existing = await list(undefined, data.masterType);
   if (existing.some((x) => x.code === code)) throw new Error(`${data.masterType} code ${code} already exists`);
   const id = uuid(); const now = db.nowISO();
   const item: SkuMaster = {
@@ -64,7 +66,8 @@ export async function update(id: string, updates: Partial<SkuMaster>) {
     const code = normalizeCode(updates.code);
     if (!code) throw new Error("Code is required");
     if (code !== current.code) {
-      const siblings = await list(current.clientId, current.masterType);
+      // Shared database: uniqueness is checked across all masters.
+      const siblings = await list(undefined, current.masterType);
       if (siblings.some((x) => x.id !== current.id && x.code === code)) {
         throw new Error(`${current.masterType} code ${code} already exists`);
       }

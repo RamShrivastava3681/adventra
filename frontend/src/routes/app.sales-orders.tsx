@@ -35,7 +35,7 @@ import {
   termSummary,
 } from "@/components/customer-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
-import { ProductVariantPicker } from "@/components/product-variant-picker";
+import { ProductVariantPicker, fullItemName } from "@/components/product-variant-picker";
 import { QuickAddVariantModal } from "@/components/product-quick-create";
 import {
   LineItemsSection,
@@ -164,6 +164,9 @@ type CatalogueProduct = {
   color: string | null;
   size: string | null;
   category?: string | null;
+  subcategory?: string | null;
+  brand?: string | null;
+  gender?: string | null;
   model: string | null;
   hsn_code?: string | null;
   hsnCode?: string | null;
@@ -1029,7 +1032,7 @@ function SOModal({
     const p = products.find((x) => x.id === id) as any;
     setLine(i, {
       product_id: id,
-      name: p?.name ?? "",
+      name: p ? fullItemName(p) : "",
       sku: p?.sku ?? null,
       unit: p?.unit_of_measure ?? "piece",
       color: p?.color ?? "",
@@ -1062,7 +1065,7 @@ function SOModal({
   const applyVariantToLine = (i: number, v: any) => {
     setLine(i, {
       product_id: v.id,
-      name: v.name ?? "",
+      name: fullItemName(v),
       sku: v.sku ?? null,
       unit: v.unit_of_measure ?? lines[i]?.unit ?? "piece",
       color: v.color ?? "",
@@ -1674,7 +1677,7 @@ function SOModal({
             ) : (
               <div className="space-y-2">
                 <div className="hidden grid-cols-12 gap-2 text-[9px] uppercase tracking-widest text-muted-foreground md:grid">
-                  <div className="col-span-3">SKU / Product</div>
+                  <div className="col-span-3">Category / Item (full name)</div>
                   <div className="col-span-1">Unit</div>
                   <div className="col-span-1">Ordered qty</div>
                   <div className="col-span-2">Tier</div>
@@ -1710,12 +1713,20 @@ function SOModal({
                               value={l.product_id}
                               onChange={(v) => pickProduct(i, v)}
                               disabled={!editable}
+                              placeholder="Select item…"
+                              childPlaceholder="Select colour / size…"
+                              categoryPlaceholder="Select category…"
                             />
                           {l.name && (
-                            <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
+                            <div
+                              className="mt-1 break-words text-[11px] font-medium leading-snug text-foreground"
+                              title={l.name}
+                            >
+                              {l.name}
+                            </div>
                           )}
                           {(snapColor || snapSize || snapCode || snapHsn || snapMrp) && (
-                            <div className="mt-0.5 text-[10px] text-muted-foreground">
+                            <div className="mt-0.5 break-words text-[10px] leading-snug text-muted-foreground">
                               {[
                                 snapColor || null,
                                 snapSize ? `Size ${snapSize}` : null,

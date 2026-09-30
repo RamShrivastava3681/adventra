@@ -46,6 +46,7 @@ export function SearchableSelect({
   triggerClassName,
   side,
   align,
+  fullLabel = false,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -58,6 +59,13 @@ export function SearchableSelect({
   triggerClassName?: string;
   side?: "top" | "right" | "bottom" | "left";
   align?: "start" | "center" | "end";
+  /**
+   * When true the complete label is shown without truncation — the trigger
+   * carries the full text as a tooltip and wraps to multiple lines, and each
+   * dropdown row wraps instead of cutting long item names off. Used by the
+   * product line pickers so catalogue item names are always fully visible.
+   */
+  fullLabel?: boolean;
 }) {
   const [open, setOpen] = React.useState(false);
   const selected = options.find((o) => o.value === value);
@@ -94,7 +102,12 @@ export function SearchableSelect({
                 className="inline-block h-4 w-4 shrink-0 rounded-full border border-black/20 dark:border-white/25"
               />
             )}
-            <span className="truncate">{selected ? selected.label : placeholder}</span>
+            <span
+              className={cn(fullLabel ? "whitespace-normal break-words leading-snug" : "truncate")}
+              title={selected ? `${selected.label}${selected.hint ? ` — ${selected.hint}` : ""}` : placeholder}
+            >
+              {selected ? selected.label : placeholder}
+            </span>
           </span>
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
@@ -133,10 +146,10 @@ export function SearchableSelect({
                         className="inline-block h-4 w-4 shrink-0 rounded-full border border-black/20 dark:border-white/25"
                       />
                     )}
-                    <div className="flex min-w-0 flex-col">
-                      <span className="truncate">{o.label}</span>
+                    <div className="flex min-w-0 flex-col" title={`${o.label}${o.hint ? ` — ${o.hint}` : ""}`}>
+                      <span className={cn(fullLabel ? "whitespace-normal break-words leading-snug" : "truncate")}>{o.label}</span>
                       {o.hint && (
-                        <span className="truncate text-[11px] text-muted-foreground">{o.hint}</span>
+                        <span className={cn("text-[11px] text-muted-foreground", fullLabel ? "whitespace-normal break-words" : "truncate")}>{o.hint}</span>
                       )}
                     </div>
                   </div>

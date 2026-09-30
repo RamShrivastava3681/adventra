@@ -10,6 +10,7 @@ export type DocMeta = {
   type: string;
   size: number;
   uploaded_at: string;
+  category?: string | null;
 };
 
 type Props = {
