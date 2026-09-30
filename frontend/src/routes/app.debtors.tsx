@@ -25,6 +25,7 @@ import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
 import { Plus, X, Loader2, ShieldAlert, Building2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { DocumentUploader, DocumentList, type DocMeta } from "@/components/document-uploader";
 
 export const Route = createFileRoute("/app/debtors")({
   component: DebtorsPage,
@@ -45,9 +46,10 @@ export function invalidateCustomerQueries(qc: QueryClient) {
 }
 
 export function DebtorsPage() {
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
   const qc = useQueryClient();
   const [open, setOpen] = useState(false);
+  const userId = (user as any)?.userId ?? (user as any)?.id ?? "staff";
   const [editing, setEditing] = useState<any | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
   const [deleting, setDeleting] = useState<any | null>(null);
@@ -202,6 +204,7 @@ export function DebtorsPage() {
 
       {open && (
         <DebtorModal
+          userId={userId}
           onClose={() => setOpen(false)}
           onSaved={() => invalidateCustomerQueries(qc)}
         />
@@ -209,6 +212,7 @@ export function DebtorsPage() {
       {editing && (
         <DebtorModal
           debtor={editing}
+          userId={userId}
           onClose={() => setEditing(null)}
           onSaved={() => invalidateCustomerQueries(qc)}
         />
@@ -305,10 +309,12 @@ function addressesFromDebtor(debtor: any, kind: "billing" | "shipping"): Custome
 
 function DebtorModal({
   debtor,
+  userId,
   onClose,
   onSaved,
 }: {
   debtor?: any;
+  userId: string;
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -346,6 +352,7 @@ function DebtorModal({
     salesman_phone: debtor?.salesman_phone ?? "",
     salesman_email: debtor?.salesman_email ?? "",
   });
+  const [docs, setDocs] = useState<DocMeta[]>(() => (debtor?.documents ?? []) as DocMeta[]);
   const set = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm({ ...form, [k]: e.target.value });
   // Approved terms for this debtor (edit mode only). When terms exist, they
@@ -419,6 +426,7 @@ function DebtorModal({
         salesmanName: form.salesman_name || null,
         salesmanPhone: form.salesman_phone || null,
         salesmanEmail: form.salesman_email || null,
+        documents: docs,
       };
       if (isEdit && debtor) {
         await api.debtors.update(debtor.id, payload);
@@ -505,6 +513,16 @@ function DebtorModal({
                   onChange={set("panCardNo")}
                 />
               </L>
+            </div>
+            <div className="mt-3">
+              <DocumentUploader
+                userId={userId}
+                scope="customers"
+                docs={docs}
+                onChange={setDocs}
+                label="GST / PAN attachments"
+                hint="Upload GST certificate and PAN card (PDF/JPG/PNG, max 15 MB each)."
+              />
             </div>
           </Section>
 
@@ -1007,6 +1025,12 @@ function DebtorDetailModal({
             <D label="GSTIN" value={debtor.gstin ?? "—"} />
             <D label="Website" value={debtor.website ?? "—"} />
             <D label="Phone" value={debtor.phone ?? "—"} />
+          </div>
+          <div>
+            <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">
+              GST / PAN attachments
+            </div>
+            <DocumentList docs={(debtor.documents ?? []) as DocMeta[]} />
           </div>
           <div>
             <div className="text-xs uppercase tracking-widest text-muted-foreground mb-1">

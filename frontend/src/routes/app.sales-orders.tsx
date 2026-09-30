@@ -160,8 +160,10 @@ type CatalogueProduct = {
   sku: string | null;
   name: string;
   unit_of_measure: string;
+  parent_id?: string | null;
   color: string | null;
   size: string | null;
+  category?: string | null;
   model: string | null;
   hsn_code?: string | null;
   hsnCode?: string | null;

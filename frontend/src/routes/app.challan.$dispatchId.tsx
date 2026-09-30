@@ -1,5 +1,4 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useLoaderData } from "@tanstack/react-router";
 import api from "@/lib/api-client";
 import { ArrowLeft, Printer } from "lucide-react";
 import { fmtMoney, fmtDate } from "@/components/ledger-ui";
@@ -14,7 +13,7 @@ export const Route = createFileRoute("/app/challan/$dispatchId")({
 });
 
 function ChallanPage() {
-  const d = useLoaderData() as any;
+  const d = Route.useLoaderData() as any;
 
   const totalQty = (d?.lines ?? []).reduce((s: number, l: any) => s + l.dispatched_qty, 0);
   const totalValue = (d?.lines ?? []).reduce((s: number, l: any) => s + (l.line_value ?? 0), 0);

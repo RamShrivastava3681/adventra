@@ -381,7 +381,7 @@ export function QuickAddVariantModal({
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            save.mutate();
+            save.mutate({});
           }}
           className="mt-4 space-y-3"
         >

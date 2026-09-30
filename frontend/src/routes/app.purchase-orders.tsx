@@ -157,6 +157,7 @@ type CatalogueProduct = {
   parent_id: string | null;
   color: string | null;
   size: string | null;
+  category?: string | null;
   gst_rate: number | null;
   unit_cost: number | null;
   mrp: number | null;

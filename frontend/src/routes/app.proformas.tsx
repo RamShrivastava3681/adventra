@@ -2081,6 +2081,7 @@ function FundModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: (
     reference: "",
     advance_date: new Date().toISOString().slice(0, 10),
   });
+  const [utrDocs, setUtrDocs] = useState<DocMeta[]>(() => (pf.documents ?? []) as DocMeta[]);
   const fund = useMutation({
     mutationFn: async () => {
       const amt = Number(form.amount);
@@ -2094,6 +2095,7 @@ function FundModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: (
         proforma_funded_at: new Date().toISOString(),
         proforma_funded_amount: amt,
         proforma_funding_reference: utr,
+        documents: utrDocs,
       });
       await api.advances.create({
         clientId: pf.client_id,
@@ -2164,6 +2166,14 @@ function FundModal({ pf, userId, onClose }: { pf: PF; userId: string; onClose: (
             placeholder="e.g. UTIB1234567 — paste the UTR before confirming"
           />
         </L>
+        <DocumentUploader
+          userId={userId}
+          scope="proformas"
+          docs={utrDocs}
+          onChange={setUtrDocs}
+          label="UTR proof (procurement / sales upload)"
+          hint="Attach bank receipt / screenshot for this UTR (PDF/JPG/PNG, max 15 MB)."
+        />
         <p className="text-[11px] text-muted-foreground">
           The UTR is stored on the funding record and the advance — confirm it matches
           your bank statement before continuing.

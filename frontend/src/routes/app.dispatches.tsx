@@ -114,8 +114,6 @@ type Dispatch = {
   transport_doc_date?: string | null;
   driver_name?: string | null;
   driver_mobile?: string | null;
-  driver_name?: string | null;
-  driver_mobile?: string | null;
   eway_bill_number?: string | null;
   eway_bill_valid_until?: string | null;
   ewb_not_required?: boolean;

@@ -29,7 +29,6 @@ import {
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { AwaitingPickupTransportModal } from "@/components/dispatch-workflow";
-import { useQueryClient } from "@tanstack/react-query";
 
 export const Route = createFileRoute("/app/warehouse")({
   component: WarehousePage,

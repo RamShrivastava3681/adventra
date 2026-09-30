@@ -129,6 +129,10 @@ type Inv = {
   irn_source: string | null;
   /** Manually pasted e-Way Bill number (v1). */
   ewb_number: string | null;
+  ewb_valid_until?: string | null;
+  transporter?: string | null;
+  vehicle_number?: string | null;
+  lr_ref?: string | null;
 };
 
 function round2(n: number): number {

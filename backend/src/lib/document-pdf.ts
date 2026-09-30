@@ -3129,6 +3129,7 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
         { a: data.consigneeAddress, b: "Dispatched through", c: data.dispatchedThrough },
         { a: "", b: "Destination", c: data.destination },
         { a: `GSTIN/UIN: ${data.consigneeGstin}`, b: "Packaging", c: data.packaging },
+        { a: "Terms and Conditions", b: "", c: "", aFont: FB, full: true },
         { a: `State Name : ${data.consigneeState}`, b: "Payment Terms", c: data.paymentTerms },
         { a: `E-Mail : ${data.consigneeEmail}`, b: "Delivery Time", c: data.deliveryTime },
         { a: "Buyer (Bill to)", b: "Partial Ship", c: data.partialShip, aFont: FB },

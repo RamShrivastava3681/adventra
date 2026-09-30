@@ -9,6 +9,7 @@ export type ProductVariantOption = {
   color?: string | null;
   size?: string | null;
   parent_id?: string | null;
+  category?: string | null;
 };
 
 /**
@@ -29,8 +30,10 @@ export function ProductVariantPicker({
   onChange,
   disabled,
   className,
-  placeholder = "Select product…",
+  placeholder = "Search product, SKU or category…",
   childPlaceholder = "Select colour / size…",
+  category,
+  onCategoryChange,
 }: {
   products: ProductVariantOption[];
   /** The line's current product id (a variant's id, a childless parent's id, or ""). */
@@ -41,6 +44,9 @@ export function ProductVariantPicker({
   className?: string;
   placeholder?: string;
   childPlaceholder?: string;
+  /** Optional controlled category filter — when set, only parents in this category are listed. */
+  category?: string;
+  onCategoryChange?: (category: string) => void;
 }) {
   // The parent the user is drilling into. Kept locally while they pick a
   // variant, because the document line doesn't change until the child lands.
@@ -103,24 +109,56 @@ export function ProductVariantPicker({
     return attrs.length > 0 ? attrs.join(" · ") : c.name;
   };
 
-  const parents = products.filter((p) => !p.parent_id);
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of products) {
+      const c = (p.category ?? "").trim();
+      if (c) set.add(c);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [products]);
+
+  const [innerCategory, setInnerCategory] = useState("");
+  const activeCategory = category ?? innerCategory;
+  const setActiveCategory = onCategoryChange ?? setInnerCategory;
+
+  const parents = products.filter(
+    (p) => !p.parent_id && (!activeCategory || (p.category ?? "") === activeCategory),
+  );
 
   return (
     <div className={cn("space-y-1.5", className)}>
+      {categories.length > 0 && (
+        <SearchableSelect
+          value={activeCategory ?? ""}
+          onChange={setActiveCategory}
+          disabled={disabled}
+          placeholder="All categories"
+          options={[
+            { value: "", label: "All categories" },
+            ...categories.map((c) => ({ value: c, label: c })),
+          ]}
+        />
+      )}
       <SearchableSelect
         value={shownParentId}
         onChange={handleParentChange}
         disabled={disabled}
         placeholder={placeholder}
+        searchPlaceholder="Type full item name, SKU or category…"
         options={parents.map((p) => {
           const count = (childrenByParent.get(p.id) ?? []).length;
+          const cat = (p.category ?? "").trim();
           return {
             value: p.id,
-            label: p.sku ? `${p.sku} · ${p.name}` : p.name,
-            hint:
-              count > 0
-                ? `${count} variant${count > 1 ? "s" : ""} — pick colour/size below`
-                : undefined,
+            // Full item name first so typing any word of the name matches.
+            label: p.sku ? `${p.name} · ${p.sku}` : p.name,
+            hint: [
+              cat || null,
+              count > 0 ? `${count} variant${count > 1 ? "s" : ""} — pick colour/size below` : null,
+            ]
+              .filter(Boolean)
+              .join(" · ") || undefined,
           };
         })}
       />

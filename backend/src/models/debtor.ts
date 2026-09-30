@@ -52,6 +52,8 @@ export interface Debtor {
   panCardNo: string | null;
   /** State code (2-digit, derived from GSTIN or manually set). */
   stateCode: string | null;
+  /** GST/PAN attachment uploads (S3 keys via POST /upload, scope=customers). */
+  documents: Array<{ path: string; name: string; type?: string | null; size?: number | null; uploaded_at?: string | null }> | null;
   notes: string | null; debtorCode: string;
   createdAt: string; updatedAt: string;
 }
@@ -154,6 +156,7 @@ export async function create(data: Partial<Debtor> & { name: string }) {
     gstin: data.gstin || null,
     panCardNo: data.panCardNo || null,
     stateCode: data.stateCode || (data.gstin ? data.gstin.slice(0, 2) : null),
+    documents: (data as any).documents || null,
     notes: data.notes || null, debtorCode: code,
     createdAt: now, updatedAt: now,
   };
@@ -162,7 +165,7 @@ export async function create(data: Partial<Debtor> & { name: string }) {
 }
 
 export async function update(id: string, updates: Partial<Debtor>) {
-  const allowed = ["name","industry","billingAddress","shippingAddress","billingAddresses","shippingAddresses","city","country","postalCode","phone","website","contactName","contactEmail","contactDesignation","contactPhone","salesmanName","salesmanPhone","salesmanEmail","paymentTermsDays","paymentTermsType","advancePct","defaultPaymentTermId","creditLimit","enforceCreditLimit","gstin","panCardNo","stateCode","notes"];
+  const allowed = ["name","industry","billingAddress","shippingAddress","billingAddresses","shippingAddresses","city","country","postalCode","phone","website","contactName","contactEmail","contactDesignation","contactPhone","salesmanName","salesmanPhone","salesmanEmail","paymentTermsDays","paymentTermsType","advancePct","defaultPaymentTermId","creditLimit","enforceCreditLimit","gstin","panCardNo","stateCode","documents","notes"];
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   if (patch.creditLimit !== undefined) {

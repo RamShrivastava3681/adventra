@@ -897,6 +897,66 @@ export async function notifyWorkflowTask(params: {
 }
 
 /**
+ * Payment-paid notification to buyer (sales invoice / proforma) or supplier
+ * (purchase invoice). Fire-and-forget safe: never throws, returns false when
+ * email is unconfigured or sending fails.
+ */
+export async function sendPaymentPaidEmail(params: {
+  kind: "sales_invoice" | "purchase_invoice" | "proforma";
+  number: string;
+  amount: number;
+  utr?: string | null;
+  to: string;
+  companyName?: string | null;
+}): Promise<boolean> {
+  try {
+    if (!isEmailConfigured()) {
+      console.log(`  ⚠ Email not configured — skipping paid email for ${params.number}`);
+      return false;
+    }
+    const to = String(params.to || "").trim();
+    if (!to || !to.includes("@")) return false;
+    const labels: Record<string, string> = {
+      sales_invoice: "Sales Invoice",
+      purchase_invoice: "Purchase Invoice",
+      proforma: "Proforma",
+    };
+    const kindLabel = labels[params.kind] || params.kind;
+    const subject = `${kindLabel} ${params.number} — payment received (${inr(params.amount)})`;
+    const body = `
+      <p style="font-size:14px;color:#475569;margin:0 0 16px;line-height:1.6;">
+        Dear ${esc(params.companyName || "Customer")},<br><br>
+        Payment for <strong>${esc(kindLabel)} ${esc(params.number)}</strong> has been recorded.
+      </p>
+      <table cellpadding="0" cellspacing="0" style="width:100%;">
+        ${invoiceTableRow(kindLabel + " #", esc(params.number))}
+        ${invoiceTableRow("Amount paid", `<strong>${inr(params.amount)}</strong>`)}
+        ${params.utr ? invoiceTableRow("UTR / reference", esc(params.utr)) : ""}
+        ${invoiceTableRow("Status", statusBadge("paid"))}
+      </table>
+      <p style="margin-top:24px;font-size:12px;color:#94a3b8;">
+        If you have any questions, please reply to this email.
+      </p>
+    `;
+    const transporter = getTransporter();
+    await transporter.sendMail({
+      from: `"${senderName()}" <${config.smtp.user}>`,
+      to,
+      subject,
+      html: wrapHTML(body, `✅ ${kindLabel} paid`, {
+        company: params.companyName || undefined,
+        footer: `This payment confirmation for ${params.number} was sent via ${PLATFORM_NAME}.`,
+      }),
+    });
+    console.log(`  ✅ Paid email sent: ${params.number} → ${to}`);
+    return true;
+  } catch (err) {
+    console.error(`  ❌ Failed to send paid email for ${params.number}:`, err);
+    return false;
+  }
+}
+
+/**
  * Raw reminder/escalation email used by the workflow reminder worker.
  * Body is pre-built by the caller (worker); this only handles transport and
  * the shared template wrapper. Never throws.

@@ -1635,6 +1635,39 @@ router.post("/payment-receipts/:id/verify", authMiddleware, requireRole("treasur
           await PurchaseOrder.update(item.proformaId, { proformaStatus: "paid", paymentReference: item.utr } as any);
           timelineStatus(req, { clientId: item.clientId, docType: "proforma", docId: item.proformaId, docNumber: item.proformaNumber },
             (pf as any).proformaStatus, "paid", `Advance verified — ₹${total} received`);
+          // Paid email to buyer/supplier (proforma fully paid) — fire-and-forget.
+          void (async () => {
+            try {
+              const side = String((pf as any)?.side || "sales");
+              let to: string | null = null;
+              let name: string | null = null;
+              if (side === "sales") {
+                const debtorId = (pf as any)?.debtorId || (pf as any)?.debtor_id || null;
+                const d = debtorId ? await Debtor.get(debtorId).catch(() => null) : null;
+                to = (d as any)?.contactEmail || (pf as any)?.debtorContact || null;
+                name = (d as any)?.name || (pf as any)?.debtorName || (pf as any)?.customerName || null;
+              } else {
+                const supplierId = (pf as any)?.supplierId || (pf as any)?.supplier_id || null;
+                if (supplierId) {
+                  const s = await Supplier.get(supplierId).catch(() => null);
+                  const v = s ? null : await Vendor.get(supplierId).catch(() => null);
+                  to = (s as any)?.contactEmail || (v as any)?.contactEmail || null;
+                  name = (s as any)?.companyName || (v as any)?.name || null;
+                }
+                to = to || (pf as any)?.supplierContact || null;
+              }
+              if (!to) return;
+              const { sendPaymentPaidEmail } = await import("../email.js");
+              await sendPaymentPaidEmail({
+                kind: "proforma",
+                number: item.proformaNumber || item.proformaId || item.id,
+                amount: total,
+                utr: item.utr,
+                to,
+                companyName: name,
+              });
+            } catch (e) { console.error("  ⚠ Paid email (proforma) failed:", (e as any)?.message ?? e); }
+          })();
           // Next Finance task: Create Final Sales Invoice.
           const so = (pf as any).linkedGoodsSoId ? await GoodsSO.get((pf as any).linkedGoodsSoId).catch(() => null) : null;
           if (so) {
@@ -2684,6 +2717,25 @@ router.delete("/invoices/:id/irn", authMiddleware, async (req, res) => {
         console.error("  ⚠ Cash-flow sync after payment failed:", err?.message ?? err);
       }
     })();
+    // Paid email to buyer (sales invoice fully paid) — fire-and-forget.
+    if ((updated as any)?.status === "paid" || (updated as any)?.paymentStatus === "paid") {
+      void (async () => {
+        try {
+          const d = (current as any).debtorId ? await Debtor.get((current as any).debtorId).catch(() => null) : null;
+          const to = (d as any)?.contactEmail || (current as any)?.customerContact || null;
+          if (!to) return;
+          const { sendPaymentPaidEmail } = await import("../email.js");
+          await sendPaymentPaidEmail({
+            kind: "sales_invoice",
+            number: (current as any).invoiceNumber || current.id,
+            amount: amt,
+            utr: (updated as any)?.utr_reference || (current as any)?.utr_reference || null,
+            to,
+            companyName: (d as any)?.name || null,
+          });
+        } catch (e) { console.error("  ⚠ Paid email (sales invoice) failed:", (e as any)?.message ?? e); }
+      })();
+    }
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -3478,6 +3530,30 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
           nextAction: "Credit inventory",
           amount: payable,
         }, { timelineKind: "system", docType: "purchase_invoice", appPath: "/app/warehouse" });
+        // Paid email to supplier (purchase invoice fully paid) — fire-and-forget.
+        void (async () => {
+          try {
+            const vid = (updated as any)?.vendorId ?? current.vendorId;
+            let to: string | null = null;
+            let name: string | null = (updated as any)?.supplierName ?? current.supplierName ?? null;
+            if (vid) {
+              const s = await Supplier.get(vid).catch(() => null);
+              const v = s ? null : await Vendor.get(vid).catch(() => null);
+              to = (s as any)?.contactEmail || (v as any)?.contactEmail || (s as any)?.email || null;
+              name = name || (s as any)?.companyName || (v as any)?.name || null;
+            }
+            if (!to) return;
+            const { sendPaymentPaidEmail } = await import("../email.js");
+            await sendPaymentPaidEmail({
+              kind: "purchase_invoice",
+              number: current.invoiceNumber || current.id,
+              amount: Number(body.amountPaid) || payable,
+              utr: (body as any).paymentReference ?? (current as any).paymentReference ?? null,
+              to,
+              companyName: name,
+            });
+          } catch (e) { console.error("  ⚠ Paid email (purchase invoice) failed:", (e as any)?.message ?? e); }
+        })();
       }
     }
     // Audit trail — record workflow status transitions.
