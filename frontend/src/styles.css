@@ -597,14 +597,31 @@ input[type="number"] {
   .table-premium thead th:last-child {
     border-top-right-radius: 12px;
   }
+  .table-premium th {
+    font-size: 0.6875rem;
+    font-weight: 800;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--color-muted-foreground);
+    padding: 0.7rem 1rem;
+    text-align: left;
+    border-bottom: 1px solid var(--color-border);
+    background: linear-gradient(180deg, color-mix(in srgb, var(--color-muted) 62%, transparent), color-mix(in srgb, var(--color-muted) 42%, transparent));
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
   .table-premium td {
     padding: 0.8rem 1rem;
     border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
     font-size: 0.8125rem;
     vertical-align: middle;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
   .table-premium tbody tr {
-    transition: background-color 120ms ease;
+    transition: background-color 120ms ease, transform 150ms cubic-bezier(0.16, 1, 0.3, 1), box-shadow 150ms ease;
   }
   .table-premium tr:last-child td {
     border-bottom: none;
@@ -612,8 +629,41 @@ input[type="number"] {
   .table-premium tbody tr:hover td {
     background-color: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface-subtle));
   }
+  .table-premium tbody tr:hover {
+    background-color: color-mix(in srgb, var(--color-primary) 4%, var(--color-surface-subtle));
+    box-shadow: 0 4px 12px -4px rgba(0, 103, 194, 0.12);
+    transform: translateY(-1px);
+  }
   .table-premium .num {
     font-variant-numeric: tabular-nums;
+  }
+  /* ── Table row lift on hover ── */
+  .table-premium tbody tr:focus-within {
+    outline: 2px solid var(--color-primary);
+    outline-offset: -2px;
+  }
+  .table-premium td:focus-visible,
+  .table-premium th:focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 1px;
+    background-color: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  }
+
+  /* ── Enhanced section cards ── */
+  .enhanced-section {
+    border-radius: 12px;
+    border: 1px solid var(--color-border);
+    background: var(--color-background);
+    padding: 1rem;
+    transition: border-color 150ms ease, box-shadow 150ms ease;
+  }
+  .enhanced-section:hover {
+    border-color: var(--color-border-strong);
+    box-shadow: var(--shadow-sm);
+  }
+  .enhanced-section:focus-within {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
   }
 
   /* ── Buttons ──

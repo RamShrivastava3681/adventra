@@ -15,9 +15,9 @@ export const lineInputCls =
 
 /** Desktop column templates (mobile uses grid-cols-6 stacking). */
 export const PO_LINE_GRID =
-  "md:grid-cols-[minmax(0,2.3fr)_minmax(0,1.5fr)_72px_110px_124px_92px_124px_40px]";
+  "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,120px)_minmax(0,100px)_minmax(0,130px)_minmax(0,140px)_minmax(0,120px)_minmax(0,40px)]";
 export const SO_LINE_GRID =
-  "md:grid-cols-[minmax(0,2fr)_68px_104px_112px_120px_84px_84px_120px_40px]";
+  "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,100px)_minmax(0,104px)_minmax(0,112px)_minmax(0,120px)_minmax(0,84px)_minmax(0,84px)_minmax(0,120px)_minmax(0,40px)]";
 
 /** Tiny label shown above a cell on mobile only (desktop uses the table head). */
 export function MiniLabel({ children, className }: { children: ReactNode; className?: string }) {
