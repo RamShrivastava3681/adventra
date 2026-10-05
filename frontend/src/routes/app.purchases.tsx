@@ -1439,7 +1439,7 @@ function NewPurchaseModal({
                   type="number"
                   min="0"
                   step="0.01"
-                  className="w-28 rounded-md border border-border bg-background px-2 py-1 text-right text-sm"
+                  className="w-40 rounded-md border border-border bg-background px-3 py-2 text-right text-sm"
                   value={form.freight}
                   onChange={(e) => setForm({ ...form, freight: e.target.value })}
                 />
@@ -1764,7 +1764,7 @@ function PurchaseDetailModal({
             </div>
           )}
 
-          <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4">
+          <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4">
             <Row label="Subtotal" value={fmtMoney(subtotal)} />
             <Row label="GST total" value={fmtMoney(gstTotal)} />
             <Row label="Freight / other" value={fmtMoney(freight)} />

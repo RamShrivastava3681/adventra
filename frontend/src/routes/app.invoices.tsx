@@ -37,7 +37,7 @@ import {
   selectBase,
   textareaBase,
 } from "@/components/dialog";
-import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
+import { AddLineButton } from "@/components/dialog/LineRow";
 import { DocumentStatusStripCompact } from "@/components/document-status-strip";
 import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
 
@@ -1347,42 +1347,41 @@ function NewInvoiceModal({
               Product lines
             </legend>
             <div className="space-y-2">
-              <LineHeaders />
               {lines.map((l, i) => {
                 const lineTotal = round2(
                   (Number(l.quantity) || 0) *
                     (Number(l.unit_price) || 0) *
                     (1 - (Number(l.discount_pct) || 0) / 100),
                 );
+                const selectedProduct = (productsQ.data ?? []).find(
+                  (x: any) => x.id === l.product_id,
+                ) as any;
+                const productMeta = [
+                  (l as any).sku || selectedProduct?.sku
+                    ? `SKU ${(l as any).sku || selectedProduct.sku}`
+                    : null,
+                  (l as any).hsn_code || selectedProduct?.hsn_code || selectedProduct?.hsnCode
+                    ? `HSN ${(l as any).hsn_code || selectedProduct?.hsn_code || selectedProduct?.hsnCode}`
+                    : null,
+                ].filter(Boolean);
                 return (
-                  <div
-                    key={i}
-                    className="grid grid-cols-2 items-end gap-2 rounded-md border border-border/50 p-2 md:grid-cols-12"
-                  >
-                    <div className="col-span-2 md:col-span-3">
+                  <div key={i} className="space-y-4 rounded-lg border border-border/60 bg-card/30 p-4 sm:p-5">
+                    <div className="min-w-0">
                       <Field label="Product">
                         <ProductVariantPicker
                           products={productsQ.data ?? []}
                           value={l.product_id}
                           onChange={(v) => pickProduct(i, v)}
-                          className={inputBase}
+                          layout="inline"
                         />
                       </Field>
-                      {l.name && (
-                        <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
+                      {productMeta.length > 0 && (
+                        <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+                          {productMeta.join(" · ")}
+                        </div>
                       )}
-                      {(() => {
-                        const cat = (productsQ.data ?? []).find((x: any) => x.id === l.product_id) as any;
-                        const hsn =
-                          (l as any).hsn_code || cat?.hsn_code || cat?.hsnCode || "";
-                        return hsn ? (
-                          <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                            HSN {hsn}
-                          </div>
-                        ) : null;
-                      })()}
                     </div>
-                    <div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 lg:grid-cols-4">
                       <Field label="Unit">
                         <input
                           className={inputBase}
@@ -1390,8 +1389,6 @@ function NewInvoiceModal({
                           onChange={(e) => setLine(i, { unit: e.target.value })}
                         />
                       </Field>
-                    </div>
-                    <div>
                       <Field label="Qty">
                         <input
                           type="number"
@@ -1402,8 +1399,6 @@ function NewInvoiceModal({
                           onChange={(e) => setLine(i, { quantity: e.target.value })}
                         />
                       </Field>
-                    </div>
-                    <div className="md:col-span-2">
                       <Field label="Unit price">
                         <input
                           type="number"
@@ -1414,8 +1409,6 @@ function NewInvoiceModal({
                           onChange={(e) => setLine(i, { unit_price: e.target.value })}
                         />
                       </Field>
-                    </div>
-                    <div>
                       <Field label="Disc %">
                         <input
                           list="inv-disc-rates"
@@ -1428,8 +1421,6 @@ function NewInvoiceModal({
                           onChange={(e) => setLine(i, { discount_pct: e.target.value })}
                         />
                       </Field>
-                    </div>
-                    <div>
                       <Field label="GST %">
                         <input
                           list="pf-gst-rates"
@@ -1441,19 +1432,17 @@ function NewInvoiceModal({
                           onChange={(e) => setLine(i, { gst_rate: e.target.value })}
                         />
                       </Field>
-                    </div>
-                    <div className="text-right">
                       <Field label="Line total">
                         <div className="inp text-right font-mono tabular-nums">
                           {fmtMoney(lineTotal)}
                         </div>
                       </Field>
-                    </div>
-                    <div className="flex items-end justify-end pb-1">
                       <button
                         type="button"
                         onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}
-                        className="rounded p-1 text-muted-foreground hover:text-destructive"
+                        className="self-end justify-self-end rounded p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
+                        aria-label={`Remove invoice line ${i + 1}`}
+                        title="Remove line"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -1465,7 +1454,7 @@ function NewInvoiceModal({
             </div>
           </fieldset>
           {/* Totals */}
-          <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
+          <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
             <div className="flex items-center justify-between">
               <span className="text-xs uppercase tracking-widest text-muted-foreground">
                 Subtotal
@@ -1492,7 +1481,7 @@ function NewInvoiceModal({
                 type="number"
                 min="0"
                 step="0.01"
-                className="inp !w-28 !py-1 text-right"
+                className="inp !w-40 !py-1 text-right"
                 value={form.freight}
                 onChange={(e) => setForm({ ...form, freight: e.target.value })}
               />

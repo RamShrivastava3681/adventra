@@ -32,18 +32,19 @@ function Shell({
 }: DialogProps & { stickyFooter?: boolean }) {
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[#0a2239]/55 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center overflow-hidden overscroll-contain bg-[#0a2239]/55 p-3 backdrop-blur-sm sm:p-4"
       onClick={onClose}
     >
       <div
-        className={`w-full overflow-y-auto rounded-2xl border border-border bg-[#f4f7fb] shadow-modal dark:bg-card ${wide ? "max-w-5xl" : "max-w-lg"} ${maxHeight}`}
+        className={`w-full rounded-2xl border border-border bg-[#f4f7fb] shadow-modal dark:bg-card ${wide ? "max-w-6xl" : "max-w-lg"} ${maxHeight} ${stickyFooter ? "flex flex-col overflow-hidden" : "overflow-y-auto overscroll-contain"}`}
+        style={{ maxHeight: "min(92vh, calc(100dvh - 2rem))" }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label={title}
       >
         {/* ── Header: 20px title + helper subtitle + X ── */}
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 rounded-t-2xl border-b border-border bg-white px-6 py-4 dark:bg-card">
+        <div className="sticky top-0 z-10 flex shrink-0 items-start justify-between gap-4 rounded-t-2xl border-b border-border bg-white px-6 py-4 dark:bg-card">
           <div className="min-w-0 flex-1">
             <h3 className="text-xl font-semibold leading-tight tracking-tight text-[#0f2c4d] dark:text-foreground">
               {title}
@@ -61,12 +62,16 @@ function Shell({
         </div>
 
         {/* ── Body ── */}
-        <div className="space-y-4 px-6 py-5 text-sm">{children}</div>
+        <div
+          className={`space-y-5 px-5 py-5 text-sm sm:px-7 sm:py-6 ${stickyFooter ? "min-h-0 flex-1 overflow-y-auto overscroll-contain" : ""}`}
+        >
+          {children}
+        </div>
 
         {/* ── Footer ── */}
         {footer && (
           <div
-            className={`rounded-b-2xl border-t border-border bg-white px-6 py-4 dark:bg-card ${stickyFooter ? "sticky bottom-0" : ""}`}
+            className="shrink-0 rounded-b-2xl border-t border-border bg-white px-4 py-3 dark:bg-card sm:px-6 sm:py-4"
           >
             {footer}
           </div>

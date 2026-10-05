@@ -338,6 +338,33 @@
   input::placeholder,
   textarea::placeholder {
     color: color-mix(in srgb, var(--color-muted-foreground) 72%, transparent);
+    text-align: center;
+  }
+  /* Form fields should use the full space their grid cell provides. Search
+     controls keep a left-aligned prompt so it remains visually attached to
+     their leading search icon. */
+  form :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea),
+  :is([role="dialog"], div.fixed.inset-0.z-50) :is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea) {
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+  }
+  input[type="search"]::placeholder,
+  input[placeholder^="Search"]::placeholder,
+  input[placeholder^="Filter"]::placeholder,
+  textarea[placeholder^="Search"]::placeholder,
+  .whiz-search::placeholder,
+  [cmdk-input]::placeholder {
+    text-align: left;
+  }
+  [role="combobox"][data-placeholder] > span:first-child {
+    flex: 1;
+    justify-content: center;
+    text-align: center;
+  }
+  select:has(> option[value=""]:checked) {
+    text-align: center;
+    text-align-last: center;
   }
   select {
     cursor: pointer;
@@ -378,6 +405,17 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
   }
+  /* Most legacy form dialogs use a fixed overlay instead of Radix Dialog.
+     Lock the document while any of those overlays is mounted so wheel/touch
+     scrolling cannot move the blurred page underneath the active form. */
+  html:has(div.fixed.inset-0.z-50),
+  body:has(div.fixed.inset-0.z-50) {
+    overflow: hidden;
+    overscroll-behavior: none;
+  }
+  div.fixed.inset-0.z-50 {
+    overscroll-behavior: contain;
+  }
   html {
     scrollbar-gutter: stable;
   }
@@ -407,6 +445,40 @@
   .font-mono {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+  }
+}
+
+/* Form modals use their available width instead of squeezing three or four
+   fields into narrow columns. At phone widths every field gets its own row. */
+@media (min-width: 640px) and (max-width: 1279px) {
+  :is([role="dialog"], div.fixed.inset-0.z-50 > div):has(:is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea)):has(:is(
+    [class~="md:grid-cols-3"],
+    [class~="md:grid-cols-4"],
+    [class~="lg:grid-cols-4"]
+  )) {
+    max-width: min(calc(100vw - 2rem), 72rem);
+  }
+
+  :is([role="dialog"], div.fixed.inset-0.z-50):has(:is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea)) :is(
+    [class~="md:grid-cols-3"],
+    [class~="md:grid-cols-4"],
+    [class~="lg:grid-cols-4"]
+  ) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  :is([role="dialog"], div.fixed.inset-0.z-50):has(:is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea)) [class~="lg:grid-cols-6"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 639px) {
+  :is([role="dialog"], div.fixed.inset-0.z-50):has(:is(input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]), select, textarea)) :is(
+    [class~="grid-cols-2"],
+    [class~="grid-cols-3"],
+    [class~="grid-cols-4"]
+  ) {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1154,12 +1226,12 @@ input[type="number"] {
     max-width: 1440px;
     margin-inline: auto;
     padding-inline: 1.5rem;
-    padding-block: 1.5rem;
+    padding-block: 1.75rem;
   }
   @media (min-width: 768px) {
     .page-shell {
       padding-inline: 2.5rem;
-      padding-block: 2rem;
+      padding-block: 2.5rem;
     }
   }
 

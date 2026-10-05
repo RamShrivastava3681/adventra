@@ -29,17 +29,18 @@ function DocModal({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[#0a2239]/55 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center overflow-hidden overscroll-contain bg-[#0a2239]/55 p-3 backdrop-blur-sm sm:p-4"
       onClick={onClose}
     >
       <div
-        className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-border bg-[#f4f7fb] shadow-modal dark:bg-card"
+        className="flex max-h-[92vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-[#f4f7fb] shadow-modal dark:bg-card"
+        style={{ maxHeight: "min(92vh, calc(100dvh - 2rem))" }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label={title}
       >
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 rounded-t-2xl border-b border-border bg-white px-6 py-4 dark:bg-card">
+        <div className="z-10 flex shrink-0 items-start justify-between gap-4 rounded-t-2xl border-b border-border bg-white px-6 py-4 dark:bg-card">
           <div className="min-w-0">
             <h3 className="text-xl font-semibold tracking-tight text-[#0f2c4d] dark:text-foreground">{title}</h3>
             {subtitle && <p className="mt-1 text-[13px] text-muted-foreground">{subtitle}</p>}
@@ -52,7 +53,9 @@ function DocModal({
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="space-y-4 px-6 py-5 text-sm">{children}</div>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain space-y-4 px-4 py-4 text-sm sm:px-6 sm:py-5">
+          {children}
+        </div>
       </div>
     </div>
   );

@@ -39,17 +39,10 @@ import { ProductVariantPicker, fullItemName } from "@/components/product-variant
 import { QuickAddVariantModal } from "@/components/product-quick-create";
 import {
   LineItemsSection,
-  LineHead,
-  MiniLabel,
-  PctInput,
-  LineTotal,
-  RemoveLineButton,
-  TotalRow,
-  TotalsPanel,
   lineInputCls,
-  SO_LINE_GRID,
 } from "@/components/doc-lines";
-import { TableSkeleton } from "@/components/skeletons";import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
+import { TableSkeleton } from "@/components/skeletons";
+import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 import {
   Dialog,
   DialogWithStickyFooter,
@@ -59,7 +52,6 @@ import {
   selectBase,
   textareaBase,
 } from "@/components/dialog";
-import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 
 export const Route = createFileRoute("/app/sales-orders")({
   component: SalesOrdersPage,
@@ -1342,7 +1334,7 @@ function SOModal({
             <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
               Sales order header
             </legend>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <L label="SO number">
                 <input
                   className={inputBase}
@@ -1440,7 +1432,7 @@ function SOModal({
                     disabled={!editable}
                   />
                   <input
-                    className="inp !py-1.5 !text-xs"
+                    className="inp !py-1.5 !text-xs text-center placeholder:text-center"
                     value={f.bill_pan}
                     onChange={(e) => setF({ ...f, bill_pan: e.target.value })}
                     placeholder="Bill-to PAN"
@@ -1493,7 +1485,7 @@ function SOModal({
                     disabled={!editable}
                   />
                   <input
-                    className="inp !py-1.5 !text-xs"
+                    className="inp !py-1.5 !text-xs text-center placeholder:text-center"
                     value={f.ship_pan}
                     onChange={(e) => setF({ ...f, ship_pan: e.target.value })}
                     placeholder="Ship-to PAN"
@@ -1603,7 +1595,7 @@ function SOModal({
             <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
               Document references — for PDF
             </legend>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <L label="Buyer's order no.">
                 <input
                   className={inputBase}
@@ -1665,7 +1657,7 @@ function SOModal({
           </fieldset>
 
           {/* Line items */}
-          <fieldset className="rounded-lg border border-border/60 p-4">
+          <fieldset className="rounded-lg border border-border/60 p-5">
             <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
               Sales order item lines
             </legend>
@@ -1675,18 +1667,7 @@ function SOModal({
                 first.
               </div>
             ) : (
-              <div className="space-y-2">
-                <div className="hidden grid-cols-12 gap-2 text-[9px] uppercase tracking-widest text-muted-foreground md:grid">
-                  <div className="col-span-3">Category / Item (full name)</div>
-                  <div className="col-span-1">Unit</div>
-                  <div className="col-span-1">Ordered qty</div>
-                  <div className="col-span-2">Tier</div>
-                  <div className="col-span-1">Unit price</div>
-                  <div className="col-span-1">Disc %</div>
-                  <div className="col-span-1">GST %</div>
-                  <div className="col-span-1 text-right">Line total</div>
-                  <div className="col-span-1"></div>
-                </div>
+              <div className="space-y-4">
                 {lines.map((l, i) => {
                   const gross = (Number(l.ordered_qty) || 0) * (Number(l.unit_price) || 0);
                   const lineTotal = round2(gross * (1 - (Number(l.discount_pct) || 0) / 100));
@@ -1702,12 +1683,8 @@ function SOModal({
                   const overDispatched =
                     editable && l.dispatched_qty > 0 && Number(l.ordered_qty) < l.dispatched_qty;
                   return (
-                    <div key={i} className="space-y-2 rounded-md border border-border/50 p-2">
-                      <div className="grid grid-cols-2 items-end gap-2 md:grid-cols-12">
-                        <div className="col-span-2 md:col-span-3">
-                          <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
-                            Product
-                          </span>
+                    <div key={i} className="space-y-4 rounded-lg border border-border/60 bg-card/30 p-4 sm:p-5">
+                      <div className="min-w-0">
                           <ProductVariantPicker
                               products={products}
                               value={l.product_id}
@@ -1716,15 +1693,8 @@ function SOModal({
                               placeholder="Select item…"
                               childPlaceholder="Select colour / size…"
                               categoryPlaceholder="Select category…"
+                              layout="stacked"
                             />
-                          {l.name && (
-                            <div
-                              className="mt-1 break-words text-[11px] font-medium leading-snug text-foreground"
-                              title={l.name}
-                            >
-                              {l.name}
-                            </div>
-                          )}
                           {(snapColor || snapSize || snapCode || snapHsn || snapMrp) && (
                             <div className="mt-0.5 break-words text-[10px] leading-snug text-muted-foreground">
                               {[
@@ -1740,8 +1710,9 @@ function SOModal({
                             </div>
                           )}
                         </div>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 lg:grid-cols-4">
                         <div>
-                          <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
                             Unit
                           </span>
                           <input
@@ -1751,15 +1722,15 @@ function SOModal({
                               disabled={!editable}
                             />
                         </div>
-                        <div className="md:col-span-1">
-                          <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                        <div>
+                          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
                             Ordered qty
                           </span>
                           <input
                               type="number"
                               min="1"
                               step="0.001"
-                              className={`inp max-w-20 ${overDispatched ? "!border-sem-attention" : ""}`}
+                              className={`inp ${overDispatched ? "!border-sem-attention" : ""}`}
                               value={l.ordered_qty}
                               onChange={(e) => setLine(i, { ordered_qty: e.target.value })}
                               disabled={!editable}
@@ -1770,10 +1741,10 @@ function SOModal({
                             </div>
                           )}
                         </div>
-                        <div className="md:col-span-2">
+                        <div>
                           {l.product_id ? (
                             <>
-                              <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                              <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
                                 Price tier
                               </span>
                               <select
@@ -1791,8 +1762,8 @@ function SOModal({
                             </>
                           ) : null}
                         </div>
-                        <div className="md:col-span-1">
-                          <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                        <div>
+                          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
                             Unit price
                           </span>
                           <input
@@ -1807,7 +1778,7 @@ function SOModal({
                             />
                         </div>
                         <div>
-                          <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
                             Disc %
                           </span>
                           <input
@@ -1823,7 +1794,7 @@ function SOModal({
                             />
                         </div>
                         <div>
-                          <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
                             GST %
                           </span>
                           <input
@@ -1838,7 +1809,7 @@ function SOModal({
                             />
                         </div>
                         <div className="text-right">
-                          <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground md:hidden">
+                          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
                             Line total
                           </span>
                           <div className="inp text-right font-mono tabular-nums">
@@ -1862,6 +1833,8 @@ function SOModal({
                               type="button"
                               onClick={() => removeLine(i)}
                               className="rounded p-1 text-muted-foreground hover:text-destructive"
+                              aria-label={`Remove sales order line ${i + 1}`}
+                              title="Remove line"
                             >
                               <X className="h-3.5 w-3.5" />
                             </button>
@@ -1898,7 +1871,7 @@ function SOModal({
           </fieldset>
 
           {/* Totals */}
-          <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
+          <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
             <Row
               label="Total quantity"
               value={lines.reduce((s, l) => s + (Number(l.ordered_qty) || 0), 0).toLocaleString()}
@@ -1914,7 +1887,7 @@ function SOModal({
                 type="number"
                 min="0"
                 step="0.01"
-                className="inp !w-28 !py-1 text-right"
+                className="inp !w-40 !py-1 text-right"
                 value={f.freight}
                 onChange={(e) => setF({ ...f, freight: e.target.value })}
                 disabled={!editable}
@@ -1976,7 +1949,7 @@ function StatusPill({ status, label, tone }: { status: string; label: string; to
 function L({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+      <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
         {label}
       </span>
       {children}

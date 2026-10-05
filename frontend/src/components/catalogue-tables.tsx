@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import type { Product } from "@/routes/app.products";
 import { ProductThumb } from "@/components/product-thumb";
 import { fmtMoney } from "@/components/ledger-ui";
@@ -506,7 +506,7 @@ export function ProductsTable({
               const m = r.master;
               const isOpen = expanded.has(m.id);
               return (
-                <>
+                <Fragment key={m.id}>
                   <tr
                     key={m.id}
                     className={`border-b border-border/60 transition-colors hover:bg-muted/30 ${isOpen ? "bg-muted/20" : ""}`}
@@ -618,7 +618,7 @@ export function ProductsTable({
                       </td>
                     </tr>
                   )}
-                </>
+                </Fragment>
               );
             })}
           </tbody>

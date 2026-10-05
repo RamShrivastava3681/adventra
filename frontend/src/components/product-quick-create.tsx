@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import api from "@/lib/api-client";
 import { Layers, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
@@ -115,7 +116,7 @@ export function QuickCreateProductModal({
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to create product"),
   });
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
       onClick={onClose}
@@ -302,7 +303,8 @@ export function QuickCreateProductModal({
         </form>
         <style>{INP_STYLES}</style>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
@@ -356,7 +358,7 @@ export function QuickAddVariantModal({
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to create variant"),
   });
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
       onClick={onClose}
@@ -447,7 +449,8 @@ export function QuickAddVariantModal({
         </form>
         <style>{INP_STYLES}</style>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
