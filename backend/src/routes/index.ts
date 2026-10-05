@@ -3256,6 +3256,15 @@ router.post("/purchase-invoices", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: e.message });
     }
     body.goodsPoNumber = po.poNumber;
+    // Bill-to snapshot: the invoice bills the PO's bill-to party (billing
+    // person), not the ordering supplier. Frontend may send an override;
+    // otherwise copy the PO snapshot so the invoice displays the billing
+    // person name. Legacy POs without a bill-to supplier leave these null
+    // and the UI falls back to the supplier name.
+    if (body.billToSupplierId === undefined) body.billToSupplierId = (po as any).billToSupplierId ?? null;
+    if (body.billToName === undefined) body.billToName = (po as any).billToName ?? null;
+    if (body.billToContactPerson === undefined) body.billToContactPerson = (po as any).billToContactPerson ?? null;
+    if (body.billToAddress === undefined) body.billToAddress = (po as any).billToAddress ?? null;
     // Optional supplier-proforma link → advance deduction (server-side).
     if (body.linkedSupplierProformaId || body.poNumber) {
       try {
@@ -3402,6 +3411,10 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
         "linkedSupplierProformaId",
         "linkedSupplierProformaNumber",
         "advanceDeducted",
+        "billToSupplierId",
+        "billToName",
+        "billToContactPerson",
+        "billToAddress",
       ];
       if (frozen.some((k) => (body as any)[k] !== undefined)) {
         return res
@@ -3444,6 +3457,15 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
             .json({
               error: "Approve and send the purchase order before invoicing",
             });
+        }
+        // Re-linking to a different PO refreshes the bill-to snapshot unless
+        // the caller sent an explicit override.
+        if (linkedPo) {
+          if (body.billToSupplierId === undefined) body.billToSupplierId = (linkedPo as any).billToSupplierId ?? null;
+          if (body.billToName === undefined) body.billToName = (linkedPo as any).billToName ?? null;
+          if (body.billToContactPerson === undefined) body.billToContactPerson = (linkedPo as any).billToContactPerson ?? null;
+          if (body.billToAddress === undefined) body.billToAddress = (linkedPo as any).billToAddress ?? null;
+          body.goodsPoNumber = (linkedPo as any).poNumber ?? body.goodsPoNumber;
         }
       }
       if (body.lines !== undefined) {
@@ -6003,14 +6025,21 @@ async function buildGoodsPOTallyBuffer(
       if (!supplier) supplier = await Vendor.get(sid).catch(() => null);
     }
   } catch { supplier = null; }
-  // Bill-to debtor + ship-to masters for the Buyer/Consignee blocks
-  // (name/GSTIN fallbacks — the stored addresses always win).
+  // Bill-to supplier (new) + legacy bill-to debtor / ship-to masters for the
+  // Buyer/Consignee blocks (name/GSTIN fallbacks — stored addresses always win).
+  // Ship-to is now manual free text, so ship-to masters are legacy-only.
   let billToDebtor: any = null;
+  let billToSupplier: any = null;
   let shipToSupplier: any = null;
   let shipToDebtor: any = null;
   try {
+    const bsid = (po as any).billToSupplierId ?? (po as any).bill_to_supplier_id ?? null;
+    if (bsid) {
+      billToSupplier = await Supplier.get(bsid).catch(() => null);
+      if (!billToSupplier) billToSupplier = await Vendor.get(bsid).catch(() => null);
+    }
     const bid = po.billToDebtorId ?? po.bill_to_debtor_id ?? null;
-    if (bid) billToDebtor = await Debtor.get(bid).catch(() => null);
+    if (bid && !billToSupplier) billToDebtor = await Debtor.get(bid).catch(() => null);
     const stdid = (po as any).shipToDebtorId ?? (po as any).ship_to_debtor_id ?? null;
     if (stdid) shipToDebtor = await Debtor.get(stdid).catch(() => null);
     const stid = po.shipToSupplierId ?? po.ship_to_supplier_id ?? null;
@@ -6018,8 +6047,8 @@ async function buildGoodsPOTallyBuffer(
       shipToSupplier = await Supplier.get(stid).catch(() => null);
       if (!shipToSupplier) shipToSupplier = await Vendor.get(stid).catch(() => null);
     }
-  } catch { billToDebtor = null; shipToSupplier = null; shipToDebtor = null; }
-  const data = goodsPOToPdfData(po, { seller, bank, bankRaw, declarationRaw, supplier, billToDebtor, shipToSupplier, shipToDebtor });
+  } catch { billToDebtor = null; billToSupplier = null; shipToSupplier = null; shipToDebtor = null; }
+  const data = goodsPOToPdfData(po, { seller, bank, bankRaw, declarationRaw, supplier, billToDebtor, billToSupplier, shipToSupplier, shipToDebtor });
   const pdf = await buildGoodsPOTallyPdf(data);
   return { pdf, number: data.poNumber, grandTotal: data.grandTotal };
 }

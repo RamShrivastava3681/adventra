@@ -2925,8 +2925,10 @@ export function goodsPOToPdfData(
     bankRaw?: string | null;
     declarationRaw?: string | null;
     supplier?: any | null;
-    /** Bill-to debtor master (name/GSTIN fallbacks for the Buyer block). */
+    /** Bill-to debtor master (legacy name/GSTIN fallbacks for the Buyer block). */
     billToDebtor?: any | null;
+    /** Bill-to supplier master (name/GSTIN fallbacks for the Buyer block). */
+    billToSupplier?: any | null;
     /** Ship-to supplier master (name fallback for the Consignee block). */
     shipToSupplier?: any | null;
     /** Ship-to debtor master — wins over the ship-to supplier when set. */
@@ -2935,7 +2937,7 @@ export function goodsPOToPdfData(
 ): GoodsPOPdfData {
   const s = opts?.seller ?? {};
   const sup = opts?.supplier ?? {};
-  const billTo = opts?.billToDebtor ?? {};
+  const billTo = opts?.billToSupplier ?? opts?.billToDebtor ?? {};
   const shipTo = opts?.shipToDebtor ?? opts?.shipToSupplier ?? {};
   const g = (camel: string, snake: string) => po[camel] ?? po[snake] ?? null;
 
@@ -3011,8 +3013,8 @@ export function goodsPOToPdfData(
         .filter(Boolean)
         .join(" · ") ??
       "",
-    consigneeName: shipTo.name ?? shipTo.companyName ?? s.name ?? "",
-    consigneeAddress: g("shipToAddress", "ship_to_address") ?? s.address ?? "",
+    consigneeName: shipTo.name ?? shipTo.companyName ?? "",
+    consigneeAddress: g("shipToAddress", "ship_to_address") ?? "",
     consigneeGstin: (opts?.shipToDebtor ? (shipTo.gstin ?? "") : "") || s.gstin || "",
     consigneeState: [s.stateName, s.stateCode ? `Code : ${s.stateCode}` : ""].filter(Boolean).join(", "),
     consigneeEmail: s.email || "",
@@ -3033,7 +3035,14 @@ export function goodsPOToPdfData(
     delayClause: g("delayClause", "delay_clause") ?? "",
     otherTerms: g("otherTerms", "other_terms") ?? "",
     deliveryTermsLine: g("deliveryTermsLine", "delivery_terms_line") ?? "",
-    buyerName: billTo.name ?? g("buyerName", "buyer_name") ?? "",
+    buyerName:
+      g("billToContactPerson", "bill_to_contact_person") ??
+      g("billToName", "bill_to_name") ??
+      billTo.name ??
+      billTo.companyName ??
+      billTo.company_name ??
+      g("buyerName", "buyer_name") ??
+      "",
     buyerAddress: g("billToAddress", "bill_to_address") ?? g("buyerAddress", "buyer_address") ?? "",
     buyerGstin: billTo.gstin ?? g("buyerGstin", "buyer_gstin") ?? "",
     placeOfSupply: g("placeOfSupply", "place_of_supply") ?? "",

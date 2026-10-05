@@ -115,6 +115,10 @@ type POFragment = {
   po_number: string;
   supplier_id: string | null;
   supplier_name: string | null;
+  bill_to_supplier_id?: string | null;
+  bill_to_name?: string | null;
+  bill_to_contact_person?: string | null;
+  bill_to_address?: string | null;
   status: string;
   lines: Array<{
     product_id: string;
@@ -289,6 +293,8 @@ function PurchasesPageContent({
     searchPlaceholder: "Search by invoice number, supplier, PO / GRNâ€¦",
     search: (p) => [
       p.invoice_number,
+      p.bill_to_contact_person,
+      p.bill_to_name,
       p.supplier_name,
       p.vendor?.name,
       p.goods_po_number ?? p.po_number,
@@ -423,7 +429,12 @@ function PurchasesPageContent({
                               )}
                             </td>
                             <td className="px-5 py-3">
-                              {p.supplier_name ?? p.vendor?.name ?? "â€”"}
+                              {p.bill_to_contact_person ?? p.bill_to_name ?? p.supplier_name ?? p.vendor?.name ?? "—"}
+                              {(p.bill_to_contact_person || p.bill_to_name) && (p.supplier_name ?? p.vendor?.name) ? (
+                                <div className="text-[10px] text-muted-foreground">
+                                  via {p.supplier_name ?? p.vendor?.name}
+                                </div>
+                              ) : null}
                             </td>
                             <td className="px-5 py-3">
                               {(p.goods_po_number ?? p.po_number) ? (
@@ -631,6 +642,10 @@ function NewPurchaseModal({
     po_number: invoice?.po_number ?? "",
     linked_supplier_proforma_id: invoice?.linked_supplier_proforma_id ?? "",
     linked_supplier_proforma_number: invoice?.linked_supplier_proforma_number ?? "",
+    bill_to_supplier_id: invoice?.bill_to_supplier_id ?? "",
+    bill_to_name: invoice?.bill_to_name ?? "",
+    bill_to_contact_person: invoice?.bill_to_contact_person ?? "",
+    bill_to_address: invoice?.bill_to_address ?? "",
     freight: invoice?.freight != null ? String(invoice.freight) : "0",
     notes: invoice?.notes ?? "",
     difference_notes: invoice?.difference_notes ?? "",
@@ -728,6 +743,10 @@ function NewPurchaseModal({
         po_number: "",
         linked_supplier_proforma_id: "",
         linked_supplier_proforma_number: "",
+        bill_to_supplier_id: "",
+        bill_to_name: "",
+        bill_to_contact_person: "",
+        bill_to_address: "",
       }));
       setLines([]);
       return;
@@ -772,6 +791,12 @@ function NewPurchaseModal({
       po_number: pf ? (pf.po_number ?? pf.proforma_number ?? po.po_number) : po.po_number,
       linked_supplier_proforma_id: pf?.id ?? "",
       linked_supplier_proforma_number: pf ? (pf.proforma_number ?? pf.po_number ?? "") : "",
+      // Bill-to snapshot from the PO — the invoice displays the billing
+      // person name, not the ordering supplier name.
+      bill_to_supplier_id: (po as any).bill_to_supplier_id ?? "",
+      bill_to_name: (po as any).bill_to_name ?? "",
+      bill_to_contact_person: (po as any).bill_to_contact_person ?? "",
+      bill_to_address: (po as any).bill_to_address ?? "",
     }));
   };
 
@@ -982,6 +1007,10 @@ function NewPurchaseModal({
         due_date: effectiveDue || null,
         goods_purchase_order_id: form.goods_po_id || null,
         goods_po_number: form.goods_po_number || null,
+        bill_to_supplier_id: (form as any).bill_to_supplier_id || null,
+        bill_to_name: (form as any).bill_to_name || null,
+        bill_to_contact_person: (form as any).bill_to_contact_person || null,
+        bill_to_address: (form as any).bill_to_address || null,
         ...toTermsPayload(form),
         po_number: form.po_number || null,
         linked_supplier_proforma_id: form.linked_supplier_proforma_id || null,
@@ -1136,19 +1165,36 @@ function NewPurchaseModal({
                 disabled={isEdit && !!invoice?.linked_goods_receipt_id}
                 options={[
                   { value: "", label: "Select purchase orderâ€¦" },
-                  ...eligiblePos.map((p: any) => ({
-                    value: p.id,
-                    label: p.po_number,
-                    hint: `${p.supplier_name ?? "â€”"} Â· ${p.status.replace(/_/g, " ")}`,
-                  })),
+                  ...eligiblePos.map((p: any) => {
+                    const bill = p.bill_to_contact_person ?? p.bill_to_name ?? null;
+                    return {
+                      value: p.id,
+                      label: p.po_number,
+                      hint: `${bill ? `${bill} · ` : ""}${p.supplier_name ?? "—"} · ${p.status.replace(/_/g, " ")}`,
+                    };
+                  }),
                 ]}
               />
             </L>
             <p className="mt-1 text-[10px] text-muted-foreground">
-              Every purchase invoice must link to a purchase order â€” picking it auto-fills the
+              Every purchase invoice must link to a purchase order — picking it auto-fills the
               product lines, units and PO prices. Edit the billed quantity and price from the
               supplier invoice.
             </p>
+            {((form as any).bill_to_contact_person || (form as any).bill_to_name) && (
+              <div className="mt-2 rounded-md border border-primary/20 bg-primary/5 p-2 text-xs">
+                <span className="text-muted-foreground">Billed by: </span>
+                <span className="font-medium">
+                  {(form as any).bill_to_contact_person || (form as any).bill_to_name}
+                </span>
+                {(form as any).bill_to_name && (form as any).bill_to_contact_person ? (
+                  <span className="text-muted-foreground"> ({(form as any).bill_to_name})</span>
+                ) : null}
+                {(form as any).bill_to_address ? (
+                  <div className="mt-0.5 text-[11px] text-muted-foreground">{(form as any).bill_to_address}</div>
+                ) : null}
+              </div>
+            )}
             {isEdit && invoice?.linked_goods_receipt_number && (
               <div className="mt-2 rounded-md border border-sem-success/30 bg-sem-success/5 p-2 text-xs text-sem-success">
                 Linked GRN {invoice.linked_goods_receipt_number} â€” GRN received quantities are shown
@@ -1623,6 +1669,12 @@ function PurchaseDetailModal({
             cashImpact={cashImpact("purchase_invoice", invoice)}
           />
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+            <D
+              label="Billed by"
+              value={
+                invoice.bill_to_contact_person ?? invoice.bill_to_name ?? invoice.supplier_name ?? invoice.vendor?.name ?? "—"
+              }
+            />
             <D label="Supplier" value={invoice.supplier_name ?? invoice.vendor?.name ?? "—"} />
             <D
               label="Invoice date"

@@ -63,6 +63,12 @@ export interface PurchaseInvoice {
   /** Linked goods PO (catalogue-backed purchase order). */
   goodsPurchaseOrderId: string | null;
   goodsPoNumber: string | null;
+  /** Bill-to snapshot copied from the linked PO — the billing party, not the
+   *  ordering supplier. Display prefers billToContactPerson, then billToName. */
+  billToSupplierId: string | null;
+  billToName: string | null;
+  billToContactPerson: string | null;
+  billToAddress: string | null;
   /** Linked supplier proforma (purchase side) — optional. */
   linkedSupplierProformaId: string | null;
   linkedSupplierProformaNumber: string | null;
@@ -206,6 +212,10 @@ export async function create(data: Partial<PurchaseInvoice> & { clientId: string
     notes: data.notes || null,
     goodsPurchaseOrderId: data.goodsPurchaseOrderId || null,
     goodsPoNumber: data.goodsPoNumber || null,
+    billToSupplierId: (data as any).billToSupplierId || null,
+    billToName: (data as any).billToName || null,
+    billToContactPerson: (data as any).billToContactPerson || null,
+    billToAddress: (data as any).billToAddress || null,
     linkedSupplierProformaId: data.linkedSupplierProformaId || null,
     linkedSupplierProformaNumber: data.linkedSupplierProformaNumber || null,
     linkedGoodsReceiptId: data.linkedGoodsReceiptId || null,
@@ -233,7 +243,8 @@ export async function update(id: string, updates: Partial<PurchaseInvoice>) {
     "invoiceNumber", "vendorId", "supplierName", "poNumber", "poDate", "poAmount",
     "notes", "advanceRate", "advancePaidDate", "fundedDate", "purchaseOrderId",
     "documents", "lastOverdueReminderDate",
-    "goodsPurchaseOrderId", "goodsPoNumber", "paymentTermsType", "advancePct",
+    "goodsPurchaseOrderId", "goodsPoNumber", "billToSupplierId", "billToName",
+    "billToContactPerson", "billToAddress", "paymentTermsType", "advancePct",
     "linkedGoodsReceiptId", "linkedGoodsReceiptNumber",
     "lines", "subtotal", "gstTotal", "freight", "grandTotal",
     "amountPaid", "balanceDue", "differenceNotes",

@@ -113,16 +113,25 @@ export interface GoodsPurchaseOrder {
   buyerAddress: string | null;
   /** Bill-to buyer GSTIN/UIN. */
   buyerGstin: string | null;
-  /** Bill-to debtor selection (address fetched from the debtor master). */
+  /** Bill-to debtor selection (legacy — address was fetched from the debtor master).
+   *  Kept for backward compat; new POs link Bill-to to a supplier instead. */
   billToDebtorId: string | null;
-  /** Bill-to address (defaults to the selected debtor's billing address). */
+  /** Bill-to supplier selection (address fetched from the supplier/vendor master). */
+  billToSupplierId: string | null;
+  /** Denormalized bill-to supplier company name for display. */
+  billToName: string | null;
+  /** Billing person name — snapshot of the bill-to supplier's contactName, editable. */
+  billToContactPerson: string | null;
+  /** Billing person phone/email line (snapshot, editable). */
+  billToContact: string | null;
+  /** Bill-to address (defaults to the selected supplier's address, editable). */
   billToAddress: string | null;
-  /** Ship-to supplier selection (address fetched from the supplier master). */
+  /** Ship-to supplier selection (legacy — address was fetched from the supplier master). */
   shipToSupplierId: string | null;
-  /** Ship-to customer selection (address fetched from the debtor master).
+  /** Ship-to customer selection (legacy — address was fetched from the debtor master).
    *  When set, it wins over the legacy ship-to supplier for the Consignee block. */
   shipToDebtorId: string | null;
-  /** Ship-to address (defaults to the selected supplier's address). */
+  /** Ship-to address — MANUAL free text (no master link). */
   shipToAddress: string | null;
   documents: any[];
   status: string;
@@ -299,6 +308,10 @@ export async function create(
     buyerAddress: data.buyerAddress || null,
     buyerGstin: data.buyerGstin || null,
     billToDebtorId: data.billToDebtorId || null,
+    billToSupplierId: (data as any).billToSupplierId || null,
+    billToName: (data as any).billToName || null,
+    billToContactPerson: (data as any).billToContactPerson || null,
+    billToContact: (data as any).billToContact || null,
     billToAddress: data.billToAddress || null,
     shipToSupplierId: data.shipToSupplierId || null,
     shipToDebtorId: (data as any).shipToDebtorId || null,
@@ -365,6 +378,10 @@ export async function update(id: string, updates: Partial<GoodsPurchaseOrder>) {
     "buyerAddress",
     "buyerGstin",
     "billToDebtorId",
+    "billToSupplierId",
+    "billToName",
+    "billToContactPerson",
+    "billToContact",
     "billToAddress",
     "shipToSupplierId",
     "shipToDebtorId",

@@ -98,6 +98,10 @@ type PO = {
   buyer_id: string | null;
   buyer_name: string | null;
   bill_to_debtor_id?: string | null;
+  bill_to_supplier_id?: string | null;
+  bill_to_name?: string | null;
+  bill_to_contact_person?: string | null;
+  bill_to_contact?: string | null;
   bill_to_address?: string | null;
   ship_to_supplier_id?: string | null;
   ship_to_debtor_id?: string | null;
@@ -667,18 +671,11 @@ function POModal({
     // Free-text "Buyer / created by" — new POs default to the signed-in
     // user's email (what the backend used to store); the user can type anything.
     buyer_name: po ? (po.buyer_name ?? "") : email,
-    bill_to_debtor_id: (po as any)?.bill_to_debtor_id ?? (po as any)?.billToDebtorId ?? "",
+    bill_to_supplier_id: (po as any)?.bill_to_supplier_id ?? (po as any)?.billToSupplierId ?? "",
+    bill_to_contact_person: (po as any)?.bill_to_contact_person ?? (po as any)?.billToContactPerson ?? "",
+    bill_to_contact: (po as any)?.bill_to_contact ?? (po as any)?.billToContact ?? "",
     bill_to_address: (po as any)?.bill_to_address ?? (po as any)?.billToAddress ?? "",
-    ship_to_supplier_id: (po as any)?.ship_to_supplier_id ?? (po as any)?.shipToSupplierId ?? "",
-    ship_to_debtor_id: (po as any)?.ship_to_debtor_id ?? (po as any)?.shipToDebtorId ?? "",
     ship_to_address: (po as any)?.ship_to_address ?? (po as any)?.shipToAddress ?? "",
-    same_as_bill_to: (() => {
-      if (!po) return true;
-      const ship = (po as any)?.ship_to_debtor_id ?? (po as any)?.shipToDebtorId ?? null;
-      const bill = (po as any)?.bill_to_debtor_id ?? (po as any)?.billToDebtorId ?? null;
-      if (!ship) return true;
-      return ship === bill;
-    })(),
     notes: po?.notes ?? "",
     freight: po?.freight != null ? String(po.freight) : "",
     // ── Garment PO print details (all optional — blank prints blank) ──
@@ -749,194 +746,39 @@ function POModal({
     />
   );
 
-  // Bill-to / ship-to come from ONE customer pick: the customer's saved
-  // billing addresses feed Bill-to, the saved shipping addresses feed
-  // Ship-to. When the customer has several of either, a dropdown offers
-  // the choice — the text box always stays manually editable.
-  const billCustomersQ = useQuery({
-    queryKey: ["po-bill-to-customers"],
-    queryFn: async () => {
-      const data = await api.debtors.list();
-      return (data ?? [])
-        .map((d: any) => {
-          let billing = normPoAddrs(d.billing_addresses ?? d.billingAddresses);
-          const primaryBilling = d.billing_address ?? d.billingAddress ?? d.address_line ?? d.addressLine ?? "";
-          if (!billing.length && primaryBilling) billing = [{ label: null, address: primaryBilling }];
-          let shipping = normPoAddrs(d.shipping_addresses ?? d.shippingAddresses);
-          const primaryShipping = d.shipping_address ?? d.shippingAddress ?? "";
-          if (!shipping.length && primaryShipping) shipping = [{ label: null, address: primaryShipping }];
-          const address = [billing[0]?.address ?? "", d.city, d.country].filter(Boolean).join(", ");
-          return {
-            id: d.id,
-            name: d.name ?? d.id,
-            address,
-            billing,
-            shipping,
-            gstin: d.gstin ?? null,
-            pan: d.panCardNo ?? d.pan_card_no ?? d.pan ?? null,
-          };
-        })
-        .sort((a: any, b: any) => a.name.localeCompare(b.name));
-    },
-  });
-
-  // Fresh address books, one per side (fetched live so newly
-  // added master addresses are always choosable, even with a cached list).
-  const [addrBook, setAddrBook] = useState<{ billing: PoAddr[]; shipping: PoAddr[] } | null>(null);
-  const [addrFor, setAddrFor] = useState<string>("");
-  const [shipAddrBook, setShipAddrBook] = useState<{ billing: PoAddr[]; shipping: PoAddr[] } | null>(null);
-  const [shipAddrFor, setShipAddrFor] = useState<string>("");
-
-  const applyCustomerAddrs = (id: string, billing: PoAddr[], shipping: PoAddr[], overwrite: boolean) => {
-    setAddrBook({ billing, shipping });
-    setAddrFor(id);
-    if (!overwrite) return;
-    setF((prev) =>
-      (prev as any).bill_to_debtor_id === id
-        ? ({
-            ...prev,
-            bill_to_address: billing[0]?.address ?? (prev as any).bill_to_address,
-          } as any)
-        : prev,
-    );
-  };
-
-  const applyShipCustomerAddrs = (id: string, billing: PoAddr[], shipping: PoAddr[], overwrite: boolean) => {
-    setShipAddrBook({ billing, shipping });
-    setShipAddrFor(id);
-    if (!overwrite) return;
-    setF((prev) => {
-      const same = ((prev as any).same_as_bill_to ?? true) !== false;
-      const sid = (prev as any).ship_to_debtor_id as string;
-      if (sid !== id && !(same && (prev as any).bill_to_debtor_id === id)) return prev;
-      return {
-        ...prev,
-        ship_to_address: (shipping[0]?.address ?? billing[0]?.address ?? (prev as any).ship_to_address),
-      } as any;
-    });
-  };
-
-  const fetchPoCustomerAddrs = async (id: string) => {
-    const d = await api.debtors.get(id);
-    let billing = normPoAddrs(d?.billing_addresses ?? d?.billingAddresses);
-    const primaryBilling = d?.billing_address ?? d?.billingAddress ?? d?.address_line ?? d?.addressLine ?? "";
-    if (!billing.length && primaryBilling) billing = [{ label: null, address: String(primaryBilling) }];
-    let shipping = normPoAddrs(d?.shipping_addresses ?? d?.shippingAddresses);
-    const primaryShipping = d?.shipping_address ?? d?.shippingAddress ?? "";
-    if (!shipping.length && primaryShipping) shipping = [{ label: null, address: String(primaryShipping) }];
-    if (!billing.length && !shipping.length) {
-      const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
-      billing = c?.billing ?? [];
-      shipping = c?.shipping ?? [];
-    }
-    return { d, billing, shipping };
-  };
-
-  const loadCustomerAddrs = async (id: string, overwrite: boolean) => {
-    if (!id) return;
-    try {
-      const d = await api.debtors.get(id);
-      let billing = normPoAddrs(d?.billing_addresses ?? d?.billingAddresses);
-      const primaryBilling = d?.billing_address ?? d?.billingAddress ?? d?.address_line ?? d?.addressLine ?? "";
-      if (!billing.length && primaryBilling) billing = [{ label: null, address: String(primaryBilling) }];
-      let shipping = normPoAddrs(d?.shipping_addresses ?? d?.shippingAddresses);
-      const primaryShipping = d?.shipping_address ?? d?.shippingAddress ?? "";
-      if (!shipping.length && primaryShipping) shipping = [{ label: null, address: String(primaryShipping) }];
-      if (!billing.length && !shipping.length) {
-        const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
-        billing = c?.billing ?? [];
-        shipping = c?.shipping ?? [];
-      }
-      applyCustomerAddrs(id, billing, shipping, overwrite);
-      if (overwrite && (billing.length + shipping.length > 0)) {
-        const n = Math.max(billing.length, shipping.length);
-        toast.success(`Fetched ${n} address${n === 1 ? "" : "es"} from ${d?.name ?? "customer"}`);
-      }
-    } catch {
-      const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
-      if (c) applyCustomerAddrs(id, c.billing ?? [], c.shipping ?? [], overwrite);
-    }
-  };
-
-  const loadShipCustomerAddrs = async (id: string, overwrite: boolean) => {
-    if (!id) return;
-    try {
-      const { d, billing, shipping } = await fetchPoCustomerAddrs(id);
-      applyShipCustomerAddrs(id, billing, shipping, overwrite);
-      if (overwrite && (billing.length + shipping.length > 0)) {
-        const n = Math.max(billing.length, shipping.length);
-        toast.success(`Fetched ${n} address${n === 1 ? "" : "es"} from ${d?.name ?? "customer"}`);
-      }
-    } catch {
-      const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
-      if (c) applyShipCustomerAddrs(id, c.billing ?? [], c.shipping ?? [], overwrite);
-    }
-  };
-  // Edit mode: load the linked customers' address options (no overwrite —
-  // the saved addresses on the PO win).
-  useEffect(() => {
-    const id = ((f as any).bill_to_debtor_id ?? "") as string;
-    if (isEdit && id && addrFor !== id) loadCustomerAddrs(id, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEdit, (f as any).bill_to_debtor_id]);
-  useEffect(() => {
-    const sid = ((f as any).ship_to_debtor_id ?? "") as string;
-    if (isEdit && sid && shipAddrFor !== sid) loadShipCustomerAddrs(sid, false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isEdit, (f as any).ship_to_debtor_id]);
-
-  const pickBillCustomer = (id: string) => {
-    setAddrBook(null);
-    setAddrFor("");
+  // Bill-to links to a supplier (billing party); Ship-to is manual free text.
+  // Picking a bill-to supplier auto-fills the billing person + address from
+  // the supplier master — every field stays editable afterwards.
+  const pickBillSupplier = async (id: string) => {
     if (!id) {
-      setF((prev) => ({ ...prev, bill_to_debtor_id: "" }) as any);
+      setF((prev) => ({ ...prev, bill_to_supplier_id: "" }) as any);
       return;
     }
-    const same = ((f as any).same_as_bill_to ?? true) !== false;
-    setF((prev) => ({
-      ...prev,
-      bill_to_debtor_id: id,
-      ...(same ? { ship_to_debtor_id: id, ship_to_supplier_id: "" } : {}),
-    }) as any);
-    const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
-    if (c) applyCustomerAddrs(id, c.billing ?? [], c.shipping ?? [], true);
-    loadCustomerAddrs(id, true);
-    if (same) {
-      if (c) applyShipCustomerAddrs(id, c.billing ?? [], c.shipping ?? [], true);
-      loadShipCustomerAddrs(id, true);
+    setF((prev) => ({ ...prev, bill_to_supplier_id: id }) as any);
+    try {
+      const s: any =
+        (suppliers as any[]).find((x: any) => x.id === id) ??
+        (await api.suppliers.list().then((l: any[]) => l.find((x: any) => x.id === id)).catch(() => null));
+      if (!s) return;
+      const addr = [s.addressLine ?? s.address_line, s.city, s.country].filter(Boolean).join(", ");
+      const contact = s.contactName ?? s.contact_name ?? "";
+      const contactLine = [s.contactPhone ?? s.contact_phone, s.contactEmail ?? s.contact_email].filter(Boolean).join(" · ");
+      setF((prev) => {
+        if ((prev as any).bill_to_supplier_id !== id) return prev;
+        return {
+          ...prev,
+          bill_to_contact_person: (prev as any).bill_to_contact_person || contact || "",
+          bill_to_contact: (prev as any).bill_to_contact || contactLine || "",
+          bill_to_address: (prev as any).bill_to_address || addr || "",
+        } as any;
+      });
+    } catch {
+      /* best-effort autofill — fields stay manually editable */
     }
   };
 
-  const pickShipCustomer = (id: string) => {
-    setShipAddrBook(null);
-    setShipAddrFor("");
-    if (!id) {
-      setF((prev) => ({ ...prev, ship_to_debtor_id: "" }) as any);
-      return;
-    }
-    setF((prev) => ({ ...prev, ship_to_debtor_id: id }) as any);
-    const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
-    if (c) applyShipCustomerAddrs(id, c.billing ?? [], c.shipping ?? [], true);
-    loadShipCustomerAddrs(id, true);
-  };
-
-  const toggleSameAsBillTo = (on: boolean) => {
-    setF((prev) => {
-      if (on) return { ...prev, same_as_bill_to: true, ship_to_debtor_id: (prev as any).bill_to_debtor_id } as any;
-      return { ...prev, same_as_bill_to: false, ship_to_debtor_id: "" } as any;
-    });
-    if (on) {
-      const id = ((f as any).bill_to_debtor_id ?? "") as string;
-      if (id) {
-        const c = (billCustomersQ.data ?? []).find((x: any) => x.id === id) as any;
-        if (c) applyShipCustomerAddrs(id, c.billing ?? [], c.shipping ?? [], true);
-        loadShipCustomerAddrs(id, true);
-      }
-    } else {
-      setShipAddrBook(null);
-      setShipAddrFor("");
-    }
-  };
+  // Bill-to autofill lives in pickBillSupplier above. Ship-to is manual —
+  // no master lookup, no same-as-bill-to sync.
 
   // Inline variant creation from the line editor: "Add variant" opens the
   // colour/size popup and snapshots the created SKU into the originating
@@ -1185,12 +1027,15 @@ function POModal({
         ...toTermsPayload(f),
         payment_terms: formatPaymentTerms({ paymentTermsType: f.payment_terms_type as any, advancePct: Number(f.payment_terms_advance_pct) || null, paymentTermsDays: Number(f.payment_terms_days) || null }),
         buyer_name: f.buyer_name.trim() || null,
-        bill_to_debtor_id: (f as any).bill_to_debtor_id || null,
+        bill_to_supplier_id: (f as any).bill_to_supplier_id || null,
+        bill_to_name: (f as any).bill_to_supplier_id
+          ? (suppliers.find((s) => s.id === (f as any).bill_to_supplier_id)?.name ?? null)
+          : null,
+        bill_to_contact_person: (f as any).bill_to_contact_person.trim() || null,
+        bill_to_contact: (f as any).bill_to_contact.trim() || null,
         bill_to_address: (f as any).bill_to_address.trim() || null,
-        ship_to_supplier_id: (f as any).ship_to_supplier_id || null,
-        ship_to_debtor_id: (((f as any).same_as_bill_to ?? true) !== false
-          ? (f as any).bill_to_debtor_id
-          : (f as any).ship_to_debtor_id) || null,
+        ship_to_supplier_id: null,
+        ship_to_debtor_id: null,
         ship_to_address: (f as any).ship_to_address.trim() || null,
         notes: f.notes.trim() || null,
         freight: Number(f.freight) || 0,
@@ -1500,143 +1345,70 @@ function POModal({
             </div>
             <div className="mt-3 grid gap-3 md:grid-cols-2">
               <div className="rounded-md border border-border/60 p-3">
-                <div className="mb-2 text-xs uppercase tracking-widest text-primary">Bill to</div>
-                <L label="Customer">
+                <div className="mb-2 text-xs uppercase tracking-widest text-primary">Bill to — link to supplier</div>
+                <L label="Supplier">
                   <SearchableSelect
-                    value={(f as any).bill_to_debtor_id}
-                    onChange={pickBillCustomer}
-                    placeholder="Select customer…"
+                    value={(f as any).bill_to_supplier_id}
+                    onChange={pickBillSupplier}
+                    placeholder="Select supplier…"
                     disabled={!editable}
                     options={[
                       { value: "", label: "None" },
-                      ...((billCustomersQ.data ?? []).map((d: any) => ({
-                        value: d.id,
-                        label: d.name,
-                      }))),
+                      ...(suppliers.map((s) => ({ value: s.id, label: s.name }))),
                     ]}
                   />
-                  {(f as any).bill_to_debtor_id ? (
+                  {(f as any).bill_to_supplier_id ? (
                     <p className="mt-1 text-[11px] text-muted-foreground">
-                      Billing address auto-filled from this customer — editable. GSTIN/PAN print on the PDF from the customer master.
+                      Billing person + address auto-filled from this supplier — editable. The invoice shows the billing person name.
                     </p>
                   ) : null}
                 </L>
-                <div className="mt-2">
+                <div className="mt-2 grid gap-2">
+                  <L label="Billing person name">
+                    <input
+                      className={inputBase}
+                      value={(f as any).bill_to_contact_person}
+                      onChange={(e) => setF({ ...f, bill_to_contact_person: e.target.value } as any)}
+                      placeholder="e.g. Ramesh — accounts"
+                      disabled={!editable}
+                    />
+                  </L>
+                  <L label="Billing phone / email">
+                    <input
+                      className={inputBase}
+                      value={(f as any).bill_to_contact}
+                      onChange={(e) => setF({ ...f, bill_to_contact: e.target.value } as any)}
+                      placeholder="Phone · email"
+                      disabled={!editable}
+                    />
+                  </L>
                   <L label="Bill to address">
-                    {(() => {
-                      const id = (f as any).bill_to_debtor_id as string;
-                      const fromBook = addrFor === id ? (addrBook?.billing ?? []) : [];
-                      const fromList = ((billCustomersQ.data ?? []).find((x: any) => x.id === id) as any)?.billing ?? [];
-                      const opts = fromBook.length ? fromBook : fromList;
-                      return (
-                        <>
-                          {editable && opts.length > 1 && (
-                            <select
-                              className="inp mb-1"
-                              value={(() => {
-                                const ix = opts.findIndex((a: PoAddr) => a.address === (f as any).bill_to_address);
-                                return ix >= 0 ? String(ix) : "custom";
-                              })()}
-                              onChange={(e) => {
-                                if (e.target.value === "custom") return;
-                                const a = opts[Number(e.target.value)];
-                                if (a) setF({ ...f, bill_to_address: a.address } as any);
-                              }}
-                            >
-                              {opts.map((a: PoAddr, i: number) => (
-                                <option key={i} value={String(i)}>{poAddrLabel(a, i)}</option>
-                              ))}
-                              <option value="custom">Custom / edited…</option>
-                            </select>
-                          )}
-                          <textarea
-                            rows={2}
-                            className={textareaBase}
-                            value={(f as any).bill_to_address}
-                            onChange={(e) => setF({ ...f, bill_to_address: e.target.value } as any)}
-                            placeholder="Pick a customer to fetch, or type manually"
-                            disabled={!editable}
-                          />
-                        </>
-                      );
-                    })()}
+                    <textarea
+                      rows={2}
+                      className={textareaBase}
+                      value={(f as any).bill_to_address}
+                      onChange={(e) => setF({ ...f, bill_to_address: e.target.value } as any)}
+                      placeholder="Pick a supplier to fetch, or type manually"
+                      disabled={!editable}
+                    />
                   </L>
                 </div>
               </div>
               <div className="rounded-md border border-border/60 p-3">
-                <div className="mb-2 text-xs uppercase tracking-widest text-primary">Ship to</div>
-                <L label="Customer">
-                  <SearchableSelect
-                    value={((f as any).same_as_bill_to ?? true) !== false ? ((f as any).bill_to_debtor_id as string) : ((f as any).ship_to_debtor_id as string)}
-                    onChange={pickShipCustomer}
-                    placeholder="Select customer…"
-                    disabled={!editable || ((f as any).same_as_bill_to ?? true) !== false}
-                    options={[
-                      { value: "", label: "None" },
-                      ...((billCustomersQ.data ?? []).map((d: any) => ({
-                        value: d.id,
-                        label: d.name,
-                      }))),
-                    ]}
+                <div className="mb-2 text-xs uppercase tracking-widest text-primary">Ship to — manual</div>
+                <L label="Ship to address">
+                  <textarea
+                    rows={5}
+                    className={textareaBase}
+                    value={(f as any).ship_to_address}
+                    onChange={(e) => setF({ ...f, ship_to_address: e.target.value } as any)}
+                    placeholder="Type the delivery address manually…"
+                    disabled={!editable}
                   />
-                  <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 text-[11px] text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={((f as any).same_as_bill_to ?? true) !== false}
-                      disabled={!editable}
-                      onChange={(e) => toggleSameAsBillTo(e.target.checked)}
-                      className="h-3.5 w-3.5 accent-primary"
-                    />
-                    Same as bill-to customer
-                  </label>
                 </L>
-                <div className="mt-2">
-                  <L label="Ship to address">
-                    {(() => {
-                      const same = ((f as any).same_as_bill_to ?? true) !== false;
-                      const id = (same ? (f as any).bill_to_debtor_id : (f as any).ship_to_debtor_id) as string;
-                      const book = same ? addrBook : shipAddrBook;
-                      const forId = same ? addrFor : shipAddrFor;
-                      const fromBook = forId === id ? (book?.shipping ?? []) : [];
-                      const listEntry = ((billCustomersQ.data ?? []).find((x: any) => x.id === id) as any);
-                      const fromList = listEntry?.shipping?.length ? listEntry.shipping : (listEntry?.billing ?? []);
-                      const bookBilling = forId === id ? (book?.billing ?? []) : [];
-                      const listBilling = listEntry?.billing ?? [];
-                      const opts = fromBook.length ? fromBook : fromList.length ? fromList : (bookBilling.length ? bookBilling : listBilling);
-                      return (
-                        <>
-                          {editable && opts.length > 1 && (
-                            <select
-                              className="inp mb-1"
-                              value={(() => {
-                                const ix = opts.findIndex((a: PoAddr) => a.address === (f as any).ship_to_address);
-                                return ix >= 0 ? String(ix) : "custom";
-                              })()}
-                              onChange={(e) => {
-                                if (e.target.value === "custom") return;
-                                const a = opts[Number(e.target.value)];
-                                if (a) setF({ ...f, ship_to_address: a.address } as any);
-                              }}
-                            >
-                              {opts.map((a: PoAddr, i: number) => (
-                                <option key={i} value={String(i)}>{poAddrLabel(a, i)}</option>
-                              ))}
-                              <option value="custom">Custom / edited…</option>
-                            </select>
-                          )}
-                          <textarea
-                            rows={2}
-                            className={textareaBase}
-                            value={(f as any).ship_to_address}
-                            onChange={(e) => setF({ ...f, ship_to_address: e.target.value } as any)}
-                            placeholder="Pick a customer to fetch, or type manually"
-                            disabled={!editable}
-                          />
-                        </>
-                      );
-                    })()}
-                  </L>
-                </div>
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Free text only — not linked to any master.
+                </p>
               </div>
             </div>
             <div className="mt-3">
