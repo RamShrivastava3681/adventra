@@ -461,7 +461,7 @@ function WarehouseWorkbenchPage() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search document, customer…"
               aria-label="Search warehouse work items"
-              className="h-8 w-52 rounded-md border border-border bg-card px-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+              className="h-9 w-72 max-w-full rounded-md border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
             />
           </div>
         </div>

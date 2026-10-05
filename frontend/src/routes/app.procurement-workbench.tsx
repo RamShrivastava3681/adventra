@@ -506,13 +506,13 @@ function ProcurementWorkbenchPage() {
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search document, supplier…"
               aria-label="Search procurement work items"
-              className="h-8 w-52 rounded-md border border-border bg-card px-2.5 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+              className="h-9 w-72 max-w-full rounded-md border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
             />
             <select
               value={supplier}
               onChange={(e) => setSupplier(e.target.value)}
               aria-label="Filter by supplier"
-              className="h-8 max-w-48 rounded-md border border-border bg-card px-2 text-xs text-foreground focus:border-primary focus:outline-none"
+              className="h-9 w-64 max-w-full rounded-md border border-border bg-card px-3 text-sm text-foreground focus:border-primary focus:outline-none"
             >
               <option value="all">All suppliers</option>
               {supplierOptions.map((n) => (

@@ -359,7 +359,7 @@ export function TasksPage() {
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search doc no., customer, action…"
-                className="w-56 rounded-md border border-border bg-card py-1.5 pl-7 pr-2 text-xs outline-none focus:border-primary"
+                className="w-72 max-w-full rounded-md border border-border bg-card py-2 pl-8 pr-3 text-sm outline-none focus:border-primary"
               />
             </div>
           </div>

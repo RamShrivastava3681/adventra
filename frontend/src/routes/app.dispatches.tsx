@@ -567,7 +567,7 @@ export function DispatchesPageContent({
         )}
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="ml-auto w-56">
+          <div className="ml-auto w-64 max-w-full">
             <SearchableSelect
               value={soFilterSel}
               onChange={setSoFilter}
@@ -2264,7 +2264,7 @@ function DeliverModal({
                           min="0"
                           max={remaining}
                           step="0.001"
-                          className="inp !w-24 text-right"
+                          className="inp !w-32 text-right"
                           value={qty[l.product_id] ?? ""}
                           onChange={(e) =>
                             setQty((r) => ({ ...r, [l.product_id]: e.target.value }))
@@ -2403,7 +2403,7 @@ function ReturnModal({
                           min="0"
                           max={remaining}
                           step="0.001"
-                          className="inp !w-24 text-right"
+                          className="inp !w-32 text-right"
                           value={qty[l.product_id] ?? ""}
                           onChange={(e) =>
                             setQty((r) => ({ ...r, [l.product_id]: e.target.value }))

@@ -149,7 +149,7 @@ export function TransactionFilters<T>({
         </div>
 
         {statusOptions.length > 0 && (
-          <div className="w-48">
+          <div className="w-52">
             <span className={labelCls}>Status</span>
             <select className={inputCls} value={status} onChange={(e) => setStatus(e.target.value)}>
               <option value="all">All statuses</option>
@@ -162,7 +162,7 @@ export function TransactionFilters<T>({
           </div>
         )}
 
-        <div className="w-40">
+        <div className="w-44">
           <span className={labelCls}>
             {config.dateLabel ? `${config.dateLabel} · from` : "From"}
           </span>
@@ -174,7 +174,7 @@ export function TransactionFilters<T>({
           />
         </div>
 
-        <div className="w-40">
+        <div className="w-44">
           <span className={labelCls}>{config.dateLabel ? `${config.dateLabel} · to` : "To"}</span>
           <input
             type="date"
@@ -184,7 +184,7 @@ export function TransactionFilters<T>({
           />
         </div>
 
-        <div className="w-52">
+        <div className="w-56">
           <span className={labelCls}>Arrange by</span>
           <select className={inputCls} value={sort} onChange={(e) => setSort(e.target.value)}>
             {sortOptions.map((o) => (

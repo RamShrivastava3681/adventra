@@ -452,7 +452,7 @@ export function ReportFilterBar({
         )}
 
         {f.buyer && (
-          <div className="w-52">
+          <div className="w-64">
             <span className={labelCls}>Buyer</span>
             <select
               className={inputCls}
@@ -471,7 +471,7 @@ export function ReportFilterBar({
 
         {f.dateRange && (
           <>
-            <div className="w-40">
+            <div className="w-44">
               <span className={labelCls}>{f.dateLabel ? `${f.dateLabel} · from` : "From"}</span>
               <input
                 type="date"
@@ -480,7 +480,7 @@ export function ReportFilterBar({
                 onChange={(e) => onChange({ from: e.target.value })}
               />
             </div>
-            <div className="w-40">
+            <div className="w-44">
               <span className={labelCls}>{f.dateLabel ? `${f.dateLabel} · to` : "To"}</span>
               <input
                 type="date"

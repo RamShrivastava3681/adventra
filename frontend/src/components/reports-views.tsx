@@ -545,7 +545,7 @@ export function PlPeriodBar({
         ))}
       </div>
       <div className="flex flex-wrap items-end gap-3">
-        <div className="w-28">
+        <div className="w-32">
           <span className={labelCls}>Year</span>
           <select
             className={inputCls}
@@ -562,7 +562,7 @@ export function PlPeriodBar({
             ))}
           </select>
         </div>
-        <div className="w-32">
+        <div className="w-40">
           <span className={labelCls}>Quarter</span>
           <select
             className={inputCls}
@@ -581,7 +581,7 @@ export function PlPeriodBar({
             ))}
           </select>
         </div>
-        <div className="w-32">
+        <div className="w-40">
           <span className={labelCls}>Month</span>
           <select
             className={inputCls}
@@ -600,7 +600,7 @@ export function PlPeriodBar({
             ))}
           </select>
         </div>
-        <div className="w-40">
+        <div className="w-44">
           <span className={labelCls}>From</span>
           <input
             type="date"
@@ -609,7 +609,7 @@ export function PlPeriodBar({
             onChange={(e) => onChange({ ...period, preset: "custom", from: e.target.value })}
           />
         </div>
-        <div className="w-40">
+        <div className="w-44">
           <span className={labelCls}>To</span>
           <input
             type="date"
