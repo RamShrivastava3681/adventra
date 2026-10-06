@@ -70,6 +70,7 @@ export function ProductVariantPicker({
   onCategoryChange,
   showLabels = true,
   categoryPlaceholder = "Select category…",
+  layout = "stacked",
 }: {
   products: ProductVariantOption[];
   /** The line's current product id (a variant's id, a childless parent's id, or ""). */
@@ -86,6 +87,8 @@ export function ProductVariantPicker({
   /** Show small "Category" / "Item" labels above each dropdown (default true). */
   showLabels?: boolean;
   categoryPlaceholder?: string;
+  /** Use side-by-side category/item fields inside document line editors. */
+  layout?: "stacked" | "inline";
 }) {
   // The parent the user is drilling into. Kept locally while they pick a
   // variant, because the document line doesn't change until the child lands.
@@ -202,13 +205,20 @@ export function ProductVariantPicker({
   }, [products, activeCategory]);
 
   const labelCls = "mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground";
+  const layoutClass =
+    layout === "inline"
+      ? cn(
+          "grid w-full min-w-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.5fr)]",
+          kids.length > 0 && "2xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.2fr)_minmax(0,1fr)]",
+        )
+      : "space-y-1.5";
 
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div className={cn(layoutClass, className)}>
       {/* Step 1 — Category: always visible when the catalogue has categories so
           every line starts by narrowing to one family. */}
       {categories.length > 0 && (
-        <div className="min-w-0">
+        <div className="w-full min-w-0">
           {showLabels && <span className={labelCls}>Category</span>}
           <SearchableSelect
             value={activeCategory ?? ""}
@@ -233,7 +243,7 @@ export function ProductVariantPicker({
       )}
       {/* Step 2 — Item: filtered parents with COMPLETE names (never truncated)
           and SKU + category as the secondary line. */}
-      <div className="min-w-0">
+      <div className="w-full min-w-0">
         {showLabels && (
           <span className={labelCls}>
             Item
@@ -268,7 +278,7 @@ export function ProductVariantPicker({
         />
       </div>
       {kids.length > 0 && (
-        <div className="min-w-0">
+        <div className="w-full min-w-0">
           {showLabels && <span className={labelCls}>Variant</span>}
           <SearchableSelect
             value={activeChildId}
