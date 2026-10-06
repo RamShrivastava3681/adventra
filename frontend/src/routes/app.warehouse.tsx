@@ -874,7 +874,7 @@ function DispatchTable({
               <td className="px-5 py-3 text-muted-foreground">{fmtDate(d.dispatch_date)}</td>
               <td className="px-5 py-3 text-xs">
                 {editing === d.id ? (
-                  <div className="flex w-56 flex-col gap-1.5">
+                  <div className="flex w-72 max-w-full flex-col gap-1.5">
                     <input
                       className="rounded-md border border-border bg-input px-2 py-1 text-xs"
                       placeholder="Carrier"

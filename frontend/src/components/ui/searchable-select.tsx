@@ -86,15 +86,17 @@ export function SearchableSelect({
           type="button"
           role="combobox"
           aria-expanded={open}
+          data-placeholder={!selected ? "" : undefined}
           disabled={disabled}
           className={cn(
-            "h-9 w-full justify-between rounded-md border border-border bg-input px-3 py-2 text-sm font-normal text-foreground shadow-sm outline-none transition-all hover:bg-input hover:text-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-50",
+            "w-full min-w-0 max-w-full justify-between rounded-md border border-border bg-input px-3 text-sm font-normal text-foreground shadow-sm outline-none transition-all hover:bg-input hover:text-foreground focus-visible:border-primary/50 focus-visible:ring-2 focus-visible:ring-primary/10 disabled:cursor-not-allowed disabled:opacity-50",
+            fullLabel ? "h-auto min-h-9 items-center whitespace-normal py-2" : "h-9 items-center py-2",
             !selected && "text-muted-foreground",
             className,
             triggerClassName,
           )}
         >
-          <span className="flex min-w-0 items-center gap-2 truncate">
+          <span className={cn("flex min-w-0 flex-1 items-center gap-2", fullLabel ? "whitespace-normal" : "truncate")}>
             {selected?.swatch && (
               <span
                 aria-hidden
@@ -103,13 +105,16 @@ export function SearchableSelect({
               />
             )}
             <span
-              className={cn(fullLabel ? "whitespace-normal break-words leading-snug" : "truncate")}
+              className={cn(
+                fullLabel ? "min-w-0 flex-1 whitespace-normal break-words [overflow-wrap:anywhere] text-left leading-snug" : "truncate",
+                !selected && "block w-full text-center",
+              )}
               title={selected ? `${selected.label}${selected.hint ? ` — ${selected.hint}` : ""}` : placeholder}
             >
               {selected ? selected.label : placeholder}
             </span>
           </span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 self-center opacity-50" />
         </Button>
       </PopoverTrigger>
       <PopoverContent
@@ -147,7 +152,7 @@ export function SearchableSelect({
                       />
                     )}
                     <div className="flex min-w-0 flex-col" title={`${o.label}${o.hint ? ` — ${o.hint}` : ""}`}>
-                      <span className={cn(fullLabel ? "whitespace-normal break-words leading-snug" : "truncate")}>{o.label}</span>
+                      <span className={cn(fullLabel ? "whitespace-normal break-words [overflow-wrap:anywhere] leading-snug" : "truncate")}>{o.label}</span>
                       {o.hint && (
                         <span className={cn("text-[11px] text-muted-foreground", fullLabel ? "whitespace-normal break-words" : "truncate")}>{o.hint}</span>
                       )}

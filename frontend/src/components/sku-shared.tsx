@@ -392,11 +392,12 @@ export function SkuModalShell({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-black/60 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center overflow-hidden overscroll-contain bg-black/60 p-3 backdrop-blur-sm sm:p-4"
       onClick={onClose}
     >
       <div
         className={`my-auto max-h-[92vh] w-full ${wide ? "max-w-5xl" : "max-w-2xl"} flex flex-col overflow-hidden rounded-xl border border-border bg-card`}
+        style={{ maxHeight: "min(92vh, calc(100dvh - 2rem))" }}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between gap-3 border-b border-border bg-muted/40 px-5 py-4 md:px-6">

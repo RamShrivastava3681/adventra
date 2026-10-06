@@ -16,7 +16,6 @@ import {
   TwoFieldGrid,
   InfoPanel,
 } from "@/components/dialog";
-import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 import { useFormDraft, DraftResumeBanner } from "@/lib/form-draft";
 import {
   Plus,
@@ -54,7 +53,6 @@ import {
 } from "@/components/product-quick-create";
 import {
   LineItemsSection,
-  LineHead,
   MiniLabel,
   PctInput,
   LineTotal,
@@ -62,7 +60,6 @@ import {
   TotalRow,
   TotalsPanel,
   lineInputCls,
-  PO_LINE_GRID,
 } from "@/components/doc-lines";
 import { TableSkeleton } from "@/components/skeletons";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
@@ -1638,22 +1635,8 @@ function POModal({
                 )}
               </div>
             ) : (
-              <>
-                <LineHead
-                  grid={PO_LINE_GRID}
-                  cols={[
-                    { label: "Category / Item" },
-                    { label: "Fabric / Specification" },
-                    { label: "Unit", align: "center" },
-                    { label: "Ordered qty", align: "right" },
-                    { label: "Unit price", align: "right" },
-                    { label: "GST %", align: "center" },
-                    { label: "Line total", align: "right" },
-                    { label: "" },
-                  ]}
-                />
-                <div className="divide-y divide-border/60">
-                  {lines.map((l, i) => {
+              <div>
+                {lines.map((l, i) => {
                     const lineTotal = round2(
                       (Number(l.ordered_qty) || 0) * (Number(l.unit_price) || 0),
                     );
@@ -1662,10 +1645,9 @@ function POModal({
                     return (
                       <div
                         key={i}
-                        className={`grid grid-cols-6 gap-x-2 gap-y-2 py-2.5 ${PO_LINE_GRID}`}
+                        className="space-y-4 border-b border-border/60 py-4 last:border-b-0"
                       >
-                        <div className="col-span-6 md:col-span-1">
-                          <MiniLabel>Category / Item</MiniLabel>
+                        <div className="min-w-0">
                           <ProductVariantPicker
                             products={products}
                             value={l.product_id}
@@ -1674,15 +1656,8 @@ function POModal({
                             placeholder="Select item…"
                             childPlaceholder="Select colour / size…"
                             categoryPlaceholder="Select category…"
+                            layout="inline"
                           />
-                          {l.name && (
-                            <div
-                              className="mt-1 break-words text-[11px] font-medium leading-snug text-foreground"
-                              title={l.name}
-                            >
-                              {l.name}
-                            </div>
-                          )}
                           {(() => {
                             const cat = (products ?? []).find((x: any) => x.id === l.product_id) as any;
                             const bits = [
@@ -1709,8 +1684,9 @@ function POModal({
                             </button>
                           )}
                         </div>
-                        <div className="col-span-6 md:col-span-1">
-                          <MiniLabel>Fabric / Specification</MiniLabel>
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 lg:grid-cols-4">
+                          <div>
+                          <MiniLabel always>Fabric / Specification</MiniLabel>
                           <input
                             aria-label="Fabric / Specification"
                             className={lineInputCls}
@@ -1720,8 +1696,8 @@ function POModal({
                             disabled={!editable}
                           />
                         </div>
-                        <div className="col-span-2 md:col-span-1">
-                          <MiniLabel>Unit</MiniLabel>
+                        <div>
+                          <MiniLabel always>Unit</MiniLabel>
                           <input
                             aria-label="Unit"
                             className={`${lineInputCls} text-center`}
@@ -1730,8 +1706,8 @@ function POModal({
                             disabled={!editable}
                           />
                         </div>
-                        <div className="col-span-4 md:col-span-1">
-                          <MiniLabel>Ordered qty</MiniLabel>
+                        <div>
+                          <MiniLabel always>Ordered qty</MiniLabel>
                           <input
                             type="number"
                             min="1"
@@ -1759,8 +1735,8 @@ function POModal({
                             </div>
                           )}
                         </div>
-                        <div className="col-span-3 md:col-span-1">
-                          <MiniLabel>Unit price</MiniLabel>
+                        <div>
+                          <MiniLabel always>Unit price</MiniLabel>
                           <input
                             type="number"
                             min="0"
@@ -1773,8 +1749,8 @@ function POModal({
                             disabled={!editable}
                           />
                         </div>
-                        <div className="col-span-3 md:col-span-1">
-                          <MiniLabel>GST %</MiniLabel>
+                        <div>
+                          <MiniLabel always>GST %</MiniLabel>
                           <PctInput
                             aria-label="GST %"
                             list="po-gst-rates"
@@ -1785,23 +1761,23 @@ function POModal({
                             disabled={!editable}
                           />
                         </div>
-                        <div className="col-span-4 md:col-span-1">
-                          <MiniLabel>Line total</MiniLabel>
+                        <div>
+                          <MiniLabel always>Line total</MiniLabel>
                           <LineTotal>{fmtMoney(lineTotal)}</LineTotal>
                         </div>
-                        <div className="col-span-2 flex items-start justify-end md:col-span-1 md:items-center md:justify-center">
+                        <div className="flex items-end justify-end">
                           {editable && <RemoveLineButton onClick={() => removeLine(i)} />}
                         </div>
                       </div>
+                      </div>
                     );
                   })}
-                </div>
-              </>
+              </div>
             )}
           </LineItemsSection>
 
           {/* Totals */}
-          <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
+          <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
             <Row
               label="Total quantity"
               value={lines.reduce((s, l) => s + (Number(l.ordered_qty) || 0), 0).toLocaleString()}
@@ -1816,12 +1792,12 @@ function POModal({
                 type="number"
                 min="0"
                 step="0.01"
-                className="inp !w-28 !py-1 text-right"
+                className="inp !w-40 !py-1 text-right"
                 value={f.freight}
                 onChange={(e) => setF({ ...f, freight: e.target.value })}
                 disabled={!editable}
               />
-            </div>
+          </div>
             <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
               <span className="text-xs uppercase tracking-widest text-muted-foreground">
                 Grand total
@@ -2191,7 +2167,7 @@ function POModal({
                   )}
                 </div>
 
-                <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
+                <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
                   <Row label="Subtotal" value={fmtMoney(piTotals.subtotal)} />
                   <Row label="GST total" value={fmtMoney(piTotals.gst)} />
                   <Row label="Freight / charges" value={fmtMoney(piTotals.freight)} />
@@ -2471,7 +2447,7 @@ function GRNModal({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone
                           type="number"
                           min="0"
                           step="0.001"
-                          className="inp !w-24 text-right"
+                          className="inp !w-32 text-right"
                           placeholder="0"
                           value={received[l.product_id] ?? ""}
                           onChange={(e) => {
@@ -2494,7 +2470,7 @@ function GRNModal({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone
                           type="number"
                           min="0"
                           step="0.001"
-                          className="inp !w-24 text-right"
+                          className="inp !w-32 text-right"
                           placeholder="0"
                           value={accepted[l.product_id] ?? ""}
                           onChange={(e) =>

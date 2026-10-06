@@ -1168,7 +1168,7 @@ function GrnModal({
           </fieldset>
 
           {/* Totals */}
-          <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
+          <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
             <Row label="Total received qty" value={totals.received.toLocaleString()} />
             <Row label="Total accepted qty" value={totals.accepted.toLocaleString()} />
             <Row label="Total rejected qty" value={totals.rejected.toLocaleString()} />
@@ -1337,7 +1337,7 @@ function GrnDetailModal({ grn, onClose }: { grn: GRN; onClose: () => void }) {
             </table>
           </div>
 
-          <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
+          <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
             <Row label="Total received qty" value={recv.toLocaleString()} />
             <Row label="Total accepted qty" value={acc.toLocaleString()} />
             <Row label="Total rejected qty" value={rej.toLocaleString()} />

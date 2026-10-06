@@ -8,8 +8,6 @@ import { DocumentStatusStripCompact } from "@/components/document-status-strip";
 import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import {
-  Dialog,
-  DialogWithStickyFooter,
   Field,
   inputBase,
   textareaBase,
@@ -17,7 +15,7 @@ import {
   TwoFieldGrid,
   InfoPanel,
 } from "@/components/dialog";
-import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
+import { AddLineButton } from "@/components/dialog/LineRow";
 import {
   Plus,
   X,
@@ -1190,46 +1188,32 @@ function SalesProformaModal({
               first.
             </div>
           ) : (
-            <div className="space-y-2">
-              <div className="hidden grid-cols-12 gap-2 text-[9px] uppercase tracking-widest text-muted-foreground md:grid">
-                <div className="col-span-4">SKU / Product</div>
-                <div className="col-span-1">Unit</div>
-                <div className="col-span-2">Qty</div>
-                <div className="col-span-2">Unit price</div>
-                <div className="col-span-1">GST %</div>
-                <div className="col-span-1 text-right">Line total</div>
-                <div className="col-span-1"></div>
-              </div>
+            <div className="space-y-3">
               {lines.map((l, i) => {
                 const lineTotal = round2((Number(l.quantity) || 0) * (Number(l.unit_price) || 0));
+                const selectedProduct = (products ?? []).find((x: any) => x.id === l.product_id) as any;
+                const hsn = (l as any).hsn_code || selectedProduct?.hsn_code || selectedProduct?.hsnCode;
                 return (
                   <div
                     key={i}
-                    className="grid grid-cols-2 items-end gap-2 rounded-md border border-border/50 p-2 md:grid-cols-12"
+                    className="space-y-4 rounded-lg border border-border/60 bg-card/30 p-4 sm:p-5"
                   >
-                    <div className="col-span-2 md:col-span-4">
+                    <div className="min-w-0">
                       <L label="Product">
-                          <ProductVariantPicker
-                            products={products}
-                            value={l.product_id}
-                            onChange={(v) => pickProduct(i, v)}
-                          />
-                        </L>
-                        {l.name && (
-                          <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
-                        )}
-                        {(() => {
-                          const cat = (products ?? []).find((x: any) => x.id === l.product_id) as any;
-                          const hsn =
-                            (l as any).hsn_code || cat?.hsn_code || cat?.hsnCode || "";
-                          return hsn ? (
-                            <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                              HSN {hsn}
-                            </div>
-                          ) : null;
-                        })()}
+                        <ProductVariantPicker
+                          products={products}
+                          value={l.product_id}
+                          onChange={(v) => pickProduct(i, v)}
+                          layout="inline"
+                        />
+                      </L>
+                      {hsn && (
+                        <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+                          HSN {hsn}
+                        </div>
+                      )}
                     </div>
-                    <div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 lg:grid-cols-4">
                       <L label="Unit">
                         <input
                           className={inputBase}
@@ -1237,8 +1221,6 @@ function SalesProformaModal({
                           onChange={(e) => setLine(i, { unit: e.target.value })}
                         />
                       </L>
-                    </div>
-                    <div className="md:col-span-2">
                       <L label="Qty">
                         <input
                           type="number"
@@ -1249,8 +1231,6 @@ function SalesProformaModal({
                           onChange={(e) => setLine(i, { quantity: e.target.value })}
                         />
                       </L>
-                    </div>
-                    <div className="md:col-span-2">
                       <L label="Unit price">
                         <input
                           type="number"
@@ -1261,8 +1241,6 @@ function SalesProformaModal({
                           onChange={(e) => setLine(i, { unit_price: e.target.value })}
                         />
                       </L>
-                    </div>
-                    <div>
                       <L label="GST %">
                         <input
                           list="pf-gst-rates"
@@ -1274,19 +1252,17 @@ function SalesProformaModal({
                           onChange={(e) => setLine(i, { gst_rate: e.target.value })}
                         />
                       </L>
-                    </div>
-                    <div className="text-right">
                       <L label="Line total">
                         <div className="inp text-right font-mono tabular-nums">
                           {fmtMoney(lineTotal)}
                         </div>
                       </L>
-                    </div>
-                    <div className="flex items-end justify-end pb-1">
                       <button
                         type="button"
                         onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}
-                        className="rounded p-1 text-muted-foreground hover:text-destructive"
+                        className="self-end justify-self-end rounded p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
+                        aria-label={`Remove proforma line ${i + 1}`}
+                        title="Remove line"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -1306,7 +1282,7 @@ function SalesProformaModal({
         </fieldset>
 
         {/* Totals */}
-        <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
+        <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
           <Row label="Subtotal" value={fmtMoney(totals.subtotal)} />
           <Row label="GST total" value={fmtMoney(totals.gstTotal)} />
           <div className="flex items-center justify-between gap-3">
@@ -1317,7 +1293,7 @@ function SalesProformaModal({
               type="number"
               min="0"
               step="0.01"
-              className="inp !w-28 !py-1 text-right"
+              className="inp !w-40 !py-1 text-right"
               value={f.freight}
               onChange={(e) => setF({ ...f, freight: e.target.value })}
             />
@@ -1858,46 +1834,32 @@ function PurchaseProformaModal({
               first.
             </div>
           ) : (
-            <div className="space-y-2">
-              <div className="hidden grid-cols-12 gap-2 text-[9px] uppercase tracking-widest text-muted-foreground md:grid">
-                <div className="col-span-4">SKU / Product</div>
-                <div className="col-span-1">Unit</div>
-                <div className="col-span-2">Qty</div>
-                <div className="col-span-2">Unit price</div>
-                <div className="col-span-1">GST %</div>
-                <div className="col-span-1 text-right">Line total</div>
-                <div className="col-span-1"></div>
-              </div>
+            <div className="space-y-3">
               {lines.map((l, i) => {
                 const lineTotal = round2((Number(l.quantity) || 0) * (Number(l.unit_price) || 0));
+                const selectedProduct = (products ?? []).find((x: any) => x.id === l.product_id) as any;
+                const hsn = (l as any).hsn_code || selectedProduct?.hsn_code || selectedProduct?.hsnCode;
                 return (
                   <div
                     key={i}
-                    className="grid grid-cols-2 items-end gap-2 rounded-md border border-border/50 p-2 md:grid-cols-12"
+                    className="space-y-4 rounded-lg border border-border/60 bg-card/30 p-4 sm:p-5"
                   >
-                    <div className="col-span-2 md:col-span-4">
+                    <div className="min-w-0">
                       <L label="Product">
-                          <ProductVariantPicker
-                            products={products}
-                            value={l.product_id}
-                            onChange={(v) => pickProduct(i, v)}
-                          />
-                        </L>
-                        {l.name && (
-                          <div className="mt-0.5 text-[10px] text-muted-foreground">{l.name}</div>
-                        )}
-                        {(() => {
-                          const cat = (products ?? []).find((x: any) => x.id === l.product_id) as any;
-                          const hsn =
-                            (l as any).hsn_code || cat?.hsn_code || cat?.hsnCode || "";
-                          return hsn ? (
-                            <div className="mt-0.5 font-mono text-[10px] text-muted-foreground">
-                              HSN {hsn}
-                            </div>
-                          ) : null;
-                        })()}
+                        <ProductVariantPicker
+                          products={products}
+                          value={l.product_id}
+                          onChange={(v) => pickProduct(i, v)}
+                          layout="inline"
+                        />
+                      </L>
+                      {hsn && (
+                        <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+                          HSN {hsn}
+                        </div>
+                      )}
                     </div>
-                    <div>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 lg:grid-cols-4">
                       <L label="Unit">
                         <input
                           className={inputBase}
@@ -1905,8 +1867,6 @@ function PurchaseProformaModal({
                           onChange={(e) => setLine(i, { unit: e.target.value })}
                         />
                       </L>
-                    </div>
-                    <div className="md:col-span-2">
                       <L label="Qty">
                         <input
                           type="number"
@@ -1917,8 +1877,6 @@ function PurchaseProformaModal({
                           onChange={(e) => setLine(i, { quantity: e.target.value })}
                         />
                       </L>
-                    </div>
-                    <div className="md:col-span-2">
                       <L label="Unit price">
                         <input
                           type="number"
@@ -1929,8 +1887,6 @@ function PurchaseProformaModal({
                           onChange={(e) => setLine(i, { unit_price: e.target.value })}
                         />
                       </L>
-                    </div>
-                    <div>
                       <L label="GST %">
                         <input
                           list="pf-gst-rates"
@@ -1942,19 +1898,17 @@ function PurchaseProformaModal({
                           onChange={(e) => setLine(i, { gst_rate: e.target.value })}
                         />
                       </L>
-                    </div>
-                    <div className="text-right">
                       <L label="Line total">
                         <div className="inp text-right font-mono tabular-nums">
                           {fmtMoney(lineTotal)}
                         </div>
                       </L>
-                    </div>
-                    <div className="flex items-end justify-end pb-1">
                       <button
                         type="button"
                         onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}
-                        className="rounded p-1 text-muted-foreground hover:text-destructive"
+                        className="self-end justify-self-end rounded p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
+                        aria-label={`Remove proforma line ${i + 1}`}
+                        title="Remove line"
                       >
                         <X className="h-3.5 w-3.5" />
                       </button>
@@ -1974,7 +1928,7 @@ function PurchaseProformaModal({
         </fieldset>
 
         {/* Totals */}
-        <div className="ml-auto max-w-xs space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
+        <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
           <Row label="Subtotal" value={fmtMoney(totals.subtotal)} />
           <Row label="GST total" value={fmtMoney(totals.gstTotal)} />
           <div className="flex items-center justify-between gap-3">
@@ -1985,7 +1939,7 @@ function PurchaseProformaModal({
               type="number"
               min="0"
               step="0.01"
-              className="inp !w-28 !py-1 text-right"
+              className="inp !w-40 !py-1 text-right"
               value={f.freight}
               onChange={(e) => setF({ ...f, freight: e.target.value })}
             />
@@ -2386,17 +2340,18 @@ function Modal({
 }) {
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center overflow-y-auto bg-[#0a2239]/55 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 grid place-items-center overflow-hidden overscroll-contain bg-[#0a2239]/55 p-3 backdrop-blur-sm sm:p-4"
       onClick={onClose}
     >
       <div
-        className={`max-h-[92vh] w-full overflow-y-auto rounded-2xl border border-border bg-[#f4f7fb] shadow-modal dark:bg-card ${wide ? "max-w-5xl" : "max-w-md"}`}
+        className={`flex max-h-[92vh] w-full flex-col overflow-hidden rounded-2xl border border-border bg-[#f4f7fb] shadow-modal dark:bg-card ${wide ? "max-w-6xl" : "max-w-md"}`}
+        style={{ maxHeight: "min(92vh, calc(100dvh - 2rem))" }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
         aria-label={title}
       >
-        <div className="sticky top-0 z-10 flex items-start justify-between gap-4 rounded-t-2xl border-b border-border bg-white px-6 py-4 dark:bg-card">
+        <div className="z-10 flex shrink-0 items-start justify-between gap-4 rounded-t-2xl border-b border-border bg-white px-6 py-4 dark:bg-card">
           <h3 className="text-xl font-semibold tracking-tight text-[#0f2c4d] dark:text-foreground">{title}</h3>
           <button
             onClick={onClose}
@@ -2406,8 +2361,8 @@ function Modal({
             <X className="h-5 w-5" />
           </button>
         </div>
-        <div className="space-y-4 px-6 py-5 text-sm">{children}</div>
-        <style>{`.inp{width:100%;background:#fff;border:1px solid var(--color-border);color:var(--color-foreground);border-radius:8px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
+        <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:8px;padding:.55rem .75rem;font-size:.875rem}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
       </div>
     </div>
   );
@@ -2463,7 +2418,7 @@ function Actions({
 function L({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+      <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
         {label}
       </span>
       {children}

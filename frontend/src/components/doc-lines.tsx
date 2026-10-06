@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 
 /** Unified single-line control: h-9, subtle 1px border, white, clear focus. */
 export const lineInputCls =
-  "h-9 w-full rounded-md border border-border bg-white px-2.5 text-sm text-foreground tabular-nums placeholder:font-normal placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60";
+  "h-10 w-full rounded-md border border-border bg-input px-3 text-sm text-foreground tabular-nums placeholder:font-normal placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60";
 
 /** Desktop column templates (mobile uses grid-cols-6 stacking). */
 export const PO_LINE_GRID =
@@ -20,11 +20,20 @@ export const SO_LINE_GRID =
   "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,100px)_minmax(0,104px)_minmax(0,112px)_minmax(0,120px)_minmax(0,84px)_minmax(0,84px)_minmax(0,120px)_minmax(0,40px)]";
 
 /** Tiny label shown above a cell on mobile only (desktop uses the table head). */
-export function MiniLabel({ children, className }: { children: ReactNode; className?: string }) {
+export function MiniLabel({
+  children,
+  className,
+  always = false,
+}: {
+  children: ReactNode;
+  className?: string;
+  always?: boolean;
+}) {
   return (
     <span
       className={cn(
-        "mb-1 block text-[11px] font-medium uppercase tracking-wider text-muted-foreground md:hidden",
+        "mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground",
+        !always && "md:hidden",
         className,
       )}
     >
@@ -72,8 +81,8 @@ export function LineItemsSection({
   children: ReactNode;
 }) {
   return (
-    <section className="rounded-lg border border-border/70 bg-white/70 p-3 sm:p-4">
-      <div className="flex items-center justify-between gap-3 border-b border-border/70 px-1 pb-2.5">
+    <section className="rounded-lg border border-border/70 bg-card/70 p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-4 border-b border-border/70 px-1 pb-3">
         <div className="flex min-w-0 items-baseline gap-2">
           <h4 className="truncate text-[15px] font-semibold text-foreground">{title}</h4>
           <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
@@ -90,7 +99,7 @@ export function LineItemsSection({
           </button>
         )}
       </div>
-      <div className="pt-1">{children}</div>
+      <div className="pt-3">{children}</div>
     </section>
   );
 }
@@ -157,7 +166,7 @@ export function TotalsPanel({
   children: ReactNode;
 }) {
   return (
-    <div className="ml-auto w-full max-w-xs rounded-lg border border-border/70 bg-white p-4 text-sm">
+    <div className="ml-auto w-full max-w-sm rounded-lg border border-border/70 bg-card p-4 text-sm">
       <div className="space-y-1.5">{children}</div>
       <div className="mt-2.5 flex items-baseline justify-between gap-3 border-t border-border pt-2.5">
         <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
