@@ -26,6 +26,7 @@ import {
   AlertTriangle,
   Warehouse,
   ListTodo,
+  Store,
 } from "lucide-react";
 import { useTheme } from "@/lib/theme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -212,8 +213,16 @@ function buildNavSections(roles: string[]): NavSection[] {
       ? { type: "single", label: "My Workspace", icon: Briefcase, to: "/app/workspace" }
       : null;
 
+  // E-Commerce / Marketplace Hub — Demo & PoC Flow
+  const marketplaceSection: NavSection = {
+    type: "single",
+    label: "Marketplace Hub",
+    icon: Store,
+    to: "/app/marketplace",
+  };
+
   // Assemble in the desired order: Dashboard, My Queue, Checker, Finance,
-  // Procurement, Sales, Product Catalogue, Warehouse Control, Reports, System
+  // Procurement, Sales, Marketplace Hub, Product Catalogue, Warehouse Control, Reports, System
   const sections = [
     dashboardSection,
     myQueueSection,
@@ -222,6 +231,7 @@ function buildNavSections(roles: string[]): NavSection[] {
     financeSection,
     procurementSection,
     salesSection,
+    marketplaceSection,
     ...salesRepExtras,
     catalogueSection,
     warehouseControlSection,
