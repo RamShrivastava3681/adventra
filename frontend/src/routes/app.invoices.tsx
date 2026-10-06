@@ -13,6 +13,7 @@ import {
 } from "@/components/ledger-ui";
 import { Plus, X, Loader2, Send, Eye, Mail, FileCheck, FileText, Ban, Trash2 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
+import { useFormDraft, DraftResumeBanner } from "@/lib/form-draft";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
 import {
@@ -1012,11 +1013,9 @@ function NewInvoiceModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debtorSyncKey]);
 
-  const save = useMutation({
-    // `issueNow` only applies when CREATING — an edit preserves the current
-    // status (never sends status back, so an issued invoice can't be reset).
-    // Issuing sends the invoice straight to the funding queue (approved).
-    mutationFn: async ({ issueNow }: { issueNow: boolean }) => {
+  // Payload builder shared by manual save and auto-save drafts: throws while
+  // the form is not yet submittable (auto-save treats that as "browser only").
+  const buildInvoicePayload = () => {
       if (!form.debtor_id) throw new Error("Please add a customer first.");
       if (lines.length === 0) throw new Error("Add at least one product line");
       const payloadLines = lines.map((l) => ({
@@ -1090,6 +1089,41 @@ function NewInvoiceModal({
         lines: payloadLines,
       };
 
+    return payload;
+  };
+
+  // Auto-save: browser mirror (crash safety) + one server draft when the
+  // buffered state is already submittable. Cleared on manual save.
+  const invDraft = useFormDraft({
+    key: isEdit && invoice ? `invoice:${invoice.id}` : "invoice:new",
+    data: { form, lines, docs, soSource },
+    isEmpty: (d) =>
+      !(d.form as any).debtor_id &&
+      !(d.form as any).po_number?.trim() &&
+      !(d.form as any).notes?.trim() &&
+      !d.soSource &&
+      (d.lines ?? []).every((l: any) => !l.product_id && !(l.name ?? "").trim()) &&
+      (d.docs ?? []).length === 0,
+    getServerPayload: () => {
+      try {
+        return { ...buildInvoicePayload(), status: "draft" };
+      } catch {
+        return null;
+      }
+    },
+    createServerDraft: (p) => api.invoices.create({ ...p, clientId: userId }),
+    // Browser draft only: one sales order → one invoice, so a silently
+    // auto-created server row would block the user's real create with a
+    // duplicate error. The resume banner still preserves the work.
+    serverEnabled: false,
+  });
+
+  const save = useMutation({
+    // `issueNow` only applies when CREATING — an edit preserves the current
+    // status (never sends status back, so an issued invoice can't be reset).
+    // Issuing sends the invoice straight to the funding queue (approved).
+    mutationFn: async ({ issueNow }: { issueNow: boolean }) => {
+      const payload = buildInvoicePayload();
       if (isEdit && invoice) {
         await api.invoices.update(invoice.id, payload);
       } else {
@@ -1111,10 +1145,23 @@ function NewInvoiceModal({
       qc.invalidateQueries({ queryKey: ["purchase_orders"] });
       qc.invalidateQueries({ queryKey: ["advances"] });
       qc.invalidateQueries({ queryKey: ["proformas"] });
+      invDraft.clear();
       toast.success(isEdit ? "Invoice updated" : "Invoice created");
       onClose();
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+    onError: (e) => {
+      qc.invalidateQueries({ queryKey: ["invoices"] });
+      const msg = e instanceof Error ? e.message : "Failed";
+      const dup = msg.match(/already has invoice ([\w-]+)/);
+      if (dup) {
+        toast.error(
+          `This sales order already has invoice ${dup[1]} — delete or cancel it in the list first, or edit that draft instead.`,
+          { action: { label: "View in list", onClick: () => onClose() }, duration: 9000 },
+        );
+        return;
+      }
+      toast.error(msg);
+    },
   });
 
   const pickProduct = (i: number, id: string) => {
@@ -1200,6 +1247,16 @@ function NewInvoiceModal({
           cashImpact={cashImpact("sales_invoice", invoice)}
         />
       )}
+      <DraftResumeBanner
+        draft={invDraft}
+        label="Unsaved invoice found"
+        onApply={(d) => {
+          setForm(d.form);
+          setLines(d.lines);
+          setDocs(d.docs ?? []);
+          setSoSource(d.soSource ?? "");
+        }}
+      />
       <form
         id="invoice-form"
         onSubmit={(e) => {

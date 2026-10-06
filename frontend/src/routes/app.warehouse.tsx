@@ -213,9 +213,11 @@ export function WarehousePage() {
   }, [movements]);
 
   // â”€â”€ Order sign-off queue (hard gate: only approved SOs can be dispatched) â”€â”€
-  const signoffOrders = orders.filter(
-    (o) => ["warehouse_pending", "checker_pending", "confirmed", "partially_dispatched"].includes(o.status),
-  );
+  const signoffOrders = orders
+    .filter(
+      (o) => ["warehouse_pending", "checker_pending", "confirmed", "partially_dispatched"].includes(o.status),
+    )
+    .sort((a, b) => (b.order_date || "").localeCompare(a.order_date || ""));
   const pendingSignoffs = signoffOrders.filter(
     (o) => o.status === "warehouse_pending",
   );
@@ -279,10 +281,12 @@ export function WarehousePage() {
       id,
       action,
       notes,
+      editedQuantities,
     }: {
       id: string;
       action: "approve" | "reject";
       notes?: string;
+      editedQuantities?: Record<string, number>;
     }) => api.goodsSalesOrders.warehouseApprove(id, action, notes),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["wh_sales_orders"] });
@@ -592,9 +596,9 @@ export function WarehousePage() {
             stockByProduct={stockByProduct}
             approving={signoff.isPending}
             onClose={() => setApproveFor(null)}
-            onApprove={(id, notes) => {
+            onApprove={(id, notes, editedQuantities) => {
               signoff.mutate(
-                { id, action: "approve", notes },
+                { id, action: "approve", notes, editedQuantities },
                 { onSuccess: () => setApproveFor(null) },
               );
             }}
@@ -1030,29 +1034,33 @@ function SignoffApproveModal({
   stockByProduct: Map<string, number>;
   approving: boolean;
   onClose: () => void;
-  onApprove: (id: string, notes?: string) => void;
+  onApprove: (id: string, notes?: string, editedQuantities?: Record<string, number>) => void;
   onReject: (id: string, notes?: string) => void;
 }) {
   const [checked, setChecked] = useState<Record<string, boolean>>({});
   const [notes, setNotes] = useState("");
+  const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
 
   const lines = (order.lines ?? []).map((l) => {
     const pending = Math.max(0, Number(l.ordered_qty) - Number(l.dispatched_qty ?? 0));
     const available = stockByProduct.get(l.product_id) ?? 0;
-    return { ...l, pending, available, short: available < pending };
+    const editedQty = editedQuantities[l.product_id] != null ? Number(editedQuantities[l.product_id]) : null;
+    return { ...l, pending, available, short: available < (editedQty ?? pending), editedQty };
   });
   const shortLines = lines.filter((l) => l.short);
   const allChecked = lines.length > 0 && lines.every((l) => checked[l.product_id]);
+  // A line is "short" if available stock < the effective quantity (edited or original ordered)
+  const effectiveQty = (l: typeof lines[0]) => l.editedQty != null ? l.editedQty : l.pending;
   const canApprove = allChecked && shortLines.length === 0 && !approving;
 
-  const blockReason =
+const blockReason =
     lines.length === 0
       ? "This order has no lines to verify."
       : shortLines.length > 0
-        ? `${shortLines.length} line${shortLines.length === 1 ? " is" : "s are"} short of stock — approval is blocked until stock arrives.`
-        : !allChecked
-          ? `Check all ${lines.length} line${lines.length === 1 ? "" : "s"} to enable approval (${lines.filter((l) => checked[l.product_id]).length}/${lines.length} verified).`
-          : null;
+        ? `${shortLines.length} line${shortLines.length === 1 ? " is" : "s are"} short of stock — approval is blocked until stock arrives or quantity is edited.`
+        : allChecked
+          ? null
+          : `Check all ${lines.length} line${lines.length === 1 ? "" : "s"} to enable approval (${lines.filter((l) => checked[l.product_id]).length}/${lines.length} verified).`;
 
   const toggleAll = () => {
     if (allChecked) setChecked({});
@@ -1107,6 +1115,7 @@ function SignoffApproveModal({
                   <th className="px-3 py-2 text-right font-normal">Ordered</th>
                   <th className="px-3 py-2 text-right font-normal">Pending</th>
                   <th className="px-3 py-2 text-right font-normal">In stock</th>
+                  <th className="px-3 py-2 text-right font-normal">Edit qty</th>
                   <th className="px-3 py-2 text-center font-normal">Verified</th>
                 </tr>
               </thead>
@@ -1131,6 +1140,18 @@ function SignoffApproveModal({
                     <td className="px-3 py-2 text-right num">{l.pending.toLocaleString()}</td>
                     <td className={`px-3 py-2 text-right num ${l.short ? "font-semibold text-destructive" : "text-sem-success"}`}>
                       {l.available.toLocaleString()}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <input
+                        type="number"
+                        value={l.editedQty != null ? String(l.editedQty) : String(l.ordered_qty)}
+                        onChange={(e) => {
+                          const val = Number(e.target.value) || 0;
+                          setEditedQuantities((c) => ({ ...c, [l.product_id]: val }));
+                        }}
+                        min={0}
+                        className="w-full rounded-md border border-border bg-input px-1 py-1 text-xs focus:border-primary focus:outline-none"
+                      />
                     </td>
                     <td className="px-3 py-2 text-center">
                       <input
@@ -1190,7 +1211,7 @@ function SignoffApproveModal({
               <Ban className="h-3.5 w-3.5" /> Reject
             </button>
             <button
-              onClick={() => canApprove && onApprove(order.id, notes.trim() || undefined)}
+              onClick={() => canApprove && onApprove(order.id, notes.trim() || undefined, editedQuantities)}
               disabled={!canApprove}
               title={!canApprove ? (blockReason ?? "Verify all lines to approve") : "Approve — sends the order to the Checker"}
               className="inline-flex items-center gap-1.5 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-50"

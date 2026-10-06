@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
@@ -24,6 +24,7 @@ import {
 import { Plus, Loader2, Save, Trash2, X, Truck } from "lucide-react";
 import { CascadeDeleteDialog, summarizeDeleted } from "@/components/cascade-delete-dialog";
 import { TableSkeleton } from "@/components/skeletons";
+import { useFormDraft, DraftResumeBanner } from "@/lib/form-draft";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/suppliers")({
@@ -112,8 +113,9 @@ export function SuppliersPage() {
       .filter((i: any) => i.supplier_id === id && i.status !== "paid" && i.status !== "rejected")
       .reduce((s: number, i: any) => s + Number(i.amount), 0);
 
-  const save = useMutation({
-    mutationFn: async () => {
+  // Payload builder shared by manual save and auto-save drafts: throws while
+  // the form is not yet submittable (auto-save treats that as "browser only").
+  const buildSupplierPayload = () => {
       if (!form.company_name.trim()) throw new Error("Company name is required");
       const termsPayload = toTermsPayload(form);
       // Delivery-based terms always carry 0 balance days (toPayload enforces
@@ -134,6 +136,36 @@ export function SuppliersPage() {
         ...termsPayload,
         notes: form.notes || null,
       };
+    return payload;
+  };
+
+  // Auto-save: browser mirror (crash safety) + one server record when the
+  // buffered state is already submittable. Cleared on manual save.
+  const supplierDraft = useFormDraft({
+    key: editing ? `supplier:${editing.id}` : "supplier:new",
+    data: { form },
+    enabled: open,
+    isEmpty: (d) =>
+      !(d.form as any).company_name?.trim() &&
+      !(d.form as any).contact_name?.trim() &&
+      !(d.form as any).contact_email?.trim() &&
+      !(d.form as any).contact_phone?.trim() &&
+      !(d.form as any).gstin?.trim() &&
+      !(d.form as any).notes?.trim(),
+    getServerPayload: () => {
+      try {
+        return buildSupplierPayload();
+      } catch {
+        return null;
+      }
+    },
+    createServerDraft: (p) => api.suppliers.create(p),
+    serverEnabled: !editing,
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const payload = buildSupplierPayload();
       if (editing) {
         await api.suppliers.update(editing.id, payload);
       } else {
@@ -141,6 +173,7 @@ export function SuppliersPage() {
       }
     },
     onSuccess: () => {
+      supplierDraft.clear();
       toast.success(editing ? "Supplier updated" : "Supplier onboarded");
       invalidateSupplierQueries(qc);
       setOpen(false);
@@ -162,6 +195,15 @@ export function SuppliersPage() {
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
+
+  // Inline form never unmounts, so flush the auto-save explicitly when the
+  // modal closes without saving (tab-close is covered by pagehide).
+  const wasOpenRef = useRef(open);
+  useEffect(() => {
+    if (wasOpenRef.current && !open) supplierDraft.persistNow({ server: true });
+    wasOpenRef.current = open;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const openNew = () => {
     setEditing(null);
@@ -354,6 +396,13 @@ export function SuppliersPage() {
               >
                 <X className="h-4 w-4" />
               </button>
+            </div>
+            <div className="px-5 pt-4">
+              <DraftResumeBanner
+                draft={supplierDraft}
+                label="Unsaved supplier found"
+                onApply={(d) => setForm(d.form)}
+              />
             </div>
             <div className="grid gap-4 p-5 md:grid-cols-2">
               <F label="Company name *">

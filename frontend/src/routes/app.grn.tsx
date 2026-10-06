@@ -36,6 +36,7 @@ import { toast } from "sonner";
 import { DocumentUploader, DocumentList, type DocMeta } from "@/components/document-uploader";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TableSkeleton } from "@/components/skeletons";
+import { useFormDraft, DraftResumeBanner } from "@/lib/form-draft";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/grn")({
@@ -731,8 +732,10 @@ function GrnModal({
     return { received, accepted, rejected, value: round2(value) };
   }, [lines]);
 
-  const save = useMutation({
-    mutationFn: async () => {
+  // Payload builder shared by manual save and auto-save drafts: throws while
+  // the form is not yet submittable (auto-save treats that as "browser only").
+  // Confirming stays manual-only — auto-save always stores a draft.
+  const buildGrnPayload = () => {
       if (!f.po_id) throw new Error("Pick a linked purchase order");
       if (lines.length === 0) throw new Error("Add at least one received line");
       const payloadLines = lines.map((l) => ({
@@ -762,6 +765,35 @@ function GrnModal({
         lines: payloadLines,
         receiving_location_id: f.receiving_location_id || null,
       };
+    return payload;
+  };
+
+  // Auto-save: browser mirror (crash safety) + one server draft when the
+  // buffered state is already submittable. Cleared on manual save.
+  const grnDraft = useFormDraft({
+    key: isEdit && grn ? `grn:${grn.id}` : "grn:new",
+    data: { f, lines, docs },
+    isEmpty: (d) =>
+      !(d.f as any).po_id &&
+      !(d.f as any).challan_number?.trim() &&
+      !(d.f as any).notes?.trim() &&
+      !(d.f as any).warehouse?.trim() &&
+      (d.lines ?? []).every((l: any) => !l.product_id && !(Number(l.received_qty) || 0)) &&
+      (d.docs ?? []).length === 0,
+    getServerPayload: () => {
+      try {
+        return buildGrnPayload();
+      } catch {
+        return null;
+      }
+    },
+    createServerDraft: (p) => api.goodsReceipts.create(p),
+    serverEnabled: !isEdit,
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const payload = buildGrnPayload();
       let id = grn?.id;
       if (isEdit && grn) {
         await api.goodsReceipts.update(grn.id, payload);
@@ -776,6 +808,7 @@ function GrnModal({
       }
     },
     onSuccess: () => {
+      grnDraft.clear();
       onSaved();
       toast.success(mode === "confirm" ? "GRN confirmed — inventory credited" : "Draft GRN saved");
       onClose();
@@ -822,6 +855,17 @@ function GrnModal({
           </div>
         )}
 
+        <div className="px-5 pt-4">
+          <DraftResumeBanner
+            draft={grnDraft}
+            label="Unsaved GRN found"
+            onApply={(d) => {
+              setF(d.f);
+              setLines(d.lines);
+              setDocs(d.docs ?? []);
+            }}
+          />
+        </div>
         <form
           onSubmit={(e) => {
             e.preventDefault();

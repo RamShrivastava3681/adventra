@@ -17,6 +17,7 @@ import {
   InfoPanel,
 } from "@/components/dialog";
 import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
+import { useFormDraft, DraftResumeBanner } from "@/lib/form-draft";
 import {
   Plus,
   X,
@@ -968,8 +969,10 @@ function POModal({
     };
   }, [piLines, piForm.freight]);
 
-  const save = useMutation({
-    mutationFn: async () => {
+  // Payload builder shared by manual save and auto-save drafts: throws while
+  // the form is not yet submittable (auto-save treats that as "browser only").
+  // Linked proforma / purchase-invoice creation stays manual-only.
+  const buildPoPayload = () => {
       if (lines.length === 0) throw new Error("Add at least one product line");
       const payloadLines = lines.map((l) => ({
         product_id: l.product_id,
@@ -1064,6 +1067,34 @@ function POModal({
         documents: docs,
         lines: payloadLines,
       };
+    return { payload, payloadLines };
+  };
+
+  // Auto-save: browser mirror (crash safety) + one server draft when the
+  // buffered state is already submittable. Cleared on manual save.
+  const poDraft = useFormDraft({
+    key: isEdit && po ? `po:${po.id}` : "po:new",
+    data: { f, lines, docs, docChoice, pfForm, piForm, piLines },
+    isEmpty: (d) =>
+      !(d.f as any).supplier_id?.trim() &&
+      !(d.f as any).warehouse?.trim() &&
+      !(d.f as any).notes?.trim() &&
+      (d.lines ?? []).every((l: any) => !l.product_id && !(l.name ?? "").trim()) &&
+      (d.docs ?? []).length === 0,
+    getServerPayload: () => {
+      try {
+        return buildPoPayload().payload;
+      } catch {
+        return null;
+      }
+    },
+    createServerDraft: (p) => api.goodsPurchaseOrders.create({ ...p, client_id: userId }),
+    serverEnabled: !isEdit,
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const { payload, payloadLines } = buildPoPayload();
       let savedPo: any;
       if (isEdit && po) {
         await api.goodsPurchaseOrders.update(po.id, payload);
@@ -1151,6 +1182,7 @@ function POModal({
       return docError;
     },
     onSuccess: (docError: string) => {
+      poDraft.clear();
       onSaved();
       // Persist any new clause texts to the library so they appear in the
       // print-detail dropdowns next time (best-effort — never blocks the save).
@@ -1261,6 +1293,21 @@ function POModal({
           cashImpact={cashImpact("purchase_order", po)}
         />
       )}
+      <div className="px-5 pt-4">
+        <DraftResumeBanner
+          draft={poDraft}
+          label="Unsaved purchase order found"
+          onApply={(d) => {
+            setF(d.f);
+            setLines(d.lines);
+            setDocs(d.docs ?? []);
+            setDocChoice(d.docChoice ?? "none");
+            setPfForm(d.pfForm);
+            setPiForm(d.piForm);
+            setPiLines(d.piLines ?? []);
+          }}
+        />
+      </div>
       <form
           onSubmit={(e) => {
             e.preventDefault();

@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { TableSkeleton } from "@/components/skeletons";
+import { useFormDraft, DraftResumeBanner } from "@/lib/form-draft";
 import { DocumentTimelinePanel } from "@/components/document-timeline";
 import {
   DispatchPackingModal,
@@ -1054,6 +1055,70 @@ function DispatchCreateModal({
   // both fire and create two dispatch notes.
   const submitGuard = useRef(false);
 
+  // Minimal auto-save payload (create-branch fields only): the server still
+  // enforces IRN / duplicate / pending checks — failures mean "browser only".
+  const buildDispatchAutoPayload = () => {
+    const payloadLines = lines
+      .filter((l) => (Number(l.dispatched_qty) || 0) > 0)
+      .map((l) => ({
+        product_id: l.product_id,
+        dispatched_qty: Number(l.dispatched_qty) || 0,
+        unit_price: Number(l.unit_price) || 0,
+      }));
+    if (payloadLines.length === 0) throw new Error("no lines");
+    const srcId = createFromInvoiceState ? invoiceId : soId;
+    if (!srcId) throw new Error("no source");
+    const soIdForDispatch = createFromInvoiceState
+      ? ((allInvoices.find((inv) => inv.id === invoiceId) as any)?.goods_sales_order_id ?? null)
+      : soId;
+    if (!soIdForDispatch) throw new Error("no sales order");
+    return {
+      goods_sales_order_id: soIdForDispatch,
+      dispatch_date: f.dispatch_date,
+      warehouse: f.warehouse.trim() || null,
+      transporter_name: f.transporter_name.trim() || null,
+      tracking_number: f.tracking_number.trim() || null,
+      delivery_challan_number: f.delivery_challan_number.trim() || null,
+      linked_customer_proforma_id: f.linked_customer_proforma_id || null,
+      linked_sales_invoice_id: createFromInvoiceState ? invoiceId : f.linked_sales_invoice_id || null,
+      notes: f.notes.trim() || null,
+      lines: payloadLines,
+      dispatch_type: f.dispatch_type || null,
+      source_location_id: f.source_location_id || null,
+      destination_location_id: f.destination_location_id || null,
+      channel: f.channel || null,
+      delivery_address: f.delivery_address.trim() || null,
+    };
+  };
+
+  // Auto-save: browser mirror (crash safety) + one server draft when the
+  // buffered state is already submittable. Cleared on manual save.
+  const dispatchDraft = useFormDraft({
+    key: isEdit && editing ? `dispatch:${editing.id}` : "dispatch:new",
+    data: { f, lines, soId, invoiceId, createFromInvoiceState },
+    isEmpty: (d) =>
+      !d.soId &&
+      !d.invoiceId &&
+      (d.lines ?? []).every((l: any) => !(Number(l.dispatched_qty) || 0)) &&
+      !(d.f as any).warehouse?.trim() &&
+      !(d.f as any).transporter_name?.trim() &&
+      !(d.f as any).tracking_number?.trim() &&
+      !(d.f as any).notes?.trim() &&
+      !(d.f as any).delivery_address?.trim(),
+    getServerPayload: () => {
+      try {
+        return buildDispatchAutoPayload();
+      } catch {
+        return null;
+      }
+    },
+    createServerDraft: (p) => api.goodsDispatches.create(p),
+    // Browser draft only: one sales order → one dispatch, so a silently
+    // auto-created server row would block the user's real create with a
+    // duplicate error. The resume banner still preserves the work.
+    serverEnabled: false,
+  });
+
   const save = useMutation({
     mutationFn: async () => {
       const payloadLines = lines
@@ -1177,16 +1242,37 @@ function DispatchCreateModal({
       // already start at Picking, so that move is a no-op. Only the move to
       // Dispatched debits inventory.
       if (initialStatus && created?.id) {
-        await api.goodsDispatches.confirm(created.id, {});
-        const currentShip = (created as any).shipping_status ?? (created as any).shippingStatus ?? null;
-        if (!currentShip || currentShip !== initialStatus) {
-          try {
-            await api.goodsDispatches.shippingStatus(created.id, initialStatus as any, {});
-          } catch (e) {
-            // Already at the requested stage (e.g. Picking is the default) —
-            // not a failure.
-            if (!(e instanceof Error && /already/i.test(e.message))) throw e;
+        try {
+          await api.goodsDispatches.confirm(created.id, {});
+          const currentShip = (created as any).shipping_status ?? (created as any).shippingStatus ?? null;
+          if (!currentShip || currentShip !== initialStatus) {
+            try {
+              await api.goodsDispatches.shippingStatus(created.id, initialStatus as any, {});
+            } catch (e) {
+              // Already at the requested stage (e.g. Picking is the default) —
+              // not a failure.
+              if (!(e instanceof Error && /already/i.test(e.message))) throw e;
+            }
           }
+        } catch (postErr) {
+          // The draft row already exists at this point — roll back the row WE
+          // just created so the user gets the error AND a clean retry instead
+          // of an orphaned dispatch blocking the sales order. Still a draft:
+          // hard-delete it. Already confirmed (stock is only debited at
+          // Dispatched, which never succeeded here): cancel it, which also
+          // frees the sales order for a fresh attempt.
+          try {
+            const fresh = (await api.goodsDispatches.get(created.id)) as any;
+            const st = String(fresh?.status ?? fresh?.Status ?? "draft");
+            if (st === "draft") {
+              await api.goodsDispatches.delete(created.id);
+            } else if (!["dispatched", "delivered", "cancelled", "returned"].includes(st)) {
+              await api.goodsDispatches.cancel(created.id);
+            }
+          } catch {
+            // Best-effort rollback — the original error below is what matters.
+          }
+          throw postErr;
         }
       }
 
@@ -1199,18 +1285,39 @@ function DispatchCreateModal({
           ? `Dispatch created with status "${initialStatus}"`
           : "Draft dispatch note recorded — confirm it, then move it to Dispatched to debit inventory";
       toast.success(msg);
+      dispatchDraft.clear();
       onDone();
       qc.invalidateQueries({ queryKey: ["sales-proformas-for-dispatch"] });
       qc.invalidateQueries({ queryKey: ["invoices-for-dispatch"] });
       onClose();
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+    onError: (e) => {
+      // Refresh the list so the duplicate guard + picker see the latest rows.
+      qc.invalidateQueries({ queryKey: ["goods-dispatches"] });
+      const msg = e instanceof Error ? e.message : "Failed";
+      const dup = msg.match(/already has dispatch ([\w-]+)/);
+      if (dup) {
+        toast.error(
+          `This sales order already has dispatch ${dup[1]} — delete or cancel it in the list first, or edit that draft instead.`,
+          { action: { label: "View in list", onClick: () => onClose() }, duration: 9000 },
+        );
+        return;
+      }
+      toast.error(msg);
+    },
     // Release the double-submit guard once the attempt settles (success
     // unmounts via onClose; failure lets the user retry).
     onSettled: () => {
       submitGuard.current = false;
     },
   });
+
+  // Refresh the dispatch list on open so the SO picker and the duplicate
+  // guard never act on a stale cache (e.g. right after a delete).
+  useEffect(() => {
+    qc.invalidateQueries({ queryKey: ["goods-dispatches"] });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const qtyTotal = lines.reduce((s, l) => s + (Number(l.dispatched_qty) || 0), 0);
 
@@ -1237,6 +1344,19 @@ function DispatchCreateModal({
           </button>
         </div>
 
+        <div className="px-5 pt-4">
+          <DraftResumeBanner
+            draft={dispatchDraft}
+            label="Unsaved dispatch found"
+            onApply={(d) => {
+              setF(d.f);
+              setLines(d.lines);
+              setSoId(d.soId ?? "");
+              setInvoiceId(d.invoiceId ?? "");
+              setCreateFromInvoice(!!d.createFromInvoiceState);
+            }}
+          />
+        </div>
         <form
           onSubmit={(e) => {
             e.preventDefault();

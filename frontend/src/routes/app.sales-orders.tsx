@@ -50,6 +50,7 @@ import {
   SO_LINE_GRID,
 } from "@/components/doc-lines";
 import { TableSkeleton } from "@/components/skeletons";import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
+import { useFormDraft, DraftResumeBanner } from "@/lib/form-draft";
 import {
   Dialog,
   DialogWithStickyFooter,
@@ -1156,8 +1157,9 @@ function SOModal({
     };
   }, [lines, f.freight]);
 
-  const save = useMutation({
-    mutationFn: async () => {
+  // Payload builder shared by manual save and auto-save drafts: throws while
+  // the form is not yet submittable (auto-save treats that as "browser only").
+  const buildPayload = () => {
       if (lines.length === 0) throw new Error("Add at least one product line");
       const payloadLines = lines.map((l) => ({
         product_id: l.product_id,
@@ -1222,6 +1224,40 @@ function SOModal({
         documents: docs,
         lines: payloadLines,
       };
+    return payload;
+  };
+
+  // Auto-save: browser mirror (crash safety) + one server draft when the
+  // buffered state is already submittable. Cleared on manual save.
+  const soDraft = useFormDraft({
+    key: isEdit && so ? `so:${so.id}` : "so:new",
+    data: { f, lines, docs },
+    isEmpty: (d) =>
+      !(d.f as any).customer_id &&
+      !(d.f as any).contact_person?.trim() &&
+      !(d.f as any).billing_address?.trim() &&
+      !(d.f as any).delivery_address?.trim() &&
+      !(d.f as any).buyer_order_no?.trim() &&
+      !(d.f as any).reference_no?.trim() &&
+      !(d.f as any).notes?.trim() &&
+      !(d.f as any).remarks?.trim() &&
+      !(d.f as any).freight?.trim() &&
+      (d.lines ?? []).every((l: any) => !l.product_id && !(l.name ?? "").trim()) &&
+      (d.docs ?? []).length === 0,
+    getServerPayload: () => {
+      try {
+        return buildPayload();
+      } catch {
+        return null;
+      }
+    },
+    createServerDraft: (p) => api.goodsSalesOrders.create({ ...p, client_id: userId }),
+    serverEnabled: !isEdit,
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const payload = buildPayload();
       if (isEdit && so) {
         await api.goodsSalesOrders.update(so.id, payload);
       } else {
@@ -1229,6 +1265,7 @@ function SOModal({
       }
     },
     onSuccess: () => {
+      soDraft.clear();
       onSaved();
       toast.success(isEdit ? "Sales order updated" : "Sales order created");
       onClose();
@@ -1329,6 +1366,15 @@ function SOModal({
           cashImpact={cashImpact("sales_order", so)}
         />
       )}
+      <DraftResumeBanner
+        draft={soDraft}
+        label="Unsaved sales order found"
+        onApply={(d) => {
+          setF(d.f);
+          setLines(d.lines);
+          setDocs(d.docs ?? []);
+        }}
+      />
       <form
         id="so-form"
         onSubmit={(e) => {

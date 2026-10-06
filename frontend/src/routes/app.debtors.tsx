@@ -26,6 +26,7 @@ import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
 import { Plus, X, Loader2, ShieldAlert, Building2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, DocumentList, type DocMeta } from "@/components/document-uploader";
+import { useFormDraft, DraftResumeBanner } from "@/lib/form-draft";
 
 export const Route = createFileRoute("/app/debtors")({
   component: DebtorsPage,
@@ -386,8 +387,9 @@ function DebtorModal({
     enabled: isEdit && !!(debtor as any)?.id,
   });
   const hasTerms = (termsQ.data ?? []).length > 0;
-  const save = useMutation({
-    mutationFn: async () => {
+  // Payload builder shared by manual save and auto-save drafts: throws while
+  // the form is not yet submittable (auto-save treats that as "browser only").
+  const buildDebtorPayload = () => {
       if (!form.name.trim()) throw new Error("Name is required");
       if (form.contact_email && !/^\S+@\S+\.\S+$/.test(form.contact_email))
         throw new Error("Invalid contact email");
@@ -454,6 +456,35 @@ function DebtorModal({
           ...panDocs.map((d) => ({ ...d, category: "pan" })),
         ],
       };
+    return payload;
+  };
+
+  // Auto-save: browser mirror (crash safety) + one server record when the
+  // buffered state is already submittable. Cleared on manual save.
+  const debtorDraft = useFormDraft({
+    key: isEdit && (debtor as any)?.id ? `debtor:${(debtor as any).id}` : "debtor:new",
+    data: { form, sameAsBilling, gstDocs, panDocs },
+    isEmpty: (d) =>
+      !(d.form as any).name?.trim() &&
+      !(d.form as any).phone?.trim() &&
+      !(d.form as any).contact_name?.trim() &&
+      !(d.form as any).contact_email?.trim() &&
+      (d.gstDocs ?? []).length === 0 &&
+      (d.panDocs ?? []).length === 0,
+    getServerPayload: () => {
+      try {
+        return buildDebtorPayload();
+      } catch {
+        return null;
+      }
+    },
+    createServerDraft: (p) => api.debtors.create(p),
+    serverEnabled: !isEdit,
+  });
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const payload = buildDebtorPayload();
       if (isEdit && debtor) {
         await api.debtors.update(debtor.id, payload);
       } else {
@@ -461,6 +492,7 @@ function DebtorModal({
       }
     },
     onSuccess: () => {
+      debtorDraft.clear();
       onSaved();
       toast.success(isEdit ? "Customer updated" : "Customer added");
       onClose();
@@ -481,6 +513,18 @@ function DebtorModal({
           <button onClick={onClose}>
             <X className="h-4 w-4" />
           </button>
+        </div>
+        <div className="px-5 pt-4">
+          <DraftResumeBanner
+            draft={debtorDraft}
+            label="Unsaved customer found"
+            onApply={(d) => {
+              setForm(d.form);
+              setSameAsBilling(!!d.sameAsBilling);
+              setGstDocs(d.gstDocs ?? []);
+              setPanDocs(d.panDocs ?? []);
+            }}
+          />
         </div>
         <form
           onSubmit={(e) => {
