@@ -224,6 +224,22 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+// ── Supplier → address/contact helpers (both masters share the shape above) ──
+function supplierAddressOf(s: any): string {
+  if (!s) return "";
+  return (
+    [s.addressLine, s.city, s.stateCode, s.postalCode, s.country].filter(Boolean).join(", ") ||
+    ""
+  );
+}
+function supplierContactNameOf(s: any): string {
+  return s?.contactName ?? "";
+}
+function supplierContactLineOf(s: any): string {
+  if (!s) return "";
+  return [s.contactPhone, s.contactEmail].filter(Boolean).join(" · ") || "";
+}
+
 export function PurchaseOrdersPage() {
   const { user, isSalesRep, isAdmin, isChecker } = useAuth();
   const canWrite = !isSalesRep && !!user;
@@ -280,6 +296,15 @@ export function PurchaseOrdersPage() {
             paymentTerms: s.paymentTerms ?? s.payment_terms ?? null,
             gstin: s.gstin ?? null,
             panCardNo: s.panCardNo ?? s.pan_card_no ?? null,
+            // Address + contact (both cases) — needed for vendor / bill-to autofill.
+            addressLine: s.addressLine ?? s.address_line ?? null,
+            city: s.city ?? null,
+            country: s.country ?? null,
+            postalCode: s.postalCode ?? s.postal_code ?? null,
+            stateCode: s.stateCode ?? s.state_code ?? null,
+            contactName: s.contactName ?? s.contact_name ?? null,
+            contactPhone: s.contactPhone ?? s.contact_phone ?? null,
+            contactEmail: s.contactEmail ?? s.contact_email ?? null,
           }),
         ),
         ...vendors.map((v: { id: string; name?: string } & Record<string, any>) => ({
@@ -289,6 +314,14 @@ export function PurchaseOrdersPage() {
           advancePct: v.advancePct ?? v.advance_pct ?? null,
           paymentTermsDays: v.paymentTermsDays ?? v.payment_terms_days ?? null,
           paymentTerms: v.paymentTerms ?? v.payment_terms ?? null,
+          addressLine: v.addressLine ?? v.address_line ?? null,
+          city: v.city ?? null,
+          country: v.country ?? null,
+          postalCode: v.postalCode ?? v.postal_code ?? null,
+          stateCode: v.stateCode ?? v.state_code ?? null,
+          contactName: v.contactName ?? v.contact_name ?? null,
+          contactPhone: v.contactPhone ?? v.contact_phone ?? v.phone ?? null,
+          contactEmail: v.contactEmail ?? v.contact_email ?? null,
         })),
       ];
       return merged.sort((a, b) => a.name.localeCompare(b.name));
@@ -744,9 +777,39 @@ function POModal({
     />
   );
 
+  // Vendor block follows the main supplier: address + contact person /
+  // phone-email + GSTIN/PAN/state are fetched from the supplier master.
+  // Every field stays editable afterwards.
+  const applyVendorFromSupplier = (prev: any, s: any) => {
+    if (!s) return prev;
+    const addr = supplierAddressOf(s);
+    const contact = supplierContactNameOf(s);
+    const contactLine = supplierContactLineOf(s);
+    const next = { ...prev };
+    if (addr) next.vendor_address = addr;
+    if (contact) next.contact_person = contact;
+    if (contactLine) next.contact_person_contact = contactLine;
+    if (s.gstin) next.vendor_gstin = s.gstin;
+    if (s.panCardNo) next.vendor_pan = s.panCardNo;
+    if (s.stateCode) next.vendor_state = s.stateCode;
+    return next;
+  };
+
   // Bill-to links to a supplier (billing party); Ship-to is manual free text.
   // Picking a bill-to supplier auto-fills the billing person + address from
   // the supplier master — every field stays editable afterwards.
+  const applyBillToFromSupplier = (prev: any, s: any) => {
+    if (!s) return prev;
+    const addr = supplierAddressOf(s);
+    const contact = supplierContactNameOf(s);
+    const contactLine = supplierContactLineOf(s);
+    const next = { ...prev };
+    if (contact) next.bill_to_contact_person = contact;
+    if (contactLine) next.bill_to_contact = contactLine;
+    if (addr) next.bill_to_address = addr;
+    return next;
+  };
+
   const pickBillSupplier = async (id: string) => {
     if (!id) {
       setF((prev) => ({ ...prev, bill_to_supplier_id: "" }) as any);
@@ -754,25 +817,61 @@ function POModal({
     }
     setF((prev) => ({ ...prev, bill_to_supplier_id: id }) as any);
     try {
-      const s: any =
-        (suppliers as any[]).find((x: any) => x.id === id) ??
-        (await api.suppliers.list().then((l: any[]) => l.find((x: any) => x.id === id)).catch(() => null));
+      let s: any = (suppliers as any[]).find((x: any) => x.id === id) ?? null;
+      if (!s) {
+        const [sl, vl] = await Promise.all([
+          api.suppliers.list().catch(() => [] as any[]),
+          api.vendors.list().catch(() => [] as any[]),
+        ]);
+        const raw: any = [...(sl ?? []), ...(vl ?? [])].find((x: any) => x.id === id);
+        if (raw) {
+          s = {
+            contactName: raw.contactName ?? raw.contact_name ?? null,
+            contactPhone: raw.contactPhone ?? raw.contact_phone ?? raw.phone ?? null,
+            contactEmail: raw.contactEmail ?? raw.contact_email ?? null,
+            addressLine: raw.addressLine ?? raw.address_line ?? null,
+            city: raw.city ?? null,
+            stateCode: raw.stateCode ?? raw.state_code ?? null,
+            postalCode: raw.postalCode ?? raw.postal_code ?? null,
+            country: raw.country ?? null,
+          };
+        }
+      }
       if (!s) return;
-      const addr = [s.addressLine ?? s.address_line, s.city, s.country].filter(Boolean).join(", ");
-      const contact = s.contactName ?? s.contact_name ?? "";
-      const contactLine = [s.contactPhone ?? s.contact_phone, s.contactEmail ?? s.contact_email].filter(Boolean).join(" · ");
       setF((prev) => {
         if ((prev as any).bill_to_supplier_id !== id) return prev;
-        return {
-          ...prev,
-          bill_to_contact_person: (prev as any).bill_to_contact_person || contact || "",
-          bill_to_contact: (prev as any).bill_to_contact || contactLine || "",
-          bill_to_address: (prev as any).bill_to_address || addr || "",
-        } as any;
+        return applyBillToFromSupplier(prev, s) as any;
       });
     } catch {
       /* best-effort autofill — fields stay manually editable */
     }
+  };
+
+  // Main supplier change: fetch vendor address/contact (+ terms/GSTIN/PAN)
+  // from the supplier master, keep the proforma supplier in sync, and when
+  // no separate bill-to supplier is chosen, fetch the billing address from
+  // the same (selected) supplier.
+  const pickSupplier = (v: string) => {
+    setF((prev) => ({ ...prev, supplier_id: v }) as any);
+    // Keep the proforma supplier in sync with the PO supplier.
+    if (docChoice === "proforma") setPfForm((p) => ({ ...p, supplier_id: v }));
+    if (!v) return;
+    const s = suppliers.find((x) => x.id === v) as any;
+    if (!s) return;
+    setF((prev) => {
+      let next: any = {
+        ...prev,
+        ...toTermsFormFields(s),
+      };
+      next = applyVendorFromSupplier(next, s);
+      // Billing address follows the selected supplier until the user picks
+      // a different bill-to supplier explicitly.
+      if (!(prev as any).bill_to_supplier_id) {
+        next.bill_to_supplier_id = v;
+        next = applyBillToFromSupplier(next, s);
+      }
+      return next;
+    });
   };
 
   // Bill-to autofill lives in pickBillSupplier above. Ship-to is manual —
@@ -1338,21 +1437,7 @@ function POModal({
               <L label="Supplier">
                 <SearchableSelect
                   value={f.supplier_id}
-                  onChange={(v) => {
-                    setF({ ...f, supplier_id: v });
-                    // Keep the proforma supplier in sync with the PO supplier.
-                    if (docChoice === "proforma") setPfForm((p) => ({ ...p, supplier_id: v }));
-                    // Pre-fill payment terms + GSTIN/PAN from the supplier master (editable).
-                    const s = suppliers.find((x) => x.id === v) as any;
-                    if (s) {
-                      setF((prev) => ({
-                        ...prev,
-                        ...toTermsFormFields(s),
-                        vendor_gstin: s.gstin ?? (prev as any).vendor_gstin,
-                        vendor_pan: s.panCardNo ?? (prev as any).vendor_pan,
-                      }));
-                    }
-                  }}
+                  onChange={pickSupplier}
                   placeholder="Select supplier…"
                   disabled={!editable}
                   options={suppliers.map((s) => ({ value: s.id, label: s.name }))}
@@ -1506,6 +1591,7 @@ function POModal({
                   className={inputBase}
                   value={(f as any).contact_person}
                   onChange={(e) => setF({ ...f, contact_person: e.target.value } as any)}
+                  placeholder="Auto-filled from supplier — editable"
                   disabled={!editable}
                 />
               </L>
@@ -1514,6 +1600,7 @@ function POModal({
                   className={inputBase}
                   value={(f as any).contact_person_contact}
                   onChange={(e) => setF({ ...f, contact_person_contact: e.target.value } as any)}
+                  placeholder="Auto-filled from supplier — editable"
                   disabled={!editable}
                 />
               </L>
@@ -1522,6 +1609,7 @@ function POModal({
                   className={inputBase}
                   value={(f as any).vendor_address}
                   onChange={(e) => setF({ ...f, vendor_address: e.target.value } as any)}
+                  placeholder="Auto-filled from supplier — editable"
                   disabled={!editable}
                 />
               </L>
