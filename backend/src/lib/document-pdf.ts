@@ -3151,6 +3151,11 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
         { a: `Place of Supply: ${data.placeOfSupply}`, b: "", c: "", full: true },
       ];
       for (const r of rows) {
+        // Skip a row whose three cells are all blank — it only adds height and
+        // can push later blocks onto a near-empty page.
+        if (!String(r.a ?? "").trim() && !String(r.b ?? "").trim() && !String(r.c ?? "").trim()) {
+          continue;
+        }
         if (r.full) {
           const h = 12;
           need(h);
@@ -3242,9 +3247,41 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
         y += rowH;
       });
 
+      // Reserve the whole tail (totals → amount-in-words → remarks/bank →
+      // declaration → sign-off) as ONE unit. Without this, a page break inside
+      // the sign-off strands it on a near-empty trailing page.
+      const tailWordsW = Math.round(CW * 0.8);
+      const tailWordsH = Math.max(24, Math.ceil(wrapH(data.amountWords, tailWordsW, 7) + 18));
+      const tailBankW = Math.round(CW * 0.45);
+      const tailRemW = CW - tailBankW;
+      const tailRemarkText = data.remarks ? `Remarks:\n${data.remarks}` : "";
+      const tailBankLineCount = data.bank ? 4 : 0;
+      const tailBankInfoH = data.bank
+        ? 12 + tailBankLineCount * 11
+        : data.bankRaw
+          ? Math.max(30, Math.ceil(wrapH(data.bankRaw, tailBankW, 7) + 18))
+          : 14;
+      const tailRbH = Math.max(22, Math.ceil(wrapH(tailRemarkText, tailRemW, 7) + 8), tailBankInfoH + 2);
+      const tailDeclText = (data.declaration ?? []).join("\n");
+      const tailDeclH = tailDeclText
+        ? Math.max(20, Math.ceil(wrapH(`Declaration\n${tailDeclText}`, CW, 7) + 8))
+        : 0;
+      const tailSignH = (data.signatoryName ? 14 : 0) + 13 + 13;
+      const tailH = 14 + tailWordsH + tailRbH + tailDeclH + tailSignH;
+      // When the tail fits a fresh page keep it together; when it is taller than
+      // a whole page fall back to flowing section by section via need().
+      const reserveTail = tailH <= BOT - M;
+      if (reserveTail && y + tailH > BOT) {
+        doc.addPage();
+        y = M;
+      }
+      const tailNeed = (h: number) => {
+        if (!reserveTail) need(h);
+      };
+
       // Totals row
       const TOT_H = 14;
-      need(TOT_H);
+      tailNeed(TOT_H);
       const spanW = CW - colW("qty") - colW("amt");
       cell(M, y, spanW, TOT_H, "Total (inclusive of Taxes)", { font: FB, size: 7.5, align: "center", fill: TALLY.headGray });
       cell(M + spanW, y, colW("qty"), TOT_H, tallyNum(data.totalQty), { font: FB, size: 7.5, align: "right", fill: TALLY.headGray });
@@ -3254,7 +3291,7 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
       // ── Amount in words + E&OE ───────────────────────────────────────────
       const wordsW = Math.round(CW * 0.8);
       const wordsH = Math.max(24, Math.ceil(wrapH(data.amountWords, wordsW, 7) + 18));
-      need(wordsH);
+      tailNeed(wordsH);
       cell(M, y, wordsW, wordsH, "", {});
       doc.font(FB).fontSize(7).fillColor(TALLY.ink).text("Amount Chargeable (in words)", M + PAD, y + 2, { width: wordsW - PAD * 2 });
       doc.font(F).fontSize(7).fillColor(TALLY.ink).text(data.amountWords, M + PAD, y + 12, { width: wordsW - PAD * 2 });
@@ -3272,7 +3309,7 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
           ? Math.max(30, Math.ceil(wrapH(data.bankRaw, bankW, 7) + 18))
           : 14;
       const rbH = Math.max(22, Math.ceil(wrapH(remarkText, remW, 7) + 8), bankInfoH + 2);
-      need(rbH);
+      tailNeed(rbH);
       const ry0 = y;
       cell(M, y, remW, rbH, "", {});
       if (remarkText) {
@@ -3304,7 +3341,7 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
       const declText = (data.declaration ?? []).join("\n");
       if (declText) {
         const dh = Math.max(20, Math.ceil(wrapH(`Declaration\n${declText}`, CW, 7) + 8));
-        need(dh);
+        tailNeed(dh);
         cell(M, y, CW, dh, "", {});
         doc.font(FB).fontSize(7).fillColor(TALLY.ink).text("Declaration", M + PAD, y + 2, { width: CW - PAD * 2 });
         doc.font(F).fontSize(7).fillColor(TALLY.ink).text(declText, M + PAD, y + 12, { width: CW - PAD * 2 });
@@ -3312,9 +3349,11 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
       }
 
       // ── Sign-off ─────────────────────────────────────────────────────────
+      // One page-break check for the whole sign-off block (never per row), so a
+      // trailing page can never hold only the last sign-off line.
+      tailNeed(tailSignH);
       const signRow = (text: string, o?: { font?: string; size?: number; h?: number }) => {
         const h = o?.h ?? 13;
-        need(h);
         cell(M, y, CW, h, text, { font: o?.font ?? F, size: o?.size ?? 7.5, align: "center" });
         y += h;
       };
