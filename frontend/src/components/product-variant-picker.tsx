@@ -39,10 +39,17 @@ export function fullItemName(p: Pick<ProductVariantOption, "name" | "brand" | "m
   return attrs.length > 0 ? `${head} (${attrs.join(" / ")})` : head;
 }
 
-function variantShortLabel(c: ProductVariantOption): string {
+/**
+ * Compact variant label — colour + size only (e.g. "Black / 42"). Used wherever
+ * a sellable SKU is listed in the picker or a document line; brand, model,
+ * gender, subcategory and the parent name stay on master rows and stored
+ * document snapshots.
+ */
+export function variantShortLabel(
+  c: Pick<ProductVariantOption, "color" | "size">,
+): string {
   const attrs = [clean(c.color), clean(c.size)].filter(Boolean);
-  if (attrs.length > 0) return `${fullItemName(c)}`;
-  return fullItemName(c);
+  return attrs.length > 0 ? attrs.join(" / ") : "Unnamed variant";
 }
 
 /**

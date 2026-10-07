@@ -755,6 +755,25 @@ function SOModal({
     notes: so?.notes ?? "",
     freight: so?.freight != null ? String(so.freight) : "",
   });
+  // Auto-fill the buyer order number for a new SO from the confirmed-order
+  // sequence (BO-<year>-<n>). Still editable afterwards.
+  useEffect(() => {
+    if (isEdit) return;
+    let cancelled = false;
+    api.goodsSalesOrders
+      .nextBuyerOrderNo()
+      .then((r) => {
+        if (cancelled || !r?.buyerOrderNo) return;
+        setF((prev) => (prev.buyer_order_no ? prev : { ...prev, buyer_order_no: r.buyerOrderNo }));
+      })
+      .catch(() => {
+        /* prefill is best-effort; the field stays manual */
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [lines, setLines] = useState<LineDraft[]>(
     (so?.lines ?? []).map((l) => ({
       product_id: l.product_id,

@@ -56,6 +56,13 @@ export function SellableSkuModal({
   const [quickSize, setQuickSize] = useState("");
   const [showOverride, setShowOverride] = useState(false);
   const [created, setCreated] = useState<{ sku: string; product: SkuProduct | null } | null>(null);
+  // Bulk mode: tick many sizes and create all their SKUs in one submit.
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkIds, setBulkIds] = useState<string[]>([]);
+  const [createdBulk, setCreatedBulk] = useState<{
+    created: SkuProduct[];
+    skipped: Array<{ size: string; reason: string }>;
+  } | null>(null);
   const [localSizes, setLocalSizes] = useState<SkuMaster[]>(sizes);
   useEffect(() => setLocalSizes(sizes), [sizes]);
   const str = (v: number | null | undefined) => (v === null || v === undefined ? "" : String(v));
@@ -73,9 +80,13 @@ export function SellableSkuModal({
 
   const selectedSize = localSizes.find((x) => x.id === masterId);
   const preview = sku.trim() || (selectedSize ? `${parent.sku}-${selectedSize.code}` : "");
-  const dupName =
-    !!selectedSize &&
-    takenNames.some((n) => !!n && n.toLowerCase() === selectedSize.name.toLowerCase());
+  const sizeTaken = (name: string) =>
+    takenNames.some((n) => !!n && n.toLowerCase() === name.toLowerCase());
+  const dupName = !!selectedSize && sizeTaken(selectedSize.name);
+  // Sizes ticked in bulk mode that aren't already present under this colour.
+  const bulkChosen = localSizes.filter(
+    (x) => bulkIds.includes(x.id) && !sizeTaken(x.name),
+  );
 
   const checkQ = useQuery({
     queryKey: ["check-sku", preview],
@@ -165,6 +176,7 @@ export function SellableSkuModal({
       } as SkuMaster;
       setLocalSizes((prev) => [...prev, entry]);
       setMasterId(entry.id);
+      setBulkIds((prev) => (prev.includes(entry.id) ? prev : [...prev, entry.id]));
       setQuickSize("");
     },
     onSuccess: () => {
@@ -173,6 +185,27 @@ export function SellableSkuModal({
     },
     onError: (e) =>
       toast.error(e instanceof Error ? e.message : "Could not create master — code may exist"),
+  });
+
+  const saveBulk = useMutation({
+    mutationFn: async () => {
+      if (bulkChosen.length === 0) throw new Error("Tick at least one size");
+      return api.products.bulkVariants({
+        colourProductId: parent.id,
+        sizes: bulkChosen.map((x) => x.name),
+        sizeMasterIds: bulkChosen.map((x) => x.id),
+      });
+    },
+    onSuccess: (res) => {
+      onSaved();
+      const n = res.created?.length ?? 0;
+      const s = res.skipped?.length ?? 0;
+      toast.success(
+        `${n} size SKU${n === 1 ? "" : "s"} created${s ? ` · ${s} skipped` : ""}`,
+      );
+      setCreatedBulk({ created: res.created ?? [], skipped: res.skipped ?? [] });
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
   const colourCode =
@@ -220,6 +253,66 @@ export function SellableSkuModal({
     );
   }
 
+  if (createdBulk) {
+    return (
+      <SkuModalShell
+        title="Size SKUs Created"
+        subtitle="Bulk size creation finished."
+        onClose={onClose}
+      >
+        <div className="space-y-4 overflow-y-auto p-5 md:p-6">
+          <div className="flex items-center gap-2 text-sm font-medium text-sem-success">
+            <CheckCircle2 className="h-4 w-4" /> {createdBulk.created.length} size SKU
+            {createdBulk.created.length === 1 ? "" : "s"} created
+          </div>
+          {createdBulk.created.length > 0 && (
+            <SkuParentCard
+              rows={createdBulk.created.map((p) => ({
+                label: `${p.color ?? ""}${p.size ? ` / ${p.size}` : ""}`.trim() || p.sku,
+                value: p.sku,
+              }))}
+            />
+          )}
+          {createdBulk.skipped.length > 0 && (
+            <div className="rounded-lg border border-sem-attention/40 bg-sem-attention/10 p-3">
+              <p className="mb-1 text-xs font-medium text-sem-attention">
+                Skipped ({createdBulk.skipped.length})
+              </p>
+              <ul className="space-y-0.5 text-[11px] text-sem-attention">
+                {createdBulk.skipped.map((s) => (
+                  <li key={s.size}>
+                    {s.size} — {s.reason}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="flex flex-wrap justify-end gap-2 pt-1">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm"
+            >
+              Done
+            </button>
+            {onViewSku && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClose();
+                  onViewSku();
+                }}
+                className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
+              >
+                View SKUs
+              </button>
+            )}
+          </div>
+        </div>
+      </SkuModalShell>
+    );
+  }
+
   return (
     <SkuModalShell
       title="Add Size Variant"
@@ -230,7 +323,8 @@ export function SellableSkuModal({
         className="space-y-5 overflow-y-auto p-5 md:p-6"
         onSubmit={(e) => {
           e.preventDefault();
-          save.mutate();
+          if (bulkMode) saveBulk.mutate();
+          else save.mutate();
         }}
       >
         <SkuParentCard
@@ -249,52 +343,164 @@ export function SellableSkuModal({
         </p>
 
         <SkuSection title="Size">
-          <SkuField label="Select Size" required>
-            <SearchableSelect
-              value={masterId}
-              onChange={setMasterId}
-              placeholder="Search size — e.g. S, M, L, 42…"
-              searchPlaceholder="Type size…"
-              emptyText="No size matches — add it below"
-              options={localSizes.map((x) => ({
-                value: x.id,
-                label: x.name === x.code ? x.name : `${x.name} (${x.code})`,
-                hint: `Code: ${x.code}`,
-              }))}
-            />
-          </SkuField>
-          <div className="mt-3 grid gap-2 rounded-lg border border-dashed border-border p-3 md:grid-cols-[1fr_auto]">
-            <input
-              className="sku-inp !py-1.5 font-mono uppercase"
-              value={quickSize}
-              onChange={(e) => setQuickSize(e.target.value.toUpperCase().slice(0, 10))}
-              placeholder="New size — e.g. M, XL, 42"
-            />
+          <div className="mb-3 flex items-center gap-2">
             <button
               type="button"
-              disabled={quickCreate.isPending || !quickSize.trim()}
-              onClick={() => quickCreate.mutate()}
-              className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-50"
+              onClick={() => setBulkMode(false)}
+              className={`rounded-md border px-2.5 py-1 text-xs ${
+                !bulkMode ? "border-primary text-primary" : "border-border text-muted-foreground"
+              }`}
             >
-              + Add & select
+              Single size
+            </button>
+            <button
+              type="button"
+              onClick={() => setBulkMode(true)}
+              className={`rounded-md border px-2.5 py-1 text-xs ${
+                bulkMode ? "border-primary text-primary" : "border-border text-muted-foreground"
+              }`}
+            >
+              Add multiple sizes
             </button>
           </div>
-          {dupName && selectedSize && (
-            <p className="mt-2 text-xs font-medium text-destructive">
-              {selectedSize.name} already exists under {parent.sku} — pick another.
-            </p>
+
+          {bulkMode ? (
+            <div className="space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[11px] text-muted-foreground">
+                  Tick every size to create under {parent.color ?? "this colour"}. Sizes already
+                  present are disabled.
+                </p>
+                <div className="flex shrink-0 gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setBulkIds(localSizes.filter((x) => !sizeTaken(x.name)).map((x) => x.id))
+                    }
+                    className="text-[11px] font-medium text-primary hover:underline"
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBulkIds([])}
+                    className="text-[11px] font-medium text-muted-foreground hover:underline"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Size systems (EU / UK / US) are shown with the size name.
+              </p>
+              <div className="max-h-56 space-y-0.5 overflow-y-auto rounded-lg border border-border p-2">
+                {localSizes.length === 0 ? (
+                  <p className="p-2 text-xs text-muted-foreground">
+                    No active size masters yet — add one below.
+                  </p>
+                ) : (
+                  localSizes.map((x) => {
+                    const taken = sizeTaken(x.name);
+                    return (
+                      <label
+                        key={x.id}
+                        className={`flex items-center gap-2 rounded-md px-2 py-1 text-sm ${
+                          taken ? "opacity-50" : "cursor-pointer hover:bg-muted/40"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={taken}
+                          checked={bulkIds.includes(x.id)}
+                          onChange={(e) =>
+                            setBulkIds((prev) =>
+                              e.target.checked ? [...prev, x.id] : prev.filter((id) => id !== x.id),
+                            )
+                          }
+                        />
+                        <span>{x.name === x.code ? x.name : `${x.name} (${x.code})`}</span>
+                        {taken && (
+                          <span className="ml-auto text-[10px] uppercase tracking-wider text-muted-foreground">
+                            already exists
+                          </span>
+                        )}
+                      </label>
+                    );
+                  })
+                )}
+              </div>
+              <div className="grid gap-2 rounded-lg border border-dashed border-border p-3 md:grid-cols-[1fr_auto]">
+                <input
+                  className="sku-inp !py-1.5 font-mono uppercase"
+                  value={quickSize}
+                  onChange={(e) => setQuickSize(e.target.value.toUpperCase().slice(0, 10))}
+                  placeholder="New size — e.g. M, XL, 42"
+                />
+                <button
+                  type="button"
+                  disabled={quickCreate.isPending || !quickSize.trim()}
+                  onClick={() => quickCreate.mutate()}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-50"
+                >
+                  + Add & tick
+                </button>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {bulkChosen.length} size{bulkChosen.length === 1 ? "" : "s"} selected
+              </p>
+            </div>
+          ) : (
+            <>
+              <SkuField label="Select Size" required>
+                <SearchableSelect
+                  value={masterId}
+                  onChange={setMasterId}
+                  placeholder="Search size — e.g. S, M, L, 42…"
+                  searchPlaceholder="Type size…"
+                  emptyText="No size matches — add it below"
+                  options={localSizes.map((x) => ({
+                    value: x.id,
+                    label: x.name === x.code ? x.name : `${x.name} (${x.code})`,
+                    hint: `Code: ${x.code}`,
+                  }))}
+                />
+              </SkuField>
+              <div className="mt-3 grid gap-2 rounded-lg border border-dashed border-border p-3 md:grid-cols-[1fr_auto]">
+                <input
+                  className="sku-inp !py-1.5 font-mono uppercase"
+                  value={quickSize}
+                  onChange={(e) => setQuickSize(e.target.value.toUpperCase().slice(0, 10))}
+                  placeholder="New size — e.g. M, XL, 42"
+                />
+                <button
+                  type="button"
+                  disabled={quickCreate.isPending || !quickSize.trim()}
+                  onClick={() => quickCreate.mutate()}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs hover:border-primary hover:text-primary disabled:opacity-50"
+                >
+                  + Add & select
+                </button>
+              </div>
+              {dupName && selectedSize && (
+                <p className="mt-2 text-xs font-medium text-destructive">
+                  {selectedSize.name} already exists under {parent.sku} — pick another.
+                </p>
+              )}
+            </>
           )}
         </SkuSection>
 
-        <GeneratedCodeBox
-          label="Generated Sellable SKU"
-          code={preview}
-          note="This final SKU is used for inventory, sales, dispatch and forecasting."
-          checking={checkQ.isFetching}
-          taken={skuTaken}
-          takenHint="This Sellable SKU already exists."
-          large
-        />
+        {!bulkMode && (
+          <GeneratedCodeBox
+            label="Generated Sellable SKU"
+            code={preview}
+            note="This final SKU is used for inventory, sales, dispatch and forecasting."
+            checking={checkQ.isFetching}
+            taken={skuTaken}
+            takenHint="This Sellable SKU already exists."
+            large
+          />
+        )}
 
         <SkuSection title="Inherited Pricing">
           <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 font-mono text-[13px] md:grid-cols-4">
@@ -402,7 +608,7 @@ export function SellableSkuModal({
           {priceError && <p className="mt-2 text-xs font-medium text-destructive">{priceError}</p>}
         </SkuSection>
 
-        {selectedSize && (
+        {!bulkMode && selectedSize && (
           <div className="rounded-xl border border-border bg-muted/30 p-4 text-[13px]">
             <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
               <span className="text-muted-foreground">Master SKU</span>
@@ -430,11 +636,19 @@ export function SellableSkuModal({
             Cancel
           </button>
           <button
-            disabled={save.isPending || !canSave}
+            disabled={bulkMode ? saveBulk.isPending || bulkChosen.length === 0 : save.isPending || !canSave}
             className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
           >
-            {save.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
-            {save.isPending ? "Creating…" : "Create Sellable SKU"}
+            {(bulkMode ? saveBulk.isPending : save.isPending) && (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            )}
+            {bulkMode
+              ? saveBulk.isPending
+                ? "Creating…"
+                : `Create ${bulkChosen.length || ""} Size SKU${bulkChosen.length === 1 ? "" : "s"}`
+              : save.isPending
+                ? "Creating…"
+                : "Create Sellable SKU"}
           </button>
         </div>
       </form>

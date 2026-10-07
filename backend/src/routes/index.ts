@@ -699,6 +699,9 @@ router.post("/products/bulk-variants", authMiddleware, async (req, res) => {
         sizes: body.sizes,
         sizeSystem: body.sizeSystem ?? null,
         sizeMasterId: body.sizeMasterId ?? null,
+        sizeMasterIds: Array.isArray(body.sizeMasterIds)
+          ? body.sizeMasterIds
+          : null,
       },
     );
     trackAction(req, "product.bulk_variants_created", body.colourProductId || body.colorProductId, {
@@ -5403,7 +5406,11 @@ router.delete("/goods-receipts/:id", authMiddleware, async (req, res) => {
 // (the sales-side mirror of PO → GRN).
 
 /** Shape + catalogue checks for SO lines. SKUs must come from the product catalogue. */
-async function validateGoodsSOLines(clientId: string | undefined, rawLines: any[]) {
+async function validateGoodsSOLines(
+  clientId: string | undefined,
+  rawLines: any[],
+  customerType?: string | null,
+) {
   const lines = Array.isArray(rawLines) ? rawLines : [];
   if (lines.length === 0) throw new Error("Add at least one product line");
   const products = await Product.list(clientId);
@@ -5440,6 +5447,14 @@ async function validateGoodsSOLines(clientId: string | undefined, rawLines: any[
       const hsn = soProduct.hsnCode ?? soProduct.hsn_code ?? null;
       if (hsn) l.hsnCode = hsn;
     }
+    // GST is resolved per customer segment via the central rule table. With no
+    // segment override configured this returns the catalogue/line rate, but the
+    // hook lets segment-specific rates (e.g. Defence) apply without touching
+    // every line here.
+    const catalogueRate =
+      (soProduct as any)?.gstRate ?? l.gstRate ?? null;
+    const segmentRate = GoodsSO.gstRateFor(customerType ?? null, catalogueRate);
+    if (segmentRate !== null) l.gstRate = segmentRate;
   }
   return lines;
 }
@@ -5531,9 +5546,25 @@ router.get(
 router.post("/goods-sales-orders", authMiddleware, async (req, res) => {
   try {
     const body = req.body || {};
+    // The customer segment drives the per-segment GST rule. Prefer the payload,
+    // otherwise read it from the debtor master, and snap it onto the order.
+    let customerType: string | null = body.customerType ?? null;
+    if (!customerType && body.customerId) {
+      try {
+        const debtor = await Debtor.get(body.customerId);
+        customerType = (debtor as any)?.customerType ?? null;
+      } catch {
+        /* missing debtor falls back to no segment */
+      }
+    }
+    body.customerType = customerType || null;
     let lines: any[];
     try {
-      lines = await validateGoodsSOLines(effectiveListScope(req), body.lines);
+      lines = await validateGoodsSOLines(
+        effectiveListScope(req),
+        body.lines,
+        customerType,
+      );
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
@@ -5627,8 +5658,26 @@ router.put("/goods-sales-orders/:id", authMiddleware, async (req, res) => {
     }
     if (body.lines !== undefined) {
       let lines: any[];
+      // Re-resolve the segment (payload → debtor → stored order) so a customer
+      // change on edit re-prices GST lines consistently.
+      let editCustomerType: string | null =
+        body.customerType ?? current.customerType ?? null;
+      const editCustomerId = body.customerId ?? current.customerId ?? null;
+      if (!editCustomerType && editCustomerId) {
+        try {
+          const debtor = await Debtor.get(editCustomerId);
+          editCustomerType = (debtor as any)?.customerType ?? null;
+        } catch {
+          /* missing debtor falls back to no segment */
+        }
+      }
+      if (body.customerType === undefined) body.customerType = editCustomerType;
       try {
-        lines = await validateGoodsSOLines(effectiveListScope(req), body.lines);
+        lines = await validateGoodsSOLines(
+          effectiveListScope(req),
+          body.lines,
+          editCustomerType,
+        );
       } catch (e: any) {
         return res.status(400).json({ error: e.message });
       }

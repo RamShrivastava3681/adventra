@@ -21,6 +21,7 @@ import { CascadeDeleteDialog, summarizeDeleted } from "@/components/cascade-dele
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import api from "@/lib/api-client";
+import { stateForCity } from "@/lib/india-city-state";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
 import { Plus, X, Loader2, ShieldAlert, Building2, Trash2 } from "lucide-react";
@@ -329,6 +330,7 @@ function DebtorModal({
   const [form, setForm] = useState({
     name: debtor?.name ?? "",
     industry: debtor?.industry ?? "",
+    customer_type: debtor?.customerType ?? (debtor as any)?.customer_type ?? "",
     ...toTermsFormFields(debtor),
     gstin: debtor?.gstin ?? "",
     panCardNo: debtor?.panCardNo ?? debtor?.pan_card_no ?? "",
@@ -426,6 +428,7 @@ function DebtorModal({
       const payload = {
         name: form.name.trim(),
         industry: form.industry || null,
+        customerType: form.customer_type || null,
         ...termsPayload,
         gstin: form.gstin || null,
         panCardNo: form.panCardNo || null,
@@ -552,6 +555,20 @@ function DebtorModal({
                   onChange={set("industry")}
                 />
               </L>
+              <L label="Customer type">
+                <select
+                  className={selectBase}
+                  value={form.customer_type}
+                  onChange={(e) => setForm({ ...form, customer_type: e.target.value })}
+                >
+                  <option value="">Not set</option>
+                  {["Dealer", "Retailer", "Defence", "Others"].map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+              </L>
               <L label="Website">
                 <input
                   type="url"
@@ -676,7 +693,13 @@ function DebtorModal({
                         value={a.city}
                         onChange={(e) => {
                           const next = [...form.billing_addresses];
-                          next[i] = { ...next[i], city: e.target.value };
+                          const city = e.target.value;
+                          next[i] = {
+                            ...next[i],
+                            city,
+                            // Auto-fill State from City while State is still blank.
+                            state: next[i].state || stateForCity(city) || "",
+                          };
                           setForm({ ...form, billing_addresses: next });
                         }}
                         placeholder="City"
@@ -829,7 +852,13 @@ function DebtorModal({
                         value={a.city}
                         onChange={(e) => {
                           const next = [...form.shipping_addresses];
-                          next[i] = { ...next[i], city: e.target.value };
+                          const city = e.target.value;
+                          next[i] = {
+                            ...next[i],
+                            city,
+                            // Auto-fill State from City while State is still blank.
+                            state: next[i].state || stateForCity(city) || "",
+                          };
                           setForm({ ...form, shipping_addresses: next });
                         }}
                         placeholder="City"

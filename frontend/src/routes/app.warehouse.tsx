@@ -25,6 +25,7 @@ import {
   FileText,
   Clock3,
   AlertTriangle,
+  Search,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -156,6 +157,7 @@ export function WarehousePage() {
   const canWrite = isAdmin || isOperations;
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("overview");
+  const [openSearch, setOpenSearch] = useState("");
   // Workbench-level UI state (presentation only — no workflow change)
   const [now, setNow] = useState(() => new Date());
 
@@ -238,6 +240,16 @@ export function WarehousePage() {
           o.lines.some((l) => Number(l.ordered_qty) > Number(l.dispatched_qty ?? 0)),
     );
   }, [signoffOrders]);
+  // Search within the Open Sales Orders queue (order no. / buyer name).
+  const filteredOpenOrders = useMemo(() => {
+    const q = openSearch.trim().toLowerCase();
+    if (!q) return openOrders;
+    return openOrders.filter(
+      (o) =>
+        (o.so_number ?? "").toLowerCase().includes(q) ||
+        (o.customer_name ?? "").toLowerCase().includes(q),
+    );
+  }, [openOrders, openSearch]);
   const pendingSignoffs = signoffOrders.filter(
     (o) => o.status === "warehouse_pending",
   );
@@ -386,6 +398,7 @@ export function WarehousePage() {
   const tabs: { id: Tab; label: string; icon: any; count?: number }[] = [
     { id: "overview", label: "Overview", icon: BarChart3 },
     { id: "orders", label: "Pending Sales Order", icon: ClipboardCheck, count: pendingSignoffs.length },
+    { id: "open", label: "Open Sales Orders", icon: FileText, count: openOrders.length },
     { id: "ready", label: "Ready to dispatch", icon: PackageCheck, count: readyOrders.length + readyInvoices.length },
     { id: "dispatches", label: "Dispatches", icon: Truck, count: openDispatches.length },
     { id: "movements", label: "Inventory movements", icon: Boxes, count: movements.length },
@@ -530,6 +543,75 @@ export function WarehousePage() {
               )}
             </Card>
           </div>
+        )}
+
+        {tab === "open" && (
+          <Card title="Open sales orders">
+            {ordersQ.isLoading ? (
+              <TableSkeleton rows={4} />
+            ) : openOrders.length === 0 ? (
+              <EmptyState
+                icon={<FileText className="h-5 w-5" />}
+                title="No open orders"
+                description="Orders awaiting warehouse sign-off or with pending quantity appear here."
+              />
+            ) : (
+              <>
+                <div className="mb-4 flex items-center gap-2">
+                  <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                  <input
+                    value={openSearch}
+                    onChange={(e) => setOpenSearch(e.target.value)}
+                    placeholder="Search by order no. or buyer…"
+                    className="w-full max-w-sm rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary"
+                  />
+                </div>
+                {filteredOpenOrders.length === 0 ? (
+                  <EmptyState
+                    icon={<Search className="h-5 w-5" />}
+                    title="No matches"
+                    description={`No open order matches “${openSearch}”.`}
+                  />
+                ) : (
+                  <Table head={["Order", "Buyer", "Ordered", "Pending qty", "Pending value", "Status", "Warehouse"]}>
+                    {filteredOpenOrders.map((o) => {
+                      const pendingLines = o.lines.filter(
+                        (l) => Number(l.ordered_qty) > Number(l.dispatched_qty ?? 0),
+                      );
+                      const pendingQty = pendingLines.reduce(
+                        (s, l) => s + (Number(l.ordered_qty) - Number(l.dispatched_qty ?? 0)),
+                        0,
+                      );
+                      const pendingValue = pendingLines.reduce(
+                        (s, l) =>
+                          s +
+                          (Number(l.ordered_qty) - Number(l.dispatched_qty ?? 0)) *
+                            Number(l.unit_price) *
+                            (1 - (Number(l.discount_pct) || 0) / 100),
+                        0,
+                      );
+                      const wh = o.warehouse_status ?? "pending";
+                      return (
+                        <tr key={o.id} className="border-b border-border/60 hover:bg-muted/30">
+                          <td className="px-5 py-3">{o.so_number}</td>
+                          <td className="px-5 py-3">{o.customer_name ?? "—"}</td>
+                          <td className="px-5 py-3 text-muted-foreground">{fmtDate(o.order_date)}</td>
+                          <td className="num px-5 py-3 text-right">{pendingQty.toLocaleString()}</td>
+                          <td className="num px-5 py-3 text-right">{fmtMoney(pendingValue)}</td>
+                          <td className="px-5 py-3">
+                            <StatusPill status={o.status} />
+                          </td>
+                          <td className="px-5 py-3 capitalize text-muted-foreground">
+                            {String(wh).replace("_", " ")}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </Table>
+                )}
+              </>
+            )}
+          </Card>
         )}
 
         {tab === "orders" && (

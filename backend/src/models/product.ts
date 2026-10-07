@@ -272,7 +272,10 @@ export async function bulkCreateSizeVariants(
     clientId: string;
     sizes: string[];
     sizeSystem?: string | null;
+    /** Fallback master id applied to every created variant. */
     sizeMasterId?: string | null;
+    /** Optional per-size master ids, aligned with `sizes`. */
+    sizeMasterIds?: Array<string | null> | null;
   },
 ): Promise<BulkVariantResult> {
   const parent = await get(colourProductId);
@@ -289,8 +292,8 @@ export async function bulkCreateSizeVariants(
   );
   const created: Product[] = [];
   const skipped: BulkVariantResult["skipped"] = [];
-  for (const raw of data.sizes) {
-    const size = String(raw ?? "").trim();
+  for (let i = 0; i < data.sizes.length; i++) {
+    const size = String(data.sizes[i] ?? "").trim();
     if (!size) continue;
     if (takenSizes.has(size.toUpperCase())) {
       skipped.push({ size, reason: "Size already exists under this colour" });
@@ -307,7 +310,7 @@ export async function bulkCreateSizeVariants(
       color: parent.color,
       size,
       colorMasterId: parent.colorMasterId,
-      sizeMasterId: data.sizeMasterId || null,
+      sizeMasterId: data.sizeMasterIds?.[i] ?? data.sizeMasterId ?? null,
       sizeSystem,
       category: parent.category,
       subcategory: parent.subcategory,

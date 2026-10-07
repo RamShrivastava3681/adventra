@@ -110,6 +110,17 @@ const api = {
     update: (id: string, data: any) => api.put<any>(`/products/${id}`, data),
     delete: (id: string) => api.delete(`/products/${id}`),
     createHierarchy: (data: any) => api.post<any>("/products/create-hierarchy", data),
+    bulkVariants: (data: {
+      colourProductId: string;
+      sizes: string[];
+      sizeSystem?: string | null;
+      sizeMasterId?: string | null;
+      sizeMasterIds?: Array<string | null> | null;
+    }) =>
+      api.post<{ created: any[]; skipped: Array<{ size: string; reason: string }> }>(
+        "/products/bulk-variants",
+        data,
+      ),
     checkSku: (sku: string) =>
       api.get<{ exists: boolean; sku: string }>(`/products/check-sku?sku=${encodeURIComponent(sku)}`),
   },
@@ -339,6 +350,8 @@ const api = {
   // Goods Sales Orders (catalogue-backed customer orders — never touch stock)
   goodsSalesOrders: {
     list: () => api.get<any[]>("/goods-sales-orders"),
+    nextBuyerOrderNo: () =>
+      api.get<{ buyerOrderNo: string }>("/goods-sales-orders/next-buyer-order-no"),
     create: (data: any) => api.post<any>("/goods-sales-orders", data),
     update: (id: string, data: any) => api.put<any>(`/goods-sales-orders/${id}`, data),
     delete: (id: string) => api.delete(`/goods-sales-orders/${id}`),
