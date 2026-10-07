@@ -677,6 +677,40 @@ router.put("/products/:id", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+/**
+ * POST /products/bulk-variants — create multiple size SKUs under one colour
+ * SKU in a single call. Body: { colourProductId, sizes: string[],
+ * sizeSystem?: "EU"|"UK"|"US"|"Custom", sizeMasterId?: string }.
+ * Existing sizes are skipped (reported) rather than failing the batch.
+ */
+router.post("/products/bulk-variants", authMiddleware, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.colourProductId && !body.colorProductId)
+      return res.status(400).json({ error: "colourProductId is required" });
+    if (!Array.isArray(body.sizes) || body.sizes.length === 0)
+      return res.status(400).json({ error: "sizes must be a non-empty array" });
+    if (body.sizes.length > 50)
+      return res.status(400).json({ error: "At most 50 sizes per batch" });
+    const result = await Product.bulkCreateSizeVariants(
+      body.colourProductId || body.colorProductId,
+      {
+        clientId: req.user!.userId,
+        sizes: body.sizes,
+        sizeSystem: body.sizeSystem ?? null,
+        sizeMasterId: body.sizeMasterId ?? null,
+      },
+    );
+    trackAction(req, "product.bulk_variants_created", body.colourProductId || body.colorProductId, {
+      entityType: "product",
+      created: result.created.length,
+      skipped: result.skipped.length,
+    });
+    res.status(201).json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
 router.delete("/products/:id", authMiddleware, async (req, res) => {
   try {
     const product = await Product.get(req.params.id);
@@ -923,6 +957,125 @@ router.post("/stock-movements", authMiddleware, async (req, res) => {
     recomputeAll(req.user!.userId).catch((err: any) =>
       console.error(
         "  ⚠ Forecast recompute after stock movement creation failed:",
+        err,
+      ),
+    );
+    res.status(201).json(item);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /stock-movements/manual — manual stock addition
+ * Captures stock that did not come through the Procurement Cycle.
+ * Required: productId, quantity, reason="Manual addition", notes mandatory.
+ * Optional: direction="in"|"out", warehouse, notes.
+ */
+router.post("/stock-movements/manual", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const body = req.body || {};
+
+    if (!body.productId) {
+      return res
+        .status(400)
+        .json({ error: "productId is required" });
+    }
+    const product = await Product.get(body.productId);
+    if (!product) {
+      return res.status(400).json({ error: "Selected product no longer exists" });
+    }
+    if (!["in", "out"].includes(body.direction)) {
+      return res
+        .status(400)
+        .json({ error: "Direction must be Credit (in) or Debit (out)" });
+    }
+    const status = body.status ?? "confirmed";
+    if (!["draft", "confirmed"].includes(status)) {
+      return res
+        .status(400)
+        .json({ error: "Status must be draft or confirmed" });
+    }
+    if (!body.reason || body.reason !== "Manual addition") {
+      return res.status(400).json({
+        error: "Manual entries require reason=Manual addition",
+      });
+    }
+    if (!body.notes || !String(body.notes).trim()) {
+      return res.status(400).json({
+        error: "Notes are required for every manual inventory entry",
+      });
+    }
+    if (!(Number(body.quantity) > 0)) {
+      return res
+        .status(400)
+        .json({ error: "Quantity must be greater than zero" });
+    }
+
+    const isSystemFlow = !!(
+      body.invoiceId ||
+      body.goodsReceiptId ||
+      body.purchaseInvoiceId ||
+      body.goodsDispatchId
+    );
+
+    if (!isSystemFlow) {
+      if (status === "confirmed") {
+        body.confirmedById = body.confirmedById ?? req.user!.userId;
+        body.confirmedByName = body.confirmedByName ?? req.user!.email;
+        body.confirmedAt = body.confirmedAt ?? db.nowISO();
+      }
+      body.createdById = req.user!.userId;
+      body.createdByName = req.user!.email;
+    } else {
+      body.createdById = req.user!.userId;
+      body.createdByName = req.user!.email;
+      body.confirmedById = body.confirmedById ?? req.user!.userId;
+      body.confirmedByName = body.confirmedByName ?? req.user!.email;
+      body.confirmedAt = body.confirmedAt ?? db.nowISO();
+    }
+
+    // Default Central Warehouse: manual movements without an explicit
+    // location fall back to the client's Central Warehouse.
+    try {
+      const needsDefault =
+        (body.direction === "in" && !body.destinationLocationId) ||
+        (body.direction === "out" && !body.sourceLocationId);
+      if (needsDefault) {
+        const def = await StockLocation.getDefaultLocation(clientId);
+        if (body.direction === "in" && !body.destinationLocationId) {
+          body.destinationLocationId = def.id;
+        }
+        if (body.direction === "out" && !body.sourceLocationId) {
+          body.sourceLocationId = def.id;
+        }
+        if (!body.warehouse) body.warehouse = def.name;
+      }
+    } catch {
+      /* location defaulting is best-effort — movement still records */
+    }
+
+    body.quantity = Number(body.quantity);
+    body.itemName = product.name;
+    body.sku = product.sku;
+    body.unit = product.unitOfMeasure || "unit";
+    body.unitCost = product.unitCost || 0;
+    body.reason = "Manual addition";
+
+    const item = await StockMovement.create({ ...body, clientId });
+    trackAction(req, "stock.manual_added", item.id, {
+      entityType: "stock",
+      entityRef: item.sku ?? item.itemName,
+      direction: item.direction,
+      quantity: item.quantity,
+      reason: item.reason,
+    });
+    // Trigger forecast recompute asynchronously (fire-and-forget)
+    const { recomputeAll } = await import("../services/forecast-service.js");
+    recomputeAll(req.user!.userId).catch((err: any) =>
+      console.error(
+        "  ⚠ Forecast recompute after manual stock add failed:",
         err,
       ),
     );
@@ -5310,6 +5463,17 @@ router.get("/goods-sales-orders", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+router.get(
+  "/goods-sales-orders/next-buyer-order-no",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      res.json({ buyerOrderNo: await GoodsSO.nextBuyerOrderNo(req.user!.userId) });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
 router.get(
   "/goods-sales-orders/pending-invoices",
   authMiddleware,

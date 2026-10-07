@@ -69,6 +69,8 @@ export interface GoodsSalesOrder {
   customerId: string | null;
   /** Denormalized customer name for display. */
   customerName: string | null;
+  /** Customer segment snapshot (Dealer | Retailer | Defence | Others) — drives GST rules. */
+  customerType: string | null;
   /** Ship-to customer (may differ from the billing customer). Null = same as billing / legacy order. */
   shipCustomerId: string | null;
   /** Denormalized ship-to customer name for display. */
@@ -284,6 +286,46 @@ export function computeTotals(lines: GoodsSalesOrderLine[], freight: number) {
   };
 }
 
+// ── Customer-type GST rules ─────────────────────────────────────────────────
+// GST/cost split keyed by customer segment. Rates default to the catalogue
+// product rate for every type — adjust the overrides below once the business
+// confirms segment-specific treatment (e.g. Defence concessional rates).
+// `null` = use catalogue rate.
+export const GST_BY_CUSTOMER_TYPE: Record<string, number | null> = {
+  Dealer: null,
+  Retailer: null,
+  Defence: null,
+  Others: null,
+};
+
+/** Resolve the effective GST % for a line given the customer segment. */
+export function gstRateFor(customerType: string | null, catalogueRate: number | null): number | null {
+  if (!customerType) return catalogueRate;
+  const key = Object.keys(GST_BY_CUSTOMER_TYPE).find(
+    (k) => k.toLowerCase() === String(customerType).toLowerCase(),
+  );
+  if (!key) return catalogueRate;
+  const override = GST_BY_CUSTOMER_TYPE[key];
+  return override === null || override === undefined ? catalogueRate : override;
+}
+
+/**
+ * Next buyer order number from previous CONFIRMED orders: takes the highest
+ * trailing number (e.g. BO-2026-0042 → 42) and returns BO-<year>-<n+1>.
+ * Falls back to BO-<year>-0001 when no confirmed order carries one.
+ */
+export async function nextBuyerOrderNo(clientId: string): Promise<string> {
+  const year = new Date().getFullYear();
+  const orders = await list(clientId);
+  let max = 0;
+  for (const o of orders) {
+    if (o.status === "cancelled" || o.status === "draft") continue;
+    const m = String(o.buyerOrderNo ?? "").match(/(\d+)\s*$/);
+    if (m) max = Math.max(max, parseInt(m[1], 10) || 0);
+  }
+  return `BO-${year}-${String(max + 1).padStart(4, "0")}`;
+}
+
 export function recomputeStatus(
   so: Pick<GoodsSalesOrder, "status" | "manualStatus" | "lines">,
 ): GoodsSalesOrderStatus {
@@ -341,6 +383,7 @@ export async function create(
     orderDate: data.orderDate || db.todayDate(),
     customerId: data.customerId || null,
     customerName: data.customerName || null,
+    customerType: (data as any).customerType || null,
     shipCustomerId: (data as any).shipCustomerId || null,
     shipCustomerName: (data as any).shipCustomerName || null,
     contactPerson: data.contactPerson || null,
@@ -416,6 +459,7 @@ export async function update(id: string, updates: Partial<GoodsSalesOrder>) {
     "orderDate",
     "customerId",
     "customerName",
+    "customerType",
     "shipCustomerId",
     "shipCustomerName",
     "contactPerson",

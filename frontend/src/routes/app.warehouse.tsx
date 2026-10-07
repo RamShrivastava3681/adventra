@@ -149,7 +149,7 @@ type Movement = {
   destination_location_id: string | null;
 };
 
-type Tab = "overview" | "orders" | "ready" | "dispatches" | "movements";
+type Tab = "overview" | "orders" | "open" | "ready" | "dispatches" | "movements";
 
 export function WarehousePage() {
   const { user, isAdmin, isOperations } = useAuth();
@@ -217,7 +217,27 @@ export function WarehousePage() {
     .filter(
       (o) => ["warehouse_pending", "checker_pending", "confirmed", "partially_dispatched"].includes(o.status),
     )
-    .sort((a, b) => (b.order_date || "").localeCompare(a.order_date || ""));
+    .sort((a, b) => {
+      // Sort by order date descending (newest first)
+      const ad = a.order_date ?? "";
+      const bd = b.order_date ?? "";
+      if (ad !== bd) return bd.localeCompare(ad);
+      // Then alphabetically by customer name
+      const an = a.customer_name ?? "";
+      const bn = b.customer_name ?? "";
+      return an.localeCompare(bn);
+    });
+
+  // â”€â”€ Open Sales Orders: SOs awaiting warehouse sign-off or with pending quantity
+  // Excludes fully_dispatched and cancelled
+  const openOrders = useMemo(() => {
+    return signoffOrders.filter(
+      (o) => o.status === "warehouse_pending"
+        || (o.warehouse_status ?? "pending") === "on_hold"
+        || (o.status === "confirmed" || o.status === "partially_dispatched") &&
+          o.lines.some((l) => Number(l.ordered_qty) > Number(l.dispatched_qty ?? 0)),
+    );
+  }, [signoffOrders]);
   const pendingSignoffs = signoffOrders.filter(
     (o) => o.status === "warehouse_pending",
   );

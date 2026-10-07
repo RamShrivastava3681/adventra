@@ -19,6 +19,8 @@ export interface Product {
   genderMasterId: string | null;
   colorMasterId: string | null;
   sizeMasterId: string | null;
+  /** Size system for this SKU: EU / UK / US / Custom. Null = not a sized SKU. */
+  sizeSystem: string | null;
   sku: string;
   name: string;
   description: string | null;
@@ -113,6 +115,7 @@ export async function create(data: Partial<Product> & { clientId: string; name: 
     genderMasterId: data.genderMasterId || null,
     colorMasterId: data.colorMasterId || null,
     sizeMasterId: data.sizeMasterId || null,
+    sizeSystem: data.sizeSystem || null,
     sku,
     name: data.name,
     description: data.description || null,
@@ -165,7 +168,7 @@ export async function update(id: string, updates: Partial<Product>) {
       throw new Error(`SKU already exists: ${updates.sku}`);
     }
   }
-  const allowed = ["name","description","category","subcategory","gender","brand","size","color","model","unitOfMeasure","season","barcode","barcodeType","unitsPerCarton","unitPrice","unitCost","mrp","ecommercePrice","retailerPrice","distributorPrice","flexiblePrice","minimumGrossMarginPercentage","reorderLevel","maxStock","leadTimeDays","safetyStockDays","supplierId","supplierProductCode","minimumOrderQuantity","orderMultiple","hsnCode","gstRate","imageUrl","status","sku","parentId","skuLevel","categoryMasterId","genderMasterId","colorMasterId","sizeMasterId"];
+  const allowed = ["name","description","category","subcategory","gender","brand","size","color","model","unitOfMeasure","season","barcode","barcodeType","unitsPerCarton","unitPrice","unitCost","mrp","ecommercePrice","retailerPrice","distributorPrice","flexiblePrice","minimumGrossMarginPercentage","reorderLevel","maxStock","leadTimeDays","safetyStockDays","supplierId","supplierProductCode","minimumOrderQuantity","orderMultiple","hsnCode","gstRate","imageUrl","status","sku","parentId","skuLevel","categoryMasterId","genderMasterId","colorMasterId","sizeMasterId","sizeSystem"];
   const patch: Record<string, any> = {};
   for (const key of allowed) {
     if ((updates as any)[key] !== undefined) patch[key] = (updates as any)[key];
@@ -225,4 +228,101 @@ export async function nextAvailableVariantSku(
     candidate = `${base}-${n}`;
   }
   return candidate;
+}
+
+// ── Size systems (EU / UK / US / Custom) ─────────────────────────────────────
+
+export const SIZE_SYSTEMS = ["EU", "UK", "US", "Custom"] as const;
+export type SizeSystem = (typeof SIZE_SYSTEMS)[number];
+
+/** Reference EU ↔ UK ↔ US footwear size map shown in the variant UI. */
+export const FOOTWEAR_SIZE_MAP: Array<{ eu: string; uk: string; us: string }> = [
+  { eu: "38", uk: "5", us: "6" },
+  { eu: "39", uk: "6", us: "7" },
+  { eu: "40", uk: "6.5", us: "7.5" },
+  { eu: "41", uk: "7", us: "8" },
+  { eu: "42", uk: "8", us: "9" },
+  { eu: "43", uk: "9", us: "10" },
+  { eu: "44", uk: "9.5", us: "10.5" },
+  { eu: "45", uk: "10", us: "11" },
+  { eu: "46", uk: "11", us: "12" },
+  { eu: "47", uk: "12", us: "13" },
+];
+
+export function normalizeSizeSystem(v: unknown): string | null {
+  const s = String(v ?? "").trim().toUpperCase();
+  if (!s) return null;
+  if ((SIZE_SYSTEMS as readonly string[]).includes(s)) return s;
+  return "Custom";
+}
+
+export interface BulkVariantResult {
+  created: Product[];
+  skipped: Array<{ size: string; reason: string }>;
+}
+
+/**
+ * Create multiple size SKUs under one colour SKU in a single call.
+ * Sizes that already exist under the colour are skipped (reported, not fatal)
+ * so the UI can tick "all sizes" without pre-checking each one.
+ */
+export async function bulkCreateSizeVariants(
+  colourProductId: string,
+  data: {
+    clientId: string;
+    sizes: string[];
+    sizeSystem?: string | null;
+    sizeMasterId?: string | null;
+  },
+): Promise<BulkVariantResult> {
+  const parent = await get(colourProductId);
+  if (!parent) throw new Error("Colour SKU not found");
+  const parentIsColour =
+    parent.skuLevel === "color" || (!parent.size?.trim() && !!parent.color?.trim());
+  if (!parentIsColour && parent.skuLevel === "variant") {
+    throw new Error("A size SKU cannot have variants. Add sizes under a colour SKU instead.");
+  }
+  const sizeSystem = normalizeSizeSystem(data.sizeSystem);
+  const siblings = (await list()).filter((p) => p.parentId === colourProductId);
+  const takenSizes = new Set(
+    siblings.map((p) => (p.size ?? "").trim().toUpperCase()).filter(Boolean),
+  );
+  const created: Product[] = [];
+  const skipped: BulkVariantResult["skipped"] = [];
+  for (const raw of data.sizes) {
+    const size = String(raw ?? "").trim();
+    if (!size) continue;
+    if (takenSizes.has(size.toUpperCase())) {
+      skipped.push({ size, reason: "Size already exists under this colour" });
+      continue;
+    }
+    takenSizes.add(size.toUpperCase());
+    const sku = await nextAvailableVariantSku(data.clientId, parent.sku, parent.color, size);
+    const item = await create({
+      clientId: data.clientId,
+      parentId: parent.id,
+      skuLevel: "variant",
+      sku,
+      name: `${parent.name} — ${[parent.color, size].filter(Boolean).map((a) => String(a).toUpperCase()).join(" / ")}`,
+      color: parent.color,
+      size,
+      colorMasterId: parent.colorMasterId,
+      sizeMasterId: data.sizeMasterId || null,
+      sizeSystem,
+      category: parent.category,
+      subcategory: parent.subcategory,
+      gender: parent.gender,
+      brand: parent.brand,
+      model: parent.model,
+      unitOfMeasure: parent.unitOfMeasure,
+      unitPrice: parent.unitPrice,
+      unitCost: parent.unitCost,
+      mrp: parent.mrp,
+      hsnCode: parent.hsnCode,
+      gstRate: parent.gstRate,
+      status: "active",
+    });
+    created.push(item);
+  }
+  return { created, skipped };
 }

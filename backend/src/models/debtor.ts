@@ -20,6 +20,10 @@ export interface Debtor {
   /** All saved shipping addresses (first entry = primary, mirrored in shippingAddress). */
   shippingAddresses: DebtorAddress[] | null;
   city: string | null; country: string | null;
+  /** Indian state name (auto-filled from City → State map, manually overridable). */
+  state: string | null;
+  /** Customer segment: Dealer | Retailer | Defence | Others. */
+  customerType: string | null;
   postalCode: string | null; phone: string | null; website: string | null;
   contactName: string | null; contactEmail: string | null; contactDesignation: string | null; contactPhone: string | null;
   /** Assigned salesman for this debtor. */
@@ -56,6 +60,16 @@ export interface Debtor {
   documents: Array<{ path: string; name: string; type?: string | null; size?: number | null; uploaded_at?: string | null }> | null;
   notes: string | null; debtorCode: string;
   createdAt: string; updatedAt: string;
+}
+
+export const CUSTOMER_TYPES = ["Dealer", "Retailer", "Defence", "Others"] as const;
+
+export function normalizeCustomerType(v: unknown): string | null {
+  if (v === undefined || v === null || String(v).trim() === "") return null;
+  const s = String(v).trim().toLowerCase();
+  const hit = CUSTOMER_TYPES.find((t) => t.toLowerCase() === s);
+  if (!hit) throw new Error(`Invalid customer type: ${v} (use Dealer, Retailer, Defence or Others)`);
+  return hit;
 }
 
 export async function list() { return db.scanByType("Debtor") as Promise<Debtor[]>; }
@@ -123,6 +137,8 @@ export async function create(data: Partial<Debtor> & { name: string }) {
     // address for legacy reports/PDFs; the master is now per-address.
     city: data.city || firstBilling?.city || null,
     country: data.country || firstBilling?.state || null,
+    state: (data as any).state || firstBilling?.state || null,
+    customerType: normalizeCustomerType((data as any).customerType),
     postalCode: data.postalCode || firstBilling?.postalCode || null, phone: data.phone || null, website: data.website || null,
     contactName: data.contactName || null, contactEmail: data.contactEmail || null,
     contactDesignation: data.contactDesignation || null, contactPhone: data.contactPhone || null,
@@ -165,9 +181,10 @@ export async function create(data: Partial<Debtor> & { name: string }) {
 }
 
 export async function update(id: string, updates: Partial<Debtor>) {
-  const allowed = ["name","industry","billingAddress","shippingAddress","billingAddresses","shippingAddresses","city","country","postalCode","phone","website","contactName","contactEmail","contactDesignation","contactPhone","salesmanName","salesmanPhone","salesmanEmail","paymentTermsDays","paymentTermsType","advancePct","defaultPaymentTermId","creditLimit","enforceCreditLimit","gstin","panCardNo","stateCode","documents","notes"];
+  const allowed = ["name","industry","billingAddress","shippingAddress","billingAddresses","shippingAddresses","city","country","state","customerType","postalCode","phone","website","contactName","contactEmail","contactDesignation","contactPhone","salesmanName","salesmanPhone","salesmanEmail","paymentTermsDays","paymentTermsType","advancePct","defaultPaymentTermId","creditLimit","enforceCreditLimit","gstin","panCardNo","stateCode","documents","notes"];
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
+  if (patch.customerType !== undefined) patch.customerType = normalizeCustomerType(patch.customerType);
   if (patch.creditLimit !== undefined) {
     const raw = patch.creditLimit;
     if (raw === null || raw === "") patch.creditLimit = null;
