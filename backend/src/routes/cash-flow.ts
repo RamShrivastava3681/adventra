@@ -10,6 +10,7 @@ import * as ExpectedOutflow from "../models/expected-outflow.js";
 import * as PurchaseCommitment from "../models/purchase-commitment.js";
 import * as RecurringExpense from "../models/recurring-expense.js";
 import * as MarketplaceSettlement from "../models/marketplace-settlement.js";
+import * as MarketplaceDemo from "../models/marketplace-demo.js";
 import * as CashFlowEngine from "../services/cash-flow-engine.js";
 import * as GoodsPO from "../models/goods-purchase-order.js";
 import * as PurchaseInvoice from "../models/purchase-invoice.js";
@@ -878,6 +879,66 @@ router.get("/cash-flow/gst-collection", async (req: Request, res: Response) => {
     res.json(ledger);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ===================== MARKETPLACE DEMO ORDERS/INVOICES =====================
+// E-commerce demo flow: order creates demo SO, payment creates demo invoice.
+
+router.get("/marketplace-demo/orders", async (req: Request, res: Response) => {
+  try {
+    res.json(await MarketplaceDemo.listOrders((req as any).user.userId));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/marketplace-demo/invoices", async (req: Request, res: Response) => {
+  try {
+    res.json(await MarketplaceDemo.listInvoices((req as any).user.userId));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post("/marketplace-demo/orders", async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    const { marketplace, externalOrderId, eventId, channelSku, whizunikSku, quantity, unitPrice } =
+      req.body || {};
+    if (!marketplace) return res.status(400).json({ error: "marketplace is required" });
+    if (!externalOrderId) return res.status(400).json({ error: "externalOrderId is required" });
+    const { order, created } = await MarketplaceDemo.createDemoOrder({
+      clientId,
+      marketplace,
+      externalOrderId,
+      eventId: eventId || externalOrderId,
+      channelSku: channelSku || "",
+      whizunikSku: whizunikSku || "",
+      quantity: Number(quantity) || 0,
+      unitPrice: Number(unitPrice) || 0,
+    });
+    trackCashFlowAction(req, "marketplace.demo_order_created", order.id, {
+      marketplace,
+      externalOrderId,
+      duplicate: !created,
+    });
+    res.status(created ? 201 : 200).json({ order, duplicate: !created });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.post("/marketplace-demo/orders/:id/payment", async (req: Request, res: Response) => {
+  try {
+    const { order, invoice, created } = await MarketplaceDemo.recordPaymentAndInvoice(req.params.id);
+    trackCashFlowAction(req, "marketplace.demo_payment_invoiced", order.id, {
+      invoiceId: invoice.id,
+      duplicate: !created,
+    });
+    res.status(created ? 201 : 200).json({ order, invoice, duplicate: !created });
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
   }
 });
 

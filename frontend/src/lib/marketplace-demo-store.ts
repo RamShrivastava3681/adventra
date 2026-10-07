@@ -65,6 +65,13 @@ export interface DemoWorkflowState {
   eventId: string;
   soId: string;
   invoiceId: string;
+  // Real backend-backed demo docs (order -> SO, payment -> invoice).
+  // Null until created via API; mock IDs above remain as fallback labels.
+  demoSoId: string | null;
+  demoSoNumber: string | null;
+  demoInvoiceId: string | null;
+  demoInvoiceNumber: string | null;
+  paymentStatus: "pending" | "collected_by_marketplace";
   trackingNumber: string;
   carrier: string;
   returnId: string;
@@ -138,6 +145,11 @@ export const INITIAL_STATE: DemoWorkflowState = {
   eventId: "EVT-1001",
   soId: "SO-DEMO-1001",
   invoiceId: "INV-DEMO-1001",
+  demoSoId: null,
+  demoSoNumber: null,
+  demoInvoiceId: null,
+  demoInvoiceNumber: null,
+  paymentStatus: "pending",
   trackingNumber: "TRK-DEMO-1001",
   carrier: "BlueDart Express",
   returnId: "RET-DEMO-1001",
@@ -167,6 +179,12 @@ export function loadDemoState(): DemoWorkflowState {
           name: c.name.replace(/\*/g, ""),
         }));
       }
+      // Backward-compat defaults for states saved before demo SO/invoice fields.
+      if (parsed.demoSoId === undefined) parsed.demoSoId = null;
+      if (parsed.demoSoNumber === undefined) parsed.demoSoNumber = null;
+      if (parsed.demoInvoiceId === undefined) parsed.demoInvoiceId = null;
+      if (parsed.demoInvoiceNumber === undefined) parsed.demoInvoiceNumber = null;
+      if (parsed.paymentStatus === undefined) parsed.paymentStatus = "pending";
       return parsed;
     }
   } catch (err) {

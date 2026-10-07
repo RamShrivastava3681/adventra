@@ -30,6 +30,7 @@ import {
   Settings,
 } from "lucide-react";
 import { toast } from "sonner";
+import api from "@/lib/api-client";
 import {
   loadDemoState,
   saveDemoState,
@@ -178,12 +179,75 @@ export default function MarketplaceHubPage() {
     toast.success("Demo state successfully reset to Baseline fixtures!");
   };
 
-  const handleNextStep = () => {
+  const handleNextStep = async () => {
     if (state.currentStep >= 8) {
       toast.info("Demonstration journey complete! Use 'Reset Baseline' to restart.");
       return;
     }
     const next = state.currentStep + 1;
+
+    // Step 3: e-commerce order -> creates demo sales order (idempotent).
+    if (next === 3 && !state.demoSoId) {
+      try {
+        const res = await api.cashFlow.marketplaceDemo.createOrder({
+          marketplace: "amazon",
+          externalOrderId: state.externalOrderId,
+          eventId: state.eventId,
+          channelSku: "AMZ-TS-BLK-M",
+          whizunikSku: "AD-TS-BLK-M",
+          quantity: 2,
+          unitPrice: 1000,
+        });
+        const order = (res as any)?.order ?? res;
+        setState((prev) => ({
+          ...prev,
+          currentStep: next,
+          demoSoId: order?.id ?? prev.demoSoId,
+          demoSoNumber: order?.soNumber ?? prev.demoSoNumber,
+        }));
+        toast.success(
+          (res as any)?.duplicate
+            ? `Step 3: Reused demo sales order ${order?.soNumber} (duplicate blocked)`
+            : `Step 3: Created demo sales order ${order?.soNumber ?? state.soId}`
+        );
+        return;
+      } catch (err: any) {
+        // Backend unreachable or mapping error — fall back to mock IDs so the
+        // visual 8-step demo still runs.
+        toast.warning(
+          `Demo SO API unavailable, using mock ${state.soId}: ${err?.message ?? err}`
+        );
+      }
+    }
+
+    // Step 5: payment collected -> creates demo invoice (one SO -> one invoice).
+    if (next === 5 && state.demoSoId && !state.demoInvoiceId) {
+      try {
+        const res = await api.cashFlow.marketplaceDemo.recordPayment(state.demoSoId);
+        const invoice = (res as any)?.invoice ?? res;
+        const order = (res as any)?.order;
+        setState((prev) => ({
+          ...prev,
+          currentStep: next,
+          outboundSyncStatus: "Queued",
+          demoInvoiceId: invoice?.id ?? prev.demoInvoiceId,
+          demoInvoiceNumber: invoice?.invoiceNumber ?? prev.demoInvoiceNumber,
+          paymentStatus: "collected_by_marketplace",
+          demoSoNumber: order?.soNumber ?? prev.demoSoNumber,
+        }));
+        toast.success(
+          (res as any)?.duplicate
+            ? `Step 5: Reused demo invoice ${invoice?.invoiceNumber} (one SO -> one invoice)`
+            : `Step 5: Payment collected -> invoice ${invoice?.invoiceNumber ?? state.invoiceId}`
+        );
+        return;
+      } catch (err: any) {
+        toast.warning(
+          `Demo invoice API unavailable, using mock ${state.invoiceId}: ${err?.message ?? err}`
+        );
+      }
+    }
+
     setState((prev) => ({
       ...prev,
       currentStep: next,
@@ -652,7 +716,7 @@ export default function MarketplaceHubPage() {
                     className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition"
                   >
                     <FileText className="w-3.5 h-3.5" />
-                    Preview Demo Invoice ({state.invoiceId})
+                    Preview Demo Invoice ({state.demoInvoiceNumber ?? state.invoiceId})
                   </button>
                 )}
                 {state.currentStep < 8 ? (
@@ -698,7 +762,25 @@ export default function MarketplaceHubPage() {
                   <div className="flex justify-between">
                     <span className="text-slate-500">Sales Order:</span>
                     <span className="font-mono text-slate-700 dark:text-slate-300">
-                      {state.currentStep >= 3 ? state.soId : "Pending Step 3"}
+                      {state.currentStep >= 3
+                        ? state.demoSoNumber ?? state.soId
+                        : "Pending Step 3"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Payment:</span>
+                    <span className="font-mono text-slate-700 dark:text-slate-300">
+                      {state.paymentStatus === "collected_by_marketplace"
+                        ? "Collected by Amazon"
+                        : "Pending"}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Invoice:</span>
+                    <span className="font-mono text-slate-700 dark:text-slate-300">
+                      {state.currentStep >= 5
+                        ? state.demoInvoiceNumber ?? state.invoiceId
+                        : "Pending Step 5"}
                     </span>
                   </div>
                 </div>
@@ -1450,7 +1532,7 @@ export default function MarketplaceHubPage() {
               <div className="flex items-center gap-2">
                 <FileCheck2 className="w-5 h-5 text-indigo-600" />
                 <h4 className="font-bold text-slate-900 dark:text-slate-100">
-                  Demo Invoice Preview: {state.invoiceId}
+                  Demo Invoice Preview: {state.demoInvoiceNumber ?? state.invoiceId}
                 </h4>
               </div>
               <button

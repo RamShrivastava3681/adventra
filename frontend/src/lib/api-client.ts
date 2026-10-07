@@ -658,6 +658,13 @@ const api = {
       update: (id: string, data: any) => api.put<any>(`/cash-flow/settlements/${id}`, data),
       delete: (id: string) => api.delete(`/cash-flow/settlements/${id}`),
     },
+    // Marketplace Demo: e-commerce order -> demo SO, payment -> demo invoice
+    marketplaceDemo: {
+      listOrders: () => api.get<any[]>("/marketplace-demo/orders"),
+      createOrder: (data: any) => api.post<any>("/marketplace-demo/orders", data),
+      recordPayment: (id: string) => api.post<any>(`/marketplace-demo/orders/${id}/payment`, {}),
+      listInvoices: () => api.get<any[]>("/marketplace-demo/invoices"),
+    },
     // Forecast
     forecast: {
       get: (mode?: string, view?: string) => {
