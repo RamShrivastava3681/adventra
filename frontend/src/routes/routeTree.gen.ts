@@ -34,6 +34,7 @@ import { Route as AppForecastRouteImport } from './app.forecast'
 import { Route as AppGrnRouteImport } from './app.grn'
 import { Route as AppInventoryRouteImport } from './app.inventory'
 import { Route as AppInvoicesRouteImport } from './app.invoices'
+import { Route as AppMarketplaceRouteImport } from './app.marketplace'
 import { Route as AppNotesRouteImport } from './app.notes'
 import { Route as AppProcurementWorkbenchRouteImport } from './app.procurement-workbench'
 import { Route as AppProductsRouteImport } from './app.products'
@@ -189,6 +190,11 @@ const AppInventoryRoute = AppInventoryRouteImport.update({
 const AppInvoicesRoute = AppInvoicesRouteImport.update({
   id: '/invoices',
   path: '/invoices',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMarketplaceRoute = AppMarketplaceRouteImport.update({
+  id: '/marketplace',
+  path: '/marketplace',
   getParentRoute: () => AppRoute,
 } as any)
 const AppNotesRoute = AppNotesRouteImport.update({
@@ -373,6 +379,7 @@ export interface FileRoutesByFullPath {
   '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
+  '/app/marketplace': typeof AppMarketplaceRoute
   '/app/notes': typeof AppNotesRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
@@ -431,6 +438,7 @@ export interface FileRoutesByTo {
   '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
+  '/app/marketplace': typeof AppMarketplaceRoute
   '/app/notes': typeof AppNotesRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
@@ -489,6 +497,7 @@ export interface FileRoutesById {
   '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
+  '/app/marketplace': typeof AppMarketplaceRoute
   '/app/notes': typeof AppNotesRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
@@ -549,6 +558,7 @@ export interface FileRouteTypes {
     | '/app/grn'
     | '/app/inventory'
     | '/app/invoices'
+    | '/app/marketplace'
     | '/app/notes'
     | '/app/procurement-workbench'
     | '/app/products'
@@ -607,6 +617,7 @@ export interface FileRouteTypes {
     | '/app/grn'
     | '/app/inventory'
     | '/app/invoices'
+    | '/app/marketplace'
     | '/app/notes'
     | '/app/procurement-workbench'
     | '/app/products'
@@ -664,6 +675,7 @@ export interface FileRouteTypes {
     | '/app/grn'
     | '/app/inventory'
     | '/app/invoices'
+    | '/app/marketplace'
     | '/app/notes'
     | '/app/procurement-workbench'
     | '/app/products'
@@ -880,6 +892,13 @@ declare module '@tanstack/react-router' {
       path: '/invoices'
       fullPath: '/app/invoices'
       preLoaderRoute: typeof AppInvoicesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/marketplace': {
+      id: '/app/marketplace'
+      path: '/marketplace'
+      fullPath: '/app/marketplace'
+      preLoaderRoute: typeof AppMarketplaceRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/notes': {
@@ -1139,6 +1158,7 @@ interface AppRouteChildren {
   AppGrnRoute: typeof AppGrnRoute
   AppInventoryRoute: typeof AppInventoryRoute
   AppInvoicesRoute: typeof AppInvoicesRoute
+  AppMarketplaceRoute: typeof AppMarketplaceRoute
   AppNotesRoute: typeof AppNotesRoute
   AppProcurementWorkbenchRoute: typeof AppProcurementWorkbenchRoute
   AppProductsRoute: typeof AppProductsRoute
@@ -1191,6 +1211,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppGrnRoute: AppGrnRoute,
   AppInventoryRoute: AppInventoryRoute,
   AppInvoicesRoute: AppInvoicesRoute,
+  AppMarketplaceRoute: AppMarketplaceRoute,
   AppNotesRoute: AppNotesRoute,
   AppProcurementWorkbenchRoute: AppProcurementWorkbenchRoute,
   AppProductsRoute: AppProductsRoute,
