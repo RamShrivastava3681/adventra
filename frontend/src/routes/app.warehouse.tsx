@@ -27,10 +27,13 @@ import {
   AlertTriangle,
   Search,
   ArrowUpDown,
+  PackagePlus,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { AwaitingPickupTransportModal } from "@/components/dispatch-workflow";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { inputBase } from "@/components/dialog";
 
 export const Route = createFileRoute("/app/warehouse")({
   component: WarehousePage,
@@ -151,9 +154,19 @@ type Movement = {
   destination_location_id: string | null;
 };
 
-type Tab = "overview" | "orders" | "open" | "ready" | "dispatches" | "movements";
+type Tab = "overview" | "orders" | "open" | "ready" | "dispatches" | "movements" | "manual";
 
 type OpenSort = "date_desc" | "date_asc" | "customer_asc" | "customer_desc";
+
+// Reasons a user may pick on a MANUAL stock entry (same set as Inventory).
+const MANUAL_REASONS: { label: string; direction: "in" | "out" }[] = [
+  { label: "Opening stock", direction: "in" },
+  { label: "Stock adjustment", direction: "in" },
+  { label: "Damage", direction: "out" },
+  { label: "Samples / internal use", direction: "out" },
+  { label: "Customer return", direction: "in" },
+  { label: "Supplier return", direction: "out" },
+];
 
 export function WarehousePage() {
   const { user, isAdmin, isOperations } = useAuth();
@@ -185,6 +198,98 @@ export function WarehousePage() {
   const movementsQ = useQuery({
     queryKey: ["wh_movements"],
     queryFn: () => api.stockMovements.list(),
+  });
+
+  // ── Manual stock entry tab ──
+  const [mmProductId, setMmProductId] = useState("");
+  const [mmReason, setMmReason] = useState("");
+  const [mmDirection, setMmDirection] = useState<"in" | "out">("in");
+  const [mmQty, setMmQty] = useState("1");
+  const [mmUnitCost, setMmUnitCost] = useState("");
+  const [mmWarehouse, setMmWarehouse] = useState("");
+  const [mmDate, setMmDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [mmNotes, setMmNotes] = useState("");
+
+  const mmProductsQ = useQuery({
+    queryKey: ["wh-products-manual"],
+    queryFn: async () => {
+      const data = await api.products.list();
+      return (data as any[])
+        .map((p) => ({
+          id: p.id,
+          sku: p.sku ?? null,
+          name: p.name ?? "",
+          unit: p.unitOfMeasure ?? p.unit_of_measure ?? "unit",
+          unitCost: p.unitCost ?? p.unit_cost ?? 0,
+          mrp: p.mrp ?? null,
+        }))
+        .sort(
+          (a, b) =>
+            String(a.sku ?? "").localeCompare(String(b.sku ?? "")) ||
+            String(a.name ?? "").localeCompare(String(b.name ?? "")),
+        );
+    },
+    enabled: tab === "manual",
+  });
+  const mmSelected = (mmProductsQ.data ?? []).find((p) => p.id === mmProductId);
+  const mmAutoValue = (p: { unitCost: number; mrp: number | null }, direction: "in" | "out") =>
+    String(direction === "out" ? (p.mrp ?? p.unitCost ?? "") : (p.unitCost ?? ""));
+  const mmPickProduct = (pid: string) => {
+    const p = (mmProductsQ.data ?? []).find((x) => x.id === pid);
+    setMmProductId(pid);
+    setMmUnitCost(p ? mmAutoValue(p, mmDirection) : mmUnitCost);
+  };
+  const mmPickReason = (reason: string) => {
+    const meta = MANUAL_REASONS.find((r) => r.label === reason);
+    const dir = meta?.direction ?? mmDirection;
+    setMmReason(reason);
+    if (dir !== mmDirection) {
+      setMmDirection(dir);
+      if (mmSelected) setMmUnitCost(mmAutoValue(mmSelected, dir));
+    }
+  };
+  const mmReset = () => {
+    setMmProductId("");
+    setMmReason("");
+    setMmDirection("in");
+    setMmQty("1");
+    setMmUnitCost("");
+    setMmWarehouse("");
+    setMmNotes("");
+    setMmDate(new Date().toISOString().slice(0, 10));
+  };
+  const mmSave = useMutation({
+    mutationFn: async (confirmNow: boolean) => {
+      if (!mmProductId) throw new Error("Select a product from the catalogue");
+      if (!mmReason) throw new Error("Movement reason is required");
+      if (!mmNotes.trim()) throw new Error("Notes are required for manual inventory entries");
+      const qty = Number(mmQty);
+      if (!(qty > 0)) throw new Error("Quantity must be greater than zero");
+      await api.stockMovements.create({
+        product_id: mmProductId,
+        direction: mmDirection,
+        quantity: qty,
+        unit_cost: mmUnitCost !== "" ? Number(mmUnitCost) : null,
+        warehouse: mmWarehouse.trim() || null,
+        reason: mmReason,
+        notes: mmNotes.trim(),
+        movement_date: mmDate,
+        clientId: user?.id,
+        status: confirmNow ? "confirmed" : "draft",
+      });
+    },
+    onSuccess: (_d, confirmNow) => {
+      qc.invalidateQueries({ queryKey: ["wh_movements"] });
+      qc.invalidateQueries({ queryKey: ["stock_movements"] });
+      qc.invalidateQueries({ queryKey: ["stock_movements_all"] });
+      qc.invalidateQueries({ queryKey: ["stock-summary"] });
+      qc.invalidateQueries({ queryKey: ["movements-forecast"] });
+      toast.success(
+        confirmNow ? "Movement confirmed — stock updated" : "Draft movement saved",
+      );
+      mmReset();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
   const orders = (ordersQ.data ?? []) as SO[];
@@ -442,6 +547,9 @@ export function WarehousePage() {
     { id: "ready", label: "Ready to dispatch", icon: PackageCheck, count: readyOrders.length + readyInvoices.length },
     { id: "dispatches", label: "Dispatches", icon: Truck, count: openDispatches.length },
     { id: "movements", label: "Inventory movements", icon: Boxes, count: movements.length },
+    ...(canWrite
+      ? [{ id: "manual", label: "Manual movement", icon: PackagePlus } as const]
+      : []),
   ];
 
   const profileInitial = (user?.contactName ?? user?.email ?? "W").trim().charAt(0).toUpperCase() || "W";
@@ -964,6 +1072,169 @@ export function WarehousePage() {
             <p className="mt-4 text-xs text-muted-foreground">
               Showing latest 100 movements. Full history lives under Inventory.
             </p>
+          </Card>
+        )}
+
+        {tab === "manual" && canWrite && (
+          <Card title="Manual stock movement">
+            <p className="-mt-2 mb-4 text-xs text-muted-foreground">
+              Record stock directly — opening stock, adjustments, damage, samples and returns.
+              Entries start as drafts unless saved &amp; confirmed.
+            </p>
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="md:col-span-2">
+                <label className="block">
+                  <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                    Product (SKU · name) *
+                  </span>
+                  <SearchableSelect
+                    value={mmProductId}
+                    onChange={mmPickProduct}
+                    placeholder="— Select product —"
+                    options={(mmProductsQ.data ?? []).map((p) => ({
+                      value: p.id,
+                      label: p.sku ? `${p.sku} · ${p.name}` : p.name,
+                    }))}
+                  />
+                </label>
+                {mmSelected && (
+                  <div className="mt-1.5 text-[11px] text-muted-foreground">
+                    SKU {mmSelected.sku ?? "—"} · Unit {mmSelected.unit} · {mmSelected.name}
+                  </div>
+                )}
+              </div>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                  Movement reason *
+                </span>
+                <select
+                  className={inputBase}
+                  value={mmReason}
+                  onChange={(e) => mmPickReason(e.target.value)}
+                >
+                  <option value="">— Select reason —</option>
+                  {MANUAL_REASONS.map((r) => (
+                    <option key={r.label} value={r.label}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div>
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                  Direction
+                </span>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMmDirection("in");
+                      if (mmSelected) setMmUnitCost(mmAutoValue(mmSelected, "in"));
+                    }}
+                    className={`rounded-md border px-3 py-2 text-sm transition ${mmDirection === "in" ? "border-sem-success bg-sem-success/10 text-sem-success" : "border-border text-muted-foreground hover:text-foreground"}`}
+                  >
+                    Credit <span className="text-[10px] opacity-70">stock in</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMmDirection("out");
+                      if (mmSelected) setMmUnitCost(mmAutoValue(mmSelected, "out"));
+                    }}
+                    className={`rounded-md border px-3 py-2 text-sm transition ${mmDirection === "out" ? "border-sem-attention bg-sem-attention/10 text-sem-attention" : "border-border text-muted-foreground hover:text-foreground"}`}
+                  >
+                    Debit <span className="text-[10px] opacity-70">stock out</span>
+                  </button>
+                </div>
+              </div>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                  Quantity *
+                </span>
+                <input
+                  type="number"
+                  step="0.001"
+                  min="0"
+                  className={inputBase}
+                  value={mmQty}
+                  onChange={(e) => setMmQty(e.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                  {mmDirection === "out" ? "MRP (auto-filled)" : "Unit cost (auto-filled)"}
+                </span>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className={inputBase}
+                  value={mmUnitCost}
+                  onChange={(e) => setMmUnitCost(e.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                  Warehouse / store (optional)
+                </span>
+                <input
+                  className={inputBase}
+                  value={mmWarehouse}
+                  onChange={(e) => setMmWarehouse(e.target.value)}
+                  placeholder="Central Warehouse (default)"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                  Movement date *
+                </span>
+                <input
+                  type="date"
+                  className={inputBase}
+                  value={mmDate}
+                  onChange={(e) => setMmDate(e.target.value)}
+                />
+              </label>
+              <label className="block md:col-span-2">
+                <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                  Notes *
+                </span>
+                <textarea
+                  rows={2}
+                  className={`${inputBase} resize-y`}
+                  value={mmNotes}
+                  onChange={(e) => setMmNotes(e.target.value)}
+                  placeholder="Required — e.g. opening stock count, damaged batch ref, sample purpose…"
+                />
+              </label>
+            </div>
+            <div className="mt-4 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={mmReset}
+                className="rounded-md border border-border px-4 py-2 text-sm transition hover:bg-muted/40"
+              >
+                Clear
+              </button>
+              <button
+                type="button"
+                disabled={mmSave.isPending}
+                onClick={() => mmSave.mutate(false)}
+                className="inline-flex items-center gap-2 rounded-md border border-border bg-card px-4 py-2 text-sm font-medium transition hover:bg-muted/40 disabled:opacity-60"
+              >
+                {mmSave.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save draft
+              </button>
+              <button
+                type="button"
+                disabled={mmSave.isPending}
+                onClick={() => mmSave.mutate(true)}
+                className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
+              >
+                {mmSave.isPending && <Loader2 className="h-4 w-4 animate-spin" />}
+                Save &amp; confirm
+              </button>
+            </div>
           </Card>
         )}
 
