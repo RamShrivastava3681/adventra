@@ -26,6 +26,7 @@ import {
   Clock3,
   AlertTriangle,
   Search,
+  ArrowUpDown,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -158,6 +159,7 @@ export function WarehousePage() {
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("overview");
   const [openSearch, setOpenSearch] = useState("");
+  const [openSort, setOpenSort] = useState<"date_desc" | "date_asc" | "customer_asc" | "customer_desc">("date_desc");
   // Workbench-level UI state (presentation only — no workflow change)
   const [now, setNow] = useState(() => new Date());
 
@@ -240,16 +242,41 @@ export function WarehousePage() {
           o.lines.some((l) => Number(l.ordered_qty) > Number(l.dispatched_qty ?? 0)),
     );
   }, [signoffOrders]);
-  // Search within the Open Sales Orders queue (order no. / buyer name).
+  // Search and sort within the Open Sales Orders queue (order no. / buyer name, date/alphabetical).
   const filteredOpenOrders = useMemo(() => {
     const q = openSearch.trim().toLowerCase();
-    if (!q) return openOrders;
-    return openOrders.filter(
-      (o) =>
-        (o.so_number ?? "").toLowerCase().includes(q) ||
-        (o.customer_name ?? "").toLowerCase().includes(q),
-    );
-  }, [openOrders, openSearch]);
+    const list = !q
+      ? [...openOrders]
+      : openOrders.filter(
+          (o) =>
+            (o.so_number ?? "").toLowerCase().includes(q) ||
+            (o.customer_name ?? "").toLowerCase().includes(q),
+        );
+
+    return list.sort((a, b) => {
+      if (openSort === "date_desc") {
+        const ad = a.order_date ?? "";
+        const bd = b.order_date ?? "";
+        return bd.localeCompare(ad) || (a.customer_name ?? "").localeCompare(b.customer_name ?? "");
+      }
+      if (openSort === "date_asc") {
+        const ad = a.order_date ?? "";
+        const bd = b.order_date ?? "";
+        return ad.localeCompare(bd) || (a.customer_name ?? "").localeCompare(b.customer_name ?? "");
+      }
+      if (openSort === "customer_asc") {
+        const an = a.customer_name ?? "";
+        const bn = b.customer_name ?? "";
+        return an.localeCompare(bn) || (b.order_date ?? "").localeCompare(a.order_date ?? "");
+      }
+      if (openSort === "customer_desc") {
+        const an = a.customer_name ?? "";
+        const bn = b.customer_name ?? "";
+        return bn.localeCompare(an) || (b.order_date ?? "").localeCompare(a.order_date ?? "");
+      }
+      return 0;
+    });
+  }, [openOrders, openSearch, openSort]);
   const pendingSignoffs = signoffOrders.filter(
     (o) => o.status === "warehouse_pending",
   );
@@ -557,14 +584,30 @@ export function WarehousePage() {
               />
             ) : (
               <>
-                <div className="mb-4 flex items-center gap-2">
-                  <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-                  <input
-                    value={openSearch}
-                    onChange={(e) => setOpenSearch(e.target.value)}
-                    placeholder="Search by order no. or buyer…"
-                    className="w-full max-w-sm rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary"
-                  />
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex w-full max-w-sm items-center gap-2">
+                    <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+                    <input
+                      value={openSearch}
+                      onChange={(e) => setOpenSearch(e.target.value)}
+                      placeholder="Search by order no. or buyer…"
+                      className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary"
+                    />
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+                    <span className="text-xs font-medium text-muted-foreground">Sort:</span>
+                    <select
+                      value={openSort}
+                      onChange={(e) => setOpenSort(e.target.value as any)}
+                      className="rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground outline-none focus:border-primary"
+                    >
+                      <option value="date_desc">Date (Newest first)</option>
+                      <option value="date_asc">Date (Oldest first)</option>
+                      <option value="customer_asc">Alphabetical (Buyer A → Z)</option>
+                      <option value="customer_desc">Alphabetical (Buyer Z → A)</option>
+                    </select>
+                  </div>
                 </div>
                 {filteredOpenOrders.length === 0 ? (
                   <EmptyState

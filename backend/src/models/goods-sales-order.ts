@@ -294,7 +294,7 @@ export function computeTotals(lines: GoodsSalesOrderLine[], freight: number) {
 export const GST_BY_CUSTOMER_TYPE: Record<string, number | null> = {
   Dealer: null,
   Retailer: null,
-  Defence: null,
+  Defence: 0, // Defence supplies: exempt / 0% concessional GST
   Others: null,
 };
 

@@ -6957,8 +6957,10 @@ async function assertDispatchIrnReady(
       if (!inv) return "Linked sales invoice not found";
       if (["cancelled", "rejected"].includes(inv.status))
         return `Invoice ${inv.invoiceNumber ?? ""} is ${inv.status} — dispatch needs a live invoice with IRN uploaded`;
+      if (inv.status === "pending")
+        return `Invoice ${inv.invoiceNumber ?? ""} is awaiting Finance approval — dispatch requires a Finance-approved invoice with IRN`;
       if (!inv.irn)
-        return `Invoice ${inv.invoiceNumber ?? ""} has no IRN uploaded — upload the IRN before dispatching`;
+        return `Invoice ${inv.invoiceNumber ?? ""} has no IRN uploaded — IRN is required before warehouse dispatch`;
     }
     return null;
   }
@@ -6967,9 +6969,11 @@ async function assertDispatchIrnReady(
     (i) => i.goodsSalesOrderId === so.id && !["cancelled", "rejected"].includes(i.status),
   );
   if (!inv)
-    return `Create the sales invoice for ${so.soNumber} first — dispatch needs an invoice with IRN uploaded`;
+    return `Create the sales invoice for ${so.soNumber} first — dispatch proceeds only against a Finance-approved invoice with IRN`;
+  if (inv.status === "pending")
+    return `Invoice ${inv.invoiceNumber ?? ""} is awaiting Finance approval — dispatch requires a Finance-approved invoice with IRN`;
   if (!inv.irn)
-    return `Invoice ${inv.invoiceNumber ?? ""} has no IRN uploaded — upload the IRN before dispatching`;
+    return `Invoice ${inv.invoiceNumber ?? ""} has no IRN uploaded — IRN is required before warehouse dispatch`;
   return null;
 }
 

@@ -189,6 +189,7 @@ type Customer = {
   city: string | null;
   country: string | null;
   postal_code: string | null;
+  customerType?: string | null;
 };
 
 function normAddresses(v: any): CustomerAddress[] {
@@ -389,7 +390,8 @@ export function SalesOrdersPage() {
             city: d.city ?? null,
             country: d.country ?? null,
             postal_code: d.postal_code ?? null,
-          paymentTermsType: d.paymentTermsType ?? d.payment_terms_type ?? null,
+            customerType: d.customerType ?? d.customer_type ?? null,
+            paymentTermsType: d.paymentTermsType ?? d.payment_terms_type ?? null,
           advancePct: d.advancePct ?? d.advance_pct ?? null,
           paymentTermsDays: d.paymentTermsDays ?? d.payment_terms_days ?? null,
           paymentTerms: d.paymentTerms ?? d.payment_terms ?? null,
@@ -668,6 +670,7 @@ export function SalesOrdersPage() {
         <SOModal
           userId={user.id}
           so={editing}
+          sos={sosQ.data ?? []}
           products={productsQ.data ?? []}
           customers={customersQ.data ?? []}
           canWrite={canWrite}
@@ -701,9 +704,37 @@ type LineDraft = {
   price_tier: string;
 };
 
+// Automatically calculate the next buyer order number from past confirmed orders.
+function computeNextBuyerOrderNo(customerId: string, allSos: SO[] = []): string | null {
+  if (!customerId || !allSos.length) return null;
+  const customerOrders = allSos.filter(
+    (s) => s.customer_id === customerId && s.buyer_order_no && s.buyer_order_no.trim(),
+  );
+  if (customerOrders.length === 0) return null;
+  const confirmed = customerOrders.filter((s) =>
+    ["confirmed", "partially_dispatched", "fully_dispatched"].includes(s.status),
+  );
+  const targetList = confirmed.length > 0 ? confirmed : customerOrders;
+  const latest = [...targetList].sort((a, b) =>
+    (b.order_date || b.created_at || "").localeCompare(a.order_date || a.created_at || ""),
+  )[0];
+  if (!latest?.buyer_order_no) return null;
+  const raw = latest.buyer_order_no.trim();
+  const match = raw.match(/^(.*?)(\d+)$/);
+  if (match) {
+    const prefix = match[1];
+    const digits = match[2];
+    const nextNum = parseInt(digits, 10) + 1;
+    const padded = String(nextNum).padStart(digits.length, "0");
+    return `${prefix}${padded}`;
+  }
+  return null;
+}
+
 function SOModal({
   userId,
   so,
+  sos = [],
   products,
   customers,
   canWrite,
@@ -712,6 +743,7 @@ function SOModal({
 }: {
   userId: string;
   so: SO | null;
+  sos?: SO[];
   products: CatalogueProduct[];
   customers: Customer[];
   canWrite: boolean;
@@ -865,6 +897,7 @@ function SOModal({
 
   const pickBillingCustomer = (id: string) => {
     const c = customers.find((x) => x.id === id);
+    const nextBuyerNo = computeNextBuyerOrderNo(id, sos);
     setBillAddrBook(null);
     setBillAddrFor("");
     setF((prev) => {
@@ -872,6 +905,7 @@ function SOModal({
       return {
         ...prev,
         customer_id: id,
+        buyer_order_no: (!prev.buyer_order_no?.trim() && nextBuyerNo) ? nextBuyerNo : prev.buyer_order_no,
         contact_person: c?.contact_name ?? prev.contact_person,
         billing_address: c?.billing_address ?? prev.billing_address,
         // Buyer tax snapshot for the BILL TO block (editable per order).
@@ -897,6 +931,9 @@ function SOModal({
       };
     });
     if (id) {
+      if (c && c.customerType?.toLowerCase() === "defence") {
+        setLines((prev) => prev.map((l) => ({ ...l, gst_rate: "0" })));
+      }
       if (c && (c.billing_addresses?.length ?? 0) > 1) {
         setBillAddrBook(c.billing_addresses ?? []);
         setBillAddrFor(id);
@@ -1042,6 +1079,8 @@ function SOModal({
 
   const pickProduct = (i: number, id: string) => {
     const p = products.find((x) => x.id === id) as any;
+    const currentCust = customers.find((x) => x.id === f.customer_id);
+    const isDefence = currentCust?.customerType?.toLowerCase() === "defence" || (so as any)?.customerType?.toLowerCase() === "defence";
     setLine(i, {
       product_id: id,
       name: p ? fullItemName(p) : "",
@@ -1053,7 +1092,7 @@ function SOModal({
       hsn_code: String(p?.hsn_code ?? p?.hsnCode ?? ""),
       mrp: p?.mrp != null ? String(p.mrp) : "",
       unit_price: p?.unit_price != null ? String(p.unit_price) : "",
-      gst_rate: p?.gst_rate != null ? String(p.gst_rate) : "",
+      gst_rate: isDefence ? "0" : (p?.gst_rate != null ? String(p.gst_rate) : ""),
       price_tier: "",
     });
   };
@@ -1425,6 +1464,20 @@ function SOModal({
                   disabled={!editable}
                   options={customers.map((c) => ({ value: c.id, label: c.name }))}
                 />
+                {(() => {
+                  const cust = customers.find((c) => c.id === f.customer_id);
+                  const cType = cust?.customerType ?? (so as any)?.customerType ?? (so as any)?.customer_type;
+                  if (!cType) return null;
+                  const isDef = cType.toLowerCase() === "defence";
+                  return (
+                    <div className="mt-1 flex items-center gap-1.5 text-[11px]">
+                      <span className="font-medium text-muted-foreground">Customer Type:</span>
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${isDef ? "bg-sem-success/15 text-sem-success" : "bg-primary/10 text-primary"}`}>
+                        {cType} {isDef ? "· 0% Concessional GST" : "· Standard GST"}
+                      </span>
+                    </div>
+                  );
+                })()}
               </L>
               <L label="Shipping customer">
                 <SearchableSelect
@@ -1662,13 +1715,30 @@ function SOModal({
             </legend>
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
               <L label="Buyer's order no.">
-                <input
-                  className={inputBase}
-                  value={f.buyer_order_no}
-                  onChange={(e) => setF({ ...f, buyer_order_no: e.target.value })}
-                  placeholder="Customer PO number"
-                  disabled={!editable}
-                />
+                <div className="space-y-1">
+                  <input
+                    className={inputBase}
+                    value={f.buyer_order_no}
+                    onChange={(e) => setF({ ...f, buyer_order_no: e.target.value })}
+                    placeholder="Customer PO number"
+                    disabled={!editable}
+                  />
+                  {(() => {
+                    const suggested = computeNextBuyerOrderNo(f.customer_id, sos);
+                    if (suggested && f.buyer_order_no !== suggested) {
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setF({ ...f, buyer_order_no: suggested })}
+                          className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+                        >
+                          Use next sequence: <span className="font-semibold">{suggested}</span> (from past confirmed orders)
+                        </button>
+                      );
+                    }
+                    return null;
+                  })()}
+                </div>
               </L>
               <L label="Reference no. & date">
                 <input

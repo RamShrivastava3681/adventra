@@ -142,6 +142,15 @@ const api = {
     list: (productId?: string) =>
       api.get<any[]>(`/stock-movements${productId ? `?productId=${productId}` : ""}`),
     create: (data: any) => api.post<any>("/stock-movements", data),
+    manual: (data: {
+      productId: string;
+      quantity: number;
+      direction: "in" | "out";
+      reason: string;
+      notes: string;
+      warehouse?: string;
+      status?: "draft" | "confirmed";
+    }) => api.post<any>("/stock-movements/manual", data),
     bulkCreate: (data: {
       productId: string;
       reason?: string;
