@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
@@ -144,6 +144,8 @@ function InventoryPage() {
     movement: Movement;
   } | null>(null);
   const [editing, setEditing] = useState<Movement | null>(null);
+  // Quick manual movement for one SKU, launched from the Live stock "Adjust" button.
+  const [adjusting, setAdjusting] = useState<{ productId: string; reason: string } | null>(null);
 
   const movementsQ = useQuery({
     queryKey: ["stock_movements"],
@@ -433,7 +435,7 @@ function InventoryPage() {
 
         <Card title="Live stock">
           <p className="-mt-2 mb-4 text-xs text-muted-foreground">
-            Confirmed credits − confirmed debits per SKU.
+            Confirmed credits − confirmed debits per SKU. Use <span className="font-medium text-foreground">Adjust</span> on a row to record a quick manual correction for that item.
           </p>
           {balances.length === 0 ? (
             <div className="py-6 text-center text-sm text-muted-foreground">
@@ -449,6 +451,7 @@ function InventoryPage() {
                     <th className="px-5 py-2 text-right font-normal">In stock</th>
                     <th className="px-5 py-2 text-left font-normal">Unit</th>
                     <th className="px-5 py-2 text-right font-normal">Inventory value</th>
+                    <th className="px-5 py-2 text-right font-normal"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -473,6 +476,19 @@ function InventoryPage() {
                       </td>
                       <td className="px-5 py-2.5 text-muted-foreground">{b.unit}</td>
                       <td className="px-5 py-2.5 text-right num">{fmtMoney(b.value)}</td>
+                      <td className="px-5 py-2.5 text-right">
+                        {canWrite && b.productId && (
+                          <button
+                            onClick={() =>
+                              setAdjusting({ productId: b.productId ?? "", reason: "Stock adjustment" })
+                            }
+                            title="Record a manual stock movement for this item"
+                            className="rounded-md border border-border px-2 py-1 text-[10px] uppercase tracking-widest text-muted-foreground transition hover:border-primary hover:text-primary"
+                          >
+                            Adjust
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -677,6 +693,14 @@ function InventoryPage() {
       </div>
 
       {open && user && <MovementModal userId={user.id} onClose={() => setOpen(false)} />}
+      {adjusting && user && (
+        <MovementModal
+          userId={user.id}
+          presetProductId={adjusting.productId}
+          presetReason={adjusting.reason}
+          onClose={() => setAdjusting(null)}
+        />
+      )}
       {bulkOpen && user && <BulkImportModal userId={user.id} onClose={() => setBulkOpen(false)} />}
       {editing && user && (
         <MovementModal userId={user.id} movement={editing} onClose={() => setEditing(null)} />
@@ -748,23 +772,30 @@ function ConfirmAction({
 function MovementModal({
   userId,
   movement,
+  presetProductId,
+  presetReason,
   onClose,
 }: {
   userId: string;
   movement?: Movement | null;
+  /** Pre-select a catalogue product (quick manual movement from Live stock). */
+  presetProductId?: string | null;
+  /** Pre-select a manual reason (sets direction + linked-doc type to match). */
+  presetReason?: string | null;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
   const today = new Date().toISOString().slice(0, 10);
+  const presetMeta = MANUAL_REASONS.find((r) => r.label === presetReason);
   const [form, setForm] = useState({
     movementDate: movement?.movement_date ?? today,
     warehouse: movement?.warehouse ?? "",
-    reason: movement?.reason ?? "",
-    direction: (movement?.direction ?? "in") as "in" | "out",
-    linkedDocumentType: movement?.linked_document_type ?? "",
+    reason: movement?.reason ?? presetReason ?? "",
+    direction: (movement?.direction ?? presetMeta?.direction ?? "in") as "in" | "out",
+    linkedDocumentType: movement?.linked_document_type ?? presetMeta?.docType ?? "",
     linkedDocumentNumber: movement?.linked_document_number ?? "",
     notes: movement?.notes ?? "",
-    productId: movement?.product_id ?? "",
+    productId: movement?.product_id ?? presetProductId ?? "",
     quantity: movement ? String(movement.quantity) : "1",
     unitCost: movement?.unit_cost != null ? String(movement.unit_cost) : "",
     scan: "",
@@ -829,6 +860,16 @@ function MovementModal({
       unitCost: p ? autoValue(p, f.direction) : f.unitCost,
     }));
   };
+
+  // Pre-selected product (quick manual movement): auto-fill unit cost / MRP
+  // once the catalogue loads, mirroring a manual pick.
+  useEffect(() => {
+    if (!presetProductId || movement || form.productId === "" || form.unitCost !== "") return;
+    const p = (productsQ.data ?? []).find((x: any) => x.id === form.productId);
+    if (p) {
+      setForm((f) => (f.unitCost === "" ? { ...f, unitCost: autoValue(p, f.direction) } : f));
+    }
+  }, [presetProductId, movement, form.productId, form.unitCost, form.direction, productsQ.data]);
 
   const handleReason = (reason: string) => {
     const meta = MANUAL_REASONS.find((r) => r.label === reason);
@@ -930,7 +971,7 @@ function MovementModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-          <h3 className="font-display text-lg">{movement ? "Edit movement" : "New movement"}</h3>
+          <h3 className="font-display text-lg">{movement ? "Edit movement" : presetProductId ? "Manual stock movement" : "New movement"}</h3>
           <button
             onClick={onClose}
             className="text-muted-foreground transition hover:text-foreground"

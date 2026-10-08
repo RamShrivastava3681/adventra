@@ -153,13 +153,15 @@ type Movement = {
 
 type Tab = "overview" | "orders" | "open" | "ready" | "dispatches" | "movements";
 
+type OpenSort = "date_desc" | "date_asc" | "customer_asc" | "customer_desc";
+
 export function WarehousePage() {
   const { user, isAdmin, isOperations } = useAuth();
   const canWrite = isAdmin || isOperations;
   const qc = useQueryClient();
   const [tab, setTab] = useState<Tab>("overview");
   const [openSearch, setOpenSearch] = useState("");
-  const [openSort, setOpenSort] = useState<"date_desc" | "date_asc" | "customer_asc" | "customer_desc">("date_desc");
+  const [openSort, setOpenSort] = useState<OpenSort>("date_desc");
   // Workbench-level UI state (presentation only — no workflow change)
   const [now, setNow] = useState(() => new Date());
 
@@ -304,17 +306,28 @@ export function WarehousePage() {
 
   // ── Ready to dispatch from invoices: approved invoices with a target date
   // (expected dispatch date, falling back to the invoice due date) ──
-  const readyInvoices = useMemo(() => {
-    return invoices
-      .filter((inv: any) => {
-        if (!(inv.expected_dispatch_date ?? inv.due_date)) return false;
-        if (inv.status === 'paid' || inv.status === 'cancelled' || inv.status === 'rejected') return false;
-        // Skip invoices that already have a dispatch linked
-        if (inv.linked_sales_invoice_id && dispatchedInvoiceIds.has(inv.linked_sales_invoice_id)) return false;
-        return true;
-      })
-      .sort((a: any, b: any) => ((a.expected_dispatch_date ?? a.due_date ?? '').localeCompare(b.expected_dispatch_date ?? b.due_date ?? '')));
+  const dispatchableInvoicesBase = useMemo(() => {
+    return invoices.filter((inv: any) => {
+      if (!(inv.expected_dispatch_date ?? inv.due_date)) return false;
+      if (inv.status === 'paid' || inv.status === 'cancelled' || inv.status === 'rejected') return false;
+      // Skip invoices that already have a dispatch linked
+      if (inv.linked_sales_invoice_id && dispatchedInvoiceIds.has(inv.linked_sales_invoice_id)) return false;
+      return true;
+    });
   }, [invoices, dispatchedInvoiceIds]);
+
+  const byTargetDate = (a: any, b: any) =>
+    ((a.expected_dispatch_date ?? a.due_date ?? '').localeCompare(b.expected_dispatch_date ?? b.due_date ?? ''));
+
+  // IRN gate: an invoice goes for dispatch only after its IRN is uploaded.
+  // (Dispatch creation enforces the same rule server-side.)
+  const hasIrn = (inv: any) => !!String(inv.irn ?? "").trim();
+  const readyInvoices = useMemo(() => {
+    return dispatchableInvoicesBase.filter(hasIrn).sort(byTargetDate);
+  }, [dispatchableInvoicesBase]);
+  const awaitingIrnInvoices = useMemo(() => {
+    return dispatchableInvoicesBase.filter((inv: any) => !hasIrn(inv)).sort(byTargetDate);
+  }, [dispatchableInvoicesBase]);
 
   // ── Ready POs: approved POs with pending receipt quantity ──
 
@@ -456,7 +469,7 @@ export function WarehousePage() {
           <div className="flex flex-wrap items-center gap-2.5">
             <span className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-white px-3 py-2 text-[12px] tabular-nums text-muted-foreground shadow-sm">
               <Clock3 className="h-3.5 w-3.5" />
-              {dateStr} Â· {timeStr}
+              {dateStr} · {timeStr}
             </span>
             {!canWrite ? (
               <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
@@ -516,7 +529,64 @@ export function WarehousePage() {
         {/* Detail queues card unwrapped — tabs render first at the top of the page. */}
 
         {tab === "overview" && (
-          <div id="wh-activity" className="grid scroll-mt-6 gap-6 lg:grid-cols-2">
+          <div className="space-y-6">
+            <Card title={`Open sales orders${openOrders.length ? ` (${openOrders.length})` : ""}`}>
+              {ordersQ.isLoading ? (
+                <TableSkeleton rows={4} />
+              ) : openOrders.length === 0 ? (
+                <EmptyState
+                  icon={<FileText className="h-5 w-5" />}
+                  title="No open orders"
+                  description="Orders awaiting warehouse sign-off or with pending quantity appear here."
+                />
+              ) : (
+                <>
+                  <OpenOrdersToolbar
+                    search={openSearch}
+                    onSearch={setOpenSearch}
+                    sort={openSort}
+                    onSort={setOpenSort}
+                  />
+                  {filteredOpenOrders.length === 0 ? (
+                    <EmptyState
+                      icon={<Search className="h-5 w-5" />}
+                      title="No matches"
+                      description={`No open order matches “${openSearch}”.`}
+                    />
+                  ) : (
+                    <Table head={["Order", "Buyer", "Ordered", "Pending qty", "Status"]}>
+                      {filteredOpenOrders.slice(0, 8).map((o) => {
+                        const { pendingQty } = openOrderPending(o);
+                        return (
+                          <tr key={o.id} className="border-b border-border/60 hover:bg-muted/30">
+                            <td className="px-5 py-3">{o.so_number}</td>
+                            <td className="px-5 py-3">{o.customer_name ?? "—"}</td>
+                            <td className="px-5 py-3 text-muted-foreground">{fmtDate(o.order_date)}</td>
+                            <td className="num px-5 py-3 text-right">{pendingQty.toLocaleString()}</td>
+                            <td className="px-5 py-3">
+                              <StatusPill status={o.status} />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </Table>
+                  )}
+                  <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">
+                      Showing {Math.min(8, filteredOpenOrders.length)} of{" "}
+                      {filteredOpenOrders.length} matching · {openOrders.length} open in total.
+                    </p>
+                    <button
+                      onClick={() => setTab("open")}
+                      className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium transition hover:border-primary hover:text-primary"
+                    >
+                      <FileText className="h-3.5 w-3.5" /> View all open orders
+                    </button>
+                  </div>
+                </>
+              )}
+            </Card>
+            <div id="wh-activity" className="grid scroll-mt-6 gap-6 lg:grid-cols-2">
             <Card title="Live dispatch pipeline">
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                 {SHIPPING_STATUSES.map((s) => (
@@ -547,7 +617,7 @@ export function WarehousePage() {
                   {dispatches.slice(0, 5).map((d) => (
                     <li key={d.id} className="flex items-center justify-between gap-3 border-b border-border/60 pb-2">
                       <span className="truncate">
-                        {d.dispatch_number} Â· {d.customer_name ?? d.so_number ?? "—"}
+                        {d.dispatch_number} · {d.customer_name ?? d.so_number ?? "—"}
                       </span>
                       <span
                         className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${shippingTone(
@@ -561,7 +631,7 @@ export function WarehousePage() {
                   {movements.slice(0, 5).map((m) => (
                     <li key={m.id} className="flex items-center justify-between gap-3 text-muted-foreground">
                       <span className="truncate">
-                        {m.direction === "in" ? "In" : "Out"} Â· {m.item_name} Ã— {Number(m.quantity).toLocaleString()}
+                        {m.direction === "in" ? "In" : "Out"} · {m.item_name} × {Number(m.quantity).toLocaleString()}
                       </span>
                       <span className="shrink-0 text-xs">{fmtDate(m.movement_date)}</span>
                     </li>
@@ -569,6 +639,7 @@ export function WarehousePage() {
                 </ul>
               )}
             </Card>
+            </div>
           </div>
         )}
 
@@ -584,31 +655,12 @@ export function WarehousePage() {
               />
             ) : (
               <>
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex w-full max-w-sm items-center gap-2">
-                    <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
-                    <input
-                      value={openSearch}
-                      onChange={(e) => setOpenSearch(e.target.value)}
-                      placeholder="Search by order no. or buyer…"
-                      className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary"
-                    />
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
-                    <span className="text-xs font-medium text-muted-foreground">Sort:</span>
-                    <select
-                      value={openSort}
-                      onChange={(e) => setOpenSort(e.target.value as any)}
-                      className="rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground outline-none focus:border-primary"
-                    >
-                      <option value="date_desc">Date (Newest first)</option>
-                      <option value="date_asc">Date (Oldest first)</option>
-                      <option value="customer_asc">Alphabetical (Buyer A → Z)</option>
-                      <option value="customer_desc">Alphabetical (Buyer Z → A)</option>
-                    </select>
-                  </div>
-                </div>
+                <OpenOrdersToolbar
+                  search={openSearch}
+                  onSearch={setOpenSearch}
+                  sort={openSort}
+                  onSort={setOpenSort}
+                />
                 {filteredOpenOrders.length === 0 ? (
                   <EmptyState
                     icon={<Search className="h-5 w-5" />}
@@ -618,21 +670,7 @@ export function WarehousePage() {
                 ) : (
                   <Table head={["Order", "Buyer", "Ordered", "Pending qty", "Pending value", "Status", "Warehouse"]}>
                     {filteredOpenOrders.map((o) => {
-                      const pendingLines = o.lines.filter(
-                        (l) => Number(l.ordered_qty) > Number(l.dispatched_qty ?? 0),
-                      );
-                      const pendingQty = pendingLines.reduce(
-                        (s, l) => s + (Number(l.ordered_qty) - Number(l.dispatched_qty ?? 0)),
-                        0,
-                      );
-                      const pendingValue = pendingLines.reduce(
-                        (s, l) =>
-                          s +
-                          (Number(l.ordered_qty) - Number(l.dispatched_qty ?? 0)) *
-                            Number(l.unit_price) *
-                            (1 - (Number(l.discount_pct) || 0) / 100),
-                        0,
-                      );
+                      const { pendingQty, pendingValue } = openOrderPending(o);
                       const wh = o.warehouse_status ?? "pending";
                       return (
                         <tr key={o.id} className="border-b border-border/60 hover:bg-muted/30">
@@ -845,8 +883,18 @@ export function WarehousePage() {
                   })}
                 </Table>
               )}
+              {awaitingIrnInvoices.length > 0 && (
+                <div className="mt-3 flex items-start gap-2 rounded-md border border-sem-attention/30 bg-sem-attention/5 p-3 text-xs text-sem-attention">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                  <span>
+                    {awaitingIrnInvoices.length} approved invoice{awaitingIrnInvoices.length === 1 ? " is" : "s are"} awaiting IRN upload — dispatch unlocks only after the IRN is recorded:{" "}
+                    {awaitingIrnInvoices.slice(0, 5).map((inv: any) => inv.invoice_number).filter(Boolean).join(", ")}
+                    {awaitingIrnInvoices.length > 5 ? ` +${awaitingIrnInvoices.length - 5} more` : ""}.
+                  </span>
+                </div>
+              )}
               <p className="mt-4 text-xs text-muted-foreground">
-                Every dispatch can be linked to an invoice — the invoice reference is stored on the dispatch record and
+                An invoice goes for dispatch only after its IRN is uploaded. Every dispatch can be linked to an invoice — the invoice reference is stored on the dispatch record and
                 appears in the movement report. Create a dispatch from here to auto-link the invoice.
               </p>
             </Card>
@@ -1370,6 +1418,67 @@ const blockReason =
             </button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Pending quantity/value for an open SO row (shared by the Overview dashboard card and the Open tab) ───
+function openOrderPending(o: SO) {
+  const pendingLines = (o.lines ?? []).filter(
+    (l) => Number(l.ordered_qty) > Number(l.dispatched_qty ?? 0),
+  );
+  const pendingQty = pendingLines.reduce(
+    (s, l) => s + (Number(l.ordered_qty) - Number(l.dispatched_qty ?? 0)),
+    0,
+  );
+  const pendingValue = pendingLines.reduce(
+    (s, l) =>
+      s +
+      (Number(l.ordered_qty) - Number(l.dispatched_qty ?? 0)) *
+        Number(l.unit_price) *
+        (1 - (Number(l.discount_pct) || 0) / 100),
+    0,
+  );
+  return { pendingQty, pendingValue };
+}
+
+// ─── Open SO search + sort toolbar (shared by the Overview dashboard card and the Open tab) ───
+function OpenOrdersToolbar({
+  search,
+  onSearch,
+  sort,
+  onSort,
+}: {
+  search: string;
+  onSearch: (v: string) => void;
+  sort: OpenSort;
+  onSort: (v: OpenSort) => void;
+}) {
+  return (
+    <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div className="flex w-full max-w-sm items-center gap-2">
+        <Search className="h-4 w-4 shrink-0 text-muted-foreground" />
+        <input
+          value={search}
+          onChange={(e) => onSearch(e.target.value)}
+          placeholder="Search by customer name or order no.…"
+          className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm outline-none focus:border-primary"
+        />
+      </div>
+      <div className="flex items-center gap-1.5">
+        <ArrowUpDown className="h-4 w-4 text-muted-foreground" />
+        <span className="text-xs font-medium text-muted-foreground">Sort:</span>
+        <select
+          value={sort}
+          onChange={(e) => onSort(e.target.value as OpenSort)}
+          className="rounded-md border border-border bg-background px-2.5 py-1.5 text-xs font-medium text-foreground outline-none focus:border-primary"
+        >
+          <option value="date_desc">Date (Newest first)</option>
+          <option value="date_asc">Date (Oldest first)</option>
+          <option value="customer_asc">Alphabetical (Buyer A → Z)</option>
+          <option value="customer_desc">Alphabetical (Buyer Z → A)</option>
+        </select>
       </div>
     </div>
   );

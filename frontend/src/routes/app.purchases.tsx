@@ -357,7 +357,7 @@ function PurchasesPageContent({
             </button>
           ) : (
             <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-              Read-only Â· {isChecker ? "Checker" : isTreasury ? "Treasury" : "View"}
+              Read-only · {isChecker ? "Checker" : isTreasury ? "Treasury" : "View"}
             </span>
           )
         }
@@ -935,7 +935,7 @@ function NewPurchaseModal({
   );
 
   // The proforma linked to the PO carries the agreed advance % — its advance
-  // (proforma total Ã— %) is deducted even before treasury has funded it.
+  // (proforma total × %) is deducted even before treasury has funded it.
   // Whichever is larger (agreed % vs actually paid) is what's deducted — this
   // mirrors the backend resolveProformaForInvoice logic.
   const linkedPf = (proformasQ.data ?? []).find(
@@ -1359,22 +1359,22 @@ function NewPurchaseModal({
                     Proforma {linkedPf.proforma_number ?? linkedPf.po_number ?? ""}
                   </div>
                   <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-muted-foreground">
-                    {linkedPf.proforma_date && <div>Date Â· {fmtDate(linkedPf.proforma_date)}</div>}
-                    <div>Total Â· {fmtMoney(linkedPf.amount)}</div>
+                    {linkedPf.proforma_date && <div>Date · {fmtDate(linkedPf.proforma_date)}</div>}
+                    <div>Total · {fmtMoney(linkedPf.amount)}</div>
                     {pctAdvance > 0 && (
                       <div>
-                        Advance Â· {linkedPf.advance_pct}% ={" "}
+                        Advance · {linkedPf.advance_pct}% ={" "}
                         <span className="font-medium text-primary">{fmtMoney(pctAdvance)}</span>
                       </div>
                     )}
-                    {linkedPf.supplier_contact && <div>Contact Â· {linkedPf.supplier_contact}</div>}
-                    {linkedPf.supplier_gstin && <div>GSTIN Â· {linkedPf.supplier_gstin}</div>}
-                    {linkedPf.payment_terms && <div>Terms Â· {formatPaymentTerms({ paymentTermsType: linkedPf.paymentTermsType ?? linkedPf.payment_terms_type, advancePct: linkedPf.advancePct ?? linkedPf.advance_pct, paymentTerms: linkedPf.payment_terms })}</div>}
+                    {linkedPf.supplier_contact && <div>Contact · {linkedPf.supplier_contact}</div>}
+                    {linkedPf.supplier_gstin && <div>GSTIN · {linkedPf.supplier_gstin}</div>}
+                    {linkedPf.payment_terms && <div>Terms · {formatPaymentTerms({ paymentTermsType: linkedPf.paymentTermsType ?? linkedPf.payment_terms_type, advancePct: linkedPf.advancePct ?? linkedPf.advance_pct, paymentTerms: linkedPf.payment_terms })}</div>}
                     {linkedPf.valid_until && (
-                      <div>Valid until Â· {fmtDate(linkedPf.valid_until)}</div>
+                      <div>Valid until · {fmtDate(linkedPf.valid_until)}</div>
                     )}
                     {linkedPf.expected_delivery_date && (
-                      <div>Expected delivery Â· {fmtDate(linkedPf.expected_delivery_date)}</div>
+                      <div>Expected delivery · {fmtDate(linkedPf.expected_delivery_date)}</div>
                     )}
                   </div>
                 </div>
@@ -1410,7 +1410,7 @@ function NewPurchaseModal({
                       {((advLookupQ.data?.advances ?? []) as any[]).map((a) => (
                         <li key={a.id} className="flex justify-between">
                           <span className="text-muted-foreground">
-                            {fmtDate(a.advance_date)} {a.reference ? `Â· ${a.reference}` : ""}
+                            {fmtDate(a.advance_date)} {a.reference ? `· ${a.reference}` : ""}
                           </span>
                           <span className="num text-primary">{fmtMoney(a.amount)}</span>
                         </li>
@@ -1815,7 +1815,7 @@ function PurchaseDetailModal({
 
           {grn && (
             <div className="rounded-md border border-sem-success/30 bg-sem-success/5 p-3 text-xs text-sem-success">
-              Linked GRN {grn.receipt_number} Â·{" "}
+              Linked GRN {grn.receipt_number} ·{" "}
               {grn.status === "confirmed" ? "stock credited" : grn.status}
             </div>
           )}

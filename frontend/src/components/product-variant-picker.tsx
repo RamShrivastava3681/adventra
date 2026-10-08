@@ -21,6 +21,26 @@ function clean(v: unknown): string {
 }
 
 /**
+ * Topmost ancestor id by walking up through colour nodes (parent → colour →
+ * size SKU). Colour nodes are never listed as items, so the Item field must
+ * show this root — showing the immediate parent would leave it blank.
+ */
+function rootAncestorId(
+  byId: Map<string, ProductVariantOption>,
+  start: ProductVariantOption | undefined,
+): string {
+  const seen = new Set<string>();
+  let cur = start;
+  let root = "";
+  while (cur && !seen.has(cur.id)) {
+    seen.add(cur.id);
+    root = cur.id;
+    cur = cur.parent_id ? byId.get(cur.parent_id) : undefined;
+  }
+  return root;
+}
+
+/**
  * Complete, human-readable item name. The catalogue `name` is the base; brand,
  * model, gender and subcategory are appended only when they add information
  * not already contained in the name, so long names stay fully visible without
@@ -127,16 +147,30 @@ export function ProductVariantPicker({
     return m;
   }, [products]);
 
-  // Resolve the line's current product back to its root parent — a variant
-  // resolves to its parent, a top-level SKU resolves to itself.
+  // Resolve the line's current product back to its ROOT parent for the Item
+  // field — a size SKU under a colour node walks up to the top-level parent,
+  // a direct variant resolves to its parent, a top-level SKU to itself.
   const selected = value ? byId.get(value) : undefined;
-  const derivedParentId = selected ? (selected.parent_id ?? selected.id) : "";
-  const shownParentId = draftParentId || derivedParentId;
+  const selectedRootId = rootAncestorId(byId, selected);
+  const shownParentId = draftParentId || selectedRootId;
 
   const kids = (shownParentId ? childrenByParent.get(shownParentId) : undefined) ?? [];
-  const activeChildId = value && byId.get(value)?.parent_id === shownParentId ? value : "";
+  // Sellable pool: leaf SKUs under the shown parent, two levels deep. Direct
+  // children are used as-is when they are leaves (parent → variant); colour
+  // nodes expand into their size SKUs (parent → colour → size), so colour and
+  // size stay selectable in both hierarchy shapes.
+  const pool = useMemo(() => {
+    const out: ProductVariantOption[] = [];
+    for (const k of kids) {
+      const grand = childrenByParent.get(k.id);
+      if (grand && grand.length > 0) out.push(...grand);
+      else out.push(k);
+    }
+    return out;
+  }, [kids, childrenByParent]);
+  const activeChildId = value && pool.some((p) => p.id === value) ? value : "";
   const activeKid = value ? byId.get(value) : undefined;
-  const currentKidColor = activeKid && activeKid.parent_id === shownParentId ? clean(activeKid.color) : "";
+  const currentKidColor = activeKid && activeChildId ? clean(activeKid.color) : "";
   const effectiveColor = currentKidColor || draftColor;
 
   // When the line's value becomes a product that sits under a DIFFERENT parent
@@ -152,29 +186,29 @@ export function ProductVariantPicker({
 
   const availableColors = useMemo(() => {
     const set = new Set<string>();
-    for (const k of kids) {
+    for (const k of pool) {
       const c = clean(k.color);
       if (c) set.add(c);
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [kids]);
+  }, [pool]);
 
   const availableSizes = useMemo(() => {
     const set = new Set<string>();
-    for (const k of kids) {
+    for (const k of pool) {
       const s = clean(k.size);
       if (s) set.add(s);
     }
     return Array.from(set).sort((a, b) => a.localeCompare(b));
-  }, [kids]);
+  }, [pool]);
 
   const hasBothColorAndSize = availableColors.length > 0 && availableSizes.length > 0;
 
   // Filter available variant options based on the chosen colour
   const kidsForColor = useMemo(() => {
-    if (!effectiveColor) return kids;
-    return kids.filter((k) => clean(k.color).toLowerCase() === effectiveColor.toLowerCase());
-  }, [kids, effectiveColor]);
+    if (!effectiveColor) return pool;
+    return pool.filter((k) => clean(k.color).toLowerCase() === effectiveColor.toLowerCase());
+  }, [pool, effectiveColor]);
 
   const categories = useMemo(() => {
     const set = new Set<string>();
@@ -255,8 +289,8 @@ export function ProductVariantPicker({
     layout === "inline"
       ? cn(
           "grid w-full min-w-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.3fr)]",
-          kids.length > 0 && !hasBothColorAndSize && "2xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_minmax(0,1fr)]",
-          kids.length > 0 && hasBothColorAndSize && "2xl:grid-cols-[minmax(0,0.7fr)_minmax(0,1.1fr)_minmax(0,0.75fr)_minmax(0,0.75fr)]",
+          pool.length > 0 && !hasBothColorAndSize && "2xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_minmax(0,1fr)]",
+          pool.length > 0 && hasBothColorAndSize && "2xl:grid-cols-[minmax(0,0.7fr)_minmax(0,1.1fr)_minmax(0,0.75fr)_minmax(0,0.75fr)]",
         )
       : "space-y-1.5";
 
@@ -325,7 +359,7 @@ export function ProductVariantPicker({
           })}
         />
       </div>
-      {kids.length > 0 && hasBothColorAndSize ? (
+      {pool.length > 0 && hasBothColorAndSize ? (
         <>
           {/* Step 3a — Colour dropdown: filters available size variants */}
           <div className="w-full min-w-0">
@@ -344,7 +378,7 @@ export function ProductVariantPicker({
               searchPlaceholder="Type colour…"
               fullLabel
               options={availableColors.map((col) => {
-                const count = kids.filter((k) => clean(k.color).toLowerCase() === col.toLowerCase()).length;
+                const count = pool.filter((k) => clean(k.color).toLowerCase() === col.toLowerCase()).length;
                 return {
                   value: col,
                   label: col,
@@ -384,7 +418,7 @@ export function ProductVariantPicker({
             )}
           </div>
         </>
-      ) : kids.length > 0 ? (
+      ) : pool.length > 0 ? (
         <div className="w-full min-w-0">
           {showLabels && (
             <span className={labelCls}>
@@ -401,7 +435,7 @@ export function ProductVariantPicker({
             placeholder={childPlaceholder}
             searchPlaceholder="Type colour or size…"
             fullLabel
-            options={[...kids]
+            options={[...pool]
               .sort((a, b) => variantShortLabel(a).localeCompare(variantShortLabel(b), undefined, { sensitivity: "base" }))
               .map((c) => ({
                 value: c.id,
