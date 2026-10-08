@@ -1166,14 +1166,19 @@ function DispatchCreateModal({
 
       const sourceId = createFromInvoice ? invoiceId : soId;
       if (!sourceId) throw new Error(createFromInvoice ? "Select an invoice to dispatch against" : "Select a sales order to dispatch against");
-      // IRN gate (sale dispatches): goods move only against an invoice with
-      // IRN uploaded — mirror of the server check, for an instant message.
+      // IRN & Finance approval gate (sale dispatches): goods move only against a
+      // Finance-approved invoice with IRN recorded — mirror of the server check.
       const saleTypes = ["customer_sale", "marketplace_sale", "pos_sale"];
       if (saleTypes.includes(String(f.dispatch_type || "customer_sale"))) {
         if (createFromInvoice) {
+          if (selectedInvoice && String(selectedInvoice.status ?? "").toLowerCase() === "pending") {
+            throw new Error(
+              `Invoice ${selectedInvoice?.invoice_number ?? ""} is awaiting Finance approval — dispatch requires a Finance-approved invoice`,
+            );
+          }
           if (!selectedInvoice?.irn) {
             throw new Error(
-              `Invoice ${selectedInvoice?.invoice_number ?? ""} has no IRN uploaded — upload the IRN before dispatching`,
+              `Invoice ${selectedInvoice?.invoice_number ?? ""} has no IRN recorded — IRN is required before warehouse dispatch`,
             );
           }
         } else {
@@ -1184,12 +1189,17 @@ function DispatchCreateModal({
           ) as any;
           if (!soInv) {
             throw new Error(
-              `Create the sales invoice for ${so?.so_number ?? ""} first — dispatch needs an invoice with IRN uploaded`,
+              `Create the sales invoice for ${so?.so_number ?? ""} first — dispatch proceeds only against a Finance-approved invoice with IRN`,
+            );
+          }
+          if (String(soInv.status ?? "").toLowerCase() === "pending") {
+            throw new Error(
+              `Invoice ${soInv.invoice_number ?? ""} is awaiting Finance approval — dispatch requires a Finance-approved invoice`,
             );
           }
           if (!soInv.irn) {
             throw new Error(
-              `Invoice ${soInv.invoice_number ?? ""} has no IRN uploaded — upload the IRN before dispatching`,
+              `Invoice ${soInv.invoice_number ?? ""} has no IRN recorded — IRN is required before warehouse dispatch`,
             );
           }
         }

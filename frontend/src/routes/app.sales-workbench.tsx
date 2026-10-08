@@ -12,6 +12,13 @@ import {
   ChevronRight,
   MoreHorizontal,
   ExternalLink,
+  Clock,
+  ArrowUpDown,
+  Search,
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  TrendingUp,
 } from "lucide-react";
 import api from "@/lib/api-client";
 import { PageHeader, Card, EmptyState, StatusPill, fmtMoney, fmtDate } from "@/components/ledger-ui";
@@ -138,6 +145,7 @@ type SalesSection =
   | "sales-orders"
   | "proformas"
   | "invoices"
+  | "ageing"
   | "notes"
   | "tasks";
 
@@ -314,6 +322,11 @@ function SalesWorkbenchPage() {
               label="Sales Invoices"
               active={section === "invoices"}
               onClick={() => setSection("invoices")}
+            />
+            <NavTab
+              label="Client Ageing"
+              active={section === "ageing"}
+              onClick={() => setSection("ageing")}
             />
             <NavTab
               label="Credit Notes"
@@ -613,6 +626,30 @@ function SalesWorkbenchPage() {
               </>
             )}
           </Card>
+
+          {/* ── Client Ageing Quick Snapshot ── */}
+          <Card className="p-5">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Receivables Ageing
+                </p>
+                <h3 className="mt-1 text-sm font-semibold text-foreground">
+                  Client Ageing Overview
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSection("ageing")}
+                className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary-soft/50 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary-soft hover:text-primary transition-colors"
+              >
+                View Ageing <ArrowRight className="h-3 w-3" />
+              </button>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Monitor outstanding receivables across 0–30, 31–60, 61–90 and 90+ day ageing buckets.
+            </p>
+          </Card>
         </div>
         </div>
       ) : (
@@ -621,6 +658,7 @@ function SalesWorkbenchPage() {
           {section === "sales-orders" && <SalesOrdersPanel />}
           {section === "proformas" && <ProformasPanel side="sales" />}
           {section === "invoices" && <InvoicesPanel />}
+          {section === "ageing" && <ClientAgeingPanel onOpenInvoices={() => setSection("invoices")} />}
           {section === "notes" && <NotesPanel />}
           {section === "tasks" && <TasksPanel />}
         </Suspense>
@@ -696,3 +734,461 @@ function KpiCard({
     </button>
   );
 }
+
+/* ────────────────────────────────────────────────────────────────────────────
+ * Client Ageing Panel — Dedicated sales-side receivables and ageing dashboard
+ * ──────────────────────────────────────────────────────────────────────── */
+function ClientAgeingPanel({ onOpenInvoices }: { onOpenInvoices: () => void }) {
+  const [search, setSearch] = useState("");
+  const [bucketFilter, setBucketFilter] = useState<"all" | "overdue" | "critical" | "current">("all");
+  const [sortBy, setSortBy] = useState<"total_desc" | "d90_desc" | "name_asc" | "name_desc" | "invoices_desc">("total_desc");
+  const [subTab, setSubTab] = useState<"customers" | "overdue_invoices">("customers");
+
+  // Fetch verified ageing buckets from reports API
+  const agingQ = useQuery({
+    queryKey: ["sales-workbench-aging"],
+    queryFn: () => api.reports.aging({ limit: 100 }),
+  });
+
+  // Fetch live invoices for invoice-level overdue list
+  const invoicesQ = useQuery({
+    queryKey: ["sales-workbench-invoices"],
+    queryFn: () => api.invoices.list(),
+  });
+
+  const agingRows = useMemo(() => {
+    return ((agingQ.data?.data ?? []) as any[]).map((r) => ({
+      buyer_id: String(r.buyer_id || ""),
+      buyer: String(r.buyer || "Unknown Customer"),
+      invoices: Number(r.invoices) || 0,
+      current: Number(r.current) || 0,
+      d1_30: Number(r.d1_30) || 0,
+      d31_60: Number(r.d31_60) || 0,
+      d61_90: Number(r.d61_90) || 0,
+      d91_120: Number(r.d91_120) || 0,
+      d120: Number(r.d120) || 0,
+      d90Plus: (Number(r.d91_120) || 0) + (Number(r.d120) || 0),
+      total: Number(r.total) || 0,
+    }));
+  }, [agingQ.data]);
+
+  // Aggregate metrics across all clients
+  const metrics = useMemo(() => {
+    let total = 0;
+    let current = 0;
+    let d1_30 = 0;
+    let d31_60 = 0;
+    let d61_90 = 0;
+    let d90Plus = 0;
+
+    for (const r of agingRows) {
+      total += r.total;
+      current += r.current;
+      d1_30 += r.d1_30;
+      d31_60 += r.d31_60;
+      d61_90 += r.d61_90;
+      d90Plus += r.d90Plus;
+    }
+
+    return {
+      total,
+      current,
+      d1_30,
+      d31_60,
+      d61_90,
+      d90Plus,
+      totalOverdue: d1_30 + d31_60 + d61_90 + d90Plus,
+      clientCount: agingRows.filter((r) => r.total > 0).length,
+    };
+  }, [agingRows]);
+
+  // Filtered and sorted customer ageing rows
+  const filteredRows = useMemo(() => {
+    return agingRows
+      .filter((r) => {
+        if (search.trim()) {
+          const q = search.trim().toLowerCase();
+          if (!r.buyer.toLowerCase().includes(q) && !r.buyer_id.toLowerCase().includes(q)) {
+            return false;
+          }
+        }
+        const overdueSum = r.d1_30 + r.d31_60 + r.d61_90 + r.d90Plus;
+        if (bucketFilter === "overdue" && overdueSum <= 0.01) return false;
+        if (bucketFilter === "critical" && (r.d61_90 + r.d90Plus) <= 0.01) return false;
+        if (bucketFilter === "current" && r.current <= 0.01) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        if (sortBy === "total_desc") return b.total - a.total;
+        if (sortBy === "d90_desc") return b.d90Plus - a.d90Plus;
+        if (sortBy === "name_asc") return a.buyer.localeCompare(b.buyer);
+        if (sortBy === "name_desc") return b.buyer.localeCompare(a.buyer);
+        if (sortBy === "invoices_desc") return b.invoices - a.invoices;
+        return 0;
+      });
+  }, [agingRows, search, bucketFilter, sortBy]);
+
+  // Live overdue invoices
+  const overdueInvoices = useMemo(() => {
+    const list = (invoicesQ.data ?? []) as any[];
+    return list
+      .filter((inv) => {
+        const isLive = !["paid", "cancelled", "void"].includes(inv.status);
+        const due = inv.due_date ?? inv.dueDate;
+        const days = daysOverdue(due);
+        const total = Number(inv.grand_total ?? inv.grandTotal ?? inv.amount) || 0;
+        const rec = Number(inv.amount_received ?? inv.amountReceived) || 0;
+        const balance = Math.max(0, total - rec);
+        return isLive && days > 0 && balance > 0.01;
+      })
+      .map((inv) => {
+        const total = Number(inv.grand_total ?? inv.grandTotal ?? inv.amount) || 0;
+        const rec = Number(inv.amount_received ?? inv.amountReceived) || 0;
+        const due = inv.due_date ?? inv.dueDate;
+        return {
+          id: String(inv.id),
+          invoiceNumber: String(inv.invoice_number ?? inv.invoiceNumber ?? "—"),
+          customerName: String(inv.debtor?.name ?? inv.debtor_name ?? inv.customer_name ?? inv.customerName ?? "—"),
+          dueDate: due ? String(due).slice(0, 10) : "—",
+          daysOverdue: daysOverdue(due),
+          balance: Math.max(0, total - rec),
+          status: String(inv.status || "open"),
+        };
+      })
+      .sort((a, b) => b.daysOverdue - a.daysOverdue);
+  }, [invoicesQ.data]);
+
+  const filteredOverdueInvoices = useMemo(() => {
+    if (!search.trim()) return overdueInvoices;
+    const q = search.trim().toLowerCase();
+    return overdueInvoices.filter(
+      (inv) =>
+        inv.invoiceNumber.toLowerCase().includes(q) ||
+        inv.customerName.toLowerCase().includes(q),
+    );
+  }, [overdueInvoices, search]);
+
+  const loading = agingQ.isLoading || invoicesQ.isLoading;
+
+  return (
+    <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
+      {/* ── Ageing KPI Cards Grid (6 Buckets) ── */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        {loading ? (
+          <>
+            <StatSkeleton />
+            <StatSkeleton />
+            <StatSkeleton />
+            <StatSkeleton />
+            <StatSkeleton />
+            <StatSkeleton />
+          </>
+        ) : (
+          <>
+            <div className="rounded-xl border border-border bg-card p-4 shadow-card">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Total Outstanding
+              </p>
+              <div className="num mt-1.5 text-xl font-bold tracking-tight text-foreground">
+                {fmtMoney(metrics.total)}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                {metrics.clientCount} clients with balance
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-sem-success/30 bg-sem-success/5 p-4 shadow-card">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-sem-success">
+                Current (Not Due)
+              </p>
+              <div className="num mt-1.5 text-xl font-bold tracking-tight text-sem-success">
+                {fmtMoney(metrics.current)}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">Within payment terms</p>
+            </div>
+
+            <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-4 shadow-card">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+                1–30 Days Overdue
+              </p>
+              <div className="num mt-1.5 text-xl font-bold tracking-tight text-amber-600 dark:text-amber-400">
+                {fmtMoney(metrics.d1_30)}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">Early reminder stage</p>
+            </div>
+
+            <div className="rounded-xl border border-orange-500/30 bg-orange-500/5 p-4 shadow-card">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-orange-600 dark:text-orange-400">
+                31–60 Days Overdue
+              </p>
+              <div className="num mt-1.5 text-xl font-bold tracking-tight text-orange-600 dark:text-orange-400">
+                {fmtMoney(metrics.d31_60)}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">Follow-up required</p>
+            </div>
+
+            <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 p-4 shadow-card">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-rose-600 dark:text-rose-400">
+                61–90 Days Overdue
+              </p>
+              <div className="num mt-1.5 text-xl font-bold tracking-tight text-rose-600 dark:text-rose-400">
+                {fmtMoney(metrics.d61_90)}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">Urgent collection</p>
+            </div>
+
+            <div className="rounded-xl border border-destructive/40 bg-destructive/5 p-4 shadow-card">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-destructive">
+                90+ Days Overdue
+              </p>
+              <div className="num mt-1.5 text-xl font-bold tracking-tight text-destructive">
+                {fmtMoney(metrics.d90Plus)}
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">Escalated / critical</p>
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* ── Sub-view Tabs & Filter Toolbar ── */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b border-border pb-3">
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setSubTab("customers")}
+            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+              subTab === "customers"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "border border-border bg-card text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Customer-wise Ageing ({filteredRows.length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setSubTab("overdue_invoices")}
+            className={`rounded-lg px-3.5 py-1.5 text-xs font-semibold transition-colors ${
+              subTab === "overdue_invoices"
+                ? "bg-primary text-primary-foreground shadow-sm"
+                : "border border-border bg-card text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            Overdue Invoices ({overdueInvoices.length})
+          </button>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative min-w-[200px]">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={subTab === "customers" ? "Search customer name..." : "Search invoice # or client..."}
+              className="h-8 w-full rounded-md border border-border bg-background pl-8 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+            />
+          </div>
+
+          {subTab === "customers" && (
+            <>
+              <div className="flex items-center gap-1">
+                {(
+                  [
+                    { key: "all", label: "All" },
+                    { key: "overdue", label: "Overdue Only" },
+                    { key: "critical", label: "60+d Critical" },
+                    { key: "current", label: "Not Due" },
+                  ] as const
+                ).map((b) => (
+                  <button
+                    key={b.key}
+                    type="button"
+                    onClick={() => setBucketFilter(b.key)}
+                    className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
+                      bucketFilter === b.key
+                        ? "bg-primary/10 text-primary border border-primary/30"
+                        : "border border-transparent text-muted-foreground hover:bg-muted"
+                    }`}
+                  >
+                    {b.label}
+                  </button>
+                ))}
+              </div>
+
+              <select
+                aria-label="Sort customer ageing"
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value as any)}
+                className="h-8 rounded-md border border-border bg-background px-2 text-xs text-foreground focus:border-primary focus:outline-none"
+              >
+                <option value="total_desc">Sort: Highest Outstanding</option>
+                <option value="d90_desc">Sort: Highest 90+ Days</option>
+                <option value="name_asc">Sort: Customer (A → Z)</option>
+                <option value="name_desc">Sort: Customer (Z → A)</option>
+                <option value="invoices_desc">Sort: Most Invoices</option>
+              </select>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* ── Table Content ── */}
+      {subTab === "customers" ? (
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-border bg-muted/40 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3">Customer</th>
+                  <th className="px-3 py-3 text-center">Invoices</th>
+                  <th className="px-3 py-3 text-right">Current (Not Due)</th>
+                  <th className="px-3 py-3 text-right">1–30 Days</th>
+                  <th className="px-3 py-3 text-right">31–60 Days</th>
+                  <th className="px-3 py-3 text-right">61–90 Days</th>
+                  <th className="px-3 py-3 text-right">90+ Days</th>
+                  <th className="px-4 py-3 text-right">Total Outstanding</th>
+                  <th className="px-4 py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {loading ? (
+                  <tr>
+                    <td colSpan={9} className="p-6 text-center text-muted-foreground">
+                      <TableSkeleton rows={5} cols={9} />
+                    </td>
+                  </tr>
+                ) : filteredRows.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="p-8 text-center text-muted-foreground">
+                      No customer ageing records matching your filter.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredRows.map((r) => {
+                    const hasCritical = r.d61_90 + r.d90Plus > 0.01;
+
+                    return (
+                      <tr key={r.buyer_id} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-3">
+                          <div className="font-semibold text-foreground">{r.buyer}</div>
+                          {hasCritical && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-destructive mt-0.5">
+                              <AlertTriangle className="h-3 w-3" /> Critical overdue balance
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-3 text-center num text-muted-foreground">
+                          {r.invoices}
+                        </td>
+                        <td className="px-3 py-3 text-right num text-muted-foreground">
+                          {r.current > 0 ? fmtMoney(r.current) : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right num text-amber-600 dark:text-amber-400">
+                          {r.d1_30 > 0 ? fmtMoney(r.d1_30) : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right num text-orange-600 dark:text-orange-400">
+                          {r.d31_60 > 0 ? fmtMoney(r.d31_60) : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right num text-rose-600 dark:text-rose-400">
+                          {r.d61_90 > 0 ? fmtMoney(r.d61_90) : "—"}
+                        </td>
+                        <td className="px-3 py-3 text-right num font-semibold text-destructive">
+                          {r.d90Plus > 0 ? fmtMoney(r.d90Plus) : "—"}
+                        </td>
+                        <td className="px-4 py-3 text-right num font-bold text-foreground">
+                          {fmtMoney(r.total)}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={onOpenInvoices}
+                            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+                          >
+                            Invoices <ArrowRight className="h-3 w-3" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      ) : (
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-border bg-muted/40 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                <tr>
+                  <th className="px-4 py-3">Invoice Number</th>
+                  <th className="px-4 py-3">Customer</th>
+                  <th className="px-3 py-3">Due Date</th>
+                  <th className="px-3 py-3 text-center">Days Overdue</th>
+                  <th className="px-4 py-3 text-right">Outstanding Balance</th>
+                  <th className="px-3 py-3 text-center">Status</th>
+                  <th className="px-4 py-3 text-right">Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {loading ? (
+                  <tr>
+                    <td colSpan={7} className="p-6 text-center text-muted-foreground">
+                      <TableSkeleton rows={5} cols={7} />
+                    </td>
+                  </tr>
+                ) : filteredOverdueInvoices.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="p-8 text-center text-muted-foreground">
+                      No overdue invoices found. All client balances are up to date!
+                    </td>
+                  </tr>
+                ) : (
+                  filteredOverdueInvoices.map((inv) => {
+                    const daysBadge =
+                      inv.daysOverdue > 60
+                        ? "border-destructive/30 bg-destructive/10 text-destructive font-bold"
+                        : inv.daysOverdue > 30
+                        ? "border-orange-500/30 bg-orange-500/10 text-orange-600 dark:text-orange-400 font-semibold"
+                        : "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium";
+
+                    return (
+                      <tr key={inv.id} className="hover:bg-muted/30 transition-colors">
+                        <td className="px-4 py-3 font-semibold text-foreground">
+                          {inv.invoiceNumber}
+                        </td>
+                        <td className="px-4 py-3 text-foreground">{inv.customerName}</td>
+                        <td className="px-3 py-3 text-muted-foreground">{inv.dueDate}</td>
+                        <td className="px-3 py-3 text-center">
+                          <span className={`inline-block rounded-full border px-2 py-0.5 text-[10px] ${daysBadge}`}>
+                            {inv.daysOverdue} {inv.daysOverdue === 1 ? "day" : "days"} overdue
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right num font-semibold text-foreground">
+                          {fmtMoney(inv.balance)}
+                        </td>
+                        <td className="px-3 py-3 text-center">
+                          <StatusPill status={inv.status} />
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          <button
+                            type="button"
+                            onClick={onOpenInvoices}
+                            className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:border-primary hover:text-primary transition-colors"
+                          >
+                            View <ExternalLink className="h-3 w-3" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+      )}
+    </div>
+  );
+}
+

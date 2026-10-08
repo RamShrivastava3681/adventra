@@ -59,6 +59,10 @@ export function SellableSkuModal({
   // Bulk mode: tick many sizes and create all their SKUs in one submit.
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkIds, setBulkIds] = useState<string[]>([]);
+  const [addInitialStock, setAddInitialStock] = useState(false);
+  const [stockQty, setStockQty] = useState("");
+  const [stockWarehouse, setStockWarehouse] = useState("");
+  const [stockNotes, setStockNotes] = useState("");
   const [createdBulk, setCreatedBulk] = useState<{
     created: SkuProduct[];
     skipped: Array<{ size: string; reason: string }>;
@@ -119,12 +123,16 @@ export function SellableSkuModal({
     return null;
   })();
 
-  const canSave = !!selectedSize && !dupName && !!preview && !skuTaken && !priceError;
+  const canSave = !!selectedSize && !dupName && !!preview && !skuTaken && !priceError && (!addInitialStock || (Number(stockQty) > 0 && !!stockNotes.trim()));
 
   const save = useMutation({
     mutationFn: async () => {
       if (!selectedSize) throw new Error("Pick a size");
       if (dupName) throw new Error(`This size already exists under ${parent.sku}`);
+      if (addInitialStock) {
+        if (!stockQty || !(Number(stockQty) > 0)) throw new Error("Enter a valid stock quantity greater than zero");
+        if (!stockNotes.trim()) throw new Error("Stock source / notes are required for manual stock addition");
+      }
       const pricePayload = {
         unit_cost: numOrNull(prices.unit_cost) ?? 0,
         unit_price: numOrNull(prices.unit_price) ?? 0,
@@ -144,11 +152,30 @@ export function SellableSkuModal({
         sku: sku.trim() || undefined,
         ...pricePayload,
       })) as SkuProduct;
+
+      if (addInitialStock && Number(stockQty) > 0 && made?.id) {
+        try {
+          await api.stockMovements.manual({
+            productId: made.id,
+            quantity: Number(stockQty),
+            direction: "in",
+            reason: "Manual addition",
+            notes: stockNotes.trim(),
+            warehouse: stockWarehouse.trim() || undefined,
+            status: "confirmed",
+          });
+          qc.invalidateQueries({ queryKey: ["stock-movements"] });
+          qc.invalidateQueries({ queryKey: ["inventory"] });
+        } catch (stockErr: any) {
+          toast.error("SKU created, but initial stock addition failed: " + (stockErr?.message || "Error"));
+        }
+      }
+
       return { sku: preview, product: made ?? null };
     },
     onSuccess: (made) => {
       onSaved();
-      toast.success(`Size SKU ${made.sku} created`);
+      toast.success(`Size SKU ${made.sku} created${addInitialStock && Number(stockQty) > 0 ? ` with ${stockQty} initial stock` : ""}`);
       setCreated(made);
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -607,6 +634,59 @@ export function SellableSkuModal({
           </div>
           {priceError && <p className="mt-2 text-xs font-medium text-destructive">{priceError}</p>}
         </SkuSection>
+
+        {!bulkMode && (
+          <SkuSection title="Manual Stock Addition (Optional)">
+            <label className="flex items-center gap-2 text-xs font-medium text-foreground cursor-pointer">
+              <input
+                type="checkbox"
+                checked={addInitialStock}
+                onChange={(e) => setAddInitialStock(e.target.checked)}
+                className="rounded border-border text-primary focus:ring-primary"
+              />
+              <span>Manually add opening / non-procurement stock for this SKU</span>
+            </label>
+            <p className="mt-1 text-[11px] text-muted-foreground">
+              Add initial inventory when stock does not arrive via the Procurement cycle. Maintains full stock source and audit history.
+            </p>
+            {addInitialStock && (
+              <div className="mt-3 grid gap-3 rounded-lg border border-border bg-card p-3 md:grid-cols-2">
+                <SkuField label="Quantity to Add *" required>
+                  <input
+                    type="number"
+                    min="1"
+                    required
+                    placeholder="e.g. 50"
+                    className="sku-inp font-mono"
+                    value={stockQty}
+                    onChange={(e) => setStockQty(e.target.value)}
+                  />
+                </SkuField>
+                <SkuField label="Warehouse / Location (Optional)">
+                  <input
+                    type="text"
+                    placeholder="e.g. Central Warehouse"
+                    className="sku-inp"
+                    value={stockWarehouse}
+                    onChange={(e) => setStockWarehouse(e.target.value)}
+                  />
+                </SkuField>
+                <div className="md:col-span-2">
+                  <SkuField label="Stock Source / Notes *" required>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Opening balance / Sample stock / Direct factory intake"
+                      className="sku-inp"
+                      value={stockNotes}
+                      onChange={(e) => setStockNotes(e.target.value)}
+                    />
+                  </SkuField>
+                </div>
+              </div>
+            )}
+          </SkuSection>
+        )}
 
         {!bulkMode && selectedSize && (
           <div className="rounded-xl border border-border bg-muted/30 p-4 text-[13px]">
