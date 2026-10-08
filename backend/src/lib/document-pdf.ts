@@ -2963,19 +2963,25 @@ export function goodsPOToPdfData(
     .map(([k]) => k)
     .slice(0, 8);
 
+  const textOf = (v: unknown): string => (v === null || v === undefined ? "" : String(v).trim());
   const lines: GoodsPOPdfLine[] = ((po.lines ?? []) as any[]).map((l: any, i: number) => {
     const quantity = Number(l.orderedQty ?? l.ordered_qty ?? 0) || 0;
     const unitPrice = Number(l.unitPrice ?? l.unit_price ?? 0) || 0;
     const gstRate = l.gstRate ?? l.gst_rate ?? null;
     const gst = Number(gstRate) || 0;
+    // Item code: first non-blank of sku / productCode / itemCode (camel or
+    // snake). `??` alone keeps "" and hides the fallback, so use `||`.
+    const productCode =
+      textOf(l.sku) || textOf(l.productCode) || textOf(l.product_code) ||
+      textOf((l as any).itemCode) || textOf((l as any).item_code) || "";
     return {
       sno: i + 1,
-      productCode: l.sku ?? l.productCode ?? l.product_code ?? "",
-      description: l.name || "Item",
-      fabric: l.fabric ?? "",
-      hsn: l.hsnCode ?? l.hsn_code ?? "",
+      productCode,
+      description: textOf(l.name) || "Item",
+      fabric: textOf(l.fabric),
+      hsn: textOf(l.hsnCode) || textOf(l.hsn_code),
       size: sizeOf(l),
-      color: l.color ?? l.colour ?? "",
+      color: textOf(l.color) || textOf(l.colour),
       quantity,
       unitPrice,
       gstRate,
@@ -3176,7 +3182,10 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
 
       // ── Item table ───────────────────────────────────────────────────────
       const SZW = 30;
-      const C = { sl: 24, code: 46, fabric: 52, hsn: 50, color: 52, unit: 42, ppgst: 56, qty: 42, amt: 62 };
+      // Product codes (e.g. AD-UNI-10-EH100-BEIGE) are long: keep this column
+      // wide so codes wrap in 2 lines instead of 3-4 and never overflow the
+      // row rect (overflow text spills onto ghost pages and strands rows).
+      const C = { sl: 24, code: 78, fabric: 52, hsn: 50, color: 56, unit: 42, ppgst: 56, qty: 42, amt: 62 };
       const fixedW = C.sl + C.code + C.fabric + C.hsn + C.color + C.unit + C.ppgst + C.qty + C.amt;
       const descW = Math.max(60, CW - fixedW - data.sizes.length * SZW);
       const colX = (key: string): number => {
@@ -3217,20 +3226,31 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
 
       drawTableHead();
       data.lines.forEach((l, idx) => {
-        const rowH = Math.max(14, Math.ceil(wrapH(l.description, descW, 7) + 6));
+        // Row height must fit EVERY wrapping column — measuring only the
+        // description underestimates rows with long product codes (they wrap
+        // to 2+ lines in the narrow code column), so the text overflows the
+        // rect and spills onto near-blank ghost pages. Code renders at 6.5pt.
+        const rowH = Math.max(
+          14,
+          Math.ceil(wrapH(l.productCode, colW("code"), 6.5, F) + 6),
+          Math.ceil(wrapH(l.description, descW, 7) + 6),
+          Math.ceil(wrapH(l.fabric, colW("fabric"), 7) + 6),
+          Math.ceil(wrapH(l.hsn, colW("hsn"), 7) + 6),
+          Math.ceil(wrapH(l.color, colW("color"), 7) + 6),
+        );
         if (y + rowH > BOT) {
           doc.addPage();
           y = M;
           drawTableHead();
         }
         const fill = idx % 2 === 1 ? TALLY.altRow : TALLY.white;
-        const cells: Array<[string, string, "left" | "center" | "right"]> = [
+        const cells: Array<[string, string, "left" | "center" | "right", number?]> = [
           ["sl", String(l.sno), "center"],
-          ["code", l.productCode, "center"],
+          ["code", l.productCode, "center", 6.5],
           ["desc", l.description, "left"],
           ["fabric", l.fabric, "center"],
           ["hsn", l.hsn, "center"],
-          ...data.sizes.map((s): [string, string, "left" | "center" | "right"] => [
+          ...data.sizes.map((s): [string, string, "left" | "center" | "right", number?] => [
             `sz${data.sizes.indexOf(s)}`,
             tallyNum(l.size === s ? l.quantity : 0),
             "center",
@@ -3241,8 +3261,8 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
           ["qty", tallyNum(l.quantity), "right"],
           ["amt", tallyNum(l.amount), "right"],
         ];
-        for (const [k, t, a] of cells) {
-          cell(colX(k), y, colW(k), rowH, t, { size: 7, align: a, fill });
+        for (const [k, t, a, sz] of cells) {
+          cell(colX(k), y, colW(k), rowH, t, { size: sz ?? 7, align: a, fill });
         }
         y += rowH;
       });
