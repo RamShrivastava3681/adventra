@@ -1932,20 +1932,40 @@ function SOModal({
                   const snapMrp = l.mrp || (prod?.mrp != null ? String(prod.mrp) : "");
                   const overDispatched =
                     editable && l.dispatched_qty > 0 && Number(l.ordered_qty) < l.dispatched_qty;
-                  // Size selection box: every size in the line's product family
-                  // (sibling variants under the same parent). Picking one swaps
-                  // the line to the matching variant SKU (same colour kept when
+                  // Size selection box: every size SKU in the line's product family.
+                  // Catalogue hierarchies can be parent → variant (2 levels) or
+                  // parent → colour → size SKU (3 levels), so descendants are
+                  // gathered two levels deep — direct children alone miss the
+                  // size SKUs that hang under colour nodes. Picking a size swaps
+                  // the line to the matching size SKU (same colour kept when
                   // possible), so a size is always selectable per line.
-                  const rootProd =
-                    (prod as any)?.parent_id
-                      ? ((products.find((x) => x.id === (prod as any).parent_id) as any) ?? prod)
-                      : prod;
-                  const familyKids = rootProd
-                    ? (products.filter((x) => (x as any).parent_id === rootProd.id) as any[])
-                    : [];
+                  const upOf = (node: any): any =>
+                    node?.parent_id
+                      ? (products.find((x) => x.id === node.parent_id) ?? null)
+                      : null;
+                  let familyRoot: any = prod ?? null;
+                  {
+                    const up1 = upOf(familyRoot);
+                    if (up1) {
+                      familyRoot = up1;
+                      const up2 = upOf(familyRoot);
+                      if (up2) familyRoot = up2;
+                    }
+                  }
+                  const childrenOf = (id: string): any[] =>
+                    products.filter((x) => (x as any).parent_id === id) as any[];
+                  let descendants: any[] = [];
+                  if (familyRoot) {
+                    const level1 = childrenOf(familyRoot.id);
+                    descendants = [...level1];
+                    for (const c of level1) descendants.push(...childrenOf((c as any).id));
+                  }
+                  const sizedDescendants = descendants.filter(
+                    (k: any) => String(k?.size ?? "").trim() !== "",
+                  );
                   const sizePool =
-                    familyKids.length > 0
-                      ? familyKids
+                    sizedDescendants.length > 0
+                      ? sizedDescendants
                       : prod?.size != null && String(prod.size).trim()
                         ? [prod]
                         : [];
