@@ -100,6 +100,7 @@ export function ProductVariantPicker({
   // The parent the user is drilling into. Kept locally while they pick a
   // variant, because the document line doesn't change until the child lands.
   const [draftParentId, setDraftParentId] = useState("");
+  const [draftColor, setDraftColor] = useState("");
 
   const byId = useMemo(() => {
     const m = new Map<string, ProductVariantOption>();
@@ -127,6 +128,9 @@ export function ProductVariantPicker({
 
   const kids = (shownParentId ? childrenByParent.get(shownParentId) : undefined) ?? [];
   const activeChildId = value && byId.get(value)?.parent_id === shownParentId ? value : "";
+  const activeKid = value ? byId.get(value) : undefined;
+  const currentKidColor = activeKid && activeKid.parent_id === shownParentId ? clean(activeKid.color) : "";
+  const effectiveColor = currentKidColor || draftColor;
 
   // When the line's value becomes a product that sits under a DIFFERENT parent
   // than the in-progress draft, the draft is resolved — drop it so the picker
@@ -138,6 +142,32 @@ export function ProductVariantPicker({
     const root = sel ? (sel.parent_id ?? sel.id) : "";
     setDraftParentId((d) => (d && root !== d ? "" : d));
   }, [value, byId]);
+
+  const availableColors = useMemo(() => {
+    const set = new Set<string>();
+    for (const k of kids) {
+      const c = clean(k.color);
+      if (c) set.add(c);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [kids]);
+
+  const availableSizes = useMemo(() => {
+    const set = new Set<string>();
+    for (const k of kids) {
+      const s = clean(k.size);
+      if (s) set.add(s);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [kids]);
+
+  const hasBothColorAndSize = availableColors.length > 0 && availableSizes.length > 0;
+
+  // Filter available variant options based on the chosen colour
+  const kidsForColor = useMemo(() => {
+    if (!effectiveColor) return kids;
+    return kids.filter((k) => clean(k.color).toLowerCase() === effectiveColor.toLowerCase());
+  }, [kids, effectiveColor]);
 
   const categories = useMemo(() => {
     const set = new Set<string>();
@@ -178,6 +208,7 @@ export function ProductVariantPicker({
   const handleCategoryChange = (next: string) => {
     setActiveCategory(next);
     setDraftParentId("");
+    setDraftColor("");
     if (selected && clean(selected.category) !== "" && clean(selected.category) !== next && next !== "") {
       // The selected parent's own category decides; variants inherit it.
       const root = selected.parent_id ? byId.get(selected.parent_id) : selected;
@@ -194,6 +225,7 @@ export function ProductVariantPicker({
     // clear the line so a stale SKU can never ride along.
     const rootOfCurrent = selected ? (selected.parent_id ?? selected.id) : "";
     if (selected && rootOfCurrent !== parentId) onChange("");
+    setDraftColor("");
     if (kidList.length === 0) {
       // Childless parent — it IS the selectable SKU.
       onChange(parentId);
@@ -215,8 +247,9 @@ export function ProductVariantPicker({
   const layoutClass =
     layout === "inline"
       ? cn(
-          "grid w-full min-w-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.5fr)]",
-          kids.length > 0 && "2xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.2fr)_minmax(0,1fr)]",
+          "grid w-full min-w-0 grid-cols-1 gap-3 xl:grid-cols-[minmax(0,0.85fr)_minmax(0,1.3fr)]",
+          kids.length > 0 && !hasBothColorAndSize && "2xl:grid-cols-[minmax(0,0.8fr)_minmax(0,1.2fr)_minmax(0,1fr)]",
+          kids.length > 0 && hasBothColorAndSize && "2xl:grid-cols-[minmax(0,0.7fr)_minmax(0,1.1fr)_minmax(0,0.75fr)_minmax(0,0.75fr)]",
         )
       : "space-y-1.5";
 
@@ -284,9 +317,72 @@ export function ProductVariantPicker({
           })}
         />
       </div>
-      {kids.length > 0 && (
+      {kids.length > 0 && hasBothColorAndSize ? (
+        <>
+          {/* Step 3a — Colour dropdown: filters available size variants */}
+          <div className="w-full min-w-0">
+            {showLabels && <span className={labelCls}>Colour</span>}
+            <SearchableSelect
+              value={effectiveColor}
+              onChange={(color) => {
+                setDraftColor(color);
+                // If current selected product does not belong to this new colour, clear it
+                if (activeKid && clean(activeKid.color).toLowerCase() !== color.toLowerCase()) {
+                  onChange("");
+                }
+              }}
+              disabled={disabled}
+              placeholder="Select colour…"
+              searchPlaceholder="Type colour…"
+              fullLabel
+              options={availableColors.map((col) => {
+                const count = kids.filter((k) => clean(k.color).toLowerCase() === col.toLowerCase()).length;
+                return {
+                  value: col,
+                  label: col,
+                  hint: `${count} size${count === 1 ? "" : "s"} available`,
+                };
+              })}
+            />
+          </div>
+
+          {/* Step 3b — Size dropdown: dynamically filtered by the selected colour */}
+          <div className="w-full min-w-0">
+            {showLabels && <span className={labelCls}>Size</span>}
+            <SearchableSelect
+              value={activeChildId}
+              onChange={(childId) => {
+                onChange(childId);
+                setDraftParentId("");
+              }}
+              disabled={disabled || !effectiveColor}
+              placeholder={!effectiveColor ? "Select colour first…" : "Select size…"}
+              searchPlaceholder="Type size…"
+              fullLabel
+              options={kidsForColor
+                .sort((a, b) => (clean(a.size) || "").localeCompare(clean(b.size) || "", undefined, { numeric: true, sensitivity: "base" }))
+                .map((c) => ({
+                  value: c.id,
+                  label: clean(c.size) || variantShortLabel(c),
+                  hint: [clean(c.color), c.sku ? `SKU ${c.sku}` : null].filter(Boolean).join(" · ") || undefined,
+                }))}
+            />
+            {!activeChildId && !disabled && (
+              <p className="mt-1 text-[10px] text-sem-attention">
+                {!effectiveColor
+                  ? "Item ✓ — select a colour first to see available sizes."
+                  : "Colour ✓ — now select a size to add this product."}
+              </p>
+            )}
+          </div>
+        </>
+      ) : kids.length > 0 ? (
         <div className="w-full min-w-0">
-          {showLabels && <span className={labelCls}>Variant</span>}
+          {showLabels && (
+            <span className={labelCls}>
+              {availableColors.length > 0 ? "Colour" : availableSizes.length > 0 ? "Size" : "Variant"}
+            </span>
+          )}
           <SearchableSelect
             value={activeChildId}
             onChange={(childId) => {
@@ -307,11 +403,11 @@ export function ProductVariantPicker({
           />
           {!activeChildId && !disabled && (
             <p className="mt-1 text-[10px] text-sem-attention">
-              Category ✓ · Item ✓ — now select a colour / size variant to add this product.
+              Category ✓ · Item ✓ — now select a variant to add this product.
             </p>
           )}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
