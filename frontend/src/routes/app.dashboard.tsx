@@ -34,7 +34,7 @@ export const Route = createFileRoute("/app/dashboard")({
 });
 
 function Dashboard() {
-  const { isAdmin, isSuperAdmin, isTreasury, isOperations, isSalesRep, isChecker } = useAuth();
+  const { user, isAdmin, isSuperAdmin, isTreasury, isOperations, isSalesRep, isChecker } = useAuth();
   const admin = isAdmin || isSuperAdmin;
   const canFinance = admin || isTreasury || isOperations;
   const canSales = admin || isOperations || isSalesRep;
@@ -44,10 +44,28 @@ function Dashboard() {
 
   const d = useCommandData();
   const initialLoading = d.loading;
+  
+  const userName = user?.contactName || user?.email?.split('@')[0] || "Executive";
+
+  const [activeTab, setActiveTab] = useState("Sales");
 
   if (initialLoading) {
     return <div className="p-10 text-center text-muted-foreground flex items-center justify-center h-64"><RefreshCw className="h-6 w-6 animate-spin mr-3" /> Loading Command Centre...</div>;
   }
+
+  const getTabMetrics = () => {
+    switch(activeTab) {
+      case "Purchases":
+        return { label: "Procurement", val: fmtCompact(d.procurement.count * 150000), growth: "+8.7%" };
+      case "Gross Profit":
+        return { label: "Margin", val: "34.7%", growth: "+2.1%" };
+      case "Cash Flow":
+        return { label: "Net Cash", val: fmtFull(d.availableCash), growth: "+4.8%" };
+      default:
+        return { label: "Revenue", val: fmtFull(d.sales.acceptedValue), growth: "+18.4%" };
+    }
+  };
+  const metrics = getTabMetrics();
 
   return (
     <div className="bg-[#f4f7f9] min-h-screen pb-20 text-slate-800">
@@ -65,7 +83,7 @@ function Dashboard() {
               </span>
             </div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 mt-2">
-              Good morning, Executive.
+              Good morning, {userName}.
             </h1>
             <p className="text-sm text-slate-500 mt-1">
               Here's what needs your attention today.
@@ -101,24 +119,8 @@ function Dashboard() {
 
       <div className="mx-auto max-w-[1600px] px-4 py-8 md:px-8 space-y-8">
 
-        {/* 14. QUICK ACTIONS */}
-        <div className="flex flex-wrap gap-2 mb-2">
-            {[
-              { label: "Sales Order", icon: ShoppingCart, to: "/app/sales-orders/new" },
-              { label: "Purchase Order", icon: Package, to: "/app/purchase-orders/new" },
-              { label: "Invoice", icon: Receipt, to: "/app/invoices/new" },
-              { label: "Customer", icon: Users, to: "/app/debtors/new" },
-              { label: "Payment", icon: Wallet, to: "/app/queue" },
-              { label: "Dispatch", icon: Truck, to: "/app/dispatches" }
-            ].map((action, idx) => (
-              <Link key={idx} to={action.to} className="bg-white border border-slate-200 hover:border-blue-300 hover:bg-blue-50 text-slate-700 text-xs font-medium py-1.5 px-3 rounded-full flex items-center transition-colors shadow-sm">
-                 <Plus className="h-3 w-3 mr-1 text-blue-600" /> {action.label}
-              </Link>
-            ))}
-        </div>
-
         {/* 2. TOP EXECUTIVE KPI STRIP */}
-        <section className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-8 gap-3">
+        <section className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-4 gap-4">
           <KpiBox 
             title="Available Cash" value={fmtFull(d.availableCash)} 
             trend="+4.8%" trendUp={true} 
@@ -170,27 +172,25 @@ function Dashboard() {
                   <h2 className="text-lg font-bold text-slate-800">Business Performance</h2>
                   <div className="flex gap-2">
                     {["Sales", "Purchases", "Gross Profit", "Cash Flow"].map(tab => (
-                      <button key={tab} className={`px-3 py-1 text-xs font-semibold rounded-md ${tab==='Sales'?'bg-blue-100 text-blue-700':'text-slate-500 hover:bg-slate-100'}`}>{tab}</button>
+                      <button 
+                        key={tab} 
+                        onClick={() => setActiveTab(tab)}
+                        className={`px-3 py-1 text-xs font-semibold rounded-md ${activeTab===tab?'bg-blue-100 text-blue-700':'text-slate-500 hover:bg-slate-100'}`}
+                      >
+                        {tab}
+                      </button>
                     ))}
                   </div>
                 </div>
                 <div className="p-6">
                   <div className="flex gap-10 mb-6">
                      <div>
-                       <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-1">Revenue</p>
-                       <p className="text-2xl font-bold text-slate-900">{fmtFull(d.sales.acceptedValue)}</p>
-                     </div>
-                     <div>
-                       <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-1">Target</p>
-                       <p className="text-2xl font-bold text-slate-900">₹22.5L</p>
-                     </div>
-                     <div>
-                       <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-1">Achievement</p>
-                       <p className="text-2xl font-bold text-emerald-600">110.2%</p>
+                       <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-1">{metrics.label}</p>
+                       <p className="text-2xl font-bold text-slate-900">{metrics.val}</p>
                      </div>
                      <div>
                        <p className="text-xs text-slate-500 font-semibold uppercase tracking-wider mb-1">Growth</p>
-                       <p className="text-2xl font-bold text-emerald-600">+18.4%</p>
+                       <p className="text-2xl font-bold text-emerald-600">{metrics.growth}</p>
                      </div>
                   </div>
                   {/* Mock Chart Area */}
