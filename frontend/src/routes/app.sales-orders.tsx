@@ -1593,7 +1593,7 @@ function SOModal({
                     <>
                       {editable && opts.length > 1 && (
                         <select
-                          className="inp mb-1"
+                          className={`${selectBase} mb-1`}
                           value={opts.findIndex((a) => fullAddr(a) === f.billing_address) >= 0 ? String(opts.findIndex((a) => fullAddr(a) === f.billing_address)) : "custom"}
                           onChange={(e) => {
                             if (e.target.value === "custom") return;
@@ -1620,14 +1620,14 @@ function SOModal({
                 })()}
                 <div className="mt-1 grid grid-cols-2 gap-1.5">
                   <input
-                    className="inp !py-1.5 !text-xs"
+                    className={`${inputBase} !py-1.5 !text-xs`}
                     value={f.bill_gstin}
                     onChange={(e) => setF({ ...f, bill_gstin: e.target.value })}
                     placeholder="Bill-to GSTIN"
                     disabled={!editable}
                   />
                   <input
-                    className="inp !py-1.5 !text-xs text-center placeholder:text-center"
+                    className={`${inputBase} !py-1.5 !text-xs text-center placeholder:text-center`}
                     value={f.bill_pan}
                     onChange={(e) => setF({ ...f, bill_pan: e.target.value })}
                     placeholder="Bill-to PAN"
@@ -1646,7 +1646,7 @@ function SOModal({
                     <>
                       {editable && opts.length > 1 && (
                         <select
-                          className="inp mb-1"
+                          className={`${selectBase} mb-1`}
                           value={opts.findIndex((a) => fullAddr(a) === f.delivery_address) >= 0 ? String(opts.findIndex((a) => fullAddr(a) === f.delivery_address)) : "custom"}
                           onChange={(e) => {
                             if (e.target.value === "custom") return;
@@ -1687,14 +1687,14 @@ function SOModal({
                 })()}
                 <div className="mt-1 grid grid-cols-2 gap-1.5">
                   <input
-                    className="inp !py-1.5 !text-xs"
+                    className={`${inputBase} !py-1.5 !text-xs`}
                     value={f.ship_gstin}
                     onChange={(e) => setF({ ...f, ship_gstin: e.target.value })}
                     placeholder="Ship-to GSTIN"
                     disabled={!editable}
                   />
                   <input
-                    className="inp !py-1.5 !text-xs text-center placeholder:text-center"
+                    className={`${inputBase} !py-1.5 !text-xs text-center placeholder:text-center`}
                     value={f.ship_pan}
                     onChange={(e) => setF({ ...f, ship_pan: e.target.value })}
                     placeholder="Ship-to PAN"
@@ -1932,6 +1932,57 @@ function SOModal({
                   const snapMrp = l.mrp || (prod?.mrp != null ? String(prod.mrp) : "");
                   const overDispatched =
                     editable && l.dispatched_qty > 0 && Number(l.ordered_qty) < l.dispatched_qty;
+                  // Size selection box: every size in the line's product family
+                  // (sibling variants under the same parent). Picking one swaps
+                  // the line to the matching variant SKU (same colour kept when
+                  // possible), so a size is always selectable per line.
+                  const rootProd =
+                    (prod as any)?.parent_id
+                      ? ((products.find((x) => x.id === (prod as any).parent_id) as any) ?? prod)
+                      : prod;
+                  const familyKids = rootProd
+                    ? (products.filter((x) => (x as any).parent_id === rootProd.id) as any[])
+                    : [];
+                  const sizePool =
+                    familyKids.length > 0
+                      ? familyKids
+                      : prod?.size != null && String(prod.size).trim()
+                        ? [prod]
+                        : [];
+                  const sizeOrder = (a: string, b: string) =>
+                    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+                  const lineSizeOptions = Array.from(
+                    new Set(
+                      sizePool
+                        .map((k: any) => String(k?.size ?? "").trim())
+                        .filter((s: string) => s !== ""),
+                    ),
+                  ).sort(sizeOrder);
+                  const lineSizeValue =
+                    (l.size ?? "").trim() ||
+                    (lineSizeOptions.includes(snapSize) ? snapSize : "");
+                  const sizeSelectOptions =
+                    lineSizeValue && !lineSizeOptions.includes(lineSizeValue)
+                      ? [lineSizeValue, ...lineSizeOptions]
+                      : lineSizeOptions;
+                  const changeLineSize = (next: string) => {
+                    const size = next.trim();
+                    if (!size) {
+                      setLine(i, { size: "" });
+                      return;
+                    }
+                    const poolMatch =
+                      sizePool.find(
+                        (k: any) =>
+                          String(k?.size ?? "").trim() === size &&
+                          (!l.color.trim() ||
+                            String(k?.color ?? "").trim().toLowerCase() ===
+                              l.color.trim().toLowerCase()),
+                      ) ??
+                      sizePool.find((k: any) => String(k?.size ?? "").trim() === size);
+                    if (poolMatch && poolMatch.id !== l.product_id) pickProduct(i, poolMatch.id);
+                    else setLine(i, { size });
+                  };
                   return (
                     <div key={i} className="space-y-4 rounded-lg border border-border/60 bg-card/30 p-4 sm:p-5">
                       <div className="min-w-0">
@@ -1943,6 +1994,7 @@ function SOModal({
                               placeholder="Select item…"
                               childPlaceholder="Select colour / size…"
                               categoryPlaceholder="Select category…"
+                              categoryCompact
                               layout="stacked"
                             />
                           {(snapColor || snapSize || snapCode || snapHsn || snapMrp) && (
@@ -1972,15 +2024,15 @@ function SOModal({
                               disabled={!editable}
                             />
                         </div>
-                        <div>
-                          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
-                            Ordered qty
-                          </span>
-                          <input
+<div>
+                            <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                              Ordered qty
+                            </span>
+                            <input
                               type="number"
                               min="1"
                               step="0.001"
-                              className={`inp ${overDispatched ? "!border-sem-attention" : ""}`}
+                              className={overDispatched ? `${inputBase} !border-sem-attention` : inputBase}
                               value={l.ordered_qty}
                               onChange={(e) => setLine(i, { ordered_qty: e.target.value })}
                               disabled={!editable}
@@ -1990,6 +2042,30 @@ function SOModal({
                               Cannot go below dispatched ({l.dispatched_qty})
                             </div>
                           )}
+                        </div>
+                        <div>
+                          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
+                            Size
+                          </span>
+                          <select
+                            className={selectBase}
+                            value={lineSizeValue}
+                            onChange={(e) => changeLineSize(e.target.value)}
+                            disabled={!editable || sizeSelectOptions.length === 0}
+                          >
+                            <option value="">
+                              {!l.product_id
+                                ? "Select item first…"
+                                : sizeSelectOptions.length === 0
+                                  ? "No sizes"
+                                  : "Select size…"}
+                            </option>
+                            {sizeSelectOptions.map((s) => (
+                              <option key={s} value={s}>
+                                {s}
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         <div>
                           {l.product_id ? (
@@ -2062,7 +2138,7 @@ function SOModal({
                           <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
                             Line total
                           </span>
-                          <div className="inp text-right font-mono tabular-nums">
+                          <div className={`${inputBase} bg-muted/40 text-right font-mono tabular-nums`}>
                               {fmtMoney(lineTotal)}
                             </div>
                         </div>
@@ -2094,7 +2170,7 @@ function SOModal({
                       {editable && (
                         <L label="Line notes">
                           <input
-                            className="inp !py-1.5 text-xs"
+                            className={`${inputBase} !py-1.5 text-xs`}
                             value={l.notes}
                             onChange={(e) => setLine(i, { notes: e.target.value })}
                             placeholder="Optional line note…"
@@ -2137,7 +2213,7 @@ function SOModal({
                 type="number"
                 min="0"
                 step="0.01"
-                className="inp !w-40 !py-1 text-right"
+                className={`${inputBase} !w-40 !py-1 text-right`}
                 value={f.freight}
                 onChange={(e) => setF({ ...f, freight: e.target.value })}
                 disabled={!editable}

@@ -78,6 +78,7 @@ export function ProductVariantPicker({
   showLabels = true,
   categoryPlaceholder = "Select category…",
   layout = "stacked",
+  categoryCompact = false,
 }: {
   products: ProductVariantOption[];
   /** The line's current product id (a variant's id, a childless parent's id, or ""). */
@@ -96,6 +97,12 @@ export function ProductVariantPicker({
   categoryPlaceholder?: string;
   /** Use side-by-side category/item fields inside document line editors. */
   layout?: "stacked" | "inline";
+  /**
+   * Render the category dropdown as a compact single-line (h-9, truncated)
+   * control instead of the wrapping full-label style, so it stays the same
+   * height as the other boxes. Opt-in — other pages keep the current look.
+   */
+  categoryCompact?: boolean;
 }) {
   // The parent the user is drilling into. Kept locally while they pick a
   // variant, because the document line doesn't change until the child lands.
@@ -266,7 +273,8 @@ export function ProductVariantPicker({
             disabled={disabled}
             placeholder={categoryPlaceholder}
             searchPlaceholder="Search categories…"
-            fullLabel
+            fullLabel={!categoryCompact}
+            triggerClassName={categoryCompact ? "h-9" : undefined}
             options={[
               { value: "", label: "All categories", hint: `${products.filter((p) => !p.parent_id).length} items` },
               ...categories.map((c) => ({
