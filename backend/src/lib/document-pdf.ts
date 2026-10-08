@@ -3057,7 +3057,10 @@ export function goodsPOToPdfData(
     totalQty: Number(po.totalQty ?? po.total_qty ?? lines.reduce((x, l) => x + l.quantity, 0)) || 0,
     grandTotal,
     amountWords: amountInWordsINR(grandTotal),
-    remarks: po.notes ?? "",
+    // Print remarks exactly as the user entered them in the form: every line
+    // break (Enter) becomes a new line in the PDF. Normalize Windows/Mac line
+    // endings first so all of them render identically.
+    remarks: String(po.notes ?? "").replace(/\r\n?/g, "\n"),
     bank,
     bankRaw: opts?.bankRaw ?? null,
     declaration,
@@ -3270,18 +3273,56 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
       // Reserve the whole tail (totals → amount-in-words → remarks/bank →
       // declaration → sign-off) as ONE unit. Without this, a page break inside
       // the sign-off strands it on a near-empty trailing page.
+      // Greedy word-wrap into lines (splits overlong words by character so a
+      // single unbroken token can never overflow the column). Splits on the
+      // user's own line breaks FIRST, so remarks print exactly as entered —
+      // every Enter in the form becomes a new line in the PDF.
+      const wrapLines = (text: string, w: number, size: number, font?: string): string[] => {
+        doc.font(font ?? F).fontSize(size);
+        const maxW = Math.max(1, w - PAD * 2);
+        const out: string[] = [];
+        for (const para of text.split(/\r?\n/)) {
+          if (!para.trim()) { out.push(""); continue; }
+          let cur = "";
+          const flush = () => { out.push(cur); cur = ""; };
+          for (const wd of para.split(/\s+/)) {
+            if (doc.widthOfString(wd) > maxW) {
+              if (cur) flush();
+              let chunk = "";
+              for (const ch of wd) {
+                if (doc.widthOfString(chunk + ch) > maxW && chunk) { out.push(chunk); chunk = ch; }
+                else chunk += ch;
+              }
+              cur = chunk;
+              continue;
+            }
+            const trial = cur ? `${cur} ${wd}` : wd;
+            if (doc.widthOfString(trial) > maxW && cur) { flush(); cur = wd; }
+            else cur = trial;
+          }
+          flush();
+        }
+        return out;
+      };
+      // Explicit per-line height for the remarks block (same grid the
+      // overflow path below uses), so the reserved height and the drawn
+      // lines always agree — remarks can never overlap the next block.
+      const remLineH = (w: number, size: number): number => {
+        doc.font(F).fontSize(size);
+        return Math.max(9, Math.ceil(doc.heightOfString("Ag", { width: Math.max(1, w - PAD * 2) })));
+      };
       const tailWordsW = Math.round(CW * 0.8);
       const tailWordsH = Math.max(24, Math.ceil(wrapH(data.amountWords, tailWordsW, 7) + 18));
       const tailBankW = Math.round(CW * 0.45);
       const tailRemW = CW - tailBankW;
-      const tailRemarkText = data.remarks ? `Remarks:\n${data.remarks}` : "";
+      const tailRemarkLines = data.remarks ? wrapLines(`Remarks:\n${data.remarks}`, tailRemW, 7) : [];
       const tailBankLineCount = data.bank ? 4 : 0;
       const tailBankInfoH = data.bank
         ? 12 + tailBankLineCount * 11
         : data.bankRaw
           ? Math.max(30, Math.ceil(wrapH(data.bankRaw, tailBankW, 7) + 18))
           : 14;
-      const tailRbH = Math.max(22, Math.ceil(wrapH(tailRemarkText, tailRemW, 7) + 8), tailBankInfoH + 2);
+      const tailRbH = Math.max(22, tailRemarkLines.length ? tailRemarkLines.length * remLineH(tailRemW, 7) + 4 : 0, tailBankInfoH + 2);
       const tailDeclText = (data.declaration ?? []).join("\n");
       const tailDeclH = tailDeclText
         ? Math.max(20, Math.ceil(wrapH(`Declaration\n${tailDeclText}`, CW, 7) + 8))
@@ -3325,44 +3366,17 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
       // is ever cut off.
       const bankW = Math.round(CW * 0.45);
       const remW = CW - bankW;
-      const remarkText = data.remarks ? `Remarks:\n${data.remarks}` : "";
+      // One wrapped line per user line break — measured and drawn with the
+      // same grid, so the PDF mirrors the form exactly.
+      const remarkLines = data.remarks ? wrapLines(`Remarks:\n${data.remarks}`, remW, 7) : [];
       const bankLineCount = data.bank ? 4 : 0;
       const bankInfoH = data.bank
         ? 12 + bankLineCount * 11
         : data.bankRaw
           ? Math.max(30, Math.ceil(wrapH(data.bankRaw, bankW, 7) + 18))
           : 14;
-      const rbH = Math.max(22, Math.ceil(wrapH(remarkText, remW, 7) + 8), bankInfoH + 2);
+      const rbH = Math.max(22, remarkLines.length ? remarkLines.length * remLineH(remW, 7) + 4 : 0, bankInfoH + 2);
       const pageUsable = BOT - M;
-      // Greedy word-wrap into lines (splits overlong words by character so a
-      // single unbroken token can never overflow the column).
-      const wrapLines = (text: string, w: number, size: number, font?: string): string[] => {
-        doc.font(font ?? F).fontSize(size);
-        const maxW = Math.max(1, w - PAD * 2);
-        const out: string[] = [];
-        for (const para of text.split(/\r?\n/)) {
-          if (!para.trim()) { out.push(""); continue; }
-          let cur = "";
-          const flush = () => { out.push(cur); cur = ""; };
-          for (const wd of para.split(/\s+/)) {
-            if (doc.widthOfString(wd) > maxW) {
-              if (cur) flush();
-              let chunk = "";
-              for (const ch of wd) {
-                if (doc.widthOfString(chunk + ch) > maxW && chunk) { out.push(chunk); chunk = ch; }
-                else chunk += ch;
-              }
-              cur = chunk;
-              continue;
-            }
-            const trial = cur ? `${cur} ${wd}` : wd;
-            if (doc.widthOfString(trial) > maxW && cur) { flush(); cur = wd; }
-            else cur = trial;
-          }
-          flush();
-        }
-        return out;
-      };
       // Full-width bordered block that flows across as many pages as needed.
       // Borders are stroked per page segment so every page looks finished.
       const flowBlock = (x: number, w: number, textLines: string[], size: number, firstBold: boolean) => {
@@ -3419,7 +3433,7 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
       if (rbH > pageUsable) {
         // Overflow path: remarks flow full-width across pages, bank follows.
         tailNeed(20);
-        flowBlock(M, CW, wrapLines(remarkText || "Remarks:", CW, 7), 7, true);
+        flowBlock(M, CW, data.remarks ? wrapLines(`Remarks:\n${data.remarks}`, CW, 7) : ["Remarks:"], 7, true);
         tailNeed(bankInfoH + 14);
         if (y + bankInfoH + 14 > BOT) { doc.addPage(); y = M; }
         const bankTop = y;
@@ -3430,8 +3444,22 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
         tailNeed(rbH);
         const ry0 = y;
         cell(M, y, remW, rbH, "", {});
-        if (remarkText) {
-          doc.font(F).fontSize(7).fillColor(TALLY.ink).text(remarkText, M + PAD, y + 2, { width: remW - PAD * 2, align: "left" });
+        // Drawn line by line (never as one collapsed blob), so every line
+        // break the user entered in the form appears in the PDF as its own
+        // line. Blank lines keep their vertical space.
+        if (remarkLines.length) {
+          const lh = remLineH(remW, 7);
+          let ry = y + 2;
+          remarkLines.forEach((ln, li) => {
+            if (ln) {
+              doc
+                .font(li === 0 ? FB : F)
+                .fontSize(7)
+                .fillColor(TALLY.ink)
+                .text(ln, M + PAD, ry, { width: Math.max(1, remW - PAD * 2), align: "left" });
+            }
+            ry += lh;
+          });
         }
         cell(M + remW, y, bankW, rbH, "", {});
         let by = y;

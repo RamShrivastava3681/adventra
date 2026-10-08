@@ -44,6 +44,8 @@ import {
   toPayload as toTermsPayload,
 } from "@/components/payment-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { StateSelect, CitySelect } from "@/components/state-city-select";
+import { resolveStandardState } from "@/lib/india-city-state";
 import { ClauseCombobox } from "@/components/clause-select";
 import { ProductVariantPicker, fullItemName } from "@/components/product-variant-picker";
 import {
@@ -791,7 +793,9 @@ function POModal({
     if (contactLine) next.contact_person_contact = contactLine;
     if (s.gstin) next.vendor_gstin = s.gstin;
     if (s.panCardNo) next.vendor_pan = s.panCardNo;
-    if (s.stateCode) next.vendor_state = s.stateCode;
+    // Standardize the supplier's stored state to the canonical dropdown
+    // value; unknown free-text values are kept so old masters still display.
+    if (s.stateCode) next.vendor_state = resolveStandardState(s.stateCode) ?? s.stateCode;
     return next;
   };
 
@@ -1629,11 +1633,18 @@ function POModal({
                   disabled={!editable}
                 />
               </L>
-              <L label="Vendor state">
-                <input
-                  className={inputBase}
-                  value={(f as any).vendor_state}
-                  onChange={(e) => setF({ ...f, vendor_state: e.target.value } as any)}
+              <L label="State">
+                <StateSelect
+                  value={String((f as any).vendor_state ?? "")}
+                  onChange={(v) =>
+                    setF((prev) => {
+                      const next = { ...(prev as any), vendor_state: v } as any;
+                      // Never keep a city from the previous state.
+                      if (v !== String((prev as any).vendor_state ?? "")) next.destination = "";
+                      return next;
+                    })
+                  }
+                  placeholder="Select state…"
                   disabled={!editable}
                 />
               </L>
@@ -1663,11 +1674,16 @@ function POModal({
                   disabled={!editable}
                 />
               </L>
-              <L label="Destination">
-                <input
-                  className={inputBase}
-                  value={(f as any).destination}
-                  onChange={(e) => setF({ ...f, destination: e.target.value } as any)}
+              <L label="City">
+                <CitySelect
+                  stateValue={String((f as any).vendor_state ?? "")}
+                  value={String((f as any).destination ?? "")}
+                  onChange={(v) => setF({ ...f, destination: v } as any)}
+                  placeholder={
+                    String((f as any).vendor_state ?? "")
+                      ? "Select city…"
+                      : "Select a state first…"
+                  }
                   disabled={!editable}
                 />
               </L>

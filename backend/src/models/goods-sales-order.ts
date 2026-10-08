@@ -80,6 +80,10 @@ export interface GoodsSalesOrder {
   contactPerson: string | null;
   billingAddress: string | null;
   deliveryAddress: string | null;
+  /** Delivery state — standardized Indian State/UT name picked from a dropdown. */
+  state: string | null;
+  /** Delivery city — dependent on the state, picked from a dropdown. */
+  city: string | null;
   // ── PDF header meta (Tally-style print): all optional, blank renders blank. ──
   /** Buyer's purchase-order number printed on the PDF. */
   buyerOrderNo: string | null;
@@ -430,6 +434,8 @@ export async function create(
     contactPerson: data.contactPerson || null,
     billingAddress: data.billingAddress || null,
     deliveryAddress: data.deliveryAddress || null,
+    state: data.state || null,
+    city: data.city || null,
     buyerOrderNo: data.buyerOrderNo || null,
     referenceNo: data.referenceNo || null,
     deliveryNote: data.deliveryNote || null,
@@ -506,6 +512,8 @@ export async function update(id: string, updates: Partial<GoodsSalesOrder>) {
     "contactPerson",
     "billingAddress",
     "deliveryAddress",
+    "state",
+    "city",
     "buyerOrderNo",
     "referenceNo",
     "deliveryNote",

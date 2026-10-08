@@ -35,6 +35,7 @@ import {
   termSummary,
 } from "@/components/customer-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
+import { StateSelect, CitySelect } from "@/components/state-city-select";
 import { ProductVariantPicker, fullItemName } from "@/components/product-variant-picker";
 import { QuickAddVariantModal } from "@/components/product-quick-create";
 import {
@@ -112,6 +113,10 @@ type SO = {
   contact_person: string | null;
   billing_address: string | null;
   delivery_address: string | null;
+  /** Delivery state (standardized Indian State/UT name via dropdown). */
+  state: string | null;
+  /** Delivery city (dependent on state via dropdown). */
+  city: string | null;
   buyer_order_no: string | null;
   reference_no: string | null;
   delivery_note: string | null;
@@ -768,6 +773,8 @@ function SOModal({
     contact_person: so?.contact_person ?? "",
     billing_address: so?.billing_address ?? "",
     delivery_address: so?.delivery_address ?? "",
+    state: ((so as any)?.state ?? "").trim(),
+    city: ((so as any)?.city ?? "").trim(),
     buyer_order_no: so?.buyer_order_no ?? "",
     reference_no: so?.reference_no ?? "",
     delivery_note: so?.delivery_note ?? "",
@@ -1256,6 +1263,8 @@ function SOModal({
         contact_person: f.contact_person.trim() || null,
         billing_address: f.billing_address.trim() || null,
         delivery_address: f.delivery_address.trim() || null,
+        state: (f.state ?? "").trim() || null,
+        city: (f.city ?? "").trim() || null,
         buyer_order_no: f.buyer_order_no.trim() || null,
         reference_no: f.reference_no.trim() || null,
         delivery_note: f.delivery_note.trim() || null,
@@ -1289,6 +1298,8 @@ function SOModal({
       !(d.f as any).contact_person?.trim() &&
       !(d.f as any).billing_address?.trim() &&
       !(d.f as any).delivery_address?.trim() &&
+      !(d.f as any).state?.trim() &&
+      !(d.f as any).city?.trim() &&
       !(d.f as any).buyer_order_no?.trim() &&
       !(d.f as any).reference_no?.trim() &&
       !(d.f as any).notes?.trim() &&
@@ -1612,6 +1623,30 @@ function SOModal({
                     disabled={!editable}
                   />
                 </div>
+              </L>
+              <L label="State">
+                <StateSelect
+                  value={f.state ?? ""}
+                  onChange={(v) =>
+                    setF((prev) => ({
+                      ...prev,
+                      state: v,
+                      // Never keep a city from the previous state.
+                      city: v === (prev.state ?? "") ? (prev.city ?? "") : "",
+                    }))
+                  }
+                  placeholder="Select state…"
+                  disabled={!editable}
+                />
+              </L>
+              <L label="City">
+                <CitySelect
+                  stateValue={f.state ?? ""}
+                  value={f.city ?? ""}
+                  onChange={(v) => setF({ ...f, city: v })}
+                  placeholder={(f.state ?? "") ? "Select city…" : "Select a state first…"}
+                  disabled={!editable}
+                />
               </L>
               <L label="Salesperson / owner">
                 <input className={inputBase} value={so?.salesperson_name ?? "You"} disabled />
