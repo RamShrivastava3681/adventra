@@ -395,7 +395,8 @@ router.get(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /reports/aging — debtor aging buckets, server-paginated.
-// Params: page, limit, search, status (all|overdue|pending), buyer_id, from, to
+// Params: page, limit, search, status (all|overdue|pending), buyer_id,
+//         bucket (all|current|d1_30|d31_60|d61_90|d91_120|d120), from, to
 // ─────────────────────────────────────────────────────────────────────────────
 router.get(
   "/reports/aging",
@@ -406,6 +407,7 @@ router.get(
       const status = queryStr(req.query.status) || "all";
       const q = (queryStr(req.query.search) || "").toLowerCase();
       const buyerId = queryStr(req.query.buyer_id);
+      const bucket = queryStr(req.query.bucket) || "all";
       const from = queryStr(req.query.from);
       const to = queryStr(req.query.to);
       const nowISO = today();
@@ -459,6 +461,19 @@ router.get(
 
       if (buyerId) rows = rows.filter((r) => r.buyer_id === buyerId);
       if (q) rows = rows.filter((r) => `${r.buyer}`.toLowerCase().includes(q));
+
+      // Days-bucket filter — keep only buyers with a balance in the bucket.
+      const BUCKET_KEYS = new Set([
+        "current",
+        "d1_30",
+        "d31_60",
+        "d61_90",
+        "d91_120",
+        "d120",
+      ]);
+      if (bucket !== "all" && BUCKET_KEYS.has(bucket)) {
+        rows = rows.filter((r) => num((r as any)[bucket]) > 0.005);
+      }
 
       rows.sort((a, b) => b.total - a.total);
       res.json(

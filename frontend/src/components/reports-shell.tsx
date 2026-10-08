@@ -27,6 +27,7 @@ export interface ReportFilters {
   status: string; // "all" or a pill value (open/closed/overdue/…)
   q: string;
   buyerId: string;
+  bucket: string; // "all" or an aging days-bucket key (current/d1_30/…)
   payment: string; // "" | bulk_pay | treasury_pay
   from: string;
   to: string;
@@ -36,6 +37,7 @@ export const EMPTY_FILTERS: ReportFilters = {
   status: "all",
   q: "",
   buyerId: "",
+  bucket: "all",
   payment: "",
   from: "",
   to: "",
@@ -46,6 +48,7 @@ export function filtersActive(f: ReportFilters) {
     f.status !== "all" ||
     f.q !== "" ||
     f.buyerId !== "" ||
+    f.bucket !== "all" ||
     f.payment !== "" ||
     f.from !== "" ||
     f.to !== ""
@@ -84,6 +87,7 @@ function paginatedCall(def: ReportDef, filters: ReportFilters, page: number, lim
     to: filters.to || undefined,
   };
   if (filters.status !== "all") params.status = filters.status;
+  if (filters.bucket && filters.bucket !== "all") params.bucket = filters.bucket;
   if (def.id === "sales-invoices") return api.reports.salesInvoices(params);
   if (def.id === "purchase-invoices") return api.reports.purchaseInvoices(params);
   return api.reports.aging(params);
@@ -158,6 +162,7 @@ export function useReportData(
       liveFilters.status,
       liveFilters.q,
       liveFilters.buyerId,
+      liveFilters.bucket,
       liveFilters.payment,
       liveFilters.from,
       liveFilters.to,
@@ -378,7 +383,7 @@ export function ReportFilterBar({
   extra?: ReactNode;
 }) {
   const f = def.filters;
-  const hasAny = f.statuses || f.buyer || f.paymentTypes || f.search || f.dateRange;
+  const hasAny = f.statuses || f.buyer || f.buckets || f.paymentTypes || f.search || f.dateRange;
   if (!hasAny) return null;
 
   const inputCls =
@@ -463,6 +468,24 @@ export function ReportFilterBar({
               {buyers.map((b) => (
                 <option key={b.id} value={b.id}>
                   {b.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {f.buckets && (
+          <div className="w-56">
+            <span className={labelCls}>Days bucket</span>
+            <select
+              className={inputCls}
+              value={filters.bucket || "all"}
+              onChange={(e) => onChange({ bucket: e.target.value })}
+            >
+              <option value="all">All buckets</option>
+              {f.buckets.map((b) => (
+                <option key={b.value} value={b.value}>
+                  {b.label}
                 </option>
               ))}
             </select>

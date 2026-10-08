@@ -25,6 +25,8 @@ import { Plus, Loader2, Save, Trash2, X, Truck } from "lucide-react";
 import { CascadeDeleteDialog, summarizeDeleted } from "@/components/cascade-delete-dialog";
 import { TableSkeleton } from "@/components/skeletons";
 import { useFormDraft, DraftResumeBanner } from "@/lib/form-draft";
+import { StateSelect, CitySelect } from "@/components/state-city-select";
+import { resolveStandardState, stateForCity } from "@/lib/india-city-state";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/app/suppliers")({
@@ -52,6 +54,7 @@ type Supplier = {
   industry: string | null;
   address_line: string | null;
   city: string | null;
+  state_code?: string | null;
   country: string | null;
   postal_code: string | null;
   gstin: string | null;
@@ -74,6 +77,7 @@ const emptyForm = {
   industry: "",
   address_line: "",
   city: "",
+  state_code: "",
   country: "",
   postal_code: "",
   gstin: "",
@@ -138,6 +142,7 @@ export function SuppliersPage() {
         industry: form.industry || null,
         address_line: form.address_line || null,
         city: form.city || null,
+        stateCode: resolveStandardState(form.state_code) ?? (form.state_code || null),
         country: form.country || null,
         postal_code: form.postal_code || null,
         gstin: form.gstin || null,
@@ -228,6 +233,12 @@ export function SuppliersPage() {
 
   const openEdit = (s: Supplier) => {
     setEditing(s);
+    const rawState = (s as any).stateCode ?? (s as any).state_code ?? "";
+    const canonical =
+      resolveStandardState(rawState) ??
+      resolveStandardState(s.country ?? "") ??
+      stateForCity(s.city ?? "") ??
+      rawState;
     setForm({
       company_name: s.company_name,
       contact_name: s.contact_name ?? "",
@@ -236,6 +247,7 @@ export function SuppliersPage() {
       industry: s.industry ?? "",
       address_line: s.address_line ?? "",
       city: s.city ?? "",
+      state_code: canonical ?? "",
       country: s.country ?? "",
       postal_code: s.postal_code ?? "",
       gstin: (s as any).gstin ?? "",
@@ -327,9 +339,9 @@ export function SuppliersPage() {
                         <td className="px-3 py-3">
                           <div className="font-medium">{s.company_name}</div>
                           <div className="text-xs text-muted-foreground">{s.industry ?? "—"}</div>
-                          {(s.city || s.country) && (
+                          {(s.city || (s as any).state_code || (s as any).stateCode || s.country) && (
                             <div className="text-xs text-muted-foreground/70">
-                              {[s.city, s.country].filter(Boolean).join(", ")}
+                              {[s.city, (s as any).state_code ?? (s as any).stateCode, s.country].filter(Boolean).join(", ")}
                             </div>
                           )}
                         </td>
@@ -447,18 +459,32 @@ export function SuppliersPage() {
                   onChange={(e) => setForm({ ...form, address_line: e.target.value })}
                 />
               </F>
+              <F label="State">
+                <StateSelect
+                  value={form.state_code}
+                  onChange={(v) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      state_code: v,
+                      city: v === prev.state_code ? prev.city : "",
+                    }))
+                  }
+                  placeholder="Select state…"
+                />
+              </F>
               <F label="City">
-                <input
-                  maxLength={100}
-                  className={inputBase}
+                <CitySelect
+                  stateValue={form.state_code}
                   value={form.city}
-                  onChange={(e) => setForm({ ...form, city: e.target.value })}
+                  onChange={(v) => setForm({ ...form, city: v })}
+                  placeholder={form.state_code ? "Select city…" : "Select a state first…"}
                 />
               </F>
               <F label="Country">
                 <input
                   maxLength={100}
                   className={inputBase}
+                  placeholder="e.g. India"
                   value={form.country}
                   onChange={(e) => setForm({ ...form, country: e.target.value })}
                 />
@@ -640,7 +666,7 @@ function SupplierDetailModal({
   exposure: number;
   onClose: () => void;
 }) {
-  const address = [supplier.address_line, supplier.city, supplier.country, supplier.postal_code]
+  const address = [supplier.address_line, supplier.city, (supplier as any).state_code ?? (supplier as any).stateCode ?? (supplier as any).state_code, supplier.country, supplier.postal_code]
     .filter(Boolean)
     .join(", ");
   return (

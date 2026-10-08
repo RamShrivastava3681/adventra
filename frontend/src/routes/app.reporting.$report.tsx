@@ -185,6 +185,11 @@ function buildFilterNotes(
     const name = buyers.find((b) => b.id === filters.buyerId)?.name ?? filters.buyerId;
     notes.push(`Buyer: ${name}`);
   }
+  if (filters.bucket && filters.bucket !== "all") {
+    const label =
+      def.filters.buckets?.find((b) => b.value === filters.bucket)?.label ?? filters.bucket;
+    notes.push(`Days bucket: ${label}`);
+  }
   if (filters.payment) {
     notes.push(`Payment: ${filters.payment === "bulk_pay" ? "Bulk Pay" : "Treasury Pay"}`);
   }

@@ -75,7 +75,7 @@ function shippingTone(s: string) {
   return "bg-muted text-muted-foreground";
 }
 
-// â”€â”€â”€ Types (snake_case â€” the backend response transform) â”€â”€
+// ─── Types (snake_case — the backend response transform) ──
 type SOLine = {
   product_id: string;
   sku: string | null;
@@ -216,7 +216,7 @@ export function WarehousePage() {
     return map;
   }, [movements]);
 
-  // â”€â”€ Order sign-off queue (hard gate: only approved SOs can be dispatched) â”€â”€
+  // ── Order sign-off queue (hard gate: only approved SOs can be dispatched) ──
   const signoffOrders = orders
     .filter(
       (o) => ["warehouse_pending", "checker_pending", "confirmed", "partially_dispatched"].includes(o.status),
@@ -232,7 +232,7 @@ export function WarehousePage() {
       return an.localeCompare(bn);
     });
 
-  // â”€â”€ Open Sales Orders: SOs awaiting warehouse sign-off or with pending quantity
+  // ── Open Sales Orders: SOs awaiting warehouse sign-off or with pending quantity
   // Excludes fully_dispatched and cancelled
   const openOrders = useMemo(() => {
     return signoffOrders.filter(
@@ -281,7 +281,7 @@ export function WarehousePage() {
     (o) => o.status === "warehouse_pending",
   );
 
-  // â”€â”€ Ready to dispatch: warehouse-approved SOs with pending quantity â”€â”€
+  // ── Ready to dispatch: warehouse-approved SOs with pending quantity ──
   const readyOrders = useMemo(() => {
     return signoffOrders
       .filter((o) => (o.warehouse_status ?? "pending") === "approved")
@@ -316,7 +316,7 @@ export function WarehousePage() {
       .sort((a: any, b: any) => ((a.expected_dispatch_date ?? a.due_date ?? '').localeCompare(b.expected_dispatch_date ?? b.due_date ?? '')));
   }, [invoices, dispatchedInvoiceIds]);
 
-  // â”€â”€ Ready POs: approved POs with pending receipt quantity â”€â”€
+  // ── Ready POs: approved POs with pending receipt quantity ──
 
 
   const openDispatches = dispatches.filter(
@@ -325,7 +325,7 @@ export function WarehousePage() {
 
   // Returns + due-today memos removed with the KPI cards.
 
-  // â”€â”€ Unified operational work items (presentation layer over existing memos) â”€â”€
+  // ── Unified operational work items (presentation layer over existing memos) ──
   // Work-items memo removed with the work-items table.
 
   // Work-items filter removed with the work-items table.
@@ -334,7 +334,7 @@ export function WarehousePage() {
 
 
 
-  // â”€â”€ Mutations (unchanged business logic) â”€â”€
+  // ── Mutations (unchanged business logic) ──
   const signoff = useMutation({
     mutationFn: async ({
       id,
@@ -352,8 +352,8 @@ export function WarehousePage() {
       qc.invalidateQueries({ queryKey: ["goods_sales_orders"] });
       toast.success(
         vars.action === "approve"
-          ? "Order approved â€” sent to Checker"
-          : "Order rejected â€” returned to Sales review",
+          ? "Order approved — sent to Checker"
+          : "Order rejected — returned to Sales review",
       );
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Sign-off failed"),
@@ -437,7 +437,7 @@ export function WarehousePage() {
 
   return (
     <div id="top" className="min-h-screen bg-[#f5f7fa]">
-      {/* â”€â”€ 1. Page header â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      {/* ── 1. Page header ─────────────────────────────── */}
       <div className="border-b border-border bg-white">
         <div className="mx-auto flex w-full max-w-[1440px] flex-wrap items-center justify-between gap-4 px-4 py-5 md:px-8">
           <div className="flex items-center gap-3.5">
@@ -475,7 +475,7 @@ export function WarehousePage() {
       </div>
 
       <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
-        {/* â”€â”€ 3. KPI cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── 3. KPI cards ─────────────────────────────── */}
         {/* Tabs first — Overview, orders, readiness, dispatches, movements */}
         <div className="flex flex-wrap gap-2">
           {tabs.map((t) => {
@@ -500,19 +500,19 @@ export function WarehousePage() {
           })}
         </div>
 
-        {/* â”€â”€ 4. Main work area â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── 4. Main work area ────────────────────────── */}
         <div className="grid gap-6 lg:grid-cols-4">
-          {/* â”€â”€ 5. Warehouse work items â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+          {/* ── 5. Warehouse work items ────────────────── */}
           {/* Work-items table removed — tabs below hold every queue. */}
 
-          {/* â”€â”€ 6. Stock by location â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+          {/* ── 6. Stock by location ───────────────────── */}
           {/* Stock-by-location aside removed — stock lives under Inventory and the movements tab. */}
         </div>
 
-        {/* â”€â”€ 7. Bottom operations strip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+        {/* ── 7. Bottom operations strip ───────────────── */}
         {/* Bottom operations strip removed. */}
 
-        {/* â”€â”€ Detail queues (existing functionality, preserved) â”€â”€ */}
+        {/* ── Detail queues (existing functionality, preserved) ── */}
         {/* Detail queues card unwrapped — tabs render first at the top of the page. */}
 
         {tab === "overview" && (
@@ -547,7 +547,7 @@ export function WarehousePage() {
                   {dispatches.slice(0, 5).map((d) => (
                     <li key={d.id} className="flex items-center justify-between gap-3 border-b border-border/60 pb-2">
                       <span className="truncate">
-                        {d.dispatch_number} Â· {d.customer_name ?? d.so_number ?? "â€”"}
+                        {d.dispatch_number} Â· {d.customer_name ?? d.so_number ?? "—"}
                       </span>
                       <span
                         className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${shippingTone(
@@ -675,7 +675,7 @@ export function WarehousePage() {
                   return (
                     <tr key={o.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-5 py-3">{o.so_number}</td>
-                      <td className="px-5 py-3">{o.customer_name ?? "â€”"}</td>
+                      <td className="px-5 py-3">{o.customer_name ?? "—"}</td>
                       <td className="px-5 py-3 text-muted-foreground">{fmtDate(o.order_date)}</td>
                       <td className="px-5 py-3 text-muted-foreground">{fmtDate(o.expected_dispatch_date)}</td>
                       <td className="num px-5 py-3 text-right">{fmtMoney(o.grand_total)}</td>
@@ -773,7 +773,7 @@ export function WarehousePage() {
                   {readyOrders.map((o) => (
                     <tr key={o.id} className="border-b border-border/60 hover:bg-muted/30">
                       <td className="px-5 py-3">{o.so_number}</td>
-                      <td className="px-5 py-3">{o.customer_name ?? "â€”"}</td>
+                      <td className="px-5 py-3">{o.customer_name ?? "—"}</td>
                       <td className="px-5 py-3 text-muted-foreground">{fmtDate(o.expected_dispatch_date)}</td>
                       <td className="num px-5 py-3 text-right">{o.pendingQty.toLocaleString()}</td>
                       <td className="num px-5 py-3 text-right">{fmtMoney(o.pendingValue)}</td>
@@ -816,7 +816,7 @@ export function WarehousePage() {
                             <div className="text-[10px] text-muted-foreground">SO {inv.goods_sales_order_number}</div>
                           )}
                         </td>
-                        <td className="px-5 py-3">{inv.debtor?.name ?? "â€”"}</td>
+                        <td className="px-5 py-3">{inv.debtor?.name ?? "—"}</td>
                         <td className="num px-5 py-3 text-right">{fmtMoney(inv.grand_total ?? inv.amount)}</td>
                         <td className="px-5 py-3 text-muted-foreground">{fmtDate(inv.expected_dispatch_date ?? inv.due_date)}</td>
                         <td className="px-5 py-3 text-center">
@@ -846,7 +846,7 @@ export function WarehousePage() {
                 </Table>
               )}
               <p className="mt-4 text-xs text-muted-foreground">
-                Every dispatch can be linked to an invoice â€” the invoice reference is stored on the dispatch record and
+                Every dispatch can be linked to an invoice — the invoice reference is stored on the dispatch record and
                 appears in the movement report. Create a dispatch from here to auto-link the invoice.
               </p>
             </Card>
@@ -1013,8 +1013,8 @@ function DispatchTable({
             <tr key={d.id} className="border-b border-border/60 hover:bg-muted/30">
               <td className="px-5 py-3">{d.dispatch_number}</td>
               <td className="px-5 py-3">
-                <div>{d.so_number ?? "â€”"}</div>
-                <div className="text-xs text-muted-foreground">{d.customer_name ?? "â€”"}</div>
+                <div>{d.so_number ?? "—"}</div>
+                <div className="text-xs text-muted-foreground">{d.customer_name ?? "—"}</div>
               </td>
               <td className="px-5 py-3 text-muted-foreground">{fmtDate(d.dispatch_date)}</td>
               <td className="px-5 py-3 text-xs">
@@ -1052,7 +1052,7 @@ function DispatchTable({
                 ) : (
                   <>
                     <div className="flex items-center gap-1.5">
-                      <span className="truncate">{d.transporter_name ?? "â€”"}</span>
+                      <span className="truncate">{d.transporter_name ?? "—"}</span>
                       {canWrite && !closed && (
                         <button
                           onClick={() => startEdit(d)}
@@ -1163,7 +1163,7 @@ function DispatchTable({
   );
 }
 
-// â”€â”€â”€ Shared table shell (matches the app's list pages) â”€â”€
+// ─── Shared table shell (matches the app's list pages) ──
 // ─── Pending Sales Order approval popup ────────────────────────────────
 // Every SO line is fetched with its live in-stock quantity. The user must
 // check each line; approval is blocked while any line is short of stock.

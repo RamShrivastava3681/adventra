@@ -36,6 +36,7 @@ import {
 } from "@/components/customer-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { StateSelect, CitySelect } from "@/components/state-city-select";
+import { resolveStandardState, stateForCity } from "@/lib/india-city-state";
 import { ProductVariantPicker, fullItemName } from "@/components/product-variant-picker";
 import { QuickAddVariantModal } from "@/components/product-quick-create";
 import {
@@ -192,6 +193,7 @@ type Customer = {
   gstin: string | null;
   pan: string | null;
   city: string | null;
+  state?: string | null;
   country: string | null;
   postal_code: string | null;
   customerType?: string | null;
@@ -235,6 +237,43 @@ function addrLabel(a: CustomerAddress, i: number): string {
   const full = fullAddr(a);
   const short = full.length > 60 ? `${full.slice(0, 60)}…` : full;
   return `${a.label ? `${a.label} — ` : ""}${short}`;
+}
+
+/** Canonical state name from any stored value (legacy free-text safe). */
+function canonState(v: any): string {
+  const s = String(v ?? "").trim();
+  if (!s) return "";
+  return resolveStandardState(s) ?? s;
+}
+
+/** Delivery city/state fetched from the customer master (shipping first). */
+function deliveryCityStateOf(c: any): { city: string; state: string } {
+  if (!c) return { city: "", state: "" };
+  const ship = (c.shipping_addresses ?? [])[0] as CustomerAddress | undefined;
+  const bill = (c.billing_addresses ?? [])[0] as CustomerAddress | undefined;
+  const picked = ship ?? bill;
+  const city = String(picked?.city ?? c.city ?? "").trim();
+  const rawState =
+    String(picked?.state ?? "").trim() ||
+    String((c as any).state ?? "").trim() ||
+    String(c.country ?? "").trim();
+  let state = canonState(rawState);
+  if (!state && city) state = stateForCity(city) || "";
+  return { city, state };
+}
+
+/** Billing city/state fetched from the customer master. */
+function billingCityStateOf(c: any): { city: string; state: string } {
+  if (!c) return { city: "", state: "" };
+  const bill = (c.billing_addresses ?? [])[0] as CustomerAddress | undefined;
+  const city = String(bill?.city ?? c.city ?? "").trim();
+  const rawState =
+    String(bill?.state ?? "").trim() ||
+    String((c as any).state ?? "").trim() ||
+    String(c.country ?? "").trim();
+  let state = canonState(rawState);
+  if (!state && city) state = stateForCity(city) || "";
+  return { city, state };
 }
 
 const SO_STATUSES = [
@@ -393,8 +432,9 @@ export function SalesOrdersPage() {
             gstin: d.gstin ?? null,
             pan: d.panCardNo ?? d.pan_card_no ?? null,
             city: d.city ?? null,
+            state: d.state ?? null,
             country: d.country ?? null,
-            postal_code: d.postal_code ?? null,
+            postal_code: d.postal_code ?? d.postalCode ?? null,
             customerType: d.customerType ?? d.customer_type ?? null,
             paymentTermsType: d.paymentTermsType ?? d.payment_terms_type ?? null,
           advancePct: d.advancePct ?? d.advance_pct ?? null,
@@ -909,6 +949,7 @@ function SOModal({
     }
     setBillAddrBook(null);
     setBillAddrFor("");
+    const delivery = deliveryCityStateOf(c);
     setF((prev) => {
       const same = (prev as any).same_as_billing !== false;
       return {
@@ -920,6 +961,10 @@ function SOModal({
         // Buyer tax snapshot for the BILL TO block (editable per order).
         bill_gstin: c?.gstin ?? "",
         bill_pan: c?.pan ?? "",
+        // Delivery city/state fetched from the customer master.
+        ...(delivery.city || delivery.state
+          ? { city: delivery.city || prev.city, state: delivery.state || prev.state }
+          : {}),
         // When shipping follows billing, mirror the billing party across.
         ...(same
           ? {
@@ -962,6 +1007,7 @@ function SOModal({
     const c = customers.find((x) => x.id === id);
     setShipAddrBook(null);
     setShipAddrFor("");
+    const delivery = deliveryCityStateOf(c);
     setF((prev) => ({
       ...prev,
       ship_customer_id: id,
@@ -969,6 +1015,10 @@ function SOModal({
       // Buyer tax snapshot for the SHIP TO block (editable per order).
       ship_gstin: c?.gstin ?? "",
       ship_pan: c?.pan ?? "",
+      // Delivery city/state fetched from the shipping customer master.
+      ...(delivery.city || delivery.state
+        ? { city: delivery.city || prev.city, state: delivery.state || prev.state }
+        : {}),
     }));
     if (id) {
       if (c && (c.shipping_addresses?.length ?? 0) > 1) {
@@ -983,6 +1033,7 @@ function SOModal({
     setF((prev) => {
       if (on) {
         const c = customers.find((x) => x.id === prev.customer_id);
+        const delivery = deliveryCityStateOf(c);
         return {
           ...prev,
           same_as_billing: true,
@@ -991,6 +1042,9 @@ function SOModal({
             c?.shipping_address ?? c?.billing_address ?? prev.delivery_address,
           ship_gstin: c?.gstin ?? (prev as any).bill_gstin ?? prev.ship_gstin,
           ship_pan: c?.pan ?? (prev as any).bill_pan ?? prev.ship_pan,
+          ...(delivery.city || delivery.state
+            ? { city: delivery.city || prev.city, state: delivery.state || prev.state }
+            : {}),
         };
       }
       return { ...prev, same_as_billing: false, ship_customer_id: "" };
@@ -1036,10 +1090,20 @@ function SOModal({
           setShipAddrFor(cid);
         }
         if (overwrite && opts[0]) {
+          const first = opts[0] as CustomerAddress;
+          const city = String((first as any).city ?? "").trim();
+          const rawState = String((first as any).state ?? "").trim();
+          const state = canonState(rawState) || (city ? stateForCity(city) || "" : "");
           setF((prev) =>
             (prev as any).ship_customer_id === cid ||
             ((prev as any).same_as_billing !== false && prev.customer_id === cid)
-              ? { ...prev, delivery_address: fullAddr(opts[0]) }
+              ? {
+                  ...prev,
+                  delivery_address: fullAddr(opts[0]),
+                  ...(city || state
+                    ? { city: city || prev.city, state: state || prev.state }
+                    : {}),
+                }
               : prev,
           );
         }
@@ -1587,7 +1651,21 @@ function SOModal({
                           onChange={(e) => {
                             if (e.target.value === "custom") return;
                             const a = opts[Number(e.target.value)];
-                            if (a) setF({ ...f, delivery_address: fullAddr(a) });
+                            if (a) {
+                              const city = String((a as any).city ?? "").trim();
+                              const rawState = String((a as any).state ?? "").trim();
+                              const state = canonState(rawState) || (city ? stateForCity(city) || "" : "");
+                              setF({
+                                ...f,
+                                delivery_address: fullAddr(a),
+                                ...(city || state
+                                  ? {
+                                      city: city || f.city,
+                                      state: state || f.state,
+                                    }
+                                  : {}),
+                              });
+                            }
                           }}
                         >
                           {opts.map((a, i) => (

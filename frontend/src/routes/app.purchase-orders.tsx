@@ -45,7 +45,7 @@ import {
 } from "@/components/payment-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { StateSelect, CitySelect } from "@/components/state-city-select";
-import { resolveStandardState } from "@/lib/india-city-state";
+import { resolveStandardState, stateForCity } from "@/lib/india-city-state";
 import { ClauseCombobox } from "@/components/clause-select";
 import { ProductVariantPicker, fullItemName } from "@/components/product-variant-picker";
 import {
@@ -780,7 +780,7 @@ function POModal({
   );
 
   // Vendor block follows the main supplier: address + contact person /
-  // phone-email + GSTIN/PAN/state are fetched from the supplier master.
+  // phone-email + GSTIN/PAN/state/city are fetched from the supplier master.
   // Every field stays editable afterwards.
   const applyVendorFromSupplier = (prev: any, s: any) => {
     if (!s) return prev;
@@ -795,7 +795,19 @@ function POModal({
     if (s.panCardNo) next.vendor_pan = s.panCardNo;
     // Standardize the supplier's stored state to the canonical dropdown
     // value; unknown free-text values are kept so old masters still display.
-    if (s.stateCode) next.vendor_state = resolveStandardState(s.stateCode) ?? s.stateCode;
+    // City follows the master too (falling back to state derived from city).
+    const masterState =
+      (s.stateCode ? (resolveStandardState(s.stateCode) ?? s.stateCode) : "") ||
+      (s.country ? (resolveStandardState(s.country) ?? "") : "") ||
+      (s.city ? stateForCity(s.city) || "" : "");
+    if (masterState) next.vendor_state = masterState;
+    if (s.city) {
+      next.destination = s.city;
+      if (!next.vendor_state) {
+        const derived = stateForCity(s.city);
+        if (derived) next.vendor_state = derived;
+      }
+    }
     return next;
   };
 

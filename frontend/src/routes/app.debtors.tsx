@@ -21,7 +21,8 @@ import { CascadeDeleteDialog, summarizeDeleted } from "@/components/cascade-dele
 import { useMutation, useQuery, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import api from "@/lib/api-client";
-import { stateForCity } from "@/lib/india-city-state";
+import { resolveStandardState, stateForCity } from "@/lib/india-city-state";
+import { StateSelect, CitySelect } from "@/components/state-city-select";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney } from "@/components/ledger-ui";
 import { Plus, X, Loader2, ShieldAlert, Building2, Trash2 } from "lucide-react";
@@ -407,7 +408,7 @@ function DebtorModal({
           label: a.label.trim() || null,
           address: a.address.trim(),
           city: a.city.trim() || null,
-          state: a.state.trim() || null,
+          state: resolveStandardState(a.state.trim()) ?? (a.state.trim() || null),
           postalCode: a.pin.trim() || null,
         }))
         .filter((a) => a.address || a.city || a.state || a.postalCode);
@@ -418,7 +419,7 @@ function DebtorModal({
           label: a.label.trim() || null,
           address: a.address.trim(),
           city: a.city.trim() || null,
-          state: a.state.trim() || null,
+          state: resolveStandardState(a.state.trim()) ?? (a.state.trim() || null),
           postalCode: a.pin.trim() || null,
         }))
         .filter((a) => a.address || a.city || a.state || a.postalCode);
@@ -687,33 +688,32 @@ function DebtorModal({
                       placeholder="Street, building, landmarks…"
                     />
                     <div className="grid gap-2 md:grid-cols-3">
-                      <input
-                        maxLength={100}
-                        className={inputBase}
-                        value={a.city}
-                        onChange={(e) => {
+                      <StateSelect
+                        value={resolveStandardState(a.state) ?? a.state}
+                        onChange={(v) => {
                           const next = [...form.billing_addresses];
-                          const city = e.target.value;
                           next[i] = {
                             ...next[i],
-                            city,
-                            // Auto-fill State from City while State is still blank.
-                            state: next[i].state || stateForCity(city) || "",
+                            state: v,
+                            city: v === next[i].state ? next[i].city : "",
                           };
                           setForm({ ...form, billing_addresses: next });
                         }}
-                        placeholder="City"
+                        placeholder="Select state…"
                       />
-                      <input
-                        maxLength={100}
-                        className={inputBase}
-                        value={a.state}
-                        onChange={(e) => {
+                      <CitySelect
+                        stateValue={resolveStandardState(a.state) ?? a.state}
+                        value={a.city}
+                        onChange={(v) => {
                           const next = [...form.billing_addresses];
-                          next[i] = { ...next[i], state: e.target.value };
+                          next[i] = {
+                            ...next[i],
+                            city: v,
+                            state: next[i].state || stateForCity(v) || "",
+                          };
                           setForm({ ...form, billing_addresses: next });
                         }}
-                        placeholder="State"
+                        placeholder={(resolveStandardState(a.state) ?? a.state) ? "Select city…" : "Select a state first…"}
                       />
                       <input
                         maxLength={20}
@@ -846,33 +846,32 @@ function DebtorModal({
                       placeholder="Separate delivery address — leave blank to use billing address"
                     />
                     <div className="grid gap-2 md:grid-cols-3">
-                      <input
-                        maxLength={100}
-                        className={inputBase}
-                        value={a.city}
-                        onChange={(e) => {
+                      <StateSelect
+                        value={resolveStandardState(a.state) ?? a.state}
+                        onChange={(v) => {
                           const next = [...form.shipping_addresses];
-                          const city = e.target.value;
                           next[i] = {
                             ...next[i],
-                            city,
-                            // Auto-fill State from City while State is still blank.
-                            state: next[i].state || stateForCity(city) || "",
+                            state: v,
+                            city: v === next[i].state ? next[i].city : "",
                           };
                           setForm({ ...form, shipping_addresses: next });
                         }}
-                        placeholder="City"
+                        placeholder="Select state…"
                       />
-                      <input
-                        maxLength={100}
-                        className={inputBase}
-                        value={a.state}
-                        onChange={(e) => {
+                      <CitySelect
+                        stateValue={resolveStandardState(a.state) ?? a.state}
+                        value={a.city}
+                        onChange={(v) => {
                           const next = [...form.shipping_addresses];
-                          next[i] = { ...next[i], state: e.target.value };
+                          next[i] = {
+                            ...next[i],
+                            city: v,
+                            state: next[i].state || stateForCity(v) || "",
+                          };
                           setForm({ ...form, shipping_addresses: next });
                         }}
-                        placeholder="State"
+                        placeholder={(resolveStandardState(a.state) ?? a.state) ? "Select city…" : "Select a state first…"}
                       />
                       <input
                         maxLength={20}

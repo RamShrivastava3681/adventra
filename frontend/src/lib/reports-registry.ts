@@ -1,5 +1,5 @@
 ﻿// ===========================================================================
-// Reports module registry â€” the single source of truth that drives both the
+// Reports module registry — the single source of truth that drives both the
 // Reports Dashboard (categories + cards) and the shared report detail layout
 // (filters, columns, pagination and exports).
 // ===========================================================================
@@ -44,7 +44,7 @@ export interface ReportColumn {
   key: string;
   label: string;
   kind: ColumnKind;
-  /** Optional accessor â€” defaults to `row[key]`. */
+  /** Optional accessor — defaults to `row[key]`. */
   get?: (row: any) => any;
   /** Display label for a raw value (pills, codes, booleans). */
   labelFor?: (v: any) => string;
@@ -59,6 +59,8 @@ export interface ReportFilterDef {
   statuses?: Array<{ value: string; label: string }>;
   /** Show the buyer (debtor) dropdown. */
   buyer?: boolean;
+  /** Show the days-bucket dropdown (aging report: Current / 1–30 / …). */
+  buckets?: Array<{ value: string; label: string }>;
   /** Show the Bulk Pay / Treasury Pay checkboxes (payment_type filter). */
   paymentTypes?: boolean;
   /** Show the free-text search box. */
@@ -68,7 +70,7 @@ export interface ReportFilterDef {
   dateRange?: boolean;
   dateLabel?: string;
   /** Client-side per-row status matcher (full reports). Server-paginated
-   *  reports leave this undefined â€” the API performs the matching. */
+   *  reports leave this undefined — the API performs the matching. */
   statusMatch?: (row: any, value: string) => boolean;
   /** Client-side date accessor used by the From/To range on full reports. */
   dateOf?: (row: any) => string | null | undefined;
@@ -90,7 +92,7 @@ export interface ReportDef {
     text: string;
   };
   category: CategoryId;
-  /** True when the API paginates server-side (page/limit/search/statusâ€¦). */
+  /** True when the API paginates server-side (page/limit/search/status…). */
   serverPaginated?: boolean;
   filters: ReportFilterDef;
   columns?: ReportColumn[];
@@ -109,7 +111,7 @@ export const CATEGORY_META: Array<{ id: CategoryId; label: string; description: 
   { id: "other", label: "Other reports", description: "Advances, expenses and inventory" },
 ];
 
-// â”€â”€â”€ Shared value-label maps â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Shared value-label maps ──────────────────────────────────────────────
 
 export const PAYMENT_TYPE_LABELS: Record<string, string> = {
   manual: "Manual Pay",
@@ -132,7 +134,7 @@ export const SIDE_LABELS: Record<string, string> = {
   purchase: "Purchase",
 };
 
-// â”€â”€â”€ Reports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Reports ───────────────────────────────────────────────────────────────
 
 const closedMacro = (row: any, value: string) => {
   const closed = ["paid", "cancelled", "rejected"].includes(String(row.status));
@@ -140,7 +142,7 @@ const closedMacro = (row: any, value: string) => {
 };
 
 export const REPORTS: ReportDef[] = [
-  // â”€â”€ Financial â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Financial ──────────────────────────────────────────────────────────────
   {
     id: "balance-sheet",
     title: "Balance Sheet",
@@ -183,12 +185,12 @@ export const REPORTS: ReportDef[] = [
     category: "financial",
     filters: { search: false },
   },
-  // â”€â”€ Invoice reports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Invoice reports ────────────────────────────────────────────────────────
   {
     id: "sales-invoices",
     title: "Sales Invoices",
     cardTitle: "Sales Invoices",
-    description: "Every sales invoice across the portfolio â€” funding, ageing and payment detail.",
+    description: "Every sales invoice across the portfolio — funding, ageing and payment detail.",
     icon: FileText,
     accent: {
       chip: "bg-sem-info/10 text-sem-info",
@@ -205,7 +207,7 @@ export const REPORTS: ReportDef[] = [
       buyer: true,
       paymentTypes: true,
       search: true,
-      searchPlaceholder: "Invoice #, customer, client or POâ€¦",
+      searchPlaceholder: "Invoice #, customer, client or PO…",
       dateRange: true,
       dateLabel: "Issue date",
     },
@@ -275,7 +277,7 @@ export const REPORTS: ReportDef[] = [
         { value: "closed", label: "Closed" },
       ],
       search: true,
-      searchPlaceholder: "Invoice #, supplier, client or POâ€¦",
+      searchPlaceholder: "Invoice #, supplier, client or PO…",
       dateRange: true,
       dateLabel: "Issue date",
     },
@@ -318,7 +320,7 @@ export const REPORTS: ReportDef[] = [
         { value: "closed", label: "Closed" },
       ],
       search: true,
-      searchPlaceholder: "PO #, proforma #, party or clientâ€¦",
+      searchPlaceholder: "PO #, proforma #, party or client…",
       dateRange: true,
       dateLabel: "Proforma date",
       statusMatch: closedMacro,
@@ -356,7 +358,7 @@ export const REPORTS: ReportDef[] = [
       { key: "notes", label: "Notes", kind: "text" },
     ],
   },
-  // â”€â”€ Customer reports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Customer reports ───────────────────────────────────────────────────────
   {
     id: "aging",
     title: "Aging Report",
@@ -376,8 +378,16 @@ export const REPORTS: ReportDef[] = [
         { value: "pending", label: "Pending" },
       ],
       buyer: true,
+      buckets: [
+        { value: "current", label: "Current (not due)" },
+        { value: "d1_30", label: "1–30 days" },
+        { value: "d31_60", label: "31–60 days" },
+        { value: "d61_90", label: "61–90 days" },
+        { value: "d91_120", label: "91–120 days" },
+        { value: "d120", label: "120+ days" },
+      ],
       search: true,
-      searchPlaceholder: "Buyer nameâ€¦",
+      searchPlaceholder: "Buyer name…",
       dateRange: true,
       dateLabel: "Invoice date",
     },
@@ -387,10 +397,10 @@ export const REPORTS: ReportDef[] = [
       { key: "buyer", label: "Buyer", kind: "text" },
       { key: "invoices", label: "Invoices", kind: "int" },
       { key: "current", label: "Current", kind: "money" },
-      { key: "d1_30", label: "1â€“30 days", kind: "money" },
-      { key: "d31_60", label: "31â€“60 days", kind: "money" },
-      { key: "d61_90", label: "61â€“90 days", kind: "money" },
-      { key: "d91_120", label: "91â€“120 days", kind: "money" },
+      { key: "d1_30", label: "1–30 days", kind: "money" },
+      { key: "d31_60", label: "31–60 days", kind: "money" },
+      { key: "d61_90", label: "61–90 days", kind: "money" },
+      { key: "d91_120", label: "91–120 days", kind: "money" },
       { key: "d120", label: "120+ days", kind: "money" },
       { key: "total", label: "Total outstanding", kind: "money" },
     ],
@@ -409,7 +419,7 @@ export const REPORTS: ReportDef[] = [
     category: "customers",
     filters: {
       search: true,
-      searchPlaceholder: "Buyer, industry, contact or cityâ€¦",
+      searchPlaceholder: "Buyer, industry, contact or city…",
     },
     searchText: (r) =>
       `${r.name} ${r.code} ${r.registration_no} ${r.industry} ${r.contact} ${r.address} ${r.city}`,
@@ -457,7 +467,7 @@ export const REPORTS: ReportDef[] = [
         { value: "prospect", label: "Prospect" },
       ],
       search: true,
-      searchPlaceholder: "Company, industry or contactâ€¦",
+      searchPlaceholder: "Company, industry or contact…",
       statusMatch: (row, v) => String(row.status ?? "prospect") === v,
     },
     searchText: (r) => `${r.company} ${r.industry} ${r.contact} ${r.city_country} ${r.status}`,
@@ -472,7 +482,7 @@ export const REPORTS: ReportDef[] = [
       { key: "notes", label: "Notes", kind: "text" },
     ],
   },
-  // â”€â”€ Other reports â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  // ── Other reports ──────────────────────────────────────────────────────────
   {
     id: "advances",
     title: "Advances",
@@ -492,7 +502,7 @@ export const REPORTS: ReportDef[] = [
         { value: "refunded", label: "Refunded" },
       ],
       search: true,
-      searchPlaceholder: "Reference, party, invoice or POâ€¦",
+      searchPlaceholder: "Reference, party, invoice or PO…",
       dateRange: true,
       dateLabel: "Advance date",
       statusMatch: (row, v) => String(row.status) === v,
@@ -533,7 +543,7 @@ export const REPORTS: ReportDef[] = [
     category: "other",
     filters: {
       search: true,
-      searchPlaceholder: "Category, description or linked invoiceâ€¦",
+      searchPlaceholder: "Category, description or linked invoice…",
       dateRange: true,
       dateLabel: "Expense date",
       dateOf: (r) => r.date,
@@ -563,7 +573,7 @@ export const REPORTS: ReportDef[] = [
     category: "other",
     filters: {
       search: true,
-      searchPlaceholder: "Item, SKU or descriptionâ€¦",
+      searchPlaceholder: "Item, SKU or description…",
     },
     searchText: (r) => `${r.item} ${r.sku} ${r.description} ${r.client}`,
     columns: [
@@ -607,38 +617,38 @@ export function reportsByCategory() {
   })).filter((c) => c.reports.length > 0);
 }
 
-// â”€â”€â”€ Value helpers shared with the table renderer and the exporters â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Value helpers shared with the table renderer and the exporters ────────
 
 export function fmtNum(v: any): string {
   const n = Number(v);
-  if (!Number.isFinite(n)) return "â€”";
+  if (!Number.isFinite(n)) return "—";
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(n);
 }
 
 export function fmtNum2(v: any): string {
   const n = Number(v);
-  if (!Number.isFinite(n)) return "â€”";
+  if (!Number.isFinite(n)) return "—";
   return new Intl.NumberFormat("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   }).format(n);
 }
 
-/** Format a raw value for a column â€” used by both the table and the exports. */
+/** Format a raw value for a column — used by both the table and the exports. */
 export function formatCell(col: ReportColumn, row: any): string {
   const raw = col.get ? col.get(row) : row[col.key];
   const val = col.labelFor ? col.labelFor(raw) : raw;
-  if (val === null || val === undefined || val === "") return "â€”";
+  if (val === null || val === undefined || val === "") return "—";
   switch (col.kind) {
     case "money":
       return fmtMoney(raw);
     case "percent": {
       const n = Number(raw);
       const pct = Number.isFinite(n) ? (Math.abs(n) <= 1.5 ? n * 100 : n) : n;
-      return Number.isFinite(pct) ? `${Math.round(pct)}%` : "â€”";
+      return Number.isFinite(pct) ? `${Math.round(pct)}%` : "—";
     }
     case "date": {
-      if (!val) return "â€”";
+      if (!val) return "—";
       return new Date(val).toLocaleDateString("en-US", {
         month: "short",
         day: "numeric",
@@ -648,7 +658,7 @@ export function formatCell(col: ReportColumn, row: any): string {
     case "bool":
       return raw ? "Yes" : "No";
     case "days":
-      return Number.isFinite(Number(raw)) ? `${Number(raw)}d` : "â€”";
+      return Number.isFinite(Number(raw)) ? `${Number(raw)}d` : "—";
     case "int":
     case "mono":
     case "text":
