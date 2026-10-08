@@ -67,6 +67,15 @@ function Dashboard() {
   };
   const metrics = getTabMetrics();
 
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return "Good morning";
+    if (hour < 17) return "Good afternoon";
+    if (hour < 21) return "Good evening";
+    return "Good night";
+  };
+  const greeting = getGreeting();
+
   return (
     <div className="bg-[#f4f7f9] min-h-screen pb-20 text-slate-800">
       
@@ -83,7 +92,7 @@ function Dashboard() {
               </span>
             </div>
             <h1 className="text-3xl font-bold tracking-tight text-slate-900 mt-2">
-              Good morning, {userName}.
+              {greeting}, {userName}.
             </h1>
             <p className="text-sm text-slate-500 mt-1">
               Here's what needs your attention today.
