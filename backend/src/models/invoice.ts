@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
+import { fyTag, nextInSeries } from "../lib/doc-series.js";
 import { PaymentTermsType, normalizePaymentTermsType, normalizeAdvancePct } from "../lib/payment-terms.js";
 
 /** A catalogue-backed line on a sales invoice (mirrors the SO line shape). */
@@ -256,6 +257,17 @@ export async function list(clientId?: string) {
 }
 
 export async function get(id: string) { return db.getItem(`INVOICE#${id}`) as Promise<Invoice | null>; }
+
+/**
+ * Next sales-invoice number in the ADV-<FY>-SI- series (e.g.
+ * ADV-26/27-SI-001, then 002, …). Each financial year restarts at 001;
+ * every FY keeps its own running sequence.
+ */
+export async function nextSalesInvoiceNumber(clientId: string, issueDate?: string | null): Promise<string> {
+  const prefix = `ADV-${fyTag(issueDate)}-SI-`;
+  const invoices = await list(clientId);
+  return nextInSeries(prefix, invoices.map((i) => i.invoiceNumber));
+}
 
 export async function create(data: Partial<Invoice> & { clientId: string; debtorId: string; invoiceNumber: string; amount: number; dueDate: string }) {
   const id = uuid(); const now = db.nowISO();

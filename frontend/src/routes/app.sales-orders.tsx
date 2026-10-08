@@ -704,31 +704,29 @@ type LineDraft = {
   price_tier: string;
 };
 
-// Automatically calculate the next buyer order number from past confirmed orders.
+// Per-customer buyer order sequence: a customer's first order is "001", then
+// "002", … Existing trailing-digit formats are honoured (prefix + width of
+// the highest number seen). Cancelled orders don't consume numbers.
 function computeNextBuyerOrderNo(customerId: string, allSos: SO[] = []): string | null {
-  if (!customerId || !allSos.length) return null;
-  const customerOrders = allSos.filter(
-    (s) => s.customer_id === customerId && s.buyer_order_no && s.buyer_order_no.trim(),
+  if (!customerId) return null;
+  const mine = (allSos ?? []).filter(
+    (s) => s.customer_id === customerId && (s.status ?? "") !== "cancelled",
   );
-  if (customerOrders.length === 0) return null;
-  const confirmed = customerOrders.filter((s) =>
-    ["confirmed", "partially_dispatched", "fully_dispatched"].includes(s.status),
-  );
-  const targetList = confirmed.length > 0 ? confirmed : customerOrders;
-  const latest = [...targetList].sort((a, b) =>
-    (b.order_date || b.created_at || "").localeCompare(a.order_date || a.created_at || ""),
-  )[0];
-  if (!latest?.buyer_order_no) return null;
-  const raw = latest.buyer_order_no.trim();
-  const match = raw.match(/^(.*?)(\d+)$/);
-  if (match) {
-    const prefix = match[1];
-    const digits = match[2];
-    const nextNum = parseInt(digits, 10) + 1;
-    const padded = String(nextNum).padStart(digits.length, "0");
-    return `${prefix}${padded}`;
+  let max = 0;
+  let prefix = "";
+  let width = 3;
+  for (const s of mine) {
+    const raw = (s.buyer_order_no ?? "").trim();
+    const match = raw.match(/^(.*?)(\d+)\s*$/);
+    if (!match) continue;
+    const n = parseInt(match[2], 10) || 0;
+    if (n > max) {
+      max = n;
+      prefix = match[1];
+      width = Math.max(3, match[2].length);
+    }
   }
-  return null;
+  return `${prefix}${String(max + 1).padStart(width, "0")}`;
 }
 
 function SOModal({
@@ -787,25 +785,10 @@ function SOModal({
     notes: so?.notes ?? "",
     freight: so?.freight != null ? String(so.freight) : "",
   });
-  // Auto-fill the buyer order number for a new SO from the confirmed-order
-  // sequence (BO-<year>-<n>). Still editable afterwards.
-  useEffect(() => {
-    if (isEdit) return;
-    let cancelled = false;
-    api.goodsSalesOrders
-      .nextBuyerOrderNo()
-      .then((r) => {
-        if (cancelled || !r?.buyerOrderNo) return;
-        setF((prev) => (prev.buyer_order_no ? prev : { ...prev, buyer_order_no: r.buyerOrderNo }));
-      })
-      .catch(() => {
-        /* prefill is best-effort; the field stays manual */
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // The buyer order number runs per customer (first order 001, then 002, …)
+  // and is filled when the billing customer is picked (see
+  // pickBillingCustomer). It stays editable afterwards, and the server
+  // auto-assigns one on save when left blank.
   const [lines, setLines] = useState<LineDraft[]>(
     (so?.lines ?? []).map((l) => ({
       product_id: l.product_id,
@@ -898,6 +881,25 @@ function SOModal({
   const pickBillingCustomer = (id: string) => {
     const c = customers.find((x) => x.id === id);
     const nextBuyerNo = computeNextBuyerOrderNo(id, sos);
+    // Confirm against the server (it sees just-saved drafts the local list
+    // may miss) and prefer its number when it disagrees — unless the user
+    // has since typed a custom value.
+    if (id && !isEdit && nextBuyerNo) {
+      api.goodsSalesOrders
+        .nextBuyerOrderNo(id)
+        .then((r) => {
+          const serverNo = r?.buyerOrderNo?.trim();
+          if (!serverNo || serverNo === nextBuyerNo) return;
+          setF((prev) =>
+            prev.customer_id === id && prev.buyer_order_no === nextBuyerNo
+              ? { ...prev, buyer_order_no: serverNo }
+              : prev,
+          );
+        })
+        .catch(() => {
+          /* local suggestion stands; the server assigns on save anyway */
+        });
+    }
     setBillAddrBook(null);
     setBillAddrFor("");
     setF((prev) => {
@@ -1732,7 +1734,7 @@ function SOModal({
                           onClick={() => setF({ ...f, buyer_order_no: suggested })}
                           className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
                         >
-                          Use next sequence: <span className="font-semibold">{suggested}</span> (from past confirmed orders)
+                          Use next sequence: <span className="font-semibold">{suggested}</span> (this customer's series)
                         </button>
                       );
                     }

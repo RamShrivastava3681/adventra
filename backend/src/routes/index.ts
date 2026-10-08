@@ -2496,7 +2496,7 @@ router.post("/invoices", authMiddleware, async (req, res) => {
       ...body,
       clientId,
       invoiceNumber:
-        body.invoiceNumber || `INV-${uuid().slice(0, 8).toUpperCase()}`,
+        body.invoiceNumber || (await Invoice.nextSalesInvoiceNumber(clientId, body.issueDate || null)),
       status: body.status || "draft",
     });
     trackAction(req, "invoice.created", item.id, {
@@ -5483,7 +5483,8 @@ router.get(
   authMiddleware,
   async (req, res) => {
     try {
-      res.json({ buyerOrderNo: await GoodsSO.nextBuyerOrderNo(req.user!.userId) });
+      const customerId = typeof req.query.customerId === "string" ? req.query.customerId : undefined;
+      res.json({ buyerOrderNo: await GoodsSO.nextBuyerOrderNo(req.user!.userId, customerId) });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -5570,6 +5571,18 @@ router.post("/goods-sales-orders", authMiddleware, async (req, res) => {
     }
     if (!body.customerName && body.customerId)
       body.customerName = await resolveCustomerName(body.customerId);
+    // Buyer order number runs per customer (first order 001, then 002, …):
+    // auto-assign when the caller leaves it blank.
+    if (!String(body.buyerOrderNo ?? "").trim() && body.customerId) {
+      try {
+        body.buyerOrderNo = await GoodsSO.nextBuyerOrderNo(
+          req.user!.userId,
+          String(body.customerId),
+        );
+      } catch {
+        /* auto-assign is best-effort; the order still saves */
+      }
+    }
     // Ship-to customer is informational (delivery + GST/PAN snapshots).
     // It never drives terms/invoice matching, which follow the billing customer.
     if (body.shipCustomerId && !body.shipCustomerName)
@@ -6261,7 +6274,24 @@ async function buildGoodsPOTallyBuffer(
       if (!shipToSupplier) shipToSupplier = await Vendor.get(stid).catch(() => null);
     }
   } catch { billToDebtor = null; billToSupplier = null; shipToSupplier = null; shipToDebtor = null; }
-  const data = goodsPOToPdfData(po, { seller, bank, bankRaw, declarationRaw, supplier, billToDebtor, billToSupplier, shipToSupplier, shipToDebtor });
+  // "Company's Bank Details" block: the PO supplier's own bank details win
+  // when present (stored on the supplier master); otherwise the company
+  // bank from the invoice template prints as before.
+  const pick = (camel: string, snake: string) =>
+    String(supplier?.[camel] ?? supplier?.[snake] ?? "").trim();
+  const supplierBank =
+    pick("bankHolder", "bank_holder") || pick("bankName", "bank_name") ||
+    pick("bankAcNo", "bank_ac_no") || pick("bankIfsc", "bank_ifsc") ||
+    pick("bankBranch", "bank_branch")
+      ? {
+          holder: pick("bankHolder", "bank_holder"),
+          bank: pick("bankName", "bank_name"),
+          acNo: pick("bankAcNo", "bank_ac_no"),
+          ifsc: pick("bankIfsc", "bank_ifsc"),
+          branch: pick("bankBranch", "bank_branch"),
+        }
+      : bank;
+  const data = goodsPOToPdfData(po, { seller, bank: supplierBank, bankRaw, declarationRaw, supplier, billToDebtor, billToSupplier, shipToSupplier, shipToDebtor });
   const pdf = await buildGoodsPOTallyPdf(data);
   return { pdf, number: data.poNumber, grandTotal: data.grandTotal };
 }

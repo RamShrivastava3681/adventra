@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
+import { fyTag, nextInSeries } from "../lib/doc-series.js";
 import { PaymentTermsType, normalizePaymentTermsType, normalizeAdvancePct } from "../lib/payment-terms.js";
 
 /**
@@ -218,6 +219,17 @@ export function computeTotals(lines: GoodsPOLine[], freight: number) {
   };
 }
 
+/**
+ * Next PO number in the ADV-<FY>-PO- series (e.g. ADV-26/27-PO-001, then
+ * 002, …). Each financial year restarts at 001; every FY keeps its own
+ * running sequence.
+ */
+export async function nextPoNumber(clientId: string, poDate?: string | null): Promise<string> {
+  const prefix = `ADV-${fyTag(poDate)}-PO-`;
+  const orders = await list(clientId);
+  return nextInSeries(prefix, orders.map((o) => o.poNumber));
+}
+
 export function recomputeStatus(
   po: Pick<GoodsPurchaseOrder, "status" | "manualStatus" | "lines">,
 ): string {
@@ -269,7 +281,7 @@ export async function create(
     entityType: "GoodsPurchaseOrder",
     id,
     clientId: data.clientId,
-    poNumber: data.poNumber || `PO-${id.slice(0, 8).toUpperCase()}`,
+    poNumber: data.poNumber || (await nextPoNumber(data.clientId, data.poDate || null)),
     poDate: data.poDate || db.todayDate(),
     supplierId: data.supplierId || null,
     supplierName: data.supplierName || null,

@@ -3122,7 +3122,7 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
       };
 
       // ── Title ────────────────────────────────────────────────────────────
-      cell(M, y, CW, 16, "Purchase Order", { font: FB, size: 11, align: "center" });
+      cell(M, y, CW, 16, "Purchase Order", { font: FB, size: 11, align: "left" });
       y += 16;
 
       // ── Header grid: detail | label | value ──────────────────────────────
@@ -3174,9 +3174,9 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
         const ch = r.c ? Math.ceil(wrapH(r.c, VCW, 7.5) + 5) : 11;
         const h = Math.max(11, ah, bh, ch);
         need(h);
-        cell(M, y, AW, h, r.a, { font: r.aFont, size: 7.5 });
-        cell(M + AW, y, BW, h, r.b, { size: 6.5, align: "center" });
-        cell(M + AW + BW, y, VCW, h, r.c, { size: 7.5, align: "center" });
+        cell(M, y, AW, h, r.a, { font: r.aFont, size: 7.5, align: "left" });
+        cell(M + AW, y, BW, h, r.b, { size: 6.5, align: "left" });
+        cell(M + AW + BW, y, VCW, h, r.c, { size: 7.5, align: "left" });
         y += h;
       }
 
@@ -3219,7 +3219,7 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
           ["qty", "Total\nQuantity"], ["amt", "Amount"],
         ];
         for (const [k, t] of heads) {
-          cell(colX(k), y, colW(k), HEAD_H, t, { font: FB, size: 6.5, align: "center", fill: TALLY.headGray });
+          cell(colX(k), y, colW(k), HEAD_H, t, { font: FB, size: 6.5, align: "left", fill: TALLY.headGray });
         }
         y += HEAD_H;
       };
@@ -3244,22 +3244,22 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
           drawTableHead();
         }
         const fill = idx % 2 === 1 ? TALLY.altRow : TALLY.white;
-        const cells: Array<[string, string, "left" | "center" | "right", number?]> = [
-          ["sl", String(l.sno), "center"],
-          ["code", l.productCode, "center", 6.5],
+        const cells: Array<[string, string, "left", number?]> = [
+          ["sl", String(l.sno), "left"],
+          ["code", l.productCode, "left", 6.5],
           ["desc", l.description, "left"],
-          ["fabric", l.fabric, "center"],
-          ["hsn", l.hsn, "center"],
-          ...data.sizes.map((s): [string, string, "left" | "center" | "right", number?] => [
+          ["fabric", l.fabric, "left"],
+          ["hsn", l.hsn, "left"],
+          ...data.sizes.map((s): [string, string, "left", number?] => [
             `sz${data.sizes.indexOf(s)}`,
             tallyNum(l.size === s ? l.quantity : 0),
-            "center",
+            "left",
           ]),
-          ["color", l.color, "center"],
-          ["unit", tallyNum(l.unitPrice), "right"],
-          ["ppgst", tallyNum(l.ppInclGst), "right"],
-          ["qty", tallyNum(l.quantity), "right"],
-          ["amt", tallyNum(l.amount), "right"],
+          ["color", l.color, "left"],
+          ["unit", tallyNum(l.unitPrice), "left"],
+          ["ppgst", tallyNum(l.ppInclGst), "left"],
+          ["qty", tallyNum(l.quantity), "left"],
+          ["amt", tallyNum(l.amount), "left"],
         ];
         for (const [k, t, a, sz] of cells) {
           cell(colX(k), y, colW(k), rowH, t, { size: sz ?? 7, align: a, fill });
@@ -3303,9 +3303,9 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
       const TOT_H = 14;
       tailNeed(TOT_H);
       const spanW = CW - colW("qty") - colW("amt");
-      cell(M, y, spanW, TOT_H, "Total (inclusive of Taxes)", { font: FB, size: 7.5, align: "center", fill: TALLY.headGray });
-      cell(M + spanW, y, colW("qty"), TOT_H, tallyNum(data.totalQty), { font: FB, size: 7.5, align: "right", fill: TALLY.headGray });
-      cell(M + spanW + colW("qty"), y, colW("amt"), TOT_H, tallyNum(data.grandTotal), { font: FB, size: 7.5, align: "right", fill: TALLY.headGray });
+      cell(M, y, spanW, TOT_H, "Total (inclusive of Taxes)", { font: FB, size: 7.5, align: "left", fill: TALLY.headGray });
+      cell(M + spanW, y, colW("qty"), TOT_H, tallyNum(data.totalQty), { font: FB, size: 7.5, align: "left", fill: TALLY.headGray });
+      cell(M + spanW + colW("qty"), y, colW("amt"), TOT_H, tallyNum(data.grandTotal), { font: FB, size: 7.5, align: "left", fill: TALLY.headGray });
       y += TOT_H;
 
       // ── Amount in words + E&OE ───────────────────────────────────────────
@@ -3315,10 +3315,14 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
       cell(M, y, wordsW, wordsH, "", {});
       doc.font(FB).fontSize(7).fillColor(TALLY.ink).text("Amount Chargeable (in words)", M + PAD, y + 2, { width: wordsW - PAD * 2 });
       doc.font(F).fontSize(7).fillColor(TALLY.ink).text(data.amountWords, M + PAD, y + 12, { width: wordsW - PAD * 2 });
-      cell(M + wordsW, y, CW - wordsW, wordsH, "E. & O.E", { font: FB, size: 7, align: "center" });
+      cell(M + wordsW, y, CW - wordsW, wordsH, "E. & O.E", { font: FB, size: 7, align: "left" });
       y += wordsH;
 
       // ── Remarks (left) + Bank details (right) ────────────────────────────
+      // Remarks can be arbitrarily long: when the text fits one page it sits
+      // side-by-side with the bank block (structure unchanged); when it is
+      // taller than a whole page it flows full-width across pages so no text
+      // is ever cut off.
       const bankW = Math.round(CW * 0.45);
       const remW = CW - bankW;
       const remarkText = data.remarks ? `Remarks:\n${data.remarks}` : "";
@@ -3329,33 +3333,128 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
           ? Math.max(30, Math.ceil(wrapH(data.bankRaw, bankW, 7) + 18))
           : 14;
       const rbH = Math.max(22, Math.ceil(wrapH(remarkText, remW, 7) + 8), bankInfoH + 2);
-      tailNeed(rbH);
-      const ry0 = y;
-      cell(M, y, remW, rbH, "", {});
-      if (remarkText) {
-        doc.font(F).fontSize(7).fillColor(TALLY.ink).text(remarkText, M + PAD, y + 2, { width: remW - PAD * 2 });
-      }
-      cell(M + remW, y, bankW, rbH, "", {});
-      let by = y;
-      cell(M + remW, by, bankW, 12, "Company's Bank Details", { font: FB, size: 7, align: "center" });
-      by += 12;
-      if (data.bank) {
-        const rows: Array<[string, string]> = [
-          ["A/c Holder's Name:", data.bank.holder],
-          ["Bank Name:", data.bank.bank],
-          ["A/c No.:", data.bank.acNo],
-          ["Branch & IFSC Code:", [data.bank.branch, data.bank.ifsc].filter(Boolean).join(" & ")],
-        ];
-        for (const [k, v] of rows) {
-          const klw = Math.round(bankW * 0.36);
-          cell(M + remW, by, klw, 11, k, { font: FB, size: 6.5, align: "center" });
-          cell(M + remW + klw, by, bankW - klw, 11, v, { size: 7, align: "center" });
-          by += 11;
+      const pageUsable = BOT - M;
+      // Greedy word-wrap into lines (splits overlong words by character so a
+      // single unbroken token can never overflow the column).
+      const wrapLines = (text: string, w: number, size: number, font?: string): string[] => {
+        doc.font(font ?? F).fontSize(size);
+        const maxW = Math.max(1, w - PAD * 2);
+        const out: string[] = [];
+        for (const para of text.split(/\r?\n/)) {
+          if (!para.trim()) { out.push(""); continue; }
+          let cur = "";
+          const flush = () => { out.push(cur); cur = ""; };
+          for (const wd of para.split(/\s+/)) {
+            if (doc.widthOfString(wd) > maxW) {
+              if (cur) flush();
+              let chunk = "";
+              for (const ch of wd) {
+                if (doc.widthOfString(chunk + ch) > maxW && chunk) { out.push(chunk); chunk = ch; }
+                else chunk += ch;
+              }
+              cur = chunk;
+              continue;
+            }
+            const trial = cur ? `${cur} ${wd}` : wd;
+            if (doc.widthOfString(trial) > maxW && cur) { flush(); cur = wd; }
+            else cur = trial;
+          }
+          flush();
         }
-      } else if (data.bankRaw) {
-        doc.font(F).fontSize(7).fillColor(TALLY.ink).text(data.bankRaw, M + remW + PAD, by + 2, { width: bankW - PAD * 2 });
+        return out;
+      };
+      // Full-width bordered block that flows across as many pages as needed.
+      // Borders are stroked per page segment so every page looks finished.
+      const flowBlock = (x: number, w: number, textLines: string[], size: number, firstBold: boolean) => {
+        doc.font(F).fontSize(size);
+        const lineH = Math.max(9, Math.ceil(doc.heightOfString("Ag", { width: Math.max(1, w - PAD * 2) })));
+        if (y + lineH + 4 > BOT) { doc.addPage(); y = M; }
+        let segTop = y;
+        let lineIdx = 0;
+        for (const ln of textLines) {
+          if (y + lineH + 2 > BOT) {
+            doc.rect(x, segTop, w, y - segTop).strokeColor(TALLY.ink).lineWidth(0.5).stroke();
+            doc.addPage();
+            y = M;
+            segTop = y;
+          }
+          if (ln) {
+            doc
+              .font(lineIdx === 0 && firstBold ? FB : F)
+              .fontSize(size)
+              .fillColor(TALLY.ink)
+              .text(ln, x + PAD, y + 2, { width: Math.max(1, w - PAD * 2), align: "left" });
+          }
+          lineIdx++;
+          y += lineH;
+        }
+        if (y - segTop < 10) y = segTop + 10;
+        doc.rect(x, segTop, w, y - segTop).strokeColor(TALLY.ink).lineWidth(0.5).stroke();
+      };
+      const drawBankBlock = (x: number, w: number, yy: number) => {
+        let by = yy;
+        cell(x, by, w, 12, "Company's Bank Details", { font: FB, size: 7, align: "left" });
+        by += 12;
+        if (data.bank) {
+          const rows: Array<[string, string]> = [
+            ["A/c Holder's Name:", data.bank.holder],
+            ["Bank Name:", data.bank.bank],
+            ["A/c No.:", data.bank.acNo],
+            ["Branch & IFSC Code:", [data.bank.branch, data.bank.ifsc].filter(Boolean).join(" & ")],
+          ];
+          for (const [k, v] of rows) {
+            const klw = Math.round(w * 0.36);
+            cell(x, by, klw, 11, k, { font: FB, size: 6.5, align: "left" });
+            cell(x + klw, by, w - klw, 11, v, { size: 7, align: "left" });
+            by += 11;
+          }
+        } else if (data.bankRaw) {
+          const bh = Math.max(18, Math.ceil(wrapH(data.bankRaw, w, 7) + 8));
+          cell(x, by, w, bh, "", {});
+          doc.font(F).fontSize(7).fillColor(TALLY.ink).text(data.bankRaw, x + PAD, by + 2, { width: w - PAD * 2, align: "left" });
+          by += bh;
+        }
+        return by;
+      };
+      if (rbH > pageUsable) {
+        // Overflow path: remarks flow full-width across pages, bank follows.
+        tailNeed(20);
+        flowBlock(M, CW, wrapLines(remarkText || "Remarks:", CW, 7), 7, true);
+        tailNeed(bankInfoH + 14);
+        if (y + bankInfoH + 14 > BOT) { doc.addPage(); y = M; }
+        const bankTop = y;
+        const bankBottom = drawBankBlock(M, CW, y);
+        doc.rect(M, bankTop, CW, bankBottom - bankTop).strokeColor(TALLY.ink).lineWidth(0.5).stroke();
+        y = bankBottom;
+      } else {
+        tailNeed(rbH);
+        const ry0 = y;
+        cell(M, y, remW, rbH, "", {});
+        if (remarkText) {
+          doc.font(F).fontSize(7).fillColor(TALLY.ink).text(remarkText, M + PAD, y + 2, { width: remW - PAD * 2, align: "left" });
+        }
+        cell(M + remW, y, bankW, rbH, "", {});
+        let by = y;
+        cell(M + remW, by, bankW, 12, "Company's Bank Details", { font: FB, size: 7, align: "left" });
+        by += 12;
+        if (data.bank) {
+          const rows: Array<[string, string]> = [
+            ["A/c Holder's Name:", data.bank.holder],
+            ["Bank Name:", data.bank.bank],
+            ["A/c No.:", data.bank.acNo],
+            ["Branch & IFSC Code:", [data.bank.branch, data.bank.ifsc].filter(Boolean).join(" & ")],
+          ];
+          for (const [k, v] of rows) {
+            const klw = Math.round(bankW * 0.36);
+            cell(M + remW, by, klw, 11, k, { font: FB, size: 6.5, align: "left" });
+            cell(M + remW + klw, by, bankW - klw, 11, v, { size: 7, align: "left" });
+            by += 11;
+          }
+        } else if (data.bankRaw) {
+          doc.font(F).fontSize(7).fillColor(TALLY.ink).text(data.bankRaw, M + remW + PAD, by + 2, { width: bankW - PAD * 2, align: "left" });
+        }
+        y = ry0 + rbH;
       }
-      y = ry0 + rbH;
 
       // ── Declaration ──────────────────────────────────────────────────────
       const declText = (data.declaration ?? []).join("\n");
@@ -3374,7 +3473,7 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
       tailNeed(tailSignH);
       const signRow = (text: string, o?: { font?: string; size?: number; h?: number }) => {
         const h = o?.h ?? 13;
-        cell(M, y, CW, h, text, { font: o?.font ?? F, size: o?.size ?? 7.5, align: "center" });
+        cell(M, y, CW, h, text, { font: o?.font ?? F, size: o?.size ?? 7.5, align: "left" });
         y += h;
       };
       if (data.signatoryName) signRow(data.signatoryName, { font: FB, h: 14 });

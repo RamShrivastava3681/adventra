@@ -22,6 +22,12 @@ export interface Supplier {
   paymentTermsType: PaymentTermsType | null;
   /** Advance percentage for advance_partial terms (1–99). */
   advancePct: number | null;
+  /** Bank details for payouts / PO print ("Company's Bank Details" block). */
+  bankHolder: string | null;
+  bankName: string | null;
+  bankAcNo: string | null;
+  bankIfsc: string | null;
+  bankBranch: string | null;
   createdAt: string; updatedAt: string;
 }
 
@@ -48,6 +54,11 @@ export async function create(data: Partial<Supplier> & { companyName: string }) 
     advancePct: normalizeAdvancePct((data as any).advancePct ?? (data as any).advance_pct),
     gstin: data.gstin || null,
     panCardNo: data.panCardNo || null,
+    bankHolder: (data as any).bankHolder ?? (data as any).bank_holder ?? null,
+    bankName: (data as any).bankName ?? (data as any).bank_name ?? null,
+    bankAcNo: (data as any).bankAcNo ?? (data as any).bank_ac_no ?? null,
+    bankIfsc: (data as any).bankIfsc ?? (data as any).bank_ifsc ?? null,
+    bankBranch: (data as any).bankBranch ?? (data as any).bank_branch ?? null,
     stateCode: data.stateCode || (data.gstin ? data.gstin.slice(0, 2) : null),
     supplierCode: code, createdAt: now, updatedAt: now,
   };
@@ -57,10 +68,10 @@ export async function create(data: Partial<Supplier> & { companyName: string }) 
 
 export async function update(id: string, updates: Partial<Supplier>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
-  const allowed = ["companyName","contactName","contactEmail","contactPhone","industry","addressLine","city","country","postalCode","status","notes","paymentTermsDays","paymentTermsType","advancePct","gstin","panCardNo","stateCode"];
+  const allowed = ["companyName","contactName","contactEmail","contactPhone","industry","addressLine","city","country","postalCode","status","notes","paymentTermsDays","paymentTermsType","advancePct","gstin","panCardNo","stateCode","bankHolder","bankName","bankAcNo","bankIfsc","bankBranch"];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   // Accept snake_case aliases too (silent drops used to reset terms to defaults).
-  const alias: Record<string, string> = { payment_terms_days: "paymentTermsDays", payment_terms_type: "paymentTermsType", advance_pct: "advancePct", pan_card_no: "panCardNo", company_name: "companyName", contact_name: "contactName", contact_email: "contactEmail", contact_phone: "contactPhone", address_line: "addressLine", postal_code: "postalCode", state_code: "stateCode" };
+  const alias: Record<string, string> = { payment_terms_days: "paymentTermsDays", payment_terms_type: "paymentTermsType", advance_pct: "advancePct", pan_card_no: "panCardNo", company_name: "companyName", contact_name: "contactName", contact_email: "contactEmail", contact_phone: "contactPhone", address_line: "addressLine", postal_code: "postalCode", state_code: "stateCode", bank_holder: "bankHolder", bank_name: "bankName", bank_ac_no: "bankAcNo", bank_ifsc: "bankIfsc", bank_branch: "bankBranch" };
   for (const [sk, ck] of Object.entries(alias)) {
     if ((updates as any)[sk] !== undefined && patch[ck] === undefined) patch[ck] = (updates as any)[sk];
   }

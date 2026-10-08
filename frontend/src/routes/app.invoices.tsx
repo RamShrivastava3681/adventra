@@ -1309,7 +1309,7 @@ function NewInvoiceModal({
                   className={inputBase}
                   value={form.invoice_number}
                   onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
-                  placeholder="INV-XXXXXXXX"
+                  placeholder="ADV-26/27-SI-001"
                 />
               </Field>
               <Field label="Invoice date">

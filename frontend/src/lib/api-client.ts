@@ -359,8 +359,10 @@ const api = {
   // Goods Sales Orders (catalogue-backed customer orders — never touch stock)
   goodsSalesOrders: {
     list: () => api.get<any[]>("/goods-sales-orders"),
-    nextBuyerOrderNo: () =>
-      api.get<{ buyerOrderNo: string }>("/goods-sales-orders/next-buyer-order-no"),
+    nextBuyerOrderNo: (customerId?: string) =>
+      api.get<{ buyerOrderNo: string }>(
+        `/goods-sales-orders/next-buyer-order-no${customerId ? `?customerId=${encodeURIComponent(customerId)}` : ""}`,
+      ),
     create: (data: any) => api.post<any>("/goods-sales-orders", data),
     update: (id: string, data: any) => api.put<any>(`/goods-sales-orders/${id}`, data),
     delete: (id: string) => api.delete(`/goods-sales-orders/${id}`),
