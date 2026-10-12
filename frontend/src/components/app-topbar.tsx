@@ -25,11 +25,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-// ─── Appearance menu — Light / Dark / System ───
+// ─── Appearance menu — Light / Dark ───
 const THEME_OPTIONS: { value: Theme; label: string; icon: any }[] = [
   { value: "light", label: "Light", icon: Sun },
   { value: "dark", label: "Dark", icon: Moon },
-  { value: "system", label: "System", icon: Monitor },
 ];
 
 export function ThemeMenu({
@@ -49,10 +48,8 @@ export function ThemeMenu({
         >
           {theme === "light" ? (
             <Sun className="h-5 w-5" strokeWidth={1.8} />
-          ) : theme === "dark" ? (
-            <Moon className="h-5 w-5" strokeWidth={1.8} />
           ) : (
-            <Monitor className="h-5 w-5" strokeWidth={1.8} />
+            <Moon className="h-5 w-5" strokeWidth={1.8} />
           )}
         </button>
       </DropdownMenuTrigger>
