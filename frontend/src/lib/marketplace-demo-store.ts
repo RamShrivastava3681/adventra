@@ -57,6 +57,31 @@ export interface ProductInventory {
   available: number;
 }
 
+export interface EcommerceOrder {
+  id: string;
+  channel: "amazon" | "flipkart" | "myntra" | "marketplace4" | "shopify" | "manual";
+  channelName: string;
+  externalOrderId: string;
+  customerName: string;
+  customerCity: string;
+  sku: string;
+  productName: string;
+  variant: string;
+  quantity: number;
+  unitPrice: number;
+  totalValue: number;
+  paymentMethod: "Prepaid" | "COD";
+  paymentStatus: "pending" | "collected_by_marketplace" | "collected";
+  salesOrderId: string;
+  invoiceId?: string | null;
+  status: "reserved" | "picked_packed" | "dispatched" | "delivered" | "return_qc";
+  trackingNumber?: string;
+  carrier?: string;
+  isManual?: boolean;
+  notes?: string;
+  createdAt: string;
+}
+
 export interface DemoWorkflowState {
   currentStep: number; // 0 to 8
   isAutoPlaying: boolean;
@@ -91,6 +116,10 @@ export interface DemoWorkflowState {
   // Inventory
   inventory: ProductInventory[];
   
+  // Orders collection (both scripted, incoming, and manual)
+  orders: EcommerceOrder[];
+  activeOrderId: string;
+
   // Active role filter
   selectedRole: "all" | "management" | "sales" | "warehouse" | "finance" | "checker" | "admin";
   
@@ -105,6 +134,71 @@ export const BASELINE_CHANNELS: ChannelStats[] = [
   { id: "myntra", name: "Myntra", tag: "MYN-IN", orders: 6, grossValue: 12000, returns: 0, stockSync: "Simulated OK", lastSyncTime: "8 mins ago", isDemo: true },
   { id: "marketplace4", name: "Marketplace 4", tag: "MKT4", orders: 4, grossValue: 8000, returns: 0, stockSync: "Simulated OK", lastSyncTime: "12 mins ago", isDemo: true },
   { id: "shopify", name: "Shopify Store", tag: "SH-DIRECT", orders: 3, grossValue: 6000, returns: 0, stockSync: "Simulated OK", lastSyncTime: "15 mins ago", isDemo: true },
+];
+
+export const BASELINE_ORDERS: EcommerceOrder[] = [
+  {
+    id: "DEMO-AMZ-1001",
+    channel: "amazon",
+    channelName: "Amazon India",
+    externalOrderId: "402-9812491-1029412",
+    customerName: "Rahul Sharma",
+    customerCity: "Mumbai, MH",
+    sku: "AD-TS-BLK-M",
+    productName: "Adventra Classic Tee",
+    variant: "Black / M",
+    quantity: 2,
+    unitPrice: 1000,
+    totalValue: 2000,
+    paymentMethod: "Prepaid",
+    paymentStatus: "pending",
+    salesOrderId: "SO-DEMO-1001",
+    invoiceId: null,
+    status: "reserved",
+    createdAt: "Today, 10:15 AM",
+  },
+  {
+    id: "FK-ORD-8821",
+    channel: "flipkart",
+    channelName: "Flipkart",
+    externalOrderId: "OD3091823901",
+    customerName: "Ananya Sen",
+    customerCity: "Kolkata, WB",
+    sku: "AD-TS-WHT-M",
+    productName: "Adventra Classic Tee",
+    variant: "White / M",
+    quantity: 1,
+    unitPrice: 1000,
+    totalValue: 1000,
+    paymentMethod: "Prepaid",
+    paymentStatus: "collected",
+    salesOrderId: "SO-FK-8821",
+    invoiceId: "INV-FK-8821",
+    status: "dispatched",
+    carrier: "Delhivery Express",
+    trackingNumber: "DLV99182310",
+    createdAt: "Yesterday, 04:30 PM",
+  },
+  {
+    id: "SH-ORD-4401",
+    channel: "shopify",
+    channelName: "Shopify Store",
+    externalOrderId: "#SH-4401",
+    customerName: "Rohan Verma",
+    customerCity: "Bengaluru, KA",
+    sku: "AD-PO-NVY-M",
+    productName: "Adventra Pique Polo",
+    variant: "Navy / M",
+    quantity: 1,
+    unitPrice: 1400,
+    totalValue: 1400,
+    paymentMethod: "COD",
+    paymentStatus: "pending",
+    salesOrderId: "SO-SH-4401",
+    invoiceId: null,
+    status: "picked_packed",
+    createdAt: "Yesterday, 02:15 PM",
+  },
 ];
 
 export const BASELINE_INVENTORY: ProductInventory[] = [
@@ -162,6 +256,8 @@ export const INITIAL_STATE: DemoWorkflowState = {
   idempotencyReplayMessage: null,
   channels: BASELINE_CHANNELS,
   inventory: BASELINE_INVENTORY,
+  orders: BASELINE_ORDERS,
+  activeOrderId: "DEMO-AMZ-1001",
   selectedRole: "all",
   selectedChannel: "all",
 };
@@ -185,6 +281,8 @@ export function loadDemoState(): DemoWorkflowState {
       if (parsed.demoInvoiceId === undefined) parsed.demoInvoiceId = null;
       if (parsed.demoInvoiceNumber === undefined) parsed.demoInvoiceNumber = null;
       if (parsed.paymentStatus === undefined) parsed.paymentStatus = "pending";
+      if (!parsed.orders || parsed.orders.length === 0) parsed.orders = BASELINE_ORDERS;
+      if (!parsed.activeOrderId) parsed.activeOrderId = "DEMO-AMZ-1001";
       return parsed;
     }
   } catch (err) {
