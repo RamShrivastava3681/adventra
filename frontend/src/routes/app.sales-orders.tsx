@@ -107,6 +107,8 @@ type SO = {
   created_at: string;
   customer_id: string | null;
   customer_name: string | null;
+  customer_type?: string | null;
+  customerType?: string | null;
   ship_customer_id?: string | null;
   shipCustomerId?: string | null;
   ship_customer_name?: string | null;
@@ -344,14 +346,65 @@ function resolveTierPrice(
   tier: string,
 ): string | null {
   if (!p) return null;
+  const anyP = p as any;
   switch (tier) {
-    case "mrp": return p.mrp != null ? String(p.mrp) : null;
-    case "ecommerce": return p.ecommerce_price != null ? String(p.ecommerce_price) : null;
-    case "retailer": return p.retailer_price != null ? String(p.retailer_price) : null;
-    case "distributor": return p.distributor_price != null ? String(p.distributor_price) : null;
-    case "flexible": return p.flexible_price != null ? String(p.flexible_price) : null;
+    case "mrp": {
+      const v = p.mrp ?? anyP.mrp;
+      return v != null ? String(v) : null;
+    }
+    case "ecommerce": {
+      const v = p.ecommerce_price ?? anyP.ecommercePrice;
+      return v != null ? String(v) : null;
+    }
+    case "retailer": {
+      const v = p.retailer_price ?? anyP.retailerPrice;
+      return v != null ? String(v) : null;
+    }
+    case "distributor": {
+      const v = p.distributor_price ?? anyP.distributorPrice;
+      return v != null ? String(v) : null;
+    }
+    case "flexible": {
+      const v = p.flexible_price ?? anyP.flexiblePrice;
+      return v != null ? String(v) : null;
+    }
+    case "": {
+      const v = p.unit_price ?? anyP.unitPrice;
+      return v != null ? String(v) : null;
+    }
     default: return null;
   }
+}
+
+export const SO_CUSTOMER_TYPES = [
+  { value: "Retailer", label: "Retailer (Retailer pricing)", tier: "retailer" },
+  { value: "Distributor", label: "Distributor (Distributor pricing)", tier: "distributor" },
+  { value: "Dealer", label: "Dealer (Distributor pricing)", tier: "distributor" },
+  { value: "Defence", label: "Defence (0% Concessional GST)", tier: "" },
+  { value: "Others", label: "Others (Standard pricing)", tier: "" },
+];
+
+function getTierForCustomerType(customerType?: string | null): string {
+  if (!customerType) return "";
+  const s = customerType.toLowerCase().trim();
+  if (s === "retailer") return "retailer";
+  if (s === "distributor" || s === "dealer") return "distributor";
+  return "";
+}
+
+function resolvePriceForCustomerType(
+  p: CatalogueProduct | undefined | null,
+  customerType?: string | null,
+): string {
+  if (!p) return "";
+  const anyP = p as any;
+  const tier = getTierForCustomerType(customerType);
+  if (tier) {
+    const tierPrice = resolveTierPrice(p, tier);
+    if (tierPrice != null && tierPrice !== "") return tierPrice;
+  }
+  const fallback = p.unit_price ?? anyP.unitPrice;
+  return fallback != null ? String(fallback) : "";
 }
 
 export function SalesOrdersPage() {
@@ -585,7 +638,16 @@ export function SalesOrdersPage() {
                               </div>
                             </td>
                             <td className="px-5 py-3">
-                              {s.customer_name ?? customerName(s.customer_id) ?? "—"}
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-foreground">
+                                  {s.customer_name ?? customerName(s.customer_id) ?? "—"}
+                                </span>
+                                {((s as any).customer_type ?? (s as any).customerType) && (
+                                  <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[9px] font-semibold text-primary">
+                                    {(s as any).customer_type ?? (s as any).customerType}
+                                  </span>
+                                )}
+                              </div>
                               {((s as any).ship_customer_name ?? (s as any).shipCustomerName) &&
                               ((s as any).ship_customer_name ?? (s as any).shipCustomerName) !== (s.customer_name ?? customerName(s.customer_id)) ? (
                                 <div className="text-[10px] text-muted-foreground">
@@ -800,9 +862,20 @@ function SOModal({
   // (before anything has been dispatched).
   const editable = !isEdit || status === "draft" || status === "confirmed";
 
+  const stockCheckQ = useQuery({
+    queryKey: ["so_stock_check", so?.id],
+    queryFn: () => (so?.id ? api.goodsSalesOrders.checkStock(so.id) : null),
+    enabled: !!(isEdit && so?.id),
+  });
+
   const [f, setF] = useState({
     order_date: (so?.order_date ?? new Date().toISOString().slice(0, 10)).slice(0, 10),
     customer_id: so?.customer_id ?? "",
+    customer_type:
+      (so as any)?.customerType ??
+      (so as any)?.customer_type ??
+      customers.find((c) => c.id === so?.customer_id)?.customerType ??
+      "",
     ship_customer_id: (so as any)?.ship_customer_id ?? (so as any)?.shipCustomerId ?? "",
     same_as_billing: (() => {
       const ship = (so as any)?.ship_customer_id ?? (so as any)?.shipCustomerId ?? null;
@@ -913,8 +986,31 @@ function SOModal({
     const tierPrice = resolveTierPrice(p, tier);
     setLine(i, {
       price_tier: tier,
-      unit_price: tierPrice ?? line.unit_price,
+      unit_price: tierPrice ?? (tier === "" ? (p?.unit_price != null ? String(p.unit_price) : line.unit_price) : line.unit_price),
     });
+  };
+
+  const handleCustomerTypeChange = (newType: string) => {
+    setF((prev) => ({ ...prev, customer_type: newType }));
+    const isDef = newType?.toLowerCase() === "defence";
+    const tier = getTierForCustomerType(newType);
+
+    setLines((prev) =>
+      prev.map((l) => {
+        if (!l.product_id) return l;
+        const p = products.find((x) => x.id === l.product_id);
+        const tierPrice = resolvePriceForCustomerType(p, newType);
+        return {
+          ...l,
+          price_tier: tier,
+          unit_price: tierPrice || l.unit_price,
+          gst_rate: isDef ? "0" : (p?.gst_rate != null ? String(p.gst_rate) : l.gst_rate),
+        };
+      }),
+    );
+    if (newType) {
+      toast.info(`Pricing updated for ${newType} tier`);
+    }
   };
 
   // Live address books, one per side (see loadSoAddrs below). The billing
@@ -928,6 +1024,7 @@ function SOModal({
   const pickBillingCustomer = (id: string) => {
     const c = customers.find((x) => x.id === id);
     const nextBuyerNo = computeNextBuyerOrderNo(id, sos);
+    const custType = c?.customerType ?? f.customer_type ?? "";
     // Confirm against the server (it sees just-saved drafts the local list
     // may miss) and prefer its number when it disagrees — unless the user
     // has since typed a custom value.
@@ -955,6 +1052,7 @@ function SOModal({
       return {
         ...prev,
         customer_id: id,
+        customer_type: custType,
         buyer_order_no: (!prev.buyer_order_no?.trim() && nextBuyerNo) ? nextBuyerNo : prev.buyer_order_no,
         contact_person: c?.contact_name ?? prev.contact_person,
         billing_address: c?.billing_address ?? prev.billing_address,
@@ -985,9 +1083,21 @@ function SOModal({
       };
     });
     if (id) {
-      if (c && c.customerType?.toLowerCase() === "defence") {
-        setLines((prev) => prev.map((l) => ({ ...l, gst_rate: "0" })));
-      }
+      const isDef = custType?.toLowerCase() === "defence";
+      const tier = getTierForCustomerType(custType);
+      setLines((prev) =>
+        prev.map((l) => {
+          if (!l.product_id) return l;
+          const p = products.find((x) => x.id === l.product_id);
+          const tierPrice = resolvePriceForCustomerType(p, custType);
+          return {
+            ...l,
+            price_tier: tier || l.price_tier,
+            unit_price: tierPrice || l.unit_price,
+            gst_rate: isDef ? "0" : (p?.gst_rate != null ? String(p.gst_rate) : l.gst_rate),
+          };
+        }),
+      );
       if (c && (c.billing_addresses?.length ?? 0) > 1) {
         setBillAddrBook(c.billing_addresses ?? []);
         setBillAddrFor(id);
@@ -1153,7 +1263,10 @@ function SOModal({
   const pickProduct = (i: number, id: string) => {
     const p = products.find((x) => x.id === id) as any;
     const currentCust = customers.find((x) => x.id === f.customer_id);
-    const isDefence = currentCust?.customerType?.toLowerCase() === "defence" || (so as any)?.customerType?.toLowerCase() === "defence";
+    const activeType = f.customer_type || currentCust?.customerType || (so as any)?.customerType || "";
+    const isDefence = activeType?.toLowerCase() === "defence";
+    const tier = getTierForCustomerType(activeType);
+    const resolvedPrice = resolvePriceForCustomerType(p, activeType);
     setLine(i, {
       product_id: id,
       name: p ? fullItemName(p) : "",
@@ -1164,9 +1277,9 @@ function SOModal({
       product_code: p?.model || p?.sku || "",
       hsn_code: String(p?.hsn_code ?? p?.hsnCode ?? ""),
       mrp: p?.mrp != null ? String(p.mrp) : "",
-      unit_price: p?.unit_price != null ? String(p.unit_price) : "",
+      unit_price: resolvedPrice,
       gst_rate: isDefence ? "0" : (p?.gst_rate != null ? String(p.gst_rate) : ""),
-      price_tier: "",
+      price_tier: tier,
     });
   };
 
@@ -1187,6 +1300,11 @@ function SOModal({
   };
 
   const applyVariantToLine = (i: number, v: any) => {
+    const currentCust = customers.find((x) => x.id === f.customer_id);
+    const activeType = f.customer_type || currentCust?.customerType || (so as any)?.customerType || "";
+    const isDefence = activeType?.toLowerCase() === "defence";
+    const tier = getTierForCustomerType(activeType);
+    const resolvedPrice = resolvePriceForCustomerType(v, activeType);
     setLine(i, {
       product_id: v.id,
       name: fullItemName(v),
@@ -1197,16 +1315,19 @@ function SOModal({
       product_code: v.model || v.sku || "",
       hsn_code: String(v.hsn_code ?? v.hsnCode ?? ""),
       mrp: v.mrp != null ? String(v.mrp) : "",
-      unit_price: v.unit_price != null ? String(v.unit_price) : lines[i]?.unit_price ?? "",
-      gst_rate: v.gst_rate != null ? String(v.gst_rate) : lines[i]?.gst_rate ?? "",
-      price_tier: "",
+      unit_price: resolvedPrice || lines[i]?.unit_price || "",
+      gst_rate: isDefence ? "0" : (v.gst_rate != null ? String(v.gst_rate) : lines[i]?.gst_rate ?? ""),
+      price_tier: tier,
     });
   };
 
   // Expandable per-line notes (secondary detail row, not a main column).
   const [notesOpen, setNotesOpen] = useState<Record<number, boolean>>({});
 
-  const addLine = () =>
+  const addLine = () => {
+    const currentCust = customers.find((x) => x.id === f.customer_id);
+    const activeType = f.customer_type || currentCust?.customerType || (so as any)?.customerType || "";
+    const tier = getTierForCustomerType(activeType);
     setLines((ls) => [
       ...ls,
       {
@@ -1225,9 +1346,10 @@ function SOModal({
         gst_rate: "",
         notes: "",
         dispatched_qty: 0,
-        price_tier: "",
+        price_tier: tier,
       },
     ]);
+  };
 
   const removeLine = (i: number) => {
     const l = lines[i];
@@ -1322,6 +1444,7 @@ function SOModal({
         customer_name: f.customer_id
           ? (customers.find((c) => c.id === f.customer_id)?.name ?? null)
           : null,
+        customerType: f.customer_type || null,
         ship_customer_id: shipId || null,
         ship_customer_name: shipId ? (shipCustomer?.name ?? null) : null,
         contact_person: f.contact_person.trim() || null,
@@ -1493,6 +1616,31 @@ function SOModal({
           cashImpact={cashImpact("sales_order", so)}
         />
       )}
+      {isEdit && so && stockCheckQ.data && (
+        <div
+          className={`mt-2 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3.5 py-2 text-xs ${
+            stockCheckQ.data.sufficient
+              ? "border-sem-success/40 bg-sem-success/10 text-sem-success"
+              : "border-destructive/40 bg-destructive/10 text-destructive"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            <PackageCheck className="h-4 w-4 shrink-0" />
+            <span className="font-medium">
+              {stockCheckQ.data.sufficient
+                ? "Auto-check stock: Available (All items in stock, reserved on confirmation)"
+                : `Auto-check stock: Insufficient stock on ${stockCheckQ.data.shortLines.length} item(s) (prevents overselling)`}
+            </span>
+          </div>
+          {!stockCheckQ.data.sufficient && (
+            <span className="text-[11px] font-mono">
+              {stockCheckQ.data.shortLines
+                .map((s) => `${s.name}: short by ${s.required - s.available}`)
+                .join("; ")}
+            </span>
+          )}
+        </div>
+      )}
       <DraftResumeBanner
         draft={soDraft}
         label="Unsaved sales order found"
@@ -1541,16 +1689,39 @@ function SOModal({
                   disabled={!editable}
                   options={customers.map((c) => ({ value: c.id, label: c.name }))}
                 />
+              </L>
+              <L label="Customer Type (Price Category)">
+                <select
+                  className={inputBase}
+                  value={f.customer_type}
+                  onChange={(e) => handleCustomerTypeChange(e.target.value)}
+                  disabled={!editable}
+                >
+                  <option value="">Default (Master Selling Price)</option>
+                  <option value="Retailer">Retailer (Fetches Retailer Price)</option>
+                  <option value="Distributor">Distributor (Fetches Distributor Price)</option>
+                  <option value="Dealer">Dealer (Fetches Distributor Price)</option>
+                  <option value="Defence">Defence (0% Concessional GST)</option>
+                  <option value="Others">Others (Standard Selling Price)</option>
+                </select>
                 {(() => {
-                  const cust = customers.find((c) => c.id === f.customer_id);
-                  const cType = cust?.customerType ?? (so as any)?.customerType ?? (so as any)?.customer_type;
+                  const cType = f.customer_type;
                   if (!cType) return null;
                   const isDef = cType.toLowerCase() === "defence";
+                  const isRet = cType.toLowerCase() === "retailer";
+                  const isDist = cType.toLowerCase() === "distributor" || cType.toLowerCase() === "dealer";
                   return (
                     <div className="mt-1 flex items-center gap-1.5 text-[11px]">
-                      <span className="font-medium text-muted-foreground">Customer Type:</span>
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${isDef ? "bg-sem-success/15 text-sem-success" : "bg-primary/10 text-primary"}`}>
-                        {cType} {isDef ? "· 0% Concessional GST" : "· Standard GST"}
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                        isDef
+                          ? "bg-sem-success/15 text-sem-success"
+                          : isRet
+                          ? "bg-blue-500/15 text-blue-600 dark:text-blue-400"
+                          : isDist
+                          ? "bg-purple-500/15 text-purple-600 dark:text-purple-400"
+                          : "bg-primary/10 text-primary"
+                      }`}>
+                        {cType} {isDef ? "· 0% Concessional GST" : isRet ? "· Retailer Pricing Active" : isDist ? "· Distributor Pricing Active" : "· Standard GST"}
                       </span>
                     </div>
                   );

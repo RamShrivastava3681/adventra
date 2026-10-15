@@ -2450,6 +2450,8 @@ function POModal({
 function GRNModal({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone: () => void }) {
   const [received, setReceived] = useState<Record<string, string>>({});
   const [accepted, setAccepted] = useState<Record<string, string>>({});
+  // Products whose accepted qty the user typed by hand (stops auto-follow).
+  const [acceptedTouched, setAcceptedTouched] = useState<Record<string, boolean>>({});
   const [receivedDate, setReceivedDate] = useState(new Date().toISOString().slice(0, 10));
   const [notes, setNotes] = useState("");
   const [confirming, setConfirming] = useState(false);
@@ -2459,7 +2461,11 @@ function GRNModal({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone
       const lines = (po.lines ?? [])
         .map((l) => {
           const qty = received[l.product_id] !== undefined ? Number(received[l.product_id]) : NaN;
-          const acc = accepted[l.product_id] !== undefined ? Number(accepted[l.product_id]) : NaN;
+          // Blank accepted = same as received (not zero).
+          const acc =
+            accepted[l.product_id] !== undefined && accepted[l.product_id].trim() !== ""
+              ? Number(accepted[l.product_id])
+              : NaN;
           return { l, qty, acc: Number.isFinite(acc) ? acc : Number.isFinite(qty) ? qty : 0 };
         })
         .filter((x) => Number.isFinite(x.qty) && x.qty > 0);
@@ -2548,7 +2554,13 @@ function GRNModal({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone
               <tbody>
                 {(po.lines ?? []).map((l) => {
                   const qty = Number(received[l.product_id] ?? 0) || 0;
-                  const acc = Number(accepted[l.product_id] ?? received[l.product_id] ?? 0) || 0;
+                  const accRaw = accepted[l.product_id];
+                  const acc =
+                    Number(
+                      accRaw !== undefined && accRaw.trim() !== ""
+                        ? accRaw
+                        : (received[l.product_id] ?? 0),
+                    ) || 0;
                   return (
                     <tr key={l.product_id} className="border-b border-border/50">
                       <td className="px-3 py-2">
@@ -2568,9 +2580,16 @@ function GRNModal({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone
                           value={received[l.product_id] ?? ""}
                           onChange={(e) => {
                             const v = e.target.value;
+                            const prevReceived = received[l.product_id] ?? "";
+                            const prevAccepted = accepted[l.product_id] ?? "";
                             setReceived((r) => ({ ...r, [l.product_id]: v }));
-                            // Accepted follows received unless already overridden
-                            if (!(l.product_id in accepted)) {
+                            // Accepted follows received unless the user deliberately
+                            // typed a different accepted value for this product.
+                            if (
+                              !acceptedTouched[l.product_id] ||
+                              prevAccepted === "" ||
+                              prevAccepted === prevReceived
+                            ) {
                               setAccepted((a) => ({ ...a, [l.product_id]: v }));
                             }
                           }}
@@ -2589,10 +2608,17 @@ function GRNModal({ po, onClose, onDone }: { po: PO; onClose: () => void; onDone
                           className="inp !w-32 text-right"
                           placeholder="0"
                           value={accepted[l.product_id] ?? ""}
-                          onChange={(e) =>
-                            setAccepted((a) => ({ ...a, [l.product_id]: e.target.value }))
-                          }
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setAccepted((a) => ({ ...a, [l.product_id]: v }));
+                            setAcceptedTouched((t) => ({ ...t, [l.product_id]: true }));
+                          }}
                         />
+                        {qty > 0 && acc <= qty && (
+                          <div className="mt-0.5 text-[9px] text-muted-foreground">
+                            Rejected {Math.round((qty - acc) * 1000) / 1000}
+                          </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -2681,9 +2707,9 @@ function GRNsModal({
 
   const confirm = useMutation({
     mutationFn: async (id: string) => {
-      await api.goodsReceipts.confirm(id, {
-        allow_over_receipt: canApproveOverReceipt,
-      });
+      // Over-receipt approval is recorded on the GRN itself (set when the
+      // checker/admin ticks it); don't grant it implicitly on confirm.
+      await api.goodsReceipts.confirm(id, {});
     },
     onSuccess: () => {
       invalidate();

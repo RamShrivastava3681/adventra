@@ -5,6 +5,7 @@ export interface Alert {
   pk: string; sk: string;
   entityType: "Alert";
   id: string; clientId: string | null; debtorId: string | null; invoiceId: string | null;
+  productId?: string | null;
   type: string; severity: string; message: string; isRead: boolean;
   createdAt: string;
 }
@@ -19,6 +20,7 @@ export async function create(data: Partial<Alert> & { message: string; type: str
     pk: `ALERT#${id}`, sk: `ALERT#${id}`,
     entityType: "Alert", id,
     clientId: data.clientId || null, debtorId: data.debtorId || null, invoiceId: data.invoiceId || null,
+    productId: data.productId || null,
     type: data.type, severity: data.severity || "info",
     message: data.message, isRead: false,
     createdAt: now,

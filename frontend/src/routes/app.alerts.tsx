@@ -26,6 +26,8 @@ import {
   UserRound,
   Wallet,
   X,
+  RefreshCw,
+  Loader2,
   type LucideIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -300,6 +302,20 @@ function AlertsPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  const generateAlerts = useMutation({
+    mutationFn: async () => api.alerts.generate(),
+    onSuccess: (res: any) => {
+      qc.invalidateQueries({ queryKey: ["alerts"] });
+      const count = res?.generated ?? res?.count ?? 0;
+      toast.success(
+        count > 0
+          ? `Risk scan complete: ${count} new risk signal${count !== 1 ? "s" : ""} generated`
+          : "Risk scan complete: all SKUs & invoices up-to-date",
+      );
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to run risk scan"),
+  });
+
   const alerts = (alertsQ.data ?? []) as AlertItem[];
   const activity = (activityQ.data ?? []) as AuditEntry[];
 
@@ -376,12 +392,28 @@ function AlertsPage() {
       <PageHeader
         eyebrow="Surveillance"
         title="Alerts"
-        description="A live audit trail of every action across the business — who did what, and when — alongside risk signals that need your attention."
+        description="A live audit trail of every action across the business — who did what, and when — alongside real-time risk signals (low stock, payment due & overdue auto-escalation)."
         icon={<BellRing className="h-5 w-5" />}
         actions={
-          <span className="rounded-full border border-border px-3 py-1 text-xs">
-            <span className="num text-primary">{unread}</span> unread
-          </span>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+            <button
+              onClick={() => generateAlerts.mutate()}
+              disabled={generateAlerts.isPending}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium hover:border-primary/50 disabled:opacity-60"
+            >
+              {generateAlerts.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+              ) : (
+                <RefreshCw className="h-3.5 w-3.5 text-primary" />
+              )}
+              Run Risk Scan
+            </button>
+            )}
+            <span className="rounded-full border border-border px-3 py-1 text-xs">
+              <span className="num text-primary">{unread}</span> unread
+            </span>
+          </div>
         }
       />
       <div className="p-6 md:p-10">
@@ -539,7 +571,16 @@ function AlertsPage() {
   );
 }
 
+const ALERT_TYPE_META: Record<string, { label: string; cls: string }> = {
+  low_stock: { label: "Low stock alert", cls: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30" },
+  payment_due: { label: "Payment due", cls: "bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30" },
+  overdue_escalation: { label: "Overdue auto-escalation", cls: "bg-destructive/15 text-destructive border border-destructive/30" },
+  overdue: { label: "Payment overdue", cls: "bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30" },
+  credit_limit_exceeded: { label: "Credit limit exceeded", cls: "bg-destructive/15 text-destructive border border-destructive/30" },
+};
+
 function AlertRow({ alert, onMarkRead }: { alert: AlertItem; onMarkRead: (id: string) => void }) {
+  const typeMeta = ALERT_TYPE_META[alert.type];
   return (
     <li className={`flex items-start gap-4 p-4 ${alert.is_read ? "opacity-60" : ""}`}>
       <SevDot level={alertSeverity(alert.severity)} />
@@ -547,7 +588,13 @@ function AlertRow({ alert, onMarkRead }: { alert: AlertItem; onMarkRead: (id: st
         <div className="text-sm">{alert.message}</div>
         <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-widest text-muted-foreground">
           <BellRing className="h-3 w-3" />
-          <span>{alert.type}</span>
+          {typeMeta ? (
+            <span className={`rounded-full px-2 py-0.5 font-medium ${typeMeta.cls}`}>
+              {typeMeta.label}
+            </span>
+          ) : (
+            <span>{alert.type}</span>
+          )}
           <span>·</span>
           <SevBadge level={alertSeverity(alert.severity)} />
           <span>·</span>

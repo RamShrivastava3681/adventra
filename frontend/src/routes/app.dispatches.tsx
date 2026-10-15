@@ -660,12 +660,33 @@ export function DispatchesPageContent({
                               />
                             </td>
                             <td className="px-5 py-3 text-right">
-                              <button
-                                onClick={() => setView(d)}
-                                className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
-                              >
-                                View
-                              </button>
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  type="button"
+                                  onClick={async () => {
+                                    try {
+                                      toast.info("Generating Packing Slip PDF...");
+                                      await api.goodsDispatches.downloadPackingSlip(
+                                        d.id,
+                                        `packing-slip-${d.dispatch_number || d.id}`,
+                                      );
+                                      toast.success("Packing slip downloaded");
+                                    } catch (err: any) {
+                                      toast.error(err?.message || "Failed to download packing slip");
+                                    }
+                                  }}
+                                  title="Download auto-generated Packing Slip PDF"
+                                  className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                >
+                                  Slip PDF
+                                </button>
+                                <button
+                                  onClick={() => setView(d)}
+                                  className="rounded-md border border-border px-2 py-1 text-[10px] hover:border-primary hover:text-primary"
+                                >
+                                  View
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -2179,6 +2200,24 @@ function DispatchDetailModal({
               >
                 <Printer className="h-3.5 w-3.5" /> Print delivery challan
               </Link>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    toast.info("Generating Packing Slip PDF...");
+                    await api.goodsDispatches.downloadPackingSlip(
+                      d.id,
+                      `packing-slip-${d.dispatch_number || d.id}`,
+                    );
+                    toast.success("Packing slip downloaded");
+                  } catch (err: any) {
+                    toast.error(err?.message || "Failed to download packing slip");
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:border-primary hover:text-primary"
+              >
+                <FileText className="h-3.5 w-3.5" /> Packing slip PDF
+              </button>
               {canWrite &&
                 ["draft", "details_submitted", "ready_for_dispatch", "confirmed", "partially_delivered", "delivered"].includes(d.status) && (
                   <button

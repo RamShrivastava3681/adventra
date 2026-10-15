@@ -62,13 +62,13 @@ export interface Debtor {
   createdAt: string; updatedAt: string;
 }
 
-export const CUSTOMER_TYPES = ["Dealer", "Retailer", "Defence", "Others"] as const;
+export const CUSTOMER_TYPES = ["Dealer", "Distributor", "Retailer", "Defence", "Others"] as const;
 
 export function normalizeCustomerType(v: unknown): string | null {
   if (v === undefined || v === null || String(v).trim() === "") return null;
   const s = String(v).trim().toLowerCase();
   const hit = CUSTOMER_TYPES.find((t) => t.toLowerCase() === s);
-  if (!hit) throw new Error(`Invalid customer type: ${v} (use Dealer, Retailer, Defence or Others)`);
+  if (!hit) throw new Error(`Invalid customer type: ${v} (use Dealer, Distributor, Retailer, Defence or Others)`);
   return hit;
 }
 

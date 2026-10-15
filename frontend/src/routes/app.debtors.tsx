@@ -563,7 +563,7 @@ function DebtorModal({
                   onChange={(e) => setForm({ ...form, customer_type: e.target.value })}
                 >
                   <option value="">Not set</option>
-                  {["Dealer", "Retailer", "Defence", "Others"].map((t) => (
+                  {["Dealer", "Distributor", "Retailer", "Defence", "Others"].map((t) => (
                     <option key={t} value={t}>
                       {t}
                     </option>

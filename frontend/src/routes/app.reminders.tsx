@@ -136,16 +136,28 @@ function Badge({
 
 // ─── Automatic reminder settings (any admin) ─────────────
 
+// Days are offsets from the due date: positive = before, 0 = due date,
+// negative = overdue. The scheduler always mails on FIXED_DAYS; the rest are
+// optional extras.
 const SCHEDULE_OPTIONS: Array<{ days: number; label: string }> = [
-  { days: 0, label: "Due date" },
-  { days: 1, label: "1 day before" },
-  { days: 2, label: "2 days before" },
-  { days: 7, label: "7 days before" },
-  { days: 15, label: "15 days before" },
   { days: 30, label: "30 days before" },
+  { days: 15, label: "15 days before" },
+  { days: 7, label: "7 days before" },
+  { days: 3, label: "3 days before" },
+  { days: 2, label: "2 days before" },
+  { days: 1, label: "1 day before" },
+  { days: 0, label: "Due date" },
+  { days: -7, label: "7 days overdue" },
 ];
 
-const DEFAULT_SCHEDULE = [0, 1, 2, 7, 15];
+const FIXED_DAYS = [3, 0, -7];
+
+const DEFAULT_SCHEDULE = [...FIXED_DAYS];
+
+const withFixedDays = (days: number[]) => [...new Set([...days, ...FIXED_DAYS])].sort((a, b) => a - b);
+
+const scheduleDayLabel = (d: number) =>
+  d === 0 ? "due date" : d < 0 ? `${-d} days overdue` : `${d} day${d === 1 ? "" : "s"} before`;
 
 function ReminderSettingsCard() {
   const qc = useQueryClient();
@@ -154,6 +166,7 @@ function ReminderSettingsCard() {
     queryFn: () => api.reminders.settings.get(),
   });
   const [enabled, setEnabled] = useState(true);
+  const [sendToCustomer, setSendToCustomer] = useState(false);
   const [selected, setSelected] = useState<number[]>([...DEFAULT_SCHEDULE]);
   const [dirty, setDirty] = useState(false);
   const [hydrated, setHydrated] = useState(false);
@@ -164,20 +177,21 @@ function ReminderSettingsCard() {
     if (!data || hydrated) return;
     setHydrated(true);
     setEnabled(data.enabled !== false);
+    setSendToCustomer(data.send_to_customer === true);
     const stored: number[] = Array.isArray(data.schedule_days) ? data.schedule_days : [];
-    setSelected(stored.length ? stored : [...DEFAULT_SCHEDULE]);
+    setSelected(withFixedDays(stored));
     setDirty(false);
   }, [settingsQ.data, hydrated]);
 
   const savedEnabled = settingsQ.data?.enabled !== false;
-  const savedDays: number[] =
-    Array.isArray(settingsQ.data?.schedule_days) && settingsQ.data!.schedule_days.length
-      ? settingsQ.data!.schedule_days
-      : [...DEFAULT_SCHEDULE];
+  const savedSendToCustomer = settingsQ.data?.send_to_customer === true;
+  const savedDays: number[] = withFixedDays(
+    Array.isArray(settingsQ.data?.schedule_days) ? settingsQ.data!.schedule_days : [],
+  );
 
   const save = useMutation({
     mutationFn: async () => {
-      await api.reminders.settings.update({ enabled, scheduleDays: selected });
+      await api.reminders.settings.update({ enabled, scheduleDays: selected, sendToCustomer });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["reminder-settings"] });
@@ -188,6 +202,7 @@ function ReminderSettingsCard() {
   });
 
   const toggleDay = (days: number) => {
+    if (FIXED_DAYS.includes(days)) return;
     setSelected((prev) => {
       const next = prev.includes(days) ? prev.filter((d) => d !== days) : [...prev, days];
       return next.sort((a, b) => a - b);
@@ -204,6 +219,7 @@ function ReminderSettingsCard() {
             <button
               onClick={() => {
                 setEnabled(savedEnabled);
+                setSendToCustomer(savedSendToCustomer);
                 setSelected(savedDays);
                 setDirty(false);
               }}
@@ -236,8 +252,8 @@ function ReminderSettingsCard() {
             </div>
             <p className="mt-1 max-w-xl text-xs text-muted-foreground">
               {enabled
-                ? "Automatic reminder emails are sent on the schedule below, plus daily once an invoice is overdue."
-                : "No automatic reminder emails are sent — this also stops the instant email on new/updated invoices. Manual \"Send Reminder\" clicks still work."}
+                ? "Automatic reminder emails are sent to the admin on the schedule below (at most once a day per invoice)."
+                : "No automatic reminder emails are sent — this also stops the instant email on new/updated invoices. Manual \"Send Reminder\" clicks still work. In-app payment alerts keep working."}
             </p>
           </div>
           <Switch
@@ -250,34 +266,57 @@ function ReminderSettingsCard() {
           />
         </div>
 
+        {/* Direct-to-customer switch */}
+        <div className="flex flex-wrap items-center justify-between gap-4 rounded-lg border border-border p-3">
+          <div className="min-w-0">
+            <div className="font-medium">Email customers</div>
+            <p className="mt-1 max-w-xl text-xs text-muted-foreground">
+              {sendToCustomer
+                ? "On the same days, sales-invoice reminders also go straight to the customer's contact email (balance due, no internal notes). You still get your copy. Customers without an email on file are skipped. Supplier (purchase) reminders are never emailed out."
+                : "Off — customers are only reminded when you click the forward link in your reminder email."}
+            </p>
+          </div>
+          <Switch
+            checked={sendToCustomer}
+            disabled={!enabled}
+            onCheckedChange={(v) => {
+              setSendToCustomer(v);
+              setDirty(true);
+            }}
+            aria-label="Toggle direct customer reminder emails"
+          />
+        </div>
+
         {/* Schedule picker */}
         <div>
           <div className="text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-            Send reminder emails when an invoice is due in
+            Send reminder emails when an invoice is
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
             {SCHEDULE_OPTIONS.map((opt) => {
-              const active = selected.includes(opt.days);
+              const fixed = FIXED_DAYS.includes(opt.days);
+              const active = fixed || selected.includes(opt.days);
               return (
                 <button
                   key={opt.days}
                   type="button"
                   onClick={() => toggleDay(opt.days)}
+                  disabled={fixed}
+                  title={fixed ? "Always sent" : undefined}
                   className={`rounded-lg border px-3 py-2 text-xs font-medium transition-all ${
                     active
                       ? "border-primary bg-primary/5 text-primary ring-1 ring-primary"
                       : "border-border text-muted-foreground hover:border-primary/40 hover:bg-muted/40"
-                  }`}
+                  } ${fixed ? "cursor-default" : ""}`}
                 >
                   {opt.label}
+                  {fixed ? " · always" : ""}
                 </button>
               );
             })}
           </div>
           <p className="mt-2 text-[10px] text-muted-foreground">
-            {selected.length === 0
-              ? "Pick at least one schedule day to save."
-              : `Currently selected: ${selected.length === SCHEDULE_OPTIONS.length ? "every option" : selected.map((d) => (d === 0 ? "due date" : `${d} day${d === 1 ? "" : "s"} before`)).join(", ")}. Once overdue, reminders go out daily until the invoice is paid or closed.`}
+            {`Always sent 3 days before, on the due date and at 7 days overdue. Currently selected: ${selected.map(scheduleDayLabel).join(", ")}.`}
           </p>
         </div>
       </div>
