@@ -298,6 +298,7 @@ export function computeTotals(lines: GoodsSalesOrderLine[], freight: number) {
 // `null` = use catalogue rate.
 export const GST_BY_CUSTOMER_TYPE: Record<string, number | null> = {
   Dealer: null,
+  Distributor: null,
   Retailer: null,
   Defence: 0, // Defence supplies: exempt / 0% concessional GST
   Others: null,

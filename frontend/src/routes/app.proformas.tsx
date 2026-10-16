@@ -27,10 +27,16 @@ import {
   CheckCircle2,
   Send,
   FileSignature,
+  Sparkles,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import {
+  InvoiceAutoExtractModal,
+  hasUsefulExtraction,
+  type ExtractedData,
+} from "@/components/invoice-auto-extract-modal";
 import {
   PaymentTermsFields,
   formatPaymentTerms,
@@ -1431,6 +1437,89 @@ function PurchaseProformaModal({
     })),
   );
   const [docs, setDocs] = useState<DocMeta[]>(pf?.documents ?? []);
+  const [extractModalOpen, setExtractModalOpen] = useState(false);
+
+  const handleApplyExtracted = (data: ExtractedData, uploadedFile: DocMeta | null) => {
+    const extractedLines = Array.isArray(data.lines) ? data.lines : [];
+    const lc = (v: unknown) => String(v ?? "").trim().toLowerCase();
+
+    // Only fields that were actually extracted overwrite the form. The advance
+    // amount is NOT set here — the advance effect derives it from the line
+    // totals and the payment terms.
+    setF((prev) => {
+      const matched = data.matchedSupplierId
+        ? (suppliers.find((x) => x.id === data.matchedSupplierId) as any)
+        : undefined;
+      const supplierChanged = !!matched && matched.id !== prev.supplier_id;
+      return {
+        ...prev,
+        proforma_number: data.documentNumber?.trim() || prev.proforma_number,
+        proforma_date: data.documentDate || prev.proforma_date,
+        valid_until: data.dueDate || prev.valid_until,
+        ...(matched ? { supplier_id: matched.id } : {}),
+        ...(supplierChanged ? toTermsFormFields(matched) : {}),
+        supplier_contact:
+          data.supplierContact?.trim() ||
+          (supplierChanged ? matched?.contact : "") ||
+          prev.supplier_contact,
+        supplier_gstin:
+          matched?.gstin || data.supplierGstin?.trim() || prev.supplier_gstin,
+        // The basic PDF reader always reports INR; only trust an AI-read currency.
+        ...(data.extractionMethod === "gemini_ai" && data.currency
+          ? { currency: data.currency }
+          : {}),
+        freight: data.freight != null ? String(data.freight) : prev.freight,
+        po_number: data.poNumber?.trim() || prev.po_number,
+      };
+    });
+
+    if (extractedLines.length > 0) {
+      const mappedLines: LineDraft[] = extractedLines.map((item) => {
+        // Catalogue product only on a real match — otherwise the printed
+        // description is kept as-is.
+        const cat = products.find(
+          (p) =>
+            (item.matchedProductId && p.id === item.matchedProductId) ||
+            (item.productCode && p.sku && lc(p.sku) === lc(item.productCode)) ||
+            (item.name && p.name && lc(p.name) === lc(item.name)),
+        ) as any;
+        return {
+          product_id: cat?.id || "",
+          sku: cat?.sku ?? null,
+          name: cat?.name ?? item.name ?? "",
+          hsn_code: String(cat?.hsn_code ?? cat?.hsnCode ?? item.hsnCode ?? ""),
+          unit: cat?.unit_of_measure ?? item.unit ?? "piece",
+          quantity: item.quantity ? String(item.quantity) : "1",
+          unit_price: item.unitPrice
+            ? String(item.unitPrice)
+            : cat?.unit_cost != null
+              ? String(cat.unit_cost)
+              : "",
+          gst_rate:
+            item.gstRate != null
+              ? String(item.gstRate)
+              : cat?.gst_rate != null
+                ? String(cat.gst_rate)
+                : "",
+        };
+      });
+      setLines(mappedLines);
+    }
+
+    if (uploadedFile) {
+      setDocs((prev) => {
+        const exists = prev.some((d) => d.path === uploadedFile.path || d.name === uploadedFile.name);
+        return exists ? prev : [...prev, uploadedFile];
+      });
+    }
+
+    setExtractModalOpen(false);
+    if (hasUsefulExtraction(data)) {
+      toast.success("Details applied to the proforma — please review lines before saving.");
+    } else if (uploadedFile) {
+      toast.info("Document attached. Nothing could be auto-filled.");
+    }
+  };
 
   // Existing purchase orders to optionally link this proforma to.
   const posQ = useQuery({
@@ -1669,6 +1758,36 @@ function PurchaseProformaModal({
         }}
         className="space-y-5 p-5"
       >
+        {/* AI / Document Auto-fill Banner (new proformas only) */}
+        {!isEdit && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-3.5 shadow-sm">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/20 text-primary ring-1 ring-primary/30">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <div className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                Auto-fill from Document (PDF / Scan)
+                <span className="rounded-full bg-primary/20 px-1.5 py-0.2 text-[9px] font-normal text-primary">
+                  Smart OCR / Gemini AI
+                </span>
+              </div>
+              <div className="text-[11px] text-muted-foreground">
+                Upload supplier proforma quotation (PDF or scan) to auto-fill invoice #, dates, supplier & product lines.
+              </div>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setExtractModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-medium text-primary-foreground shadow transition hover:bg-primary/90"
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            Auto-fill from Document
+          </button>
+        </div>
+        )}
+
         {/* Header */}
         <fieldset className="rounded-lg border border-border/60 p-4">
           <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
@@ -2001,6 +2120,13 @@ function PurchaseProformaModal({
         <option value="18" />
         <option value="28" />
       </datalist>
+      <InvoiceAutoExtractModal
+        isOpen={extractModalOpen}
+        onClose={() => setExtractModalOpen(false)}
+        scope="proformas"
+        suppliers={suppliers}
+        onApply={handleApplyExtracted}
+      />
     </Modal>
   );
 }

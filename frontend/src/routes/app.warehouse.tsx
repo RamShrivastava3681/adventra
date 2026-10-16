@@ -464,7 +464,7 @@ export function WarehousePage() {
       action: "approve" | "reject";
       notes?: string;
       editedQuantities?: Record<string, number>;
-    }) => api.goodsSalesOrders.warehouseApprove(id, action, notes),
+    }) => api.goodsSalesOrders.warehouseApprove(id, action, notes, editedQuantities),
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["wh_sales_orders"] });
       qc.invalidateQueries({ queryKey: ["goods_sales_orders"] });
@@ -1426,20 +1426,37 @@ function DispatchTable({
                     )}
                   </td>
                   <td className="px-5 py-3">
-                    {closed ? (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    ) : (
-                      <div className="flex items-center gap-1.5">
-                        {["confirmed", "partially_delivered", "delivered"].includes(d.status) && (
-                          <button
-                            onClick={() => onReturn(d.id)}
-                            disabled={acting === d.id}
-                            title="Record return — credits the remaining quantity back to stock"
-                            className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground transition hover:border-primary hover:text-primary disabled:opacity-60"
-                          >
-                            Return
-                          </button>
-                        )}
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            toast.info("Generating Packing Slip PDF...");
+                            await api.goodsDispatches.downloadPackingSlip(
+                              d.id,
+                              `packing-slip-${d.dispatch_number || d.id}`,
+                            );
+                            toast.success("Packing slip downloaded");
+                          } catch (err: any) {
+                            toast.error(err?.message || "Failed to download packing slip");
+                          }
+                        }}
+                        title="Download Packing Slip PDF"
+                        className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground transition hover:border-primary hover:text-primary"
+                      >
+                        Slip
+                      </button>
+                      {!closed && ["confirmed", "partially_delivered", "delivered"].includes(d.status) && (
+                        <button
+                          onClick={() => onReturn(d.id)}
+                          disabled={acting === d.id}
+                          title="Record return — credits the remaining quantity back to stock"
+                          className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground transition hover:border-primary hover:text-primary disabled:opacity-60"
+                        >
+                          Return
+                        </button>
+                      )}
+                      {!closed && (
                         <button
                           onClick={() => onCancel(d.id)}
                           disabled={acting === d.id}
@@ -1448,17 +1465,38 @@ function DispatchTable({
                         >
                           Cancel
                         </button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </td>
                 </>
               ) : (
                 <td className="px-5 py-3">
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${shippingTone(current)}`}
-                  >
-                    {SHIPPING_LABEL[current]}
-                  </span>
+                  <div className="flex items-center gap-1.5">
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-widest ${shippingTone(current)}`}
+                    >
+                      {SHIPPING_LABEL[current]}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          toast.info("Generating Packing Slip PDF...");
+                          await api.goodsDispatches.downloadPackingSlip(
+                            d.id,
+                            `packing-slip-${d.dispatch_number || d.id}`,
+                          );
+                          toast.success("Packing slip downloaded");
+                        } catch (err: any) {
+                          toast.error(err?.message || "Failed to download packing slip");
+                        }
+                      }}
+                      title="Download Packing Slip PDF"
+                      className="rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground transition hover:border-primary hover:text-primary"
+                    >
+                      Slip
+                    </button>
+                  </div>
                 </td>
               )}
             </tr>
@@ -1505,11 +1543,27 @@ function SignoffApproveModal({
   const [notes, setNotes] = useState("");
   const [editedQuantities, setEditedQuantities] = useState<Record<string, number>>({});
 
+  const stockCheckQ = useQuery({
+    queryKey: ["so_stock_check", order.id],
+    queryFn: () => api.goodsSalesOrders.checkStock(order.id),
+  });
+
+  const checkMap = useMemo(() => {
+    const map = new Map<string, { available: number; onHand: number; reservedByOthers: number }>();
+    for (const c of stockCheckQ.data?.lineChecks ?? []) {
+      map.set(c.productId, c);
+    }
+    return map;
+  }, [stockCheckQ.data]);
+
   const lines = (order.lines ?? []).map((l) => {
     const pending = Math.max(0, Number(l.ordered_qty) - Number(l.dispatched_qty ?? 0));
-    const available = stockByProduct.get(l.product_id) ?? 0;
+    const chk = checkMap.get(l.product_id);
+    const available = chk != null ? chk.available : (stockByProduct.get(l.product_id) ?? 0);
+    const onHand = chk != null ? chk.onHand : (stockByProduct.get(l.product_id) ?? 0);
+    const reservedByOthers = chk?.reservedByOthers ?? 0;
     const editedQty = editedQuantities[l.product_id] != null ? Number(editedQuantities[l.product_id]) : null;
-    return { ...l, pending, available, short: available < (editedQty ?? pending), editedQty };
+    return { ...l, pending, available, onHand, reservedByOthers, short: available < (editedQty ?? pending), editedQty };
   });
   const shortLines = lines.filter((l) => l.short);
   const allChecked = lines.length > 0 && lines.every((l) => checked[l.product_id]);
@@ -1521,7 +1575,7 @@ const blockReason =
     lines.length === 0
       ? "This order has no lines to verify."
       : shortLines.length > 0
-        ? `${shortLines.length} line${shortLines.length === 1 ? " is" : "s are"} short of stock — approval is blocked until stock arrives or quantity is edited.`
+        ? `${shortLines.length} line${shortLines.length === 1 ? " is" : "s are"} short of available stock — approval blocked to prevent overselling.`
         : allChecked
           ? null
           : `Check all ${lines.length} line${lines.length === 1 ? "" : "s"} to enable approval (${lines.filter((l) => checked[l.product_id]).length}/${lines.length} verified).`;
@@ -1548,7 +1602,7 @@ const blockReason =
           <div>
             <h3 className="font-display text-lg">Verify stock — {order.so_number}</h3>
             <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-              {order.customer_name ?? "—"} · approval needs every line checked and fully in stock
+              {order.customer_name ?? "—"} · Live stock check active (on-hand − reserved)
             </div>
           </div>
           <button onClick={onClose} aria-label="Close">
@@ -1578,7 +1632,7 @@ const blockReason =
                   </th>
                   <th className="px-3 py-2 text-right font-normal">Ordered</th>
                   <th className="px-3 py-2 text-right font-normal">Pending</th>
-                  <th className="px-3 py-2 text-right font-normal">In stock</th>
+                  <th className="px-3 py-2 text-right font-normal">Available (Unreserved)</th>
                   <th className="px-3 py-2 text-right font-normal">Edit qty</th>
                   <th className="px-3 py-2 text-center font-normal">Verified</th>
                 </tr>
@@ -1596,7 +1650,7 @@ const blockReason =
                       )}
                       {l.short && (
                         <div className="text-[11px] font-medium text-destructive">
-                          Short by {(l.pending - l.available).toLocaleString()} — not available
+                          Short by {(l.pending - l.available).toLocaleString()} — {l.available} available{l.reservedByOthers > 0 ? ` (${l.reservedByOthers} reserved for other orders)` : ""}
                         </div>
                       )}
                     </td>
@@ -1604,6 +1658,11 @@ const blockReason =
                     <td className="px-3 py-2 text-right num">{l.pending.toLocaleString()}</td>
                     <td className={`px-3 py-2 text-right num ${l.short ? "font-semibold text-destructive" : "text-sem-success"}`}>
                       {l.available.toLocaleString()}
+                      {l.reservedByOthers > 0 && (
+                        <div className="text-[10px] font-normal text-muted-foreground">
+                          On-hand {l.onHand} · Res {l.reservedByOthers}
+                        </div>
+                      )}
                     </td>
                     <td className="px-3 py-2 text-right">
                       <input
@@ -1611,9 +1670,11 @@ const blockReason =
                         value={l.editedQty != null ? String(l.editedQty) : String(l.ordered_qty)}
                         onChange={(e) => {
                           const val = Number(e.target.value) || 0;
-                          setEditedQuantities((c) => ({ ...c, [l.product_id]: val }));
+                          // Quantities can only be reduced at sign-off.
+                          setEditedQuantities((c) => ({ ...c, [l.product_id]: Math.min(val, Number(l.ordered_qty)) }));
                         }}
                         min={0}
+                        max={Number(l.ordered_qty)}
                         className="w-full rounded-md border border-border bg-input px-1 py-1 text-xs focus:border-primary focus:outline-none"
                       />
                     </td>

@@ -3515,5 +3515,337 @@ export function buildGoodsPOTallyPdf(data: GoodsPOPdfData): Promise<Buffer> {
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PACKING SLIP PDF GENERATOR
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PackingSlipLine {
+  itemNo: number;
+  sku: string | null;
+  name: string;
+  color?: string | null;
+  size?: string | null;
+  quantity: number;
+  unit: string;
+  boxNo?: string | number | null;
+  notes?: string | null;
+}
+
+export interface PackingSlipPdfData {
+  dispatchNumber: string;
+  dispatchDate: string;
+  soNumber?: string | null;
+  invoiceNumber?: string | null;
+  customerName?: string | null;
+  contactPerson?: string | null;
+  deliveryAddress?: string | null;
+  deliveryCity?: string | null;
+  deliveryState?: string | null;
+  deliveryPincode?: string | null;
+  billingAddress?: string | null;
+  warehouse?: string | null;
+  transporterName?: string | null;
+  transportMode?: string | null;
+  vehicleNumber?: string | null;
+  lrNumber?: string | null;
+  cartonCount?: number | null;
+  packageType?: string | null;
+  grossWeight?: number | null;
+  grossWeightUnit?: string | null;
+  handlingInstructions?: string | null;
+  notes?: string | null;
+  lines: PackingSlipLine[];
+  companyName: string;
+  companyAddress?: string | null;
+  companyContact?: string | null;
+  companyGstin?: string | null;
+}
+
+export function dispatchToPackingSlipData(
+  dispatch: any,
+  company: { name: string; address?: string | null; contact?: string | null; gstin?: string | null },
+): PackingSlipPdfData {
+  const lines: PackingSlipLine[] = (dispatch.lines ?? []).map((l: any, idx: number) => ({
+    itemNo: idx + 1,
+    sku: l.sku || null,
+    name: l.name || "Item",
+    color: l.color || null,
+    size: l.size != null ? String(l.size) : null,
+    quantity: Number(l.dispatchedQty ?? l.dispatched_qty ?? l.orderedQty ?? 0),
+    unit: l.unit || "unit",
+    boxNo: l.boxNo ?? l.box_no ?? null,
+    notes: l.notes || null,
+  }));
+
+  return {
+    dispatchNumber: dispatch.dispatchNumber ?? dispatch.dispatch_number ?? "DISP",
+    dispatchDate: dispatch.dispatchDate ?? dispatch.dispatch_date ?? new Date().toISOString().slice(0, 10),
+    soNumber: dispatch.soNumber ?? dispatch.so_number ?? null,
+    invoiceNumber: dispatch.finalInvoiceNumber ?? dispatch.final_invoice_number ?? null,
+    customerName: dispatch.customerName ?? dispatch.customer_name ?? null,
+    contactPerson: dispatch.contactPerson ?? dispatch.contact_person ?? null,
+    deliveryAddress: dispatch.deliveryAddress ?? dispatch.delivery_address ?? null,
+    deliveryCity: dispatch.deliveryCity ?? dispatch.delivery_city ?? null,
+    deliveryState: dispatch.deliveryState ?? dispatch.delivery_state ?? null,
+    deliveryPincode: dispatch.deliveryPincode ?? dispatch.delivery_pincode ?? null,
+    billingAddress: dispatch.billingAddress ?? dispatch.billing_address ?? null,
+    warehouse: dispatch.warehouse ?? null,
+    transporterName: dispatch.transporterName ?? dispatch.transporter_name ?? null,
+    transportMode: dispatch.transportMode ?? dispatch.transport_mode ?? null,
+    vehicleNumber: dispatch.vehicleNumber ?? dispatch.vehicle_number ?? null,
+    lrNumber: dispatch.lrNumber ?? dispatch.lr_number ?? null,
+    cartonCount: dispatch.cartonCount ?? dispatch.carton_count ?? null,
+    packageType: dispatch.packageType ?? dispatch.package_type ?? null,
+    grossWeight: dispatch.grossWeight ?? dispatch.gross_weight ?? null,
+    grossWeightUnit: dispatch.grossWeightUnit ?? dispatch.gross_weight_unit ?? "kg",
+    handlingInstructions: dispatch.handlingInstructions ?? dispatch.handling_instructions ?? null,
+    notes: dispatch.notes ?? null,
+    lines,
+    companyName: company.name || "Adventra",
+    companyAddress: company.address || null,
+    companyContact: company.contact || null,
+    companyGstin: company.gstin || null,
+  };
+}
+
+export function buildPackingSlipPdf(data: PackingSlipPdfData): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    try {
+      const margin = 36;
+      const doc = new PDFDocument({
+        size: "A4",
+        margin,
+        bufferPages: true,
+        info: {
+          Title: `Packing Slip - ${data.dispatchNumber}`,
+          Author: data.companyName,
+          Subject: `Packing List for Dispatch ${data.dispatchNumber}`,
+        },
+      });
+
+      const chunks: Buffer[] = [];
+      doc.on("data", (c: Buffer) => chunks.push(c));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+
+      const contentWidth = 595.28 - margin * 2; // ~523.28
+      let y = margin;
+
+      // 1. Header Band (Dark Slate)
+      const bandHeight = 72;
+      doc.save();
+      doc.rect(margin, y, contentWidth, bandHeight).fill("#1e293b");
+
+      // Company Info (Left)
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(14)
+        .fillColor("#ffffff")
+        .text(data.companyName || "Adventra Platform", margin + 14, y + 14, { width: contentWidth * 0.55 });
+
+      const subLines: string[] = [];
+      if (data.companyAddress) subLines.push(data.companyAddress);
+      if (data.companyGstin) subLines.push(`GSTIN: ${data.companyGstin}`);
+      if (data.companyContact) subLines.push(`Contact: ${data.companyContact}`);
+
+      if (subLines.length > 0) {
+        doc
+          .font("Helvetica")
+          .fontSize(7.5)
+          .fillColor("#cbd5e1")
+          .text(subLines.slice(0, 2).join(" · "), margin + 14, y + 34, { width: contentWidth * 0.55 });
+      }
+
+      // Title & Document Info (Right)
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(16)
+        .fillColor("#38bdf8")
+        .text("PACKING SLIP", margin, y + 14, { width: contentWidth - 14, align: "right" });
+
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(9)
+        .fillColor("#ffffff")
+        .text(`Dispatch #: ${data.dispatchNumber}`, margin, y + 36, { width: contentWidth - 14, align: "right" });
+
+      doc
+        .font("Helvetica")
+        .fontSize(8)
+        .fillColor("#94a3b8")
+        .text(`Date: ${fmtDate(data.dispatchDate)}`, margin, y + 49, { width: contentWidth - 14, align: "right" });
+
+      doc.restore();
+      y += bandHeight + 12;
+
+      // 2. Metadata Columns (Ship-To Left, Dispatch/Transport Right)
+      const colW = (contentWidth - 12) / 2;
+      const boxH = 92;
+
+      // Left Box: Consignee / Ship-To
+      doc.save();
+      doc.rect(margin, y, colW, boxH).fillAndStroke("#f8fafc", "#e2e8f0");
+      doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#0f172a").text("SHIP TO / CONSIGNEE", margin + 10, y + 8);
+
+      let custY = y + 22;
+      doc.font("Helvetica-Bold").fontSize(8).fillColor("#1e293b").text(data.customerName || "Customer", margin + 10, custY, { width: colW - 20 });
+      custY += 12;
+      if (data.contactPerson) {
+        doc.font("Helvetica").fontSize(7.5).fillColor("#64748b").text(`Attn: ${data.contactPerson}`, margin + 10, custY, { width: colW - 20 });
+        custY += 10;
+      }
+      const addr = [data.deliveryAddress, data.deliveryCity, data.deliveryState, data.deliveryPincode].filter(Boolean).join(", ");
+      doc.font("Helvetica").fontSize(7.5).fillColor("#475569").text(addr || "—", margin + 10, custY, { width: colW - 20, height: 40 });
+      doc.restore();
+
+      // Right Box: Dispatch & Transport Info
+      doc.save();
+      doc.rect(margin + colW + 12, y, colW, boxH).fillAndStroke("#f8fafc", "#e2e8f0");
+      doc.font("Helvetica-Bold").fontSize(8.5).fillColor("#0f172a").text("DISPATCH & CARRIER DETAILS", margin + colW + 22, y + 8);
+
+      let dtY = y + 22;
+      const dtCol1 = margin + colW + 22;
+      const dtCol2 = dtCol1 + 95;
+      const dRow = (k: string, v: string | null | undefined) => {
+        doc.font("Helvetica").fontSize(7.5).fillColor("#64748b").text(k, dtCol1, dtY, { width: 90 });
+        doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#1e293b").text(v || "—", dtCol2, dtY, { width: colW - 120 });
+        dtY += 11;
+      };
+
+      dRow("Sales Order Ref:", data.soNumber);
+      dRow("Invoice Ref:", data.invoiceNumber);
+      dRow("Carrier / Mode:", [data.transporterName, data.transportMode].filter(Boolean).join(" · ") || null);
+      dRow("Vehicle / LR No:", [data.vehicleNumber, data.lrNumber ? `LR: ${data.lrNumber}` : ""].filter(Boolean).join(" · ") || null);
+      dRow("Total Packages:", `${data.cartonCount ?? 1} ${data.packageType || "Cartons"}`);
+      dRow("Gross Weight:", data.grossWeight ? `${data.grossWeight} ${data.grossWeightUnit || "kg"}` : null);
+      doc.restore();
+
+      y += boxH + 14;
+
+      // 3. Line Items Table Header
+      const thH = 20;
+      doc.rect(margin, y, contentWidth, thH).fill("#334155");
+
+      const cols = {
+        itemNo: { x: margin + 6, w: 24, align: "left" as const },
+        sku: { x: margin + 32, w: 90, align: "left" as const },
+        desc: { x: margin + 125, w: 220, align: "left" as const },
+        box: { x: margin + 350, w: 45, align: "center" as const },
+        qty: { x: margin + 400, w: 60, align: "right" as const },
+        unit: { x: margin + 465, w: 45, align: "left" as const },
+      };
+
+      doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#ffffff");
+      doc.text("#", cols.itemNo.x, y + 6, { width: cols.itemNo.w, align: cols.itemNo.align });
+      doc.text("SKU", cols.sku.x, y + 6, { width: cols.sku.w, align: cols.sku.align });
+      doc.text("ITEM DESCRIPTION", cols.desc.x, y + 6, { width: cols.desc.w, align: cols.desc.align });
+      doc.text("BOX #", cols.box.x, y + 6, { width: cols.box.w, align: cols.box.align });
+      doc.text("QTY PACKED", cols.qty.x, y + 6, { width: cols.qty.w, align: cols.qty.align });
+      doc.text("UNIT", cols.unit.x, y + 6, { width: cols.unit.w, align: cols.unit.align });
+
+      y += thH;
+
+      // 4. Line Items Table Rows
+      let totalQty = 0;
+      data.lines.forEach((l, idx) => {
+        totalQty += l.quantity;
+        const rowH = (l.color || l.size) ? 24 : 18;
+
+        if (y + rowH > 750) {
+          doc.addPage();
+          y = margin;
+        }
+
+        if (idx % 2 === 1) {
+          doc.rect(margin, y, contentWidth, rowH).fill("#f8fafc");
+        }
+
+        doc.rect(margin, y, contentWidth, rowH).stroke("#f1f5f9");
+
+        doc.font("Helvetica").fontSize(7.5).fillColor("#64748b");
+        doc.text(String(l.itemNo), cols.itemNo.x, y + 5, { width: cols.itemNo.w, align: cols.itemNo.align });
+
+        doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#1e293b");
+        doc.text(l.sku || "—", cols.sku.x, y + 5, { width: cols.sku.w, align: cols.sku.align });
+
+        // Name + Variant
+        doc.font("Helvetica").fontSize(7.5).fillColor("#0f172a");
+        doc.text(l.name, cols.desc.x, y + 5, { width: cols.desc.w, lineBreak: false });
+        if (l.color || l.size) {
+          const varText = [l.color, l.size].filter(Boolean).join(" · ");
+          doc.font("Helvetica").fontSize(6.5).fillColor("#64748b");
+          doc.text(`Variant: ${varText}`, cols.desc.x, y + 13, { width: cols.desc.w });
+        }
+
+        doc.font("Helvetica").fontSize(7.5).fillColor("#475569");
+        doc.text(l.boxNo ? String(l.boxNo) : "1", cols.box.x, y + 5, { width: cols.box.w, align: cols.box.align });
+
+        doc.font("Helvetica-Bold").fontSize(8).fillColor("#0f172a");
+        doc.text(l.quantity.toLocaleString("en-IN"), cols.qty.x, y + 5, { width: cols.qty.w, align: cols.qty.align });
+
+        doc.font("Helvetica").fontSize(7.5).fillColor("#64748b");
+        doc.text(l.unit, cols.unit.x, y + 5, { width: cols.unit.w, align: cols.unit.align });
+
+        y += rowH;
+      });
+
+      // 5. Total Row
+      const totH = 22;
+      doc.rect(margin, y, contentWidth, totH).fill("#f1f5f9");
+      doc.rect(margin, y, contentWidth, totH).stroke("#cbd5e1");
+
+      doc.font("Helvetica-Bold").fontSize(8).fillColor("#0f172a");
+      doc.text("TOTAL ITEMS DISPATCHED:", margin + 12, y + 7);
+
+      doc.font("Helvetica-Bold").fontSize(9).fillColor("#0284c7");
+      doc.text(totalQty.toLocaleString("en-IN"), cols.qty.x, y + 6, { width: cols.qty.w, align: cols.qty.align });
+
+      doc.font("Helvetica-Bold").fontSize(8).fillColor("#0f172a");
+      doc.text(data.lines[0]?.unit || "units", cols.unit.x, y + 7, { width: cols.unit.w, align: cols.unit.align });
+
+      y += totH + 16;
+
+      // 6. Notes & Handling Instructions
+      if (data.handlingInstructions || data.notes) {
+        doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#475569").text("HANDLING INSTRUCTIONS & NOTES:", margin, y);
+        y += 11;
+        const noteText = [data.handlingInstructions, data.notes].filter(Boolean).join(" · ");
+        doc.font("Helvetica").fontSize(7.5).fillColor("#334155").text(noteText, margin, y, { width: contentWidth });
+        y += 20;
+      }
+
+      // 7. Signature / Sign-off Boxes
+      const sigY = Math.max(y + 10, 710);
+      const sigW = (contentWidth - 24) / 2;
+
+      // Left: Warehouse Sign-off
+      doc.rect(margin, sigY, sigW, 60).stroke("#cbd5e1");
+      doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#0f172a").text("PACKED & VERIFIED BY (WAREHOUSE)", margin + 8, sigY + 8);
+      doc.font("Helvetica").fontSize(7).fillColor("#94a3b8").text("Signature & Date: _______________________", margin + 8, sigY + 44);
+
+      // Right: Carrier / Consignee Receipt
+      doc.rect(margin + sigW + 24, sigY, sigW, 60).stroke("#cbd5e1");
+      doc.font("Helvetica-Bold").fontSize(7.5).fillColor("#0f172a").text("RECEIVED IN GOOD CONDITION (CARRIER / CONSIGNEE)", margin + sigW + 32, sigY + 8);
+      doc.font("Helvetica").fontSize(7).fillColor("#94a3b8").text("Signature & Date: _______________________", margin + sigW + 32, sigY + 44);
+
+      // Footer
+      doc
+        .font("Helvetica")
+        .fontSize(6.5)
+        .fillColor("#94a3b8")
+        .text(
+          `Generated automatically by Adventra Platform · Official Packing List for ${data.dispatchNumber}`,
+          margin,
+          785,
+          { width: contentWidth, align: "center" },
+        );
+
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
 
 

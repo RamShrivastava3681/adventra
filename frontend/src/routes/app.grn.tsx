@@ -115,6 +115,10 @@ type GRN = {
   cancelled_at: string | null;
   cancelled_by: string | null;
   lines: GRNLine[];
+  receiving_location_id?: string | null;
+  /** Over-receipt approved by a checker/admin when the draft was saved. */
+  allow_over_receipt?: boolean;
+  variance_note?: string | null;
 };
 
 type CatalogueProduct = {
@@ -149,6 +153,22 @@ const GRN_STATUS_TONES: Record<string, string> = {
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
+}
+
+/** Accepted auto-value: received - rejected (blank while received is blank). */
+function derivedAccepted(received: string, rejected: string): string {
+  if (received.trim() === "") return "";
+  const r = Number(received) || 0;
+  const rej = Number(rejected) || 0;
+  return String(Math.max(0, Math.round((r - rej) * 1000) / 1000));
+}
+
+/** True while accepted still tracks received (blank, = received, or = received - rejected). */
+function acceptedFollows(l: { received_qty: string; accepted_qty: string; rejected_qty: string }): boolean {
+  if (l.accepted_qty.trim() === "") return true;
+  const acc = Number(l.accepted_qty);
+  const r = Number(l.received_qty) || 0;
+  return acc === r || l.accepted_qty === derivedAccepted(l.received_qty, l.rejected_qty);
 }
 
 export function GrnPage(props: { createFromPo?: string } = {}) {
@@ -203,10 +223,9 @@ function GrnPageContent({ createFromPo }: { createFromPo?: string }) {
   });
   const stockLocationsQ = useQuery({
     queryKey: ["stock-locations-for-grn"],
-    queryFn: async () => {
-      const data = await api.stockLocations.list();
-      return (data as any[]).filter((l: any) => l.status === "active");
-    },
+    // All locations (active filter applied for the picker) so the detail
+    // view can still name an inactive receiving location.
+    queryFn: async () => (await api.stockLocations.list()) as any[],
   });
 
   const invalidate = () => {
@@ -416,7 +435,9 @@ function GrnPageContent({ createFromPo }: { createFromPo?: string }) {
                                       onClick={() =>
                                         confirm.mutate({
                                           id: g.id,
-                                          allowOverReceipt: isAdmin || isChecker,
+                                          // Only when over-receipt was ticked on this GRN.
+                                          allowOverReceipt:
+                                            (isAdmin || isChecker) && g.allow_over_receipt === true,
                                         })
                                       }
                                       disabled={confirm.isPending}
@@ -527,6 +548,7 @@ function GrnPageContent({ createFromPo }: { createFromPo?: string }) {
       {open && user && (
         <GrnModal
           userId={user.id}
+          userLabel={user.contactName || user.email}
           grn={editing}
           initialPoId={createFromPoId ?? undefined}
           pos={(posQ.data ?? []).filter(
@@ -534,7 +556,7 @@ function GrnPageContent({ createFromPo }: { createFromPo?: string }) {
               p.status === "approved" || p.status === "sent" || p.status === "partially_received",
           )}
           products={productsQ.data ?? []}
-          stockLocations={(stockLocationsQ.data ?? []) as any[]}
+          stockLocations={(stockLocationsQ.data ?? []).filter((l: any) => l.status === "active")}
           purchaseInvoices={purchaseInvoicesQ.data ?? []}
           canApproveOverReceipt={isAdmin || isChecker}
           onClose={() => {
@@ -544,7 +566,13 @@ function GrnPageContent({ createFromPo }: { createFromPo?: string }) {
           onSaved={invalidate}
         />
       )}
-      {viewing && <GrnDetailModal grn={viewing} onClose={() => setViewing(null)} />}
+      {viewing && (
+        <GrnDetailModal
+          grn={viewing}
+          locations={stockLocationsQ.data ?? []}
+          onClose={() => setViewing(null)}
+        />
+      )}
     </div>
   );
 }
@@ -566,6 +594,7 @@ type LineDraft = {
 
 function GrnModal({
   userId,
+  userLabel,
   grn,
   initialPoId,
   pos,
@@ -577,6 +606,8 @@ function GrnModal({
   onSaved,
 }: {
   userId: string;
+  /** Display name/email of the signed-in user (shown as "Received by"). */
+  userLabel: string;
   grn: GRN | null;
   /** Queue deep link — preselect this purchase order (auto-fills lines). */
   initialPoId?: string;
@@ -615,7 +646,11 @@ function GrnModal({
   );
   const [docs, setDocs] = useState<DocMeta[]>(grn?.documents ?? []);
   const [scan, setScan] = useState("");
-  const [overReceipt, setOverReceipt] = useState(false);
+  const [overReceipt, setOverReceipt] = useState(grn?.allow_over_receipt === true);
+  // Server draft created by an earlier "Save & confirm" whose confirm step
+  // failed — retries update/confirm THIS draft instead of creating another.
+  const [createdDraftId, setCreatedDraftId] = useState<string | null>(null);
+  const createdDraftIdRef = useRef<string | null>(null);
   const [mode, setMode] = useState<"draft" | "confirm">("draft");
 
   const selectedPo = pos.find((p) => p.id === f.po_id);
@@ -696,21 +731,32 @@ function GrnModal({
       return;
     }
     const cur = Number(lines[idx].received_qty) || 0;
-    const acc = lines[idx].accepted_qty;
     const next = String(cur + 1);
     setLine(idx, {
       received_qty: next,
-      // Preserve a deliberately lower accepted value (e.g. damaged stock)
-      accepted_qty: acc === "" || Number(acc) === cur ? next : acc,
+      // Preserve a deliberately set accepted value (e.g. damaged stock)
+      accepted_qty: acceptedFollows(lines[idx])
+        ? derivedAccepted(next, lines[idx].rejected_qty)
+        : lines[idx].accepted_qty,
     });
     setScan("");
   };
 
+  // Accepted auto-tracks (received - rejected) until the user deliberately
+  // types a different accepted value.
   const setReceived = (i: number, v: string) => {
-    // Accepted defaults to received unless the user already set a different value.
+    const l = lines[i];
     setLine(i, {
       received_qty: v,
-      accepted_qty: lines[i].accepted_qty === "" ? v : lines[i].accepted_qty,
+      accepted_qty: acceptedFollows(l) ? derivedAccepted(v, l.rejected_qty) : l.accepted_qty,
+    });
+  };
+
+  const setRejected = (i: number, v: string) => {
+    const l = lines[i];
+    setLine(i, {
+      rejected_qty: v,
+      accepted_qty: acceptedFollows(l) ? derivedAccepted(l.received_qty, v) : l.accepted_qty,
     });
   };
 
@@ -753,6 +799,8 @@ function GrnModal({
           throw new Error("Accepted quantity cannot exceed received quantity");
         if (l.rejected_qty > l.received_qty)
           throw new Error("Rejected quantity cannot exceed received quantity");
+        if (l.accepted_qty + l.rejected_qty > l.received_qty + 1e-9)
+          throw new Error("Accepted + rejected cannot exceed received quantity");
       }
       const payload = {
         goods_purchase_order_id: f.po_id,
@@ -764,6 +812,7 @@ function GrnModal({
         documents: docs,
         lines: payloadLines,
         receiving_location_id: f.receiving_location_id || null,
+        allow_over_receipt: overReceipt && canApproveOverReceipt,
       };
     return payload;
   };
@@ -788,18 +837,25 @@ function GrnModal({
       }
     },
     createServerDraft: (p) => api.goodsReceipts.create(p),
-    serverEnabled: !isEdit,
+    // Never post another server draft once this modal already created one.
+    serverEnabled: !isEdit && !createdDraftId,
   });
 
   const save = useMutation({
     mutationFn: async () => {
       const payload = buildGrnPayload();
-      let id = grn?.id;
-      if (isEdit && grn) {
-        await api.goodsReceipts.update(grn.id, payload);
+      // Existing GRN, or the draft an earlier failed "Save & confirm" created.
+      let id = grn?.id ?? createdDraftIdRef.current ?? undefined;
+      if (id) {
+        await api.goodsReceipts.update(id, payload);
       } else {
         const created = await api.goodsReceipts.create(payload);
-        id = created.id;
+        id = created.id as string;
+        createdDraftIdRef.current = id;
+        setCreatedDraftId(id);
+        // The work now lives in a server draft — drop the browser copy so
+        // closing the modal neither resurrects it nor posts another draft.
+        grnDraft.clear();
       }
       if (mode === "confirm" && id) {
         await api.goodsReceipts.confirm(id, {
@@ -813,7 +869,16 @@ function GrnModal({
       toast.success(mode === "confirm" ? "GRN confirmed — inventory credited" : "Draft GRN saved");
       onClose();
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+    onError: (e) => {
+      const msg = e instanceof Error ? e.message : "Failed";
+      if (createdDraftIdRef.current && !isEdit) {
+        // Draft exists server-side; refresh the list so it shows up.
+        onSaved();
+        toast.error(`Saved as draft, but not confirmed: ${msg}`);
+      } else {
+        toast.error(msg);
+      }
+    },
   });
 
   return (
@@ -899,7 +964,7 @@ function GrnModal({
                   value={f.po_id}
                   onChange={pickPo}
                   placeholder="Select PO…"
-                  disabled={isEdit}
+                  disabled={isEdit || !!createdDraftId}
                   options={[
                     { value: "", label: "Select PO…" },
                     ...pos.map((p: any) => ({
@@ -983,7 +1048,7 @@ function GrnModal({
                 />
               </L>
               <L label="Received by">
-                <input className={inputBase} value={userId} disabled />
+                <input className={inputBase} value={grn?.received_by || userLabel} disabled />
               </L>
             </div>
             <div className="mt-3">
@@ -1066,6 +1131,9 @@ function GrnModal({
                     accepted > Number(l.ordered_qty) - 0 && Number(l.ordered_qty) > 0
                       ? accepted > Number(l.ordered_qty)
                       : false;
+                  const overSplit =
+                    accepted + (Number(l.rejected_qty) || 0) >
+                    (Number(l.received_qty) || 0) + 1e-9;
                   return (
                     <div
                       key={i}
@@ -1134,10 +1202,15 @@ function GrnModal({
                             step="0.001"
                             className={inputBase}
                             value={l.rejected_qty}
-                            onChange={(e) => setLine(i, { rejected_qty: e.target.value })}
+                            onChange={(e) => setRejected(i, e.target.value)}
                             placeholder="0"
                           />
                         </L>
+                        {overSplit && (
+                          <div className="mt-0.5 text-[9px] text-destructive">
+                            Accepted + rejected exceeds received
+                          </div>
+                        )}
                       </div>
                       <div>
                         <L label="Unit cost">
@@ -1247,8 +1320,23 @@ function GrnModal({
 }
 
 // ─── GRN detail modal ─────────────────────────────────────────────────────
-function GrnDetailModal({ grn, onClose }: { grn: GRN; onClose: () => void }) {
+function GrnDetailModal({
+  grn,
+  locations,
+  onClose,
+}: {
+  grn: GRN;
+  locations: any[];
+  onClose: () => void;
+}) {
   const lines = grn.lines ?? [];
+  const locId = grn.receiving_location_id ?? null;
+  const loc = locId ? locations.find((x: any) => x.id === locId) : null;
+  const locationLabel = loc
+    ? `${loc.name}${loc.channel ? ` (${loc.channel})` : ""}`
+    : locId
+      ? `Location ID: ${locId}`
+      : "Not set";
   const recv = lines.reduce((s, l) => s + (l.received_qty || 0), 0);
   const acc = lines.reduce((s, l) => s + (l.accepted_qty || 0), 0);
   const rej = lines.reduce((s, l) => s + (l.rejected_qty || 0), 0);
@@ -1285,9 +1373,9 @@ function GrnDetailModal({ grn, onClose }: { grn: GRN; onClose: () => void }) {
             <Info label="Supplier" value={grn.supplier_name ?? "—"} />
             <Info label="Linked PO" value={grn.po_number ?? "—"} />
             <Info label="Warehouse" value={grn.warehouse ?? "—"} />
-            <Info label="Receiving Location" value={(grn as any).receiving_location_id ? `Location ID: ${(grn as any).receiving_location_id}` : "Not set"} />
+            <Info label="Receiving Location" value={locationLabel} />
             <Info label="Challan #" value={grn.challan_number ?? "—"} />
-            <Info label="Received by" value={grn.received_by ?? "—"} />
+            <Info label="Received by" value={grn.received_by || grn.received_by_id || "—"} />
             <Info label="Confirmed by" value={grn.credited_by ?? "—"} />
             <Info label="Cancelled by" value={grn.cancelled_by ?? "—"} />
           </div>
@@ -1353,6 +1441,12 @@ function GrnDetailModal({ grn, onClose }: { grn: GRN; onClose: () => void }) {
             <div className="rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
               <span className="font-medium text-foreground">Notes: </span>
               {grn.notes}
+            </div>
+          )}
+          {grn.variance_note && (
+            <div className="rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+              <span className="font-medium text-foreground">Variance note: </span>
+              {grn.variance_note}
             </div>
           )}
 

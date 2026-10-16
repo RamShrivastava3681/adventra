@@ -955,6 +955,9 @@ router.post("/stock-movements", authMiddleware, async (req, res) => {
       reason: item.reason ?? null,
       status: item.status,
     });
+    if (item.direction === "out" && item.productId) {
+      void checkAndAlertLowStock(clientId, item.productId);
+    }
     // Trigger forecast recompute asynchronously (fire-and-forget)
     const { recomputeAll } = await import("../services/forecast-service.js");
     recomputeAll(req.user!.userId).catch((err: any) =>
@@ -1074,6 +1077,9 @@ router.post("/stock-movements/manual", authMiddleware, async (req, res) => {
       quantity: item.quantity,
       reason: item.reason,
     });
+    if (item.direction === "out" && item.productId) {
+      void checkAndAlertLowStock(clientId, item.productId);
+    }
     // Trigger forecast recompute asynchronously (fire-and-forget)
     const { recomputeAll } = await import("../services/forecast-service.js");
     recomputeAll(req.user!.userId).catch((err: any) =>
@@ -2543,6 +2549,320 @@ router.post("/invoices", authMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * Auto-creates a Sales Invoice upon customer approval of a Sales Order.
+ * (SO approved + customer confirms → sales invoice auto-created)
+ *
+ * Runs the same gates as POST /invoices (SO match, advance/payment
+ * condition, credit limit). When a gate blocks — e.g. an advance is due
+ * first — nothing is created and null is returned so the caller opens the
+ * normal Finance task instead.
+ */
+async function autoCreateSalesInvoiceFromSO(
+  so: any,
+  actorReq?: any,
+): Promise<any> {
+  const clientId = so.clientId;
+  const priorInvoices = await Invoice.list(clientId).catch(() => [] as any[]);
+  const existing = priorInvoices.find(
+    (i: any) => i.goodsSalesOrderId === so.id && !["cancelled", "rejected"].includes(i.status),
+  );
+  if (existing) {
+    console.log(`  ℹ Auto-create invoice skipped: SO ${so.soNumber} already has invoice ${existing.invoiceNumber}`);
+    return existing;
+  }
+
+  // Advance-term orders go through the advance proforma first.
+  if ((Number(so.advancePct) || 0) > 0) {
+    console.log(`  ℹ Auto-create invoice skipped: SO ${so.soNumber} needs an advance proforma first`);
+    return null;
+  }
+
+  const lines = (so.lines ?? []).map((l: any) => ({
+    productId: l.productId,
+    sku: l.sku ?? null,
+    name: l.name,
+    color: l.color ?? null,
+    size: l.size ?? null,
+    quantity: Number(l.orderedQty ?? l.quantity) || 0,
+    unitPrice: Number(l.unitPrice) || 0,
+    discountPct: l.discountPct != null ? Number(l.discountPct) : 0,
+    // Same rate as the SO line (already adjusted for customer type).
+    gstRate: l.gstRate != null ? Number(l.gstRate) : null,
+    hsnCode: l.hsnCode ?? null,
+    unit: l.unit || "unit",
+    lineTotal: Number(l.lineTotal) || 0,
+  }));
+
+  try {
+    assertInvoiceMatchesSO(so, lines, so.customerId ?? null);
+    if (so.paymentTermId) await assertPaymentConditionForInvoice(so, lines);
+  } catch (e: any) {
+    console.log(`  ℹ Auto-create invoice skipped for SO ${so.soNumber}: ${e?.message ?? e}`);
+    return null;
+  }
+
+  const freight = Number(so.freight) || 0;
+  const totals = Invoice.computeTotals(lines as any[], freight);
+
+  let linkedCustomerProformaId: string | null = null;
+  let linkedCustomerProformaNumber: string | null = null;
+  let advanceDeducted = 0;
+
+  try {
+    const pf = await resolveProformaForInvoice(clientId, {
+      goodsSalesOrderId: so.id,
+      poNumber: so.customerPoNumber,
+      debtorId: so.customerId,
+    }, "sales");
+    if (pf) {
+      linkedCustomerProformaId = pf.proformaId;
+      linkedCustomerProformaNumber = pf.proformaNumber;
+      advanceDeducted = pf.advanceDeducted || 0;
+    }
+  } catch (e) {
+    console.warn("  ⚠ Proforma lookup during auto-invoice non-fatal:", e);
+  }
+
+  const grandTotal = totals.grandTotal;
+  const finalAmount = Math.round(Math.max(0, grandTotal - advanceDeducted) * 100) / 100;
+
+  const issueDate = db.todayDate();
+  const debtor: any = so.customerId ? await Debtor.get(so.customerId).catch(() => null) : null;
+
+  // Credit-limit gate (same rule as POST /invoices).
+  const limit = Number(debtor?.creditLimit);
+  const enforce = debtor?.enforceCreditLimit;
+  const enforceOn = enforce === true || enforce === "true" || enforce === 1 || enforce === "1";
+  if (debtor && enforceOn && Number.isFinite(limit) && limit > 0) {
+    const exposure = (priorInvoices as any[])
+      .filter((i: any) => i.debtorId === so.customerId && !["paid", "cancelled", "rejected"].includes(i.status))
+      .reduce((s: number, i: any) => s + (Number(i.amount) || 0), 0);
+    if (exposure + finalAmount > limit) {
+      console.log(`  ℹ Auto-create invoice skipped for SO ${so.soNumber}: credit limit would be exceeded`);
+      return null;
+    }
+  }
+
+  // Due date: the SO's balance-due snapshot, else the customer's credit days.
+  const soDueDays = Number(so.balanceDueDays);
+  const paymentTermsDays = Number.isFinite(soDueDays) && so.balanceDueDays != null
+    ? soDueDays
+    : Number(debtor?.paymentTermsDays) || 30;
+  const due = new Date();
+  due.setDate(due.getDate() + paymentTermsDays);
+  const dueDate = due.toISOString().slice(0, 10);
+
+  // Same numbering series as invoices created from the form (ADV-<FY>-SI-NNN).
+  const invoiceNumber = await Invoice.nextSalesInvoiceNumber(clientId, issueDate);
+
+  const invItem = await Invoice.create({
+    clientId,
+    invoiceNumber,
+    issueDate,
+    dueDate,
+    debtorId: so.customerId,
+    customerContact: so.contactPerson ?? null,
+    billingAddress: so.billingAddress ?? debtor?.billingAddress ?? null,
+    deliveryAddress: so.deliveryAddress ?? null,
+    consigneeName: so.shipCustomerName ?? so.customerName ?? null,
+    consigneeGstin: so.shipGstin ?? null,
+    buyerGstin: so.billGstin ?? debtor?.gstin ?? null,
+    buyerPan: so.billPan ?? debtor?.panCardNo ?? null,
+    buyerState: debtor?.state ?? null,
+    buyerStateCode: debtor?.stateCode ?? null,
+    placeOfSupply: debtor?.state ?? null,
+    paymentTerms: so.paymentTerms ?? null,
+    paymentTermsType: so.paymentTermsType ?? null,
+    goodsSalesOrderId: so.id,
+    goodsSalesOrderNumber: so.soNumber,
+    poNumber: so.customerPoNumber ?? null,
+    lines: lines as any[],
+    subtotal: totals.subtotalGoods,
+    subtotalGoods: totals.subtotalGoods,
+    totalDiscount: totals.totalDiscount,
+    freight,
+    taxAmount: totals.gstTotal,
+    gstTotal: totals.gstTotal,
+    grandTotal: totals.grandTotal,
+    amount: finalAmount,
+    advanceDeducted,
+    linkedCustomerProformaId,
+    linkedCustomerProformaNumber,
+    status: "approved",
+    source: "auto",
+    notes: `Auto-created upon client confirmation of Sales Order ${so.soNumber}`,
+  } as any);
+
+  const reqCtx = actorReq || { user: { userId: clientId, email: "system", roles: ["system"] } };
+  timelineStatus(
+    reqCtx,
+    { clientId, docType: "sales_invoice", docId: invItem.id, docNumber: invItem.invoiceNumber },
+    null,
+    "approved",
+    `Finance Sales Invoice ${invItem.invoiceNumber} auto-created upon client acceptance of SO ${so.soNumber}`,
+  );
+
+  await WorkflowTask.closeTasksForDoc("sales_order", so.id, reqCtx.user, "Final invoice auto-created");
+
+  try {
+    await GoodsSO.update(so.id, {
+      workflowStatus: "invoice_issued",
+      currentOwnerRole: "treasury",
+      nextRequiredAction: "Prepare Dispatch Order / Record IRN",
+    });
+  } catch {
+    /* non-fatal */
+  }
+
+  // Cash-flow sync: expected customer collection, as for manual invoices.
+  void (async () => {
+    try {
+      const { syncInvoiceToInflow } = await import("../services/cash-flow-sync.js");
+      await syncInvoiceToInflow(invItem);
+    } catch (err: any) {
+      console.error("  ⚠ Cash-flow sync after auto-invoice failed:", err?.message ?? err);
+    }
+  })();
+
+  notifyPendingQueue(reqCtx, {
+    stage: "treasury",
+    kind: "sales_invoice",
+    number: invItem.invoiceNumber,
+    amount: finalAmount,
+    dueDate,
+    reviewPath: "/app/invoices",
+  });
+
+  return invItem;
+}
+
+/**
+ * Auto-creates a Dispatch Order draft once a Sales Invoice is ready (issued / approved).
+ * (Invoice ready → dispatch auto-created with items pre-filled)
+ */
+async function autoCreateDispatchFromInvoice(
+  clientId: string,
+  invoice: any,
+  actorReq?: any,
+): Promise<any> {
+  try {
+    const invFull = (await Invoice.get(invoice.id)) ?? invoice;
+    const soForDispatch = invFull?.goodsSalesOrderId
+      ? await GoodsSO.get(invFull.goodsSalesOrderId).catch(() => null)
+      : null;
+    const invLines: any[] = (invFull as any)?.lines ?? [];
+
+    const existingForInvoice = await GoodsDispatch.list(clientId)
+      .then((all: any[]) =>
+        all.some(
+          (d) =>
+            (d.linkedSalesInvoiceId === invFull.id ||
+              d.finalInvoiceId === invFull.id ||
+              (invFull.goodsSalesOrderId && d.goodsSalesOrderId === invFull.goodsSalesOrderId)) &&
+            d.status !== "cancelled",
+        ),
+      )
+      .catch(() => false);
+
+    if (existingForInvoice) {
+      console.log(`  ℹ Auto dispatch-order skipped: dispatch already exists for invoice ${invFull.invoiceNumber}`);
+      return null;
+    }
+
+    const dispLines = invLines
+      .map((l: any) => {
+        const soLine = soForDispatch?.lines?.find((x: any) => x.productId === l.productId);
+        const orderedQty = Number(soLine?.orderedQty ?? l.quantity) || 0;
+        const alreadyDispatched = Number(soLine?.dispatchedQty ?? 0) || 0;
+        const pendingQty = Math.max(0, orderedQty - alreadyDispatched);
+        const qty = pendingQty > 0 ? pendingQty : Number(l.quantity) || 0;
+        const unitPrice = Number(l.unitPrice) || 0;
+        const discountPct = l.discountPct ?? null;
+        return {
+          productId: l.productId,
+          sku: l.sku ?? null,
+          name: l.name,
+          unit: l.unit || "unit",
+          orderedQty,
+          dispatchedQty: qty,
+          deliveredQty: 0,
+          returnedQty: 0,
+          unitPrice,
+          discountPct,
+          gstRate: l.gstRate ?? null,
+          lineValue: Math.round(qty * unitPrice * (1 - (discountPct ?? 0) / 100) * 100) / 100,
+          notes: null,
+        };
+      })
+      .filter((l: any) => l.dispatchedQty > 0);
+
+    if (dispLines.length === 0) {
+      console.log(`  ℹ Auto dispatch-order skipped: no pending quantities on invoice ${invFull.invoiceNumber}`);
+      return null;
+    }
+
+    const dispatch = await GoodsDispatch.create({
+      clientId,
+      goodsSalesOrderId: invFull?.goodsSalesOrderId || soForDispatch?.id || "",
+      soNumber: invFull?.goodsSalesOrderNumber ?? soForDispatch?.soNumber ?? null,
+      customerId: invFull?.debtorId ?? soForDispatch?.customerId ?? null,
+      customerName: soForDispatch?.customerName ?? invFull?.customerName ?? null,
+      contactPerson: soForDispatch?.contactPerson ?? invFull?.customerContact ?? null,
+      deliveryAddress: invFull?.deliveryAddress ?? soForDispatch?.deliveryAddress ?? null,
+      warehouse: (soForDispatch as any)?.dispatchLocation ?? null,
+      finalInvoiceId: invFull.id,
+      finalInvoiceNumber: invFull.invoiceNumber,
+      irnSnapshot: invFull.irn ?? null,
+      invoicedValue: Number(invFull.grandTotal) || 0,
+      invoicedGst: Number(invFull.gstTotal) || 0,
+      linkedSalesInvoiceId: invFull.id,
+      linkedSalesInvoiceNumber: invFull.invoiceNumber,
+      status: "draft",
+      lines: dispLines,
+    } as any);
+
+    const reqCtx = actorReq || { user: { userId: clientId, email: "system", roles: ["system"] } };
+    timelineStatus(
+      reqCtx,
+      { clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
+      null,
+      "draft",
+      `Dispatch draft auto-created from invoice ${invFull.invoiceNumber} with items pre-filled`,
+    );
+
+    advanceWorkflow(
+      reqCtx,
+      {
+        workflowType: "dispatch",
+        stage: "prepare_dispatch",
+        docType: "dispatch",
+        docId: dispatch.id,
+        docNumber: dispatch.dispatchNumber,
+        counterparty: dispatch.customerName,
+        docStatus: "draft",
+        ownerRole: "operations",
+        requiredAction: "Prepare Dispatch Order (packing + transport)",
+        nextAction: "Submit Dispatch Details to Finance",
+        amount: Number(invFull.grandTotal) || 0,
+        inventoryStatus: "reserved",
+        linkedDocs: [
+          { type: "sales_invoice", id: invFull.id, number: invFull.invoiceNumber },
+          ...(invFull?.goodsSalesOrderId
+            ? [{ type: "sales_order", id: invFull.goodsSalesOrderId, number: invFull.goodsSalesOrderNumber }]
+            : []),
+        ],
+      },
+      { timelineKind: "system", docType: "dispatch", appPath: "/app/dispatches" },
+    );
+
+    return dispatch;
+  } catch (e: any) {
+    console.error("  ⚠ Auto dispatch-order creation failed:", e?.message ?? e);
+    return null;
+  }
+}
+
 /** POST /invoices/:id/issue — flip a draft straight into the funding queue.
  * Sales invoices skip checker approval: issuing marks the invoice approved
  * and raises the treasury task. Legacy pending invoices already in flight
@@ -2623,6 +2943,12 @@ router.post("/invoices/:id/issue", authMiddleware, async (req, res) => {
       amount: Number((updated as any)?.grandTotal ?? current.amount) || 0,
       linkedDocs: current.goodsSalesOrderId ? [{ type: "sales_order", id: current.goodsSalesOrderId, number: current.goodsSalesOrderNumber }] : [],
     }, { timelineKind: "system", docType: "sales_invoice", appPath: "/app/invoices" });
+    // Auto-create Dispatch draft once invoice is ready (approved/issued)
+    try {
+      await autoCreateDispatchFromInvoice((current as any).clientId, updated, req);
+    } catch (dispErr) {
+      console.error("  ⚠ Auto-create dispatch error on invoice issue:", dispErr);
+    }
     res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -2674,85 +3000,7 @@ router.post("/invoices/:id/irn", authMiddleware, async (req, res) => {
       // IRN → auto-create the Dispatch Order pre-filled from invoice + SO
       // (PDF-1 step 8: warehouse receives "Prepare Dispatch Order").
       try {
-        const invFull = await Invoice.get(updated.id);
-        const soForDispatch = invFull?.goodsSalesOrderId ? await GoodsSO.get(invFull.goodsSalesOrderId).catch(() => null) : null;
-        const invLines: any[] = (invFull as any)?.lines ?? [];
-        // Skip when a live dispatch order already references this invoice.
-        const existingForInvoice = await GoodsDispatch.list((updated as any).clientId)
-          .then((all: any[]) => all.some((d) => d.linkedSalesInvoiceId === updated.id || d.finalInvoiceId === updated.id))
-          .catch(() => false);
-        if (!existingForInvoice) {
-        const dispLines = invLines
-          .map((l: any) => {
-            const soLine = soForDispatch?.lines?.find((x: any) => x.productId === l.productId);
-            const orderedQty = Number(soLine?.orderedQty ?? l.quantity) || 0;
-            const alreadyDispatched = Number(soLine?.dispatchedQty ?? 0) || 0;
-            const pendingQty = Math.max(0, orderedQty - alreadyDispatched);
-            // Fall back to the full invoice quantity when the SO link is absent.
-            const qty = pendingQty > 0 ? pendingQty : Number(l.quantity) || 0;
-            const unitPrice = Number(l.unitPrice) || 0;
-            const discountPct = l.discountPct ?? null;
-            return {
-              productId: l.productId,
-              sku: l.sku ?? null,
-              name: l.name,
-              unit: l.unit || "unit",
-              orderedQty,
-              dispatchedQty: qty,
-              deliveredQty: 0,
-              returnedQty: 0,
-              unitPrice,
-              discountPct,
-              gstRate: l.gstRate ?? null,
-              lineValue: Math.round(qty * unitPrice * (1 - (discountPct ?? 0) / 100) * 100) / 100,
-              notes: null,
-            };
-          })
-          .filter((l: any) => l.dispatchedQty > 0);
-        if (dispLines.length === 0) {
-          console.error("  ⚠ Auto dispatch-order skipped: no pending quantities on invoice");
-        } else {
-        const dispatch = await GoodsDispatch.create({
-          clientId: (updated as any).clientId,
-          goodsSalesOrderId: invFull?.goodsSalesOrderId || "",
-          soNumber: invFull?.goodsSalesOrderNumber ?? soForDispatch?.soNumber ?? null,
-          customerId: invFull?.debtorId ?? soForDispatch?.customerId ?? null,
-          customerName: soForDispatch?.customerName ?? null,
-          contactPerson: soForDispatch?.contactPerson ?? invFull?.customerContact ?? null,
-          deliveryAddress: invFull?.deliveryAddress ?? soForDispatch?.deliveryAddress ?? null,
-          warehouse: (soForDispatch as any)?.dispatchLocation ?? null,
-          finalInvoiceId: updated.id,
-          finalInvoiceNumber: (updated as any).invoiceNumber,
-          irnSnapshot: (updated as any).irn,
-          invoicedValue: Number((updated as any).grandTotal) || 0,
-          invoicedGst: Number((updated as any).gstTotal) || 0,
-          linkedSalesInvoiceId: updated.id,
-          linkedSalesInvoiceNumber: (updated as any).invoiceNumber,
-          status: "draft",
-          lines: dispLines,
-        } as any);
-        timelineStatus(req, { clientId: (updated as any).clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
-          null, "draft", `Dispatch order auto-created from invoice ${(updated as any).invoiceNumber} — packing + transport pending`);
-        advanceWorkflow(req, {
-          workflowType: "dispatch",
-          stage: "prepare_dispatch",
-          docType: "dispatch",
-          docId: dispatch.id,
-          docNumber: dispatch.dispatchNumber,
-          counterparty: dispatch.customerName,
-          docStatus: "draft",
-          ownerRole: "operations",
-          requiredAction: "Prepare Dispatch Order (packing + transport)",
-          nextAction: "Submit Dispatch Details to Finance",
-          amount: Number((updated as any).grandTotal) || 0,
-          inventoryStatus: "reserved",
-          linkedDocs: [
-            { type: "sales_invoice", id: updated.id, number: (updated as any).invoiceNumber },
-            ...(invFull?.goodsSalesOrderId ? [{ type: "sales_order", id: invFull.goodsSalesOrderId, number: invFull.goodsSalesOrderNumber }] : []),
-          ],
-        }, { timelineKind: "system", docType: "dispatch", appPath: "/app/dispatches" });
-        } // end if (dispLines.length)
-        } // end if (!existingForInvoice)
+        await autoCreateDispatchFromInvoice((updated as any).clientId, updated, req);
       } catch (e: any) {
         console.error("  ⚠ Auto dispatch-order creation failed:", e?.message ?? e);
       }
@@ -2897,6 +3145,115 @@ router.delete("/invoices/:id/irn", authMiddleware, async (req, res) => {
       })();
     }
     res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /bank-reconciliation/reconcile
+ * Read-only: match bank statement entries against open invoices (credits →
+ * sales invoices, debits → purchase invoices) by UTR, invoice number in the
+ * narration, or party name + exact outstanding amount. Nothing is written.
+ * Same roles as POST /invoices/:id/payment.
+ */
+router.post("/bank-reconciliation/reconcile", authMiddleware, requireRole("factor_admin", "treasury"), async (req, res) => {
+  try {
+    const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+    if (entries.length === 0) {
+      return res.status(400).json({ error: "No statement entries provided" });
+    }
+    if (entries.length > 2000) {
+      return res.status(400).json({ error: "Too many statement entries (max 2000 per run)" });
+    }
+    const { matchBankStatement } = await import("../services/bank-reconciliation.js");
+    res.json(await matchBankStatement(entries));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /bank-reconciliation/apply
+ * Record the confirmed statement lines as payments. Sales invoices go through
+ * Invoice.recordPayment with the same side effects as POST /invoices/:id/payment
+ * (audit, domain event, cash-flow sync, paid email); purchase invoices
+ * accumulate amountPaid like bulk payments. A UTR already recorded on the
+ * invoice is refused (idempotent re-runs).
+ */
+router.post("/bank-reconciliation/apply", authMiddleware, requireRole("factor_admin", "treasury"), async (req, res) => {
+  try {
+    const matches = Array.isArray(req.body?.matches) ? req.body.matches : [];
+    if (matches.length === 0) {
+      return res.status(400).json({ error: "No matches provided to apply" });
+    }
+    if (matches.length > 500) {
+      return res.status(400).json({ error: "Too many matches (max 500 per apply)" });
+    }
+    const { applyReconciliation } = await import("../services/bank-reconciliation.js");
+    const result = await applyReconciliation(matches, ({ kind, before, after, amount, utr, paymentDate }) => {
+      const docType = kind === "sales" ? "sales_invoice" : "purchase_invoice";
+      const number = (before as any).invoiceNumber ?? before.id;
+      trackAction(req, kind === "sales" ? "invoice.payment" : "purchase_invoice.payment", before.id, {
+        entityType: kind === "sales" ? "invoice" : "purchase_invoice",
+        entityRef: number,
+        amountReceived: amount,
+        utr,
+        source: "bank_reconciliation",
+      });
+      void DocTimeline.addEntry({
+        clientId: (before as any).clientId ?? req.user!.userId,
+        docType,
+        docId: before.id,
+        docNumber: number,
+        kind: "system",
+        actorId: req.user!.userId,
+        actorEmail: req.user!.email ?? null,
+        actorRoles: req.user!.roles ?? [],
+        text: `Payment of ₹${amount} recorded via bank reconciliation (UTR ${utr}, ${paymentDate})`,
+        prevStatus: (before as any).status ?? null,
+        newStatus: (after as any)?.status ?? null,
+      });
+      if (kind === "sales") {
+        void writeEvent({
+          clientId: (before as any).clientId,
+          name: "receipt_recorded",
+          docType: "sales_invoice",
+          docId: before.id,
+          docNumber: number,
+          actorId: req.user!.userId,
+          payload: { amount, utr, source: "bank_reconciliation" },
+        }).catch(() => {});
+      }
+      void (async () => {
+        try {
+          const { syncInvoicePaymentToInflow, syncPurchaseInvoiceToOutflow } = await import("../services/cash-flow-sync.js");
+          if (kind === "sales") await syncInvoicePaymentToInflow(after ?? before, amount);
+          else await syncPurchaseInvoiceToOutflow(after ?? before);
+        } catch (err: any) {
+          console.error("  ⚠ Cash-flow sync after bank reconciliation failed:", err?.message ?? err);
+        }
+      })();
+      if (kind === "sales" && (after as any)?.status === "paid") {
+        void (async () => {
+          try {
+            const d = (before as any).debtorId ? await Debtor.get((before as any).debtorId).catch(() => null) : null;
+            const to = (d as any)?.contactEmail || (before as any)?.customerContact || null;
+            if (!to) return;
+            const { sendPaymentPaidEmail } = await import("../email.js");
+            await sendPaymentPaidEmail({
+              kind: "sales_invoice",
+              number,
+              amount,
+              utr,
+              to,
+              companyName: (d as any)?.name || null,
+            });
+          } catch (e) { console.error("  ⚠ Paid email (bank reconciliation) failed:", (e as any)?.message ?? e); }
+        })();
+      }
+    });
+    res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -4841,6 +5198,22 @@ router.delete(
   authMiddleware,
   async (req, res) => {
     try {
+      // A PO with confirmed (stock-credited) GRNs cannot be deleted — the GRNs
+      // would be stranded and could no longer revoke their PO quantities.
+      const receipts = (await GoodsReceipt.list()) as any[];
+      const confirmedGrns = receipts.filter(
+        (g) =>
+          g.goodsPurchaseOrderId === req.params.id &&
+          g.status !== "cancelled" &&
+          (g.status === "confirmed" || g.status === "received" || g.stockCredited === true),
+      );
+      if (confirmedGrns.length > 0) {
+        return res.status(409).json({
+          error: `This PO has ${confirmedGrns.length} confirmed GRN(s) (${confirmedGrns
+            .map((g) => g.receiptNumber)
+            .join(", ")}) — cancel them before deleting the PO, or cancel the PO instead.`,
+        });
+      }
       await GoodsPO.remove(req.params.id);
       res.json({ success: true });
     } catch (err: any) {
@@ -5000,6 +5373,54 @@ function creditedQty(l: any): number {
   return Number(l.acceptedQty ?? l.receivedQty) || 0;
 }
 
+/** Only checkers/admins may approve accepting more than the pending quantity. */
+function isOverReceiptApprover(req: any): boolean {
+  const roles: string[] = req.user?.roles ?? [];
+  return roles.includes("factor_admin") || roles.includes("checker");
+}
+
+/** Over-receipt requested in the body AND the caller may approve it. */
+function requestedOverReceipt(req: any): boolean {
+  return !!req.body?.allowOverReceipt && isOverReceiptApprover(req);
+}
+
+/**
+ * Locate the stock-in movements a GRN posted, to learn the clientId and the
+ * location they were credited under (reversals must debit the same ledger).
+ */
+async function findGrnCredit(
+  receipt: any,
+  fallbackClientId: string,
+): Promise<{ clientId: string; locationId: string | null }> {
+  const candidates = Array.from(
+    new Set(
+      [receipt.creditedClientId, fallbackClientId, receipt.clientId].filter(
+        (x): x is string => typeof x === "string" && !!x,
+      ),
+    ),
+  );
+  const pick = (movs: any[]) =>
+    movs.filter(
+      (m) => m.goodsReceiptId === receipt.id && m.direction === "in" && m.status === "confirmed",
+    );
+  for (const cid of candidates) {
+    const credits = pick(await StockMovement.list(cid).catch(() => [] as any[]));
+    if (credits.length > 0) {
+      return {
+        clientId: credits[0].clientId || cid,
+        locationId:
+          credits.find((m) => m.destinationLocationId)?.destinationLocationId ??
+          receipt.receivingLocationId ??
+          null,
+      };
+    }
+  }
+  return {
+    clientId: candidates[0] ?? fallbackClientId,
+    locationId: receipt.receivingLocationId ?? null,
+  };
+}
+
 /** Credit inventory for the ACCEPTED quantity of every GRN line and fold accepted qty into the PO. */
 async function creditGoodsReceipt(clientId: string, receipt: any, po: any) {
   const unitByProduct = new Map<string, string>(
@@ -5046,8 +5467,11 @@ async function creditGoodsReceipt(clientId: string, receipt: any, po: any) {
   );
 }
 
-/** Create reversing debit (stock-out) entries for a confirmed GRN and revoke its PO quantities. */
-async function reverseGoodsReceipt(clientId: string, receipt: any, po: any) {
+/**
+ * Create reversing debit (stock-out) entries for a confirmed GRN and revoke its
+ * PO quantities. Stock is always reversed; the PO is only touched if it still exists.
+ */
+async function reverseGoodsReceipt(clientId: string, receipt: any, po: any | null) {
   const unitByProduct = new Map<string, string>(
     (po?.lines ?? []).map(
       (l: any) =>
@@ -5083,13 +5507,15 @@ async function reverseGoodsReceipt(clientId: string, receipt: any, po: any) {
       sourceLocationId: receipt.receivingLocationId || null,
     });
   }
-  await GoodsPO.revokeReceipt(
-    receipt.goodsPurchaseOrderId,
-    (receipt.lines ?? []).map((l: any) => ({
-      productId: l.productId,
-      receivedQty: creditedQty(l),
-    })),
-  );
+  if (po) {
+    await GoodsPO.revokeReceipt(
+      receipt.goodsPurchaseOrderId,
+      (receipt.lines ?? []).map((l: any) => ({
+        productId: l.productId,
+        receivedQty: creditedQty(l),
+      })),
+    );
+  }
 }
 
 async function recomputeForecast(clientId: string) {
@@ -5124,10 +5550,12 @@ router.post("/goods-receipts", authMiddleware, async (req, res) => {
         .status(400)
         .json({ error: "Cannot create a GRN against a cancelled PO" });
     // A draft may be prepared against any open PO; the receivable/over-receipt
-    // checks run at CONFIRM time (the moment stock actually gets credited).
+    // checks run again at CONFIRM time (the moment stock actually gets credited).
+    // Over-receipt is allowed only when a checker/admin ticks it.
+    const allowOver = requestedOverReceipt(req);
     let lines: any[];
     try {
-      lines = validateReceiptLines(po, body.lines, false);
+      lines = validateReceiptLines(po, body.lines, allowOver);
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
@@ -5153,6 +5581,8 @@ router.post("/goods-receipts", authMiddleware, async (req, res) => {
       status: "draft",
       lines,
       receivingLocationId: receivingLocation.id,
+      allowOverReceipt: allowOver,
+      overReceiptApprovedBy: allowOver ? req.user!.email : null,
     });
     await syncLinkedPurchaseInvoice(receipt);
     // Draft GRN prepared — procurement/warehouse tracks it until confirmation
@@ -5189,14 +5619,20 @@ router.post("/goods-receipts/:id/confirm", authMiddleware, async (req, res) => {
     if (!receipt) return res.status(404).json({ error: "GRN not found" });
     // Legacy GRNs from the pre-lifecycle flow have status "received" and were
     // already credited — never credit them again.
-    if (receipt.status === "received")
+    // Idempotent: an already-confirmed GRN returns before any re-validation
+    // (its quantities are already folded into the PO, so pending would fail).
+    if (
+      receipt.status === "received" ||
+      receipt.status === "confirmed" ||
+      (receipt.stockCredited === true && receipt.status !== "cancelled")
+    )
       return res.json({ ...receipt, alreadyConfirmed: true });
     if (receipt.status === "cancelled")
       return res.status(400).json({ error: "Cannot confirm a cancelled GRN" });
+    // Over-receipt: ticked now by a checker/admin, or approved by one when the
+    // draft was saved (stored on the GRN).
     const allowOver =
-      !!req.body?.allowOverReceipt &&
-      (req.user!.roles?.includes("factor_admin") ||
-        req.user!.roles?.includes("checker"));
+      requestedOverReceipt(req) || (receipt as any).allowOverReceipt === true;
     const po = await GoodsPO.get(receipt.goodsPurchaseOrderId);
     if (!po) return res.status(404).json({ error: "PO not found" });
     try {
@@ -5216,19 +5652,40 @@ router.post("/goods-receipts/:id/confirm", authMiddleware, async (req, res) => {
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
-    // Variance gate (PDF-3 §3): received ≠ PO → warehouse note required.
-    const variance = (receipt.lines ?? []).some((l: any) => {
-      const poLine = (po.lines ?? []).find((x: any) => x.productId === l.productId);
-      return poLine && Number(l.receivedQty) !== Number(poLine.orderedQty);
+    // Variance gate (PDF-3 §3): received ≠ PENDING on the live PO → warehouse
+    // note required. Comparing with pending (not ordered) lets the delivery
+    // that completes a partially received PO through without a note.
+    const receivedByProduct = new Map<string, number>();
+    for (const l of receipt.lines ?? []) {
+      receivedByProduct.set(
+        l.productId,
+        (receivedByProduct.get(l.productId) ?? 0) + (Number(l.receivedQty) || 0),
+      );
+    }
+    const variance = Array.from(receivedByProduct.entries()).some(([pid, qty]) => {
+      const poLine = (po.lines ?? []).find((x: any) => x.productId === pid);
+      if (!poLine) return false;
+      const pending = Math.max(
+        0,
+        (Number(poLine.orderedQty) || 0) - (Number(poLine.receivedQty) || 0),
+      );
+      return Math.abs(qty - pending) > 1e-9;
     });
-    if (variance && !String((receipt as any).notes ?? "").trim() && !String(req.body?.notes ?? "").trim()) {
-      return res.status(400).json({ error: "Received quantity differs from the PO — add a warehouse note first" });
+    const varianceNote = String(req.body?.varianceNote ?? req.body?.notes ?? "").trim();
+    if (
+      variance &&
+      !String((receipt as any).notes ?? "").trim() &&
+      !String((receipt as any).varianceNote ?? "").trim() &&
+      !varianceNote
+    ) {
+      return res.status(400).json({ error: "Received quantity differs from the pending PO quantity — add a warehouse note first" });
     }
     // Atomic draft → confirmed flip: exactly one concurrent confirm wins and
     // credits stock; the others get alreadyConfirmed and credit nothing.
     const flipped = await GoodsReceipt.flipToConfirmed(
       receipt.id,
       req.user!.email,
+      { creditedClientId: clientId, varianceNote: varianceNote || null },
     );
     if (!flipped) return res.json({ ...receipt, alreadyConfirmed: true });
     await creditGoodsReceipt(clientId, { ...flipped, receivingLocationId: receivingLocation.id }, po);
@@ -5279,6 +5736,43 @@ router.post("/goods-receipts/:id/cancel", authMiddleware, async (req, res) => {
     if (!receipt) return res.status(404).json({ error: "GRN not found" });
     if (receipt.status === "cancelled")
       return res.json({ ...receipt, alreadyCancelled: true });
+    const cancelReason = String(req.body?.reason ?? "").trim() || null;
+    // Stock-negative guard: reversing a credited GRN debits the accepted qty
+    // from the location it was credited to. Refuse if any product would go
+    // negative (e.g. the goods were already dispatched).
+    const creditedBefore =
+      receipt.status === "received" ||
+      receipt.status === "confirmed" ||
+      receipt.stockCredited === true;
+    let credit: { clientId: string; locationId: string | null } | null = null;
+    if (creditedBefore) {
+      credit = await findGrnCredit(receipt, clientId);
+      let balanceLocId = credit.locationId;
+      if (!balanceLocId) {
+        const def = await StockLocation.getDefaultLocation(credit.clientId).catch(() => null);
+        balanceLocId = def?.id ?? null;
+      }
+      if (balanceLocId) {
+        const balance = await stockBalanceByProduct(credit.clientId, balanceLocId);
+        const need = new Map<string, { qty: number; name: string }>();
+        for (const l of receipt.lines ?? []) {
+          const q = creditedQty(l);
+          if (!(q > 0) || !l.productId) continue;
+          const cur = need.get(l.productId);
+          need.set(l.productId, { qty: (cur?.qty ?? 0) + q, name: l.name });
+        }
+        const shortfalls: string[] = [];
+        for (const [pid, n] of need) {
+          const onHand = balance.get(pid) ?? 0;
+          if (onHand - n.qty < -1e-9) shortfalls.push(`${n.name} (on hand ${onHand}, reversal needs ${n.qty})`);
+        }
+        if (shortfalls.length > 0) {
+          return res.status(400).json({
+            error: `Cannot cancel ${receipt.receiptNumber}: reversing it would make stock negative at the receiving location — ${shortfalls.join("; ")}. Return or adjust the stock first.`,
+          });
+        }
+      }
+    }
     // Atomic → cancelled flip: only the winner performs the reversal.
     const flipped = await GoodsReceipt.flipToCancelled(
       receipt.id,
@@ -5290,9 +5784,28 @@ router.post("/goods-receipts/:id/cancel", authMiddleware, async (req, res) => {
     // from confirm — so this is also safe against a confirm racing in between.
     const wasCredited =
       receipt.status === "received" || flipped.stockCredited === true;
+    if (!wasCredited) {
+      // Draft cancelled — close its "create_grn" queue task.
+      await WorkflowTask.closeTasksForDoc(
+        "grn",
+        receipt.id,
+        req.user,
+        cancelReason ? `Draft GRN cancelled: ${cancelReason}` : "Draft GRN cancelled",
+      ).catch(() => {});
+    }
     if (wasCredited) {
+      if (!credit) credit = await findGrnCredit(flipped, clientId);
       const po = await GoodsPO.get(receipt.goodsPurchaseOrderId);
-      if (po) await reverseGoodsReceipt(clientId, receipt, po);
+      // Always reverse the credited stock; the PO is revoked only if it exists.
+      await reverseGoodsReceipt(
+        credit.clientId,
+        {
+          ...receipt,
+          cancelledBy: flipped.cancelledBy ?? req.user!.email,
+          receivingLocationId: credit.locationId ?? receipt.receivingLocationId ?? null,
+        },
+        po ?? null,
+      );
       // Reopen the PO tracking task — the goods are no longer received.
       const poAfterRevoke = await GoodsPO.get(receipt.goodsPurchaseOrderId).catch(() => null);
       if (poAfterRevoke && poAfterRevoke.status !== "cancelled") {
@@ -5316,6 +5829,8 @@ router.post("/goods-receipts/:id/cancel", authMiddleware, async (req, res) => {
         entityRef: receipt.receiptNumber,
         poNumber: receipt.poNumber,
         wasCredited,
+        poMissing: !po,
+        reason: cancelReason,
       });
     }
     await syncLinkedPurchaseInvoice(flipped);
@@ -5341,12 +5856,25 @@ router.put("/goods-receipts/:id", authMiddleware, async (req, res) => {
     const po = await GoodsPO.get(receipt.goodsPurchaseOrderId);
     if (!po) return res.status(404).json({ error: "PO not found" });
     let lines = receipt.lines;
+    // Over-receipt approval is re-decided whenever lines change: only a
+    // checker/admin who ticks it keeps/sets it; edits by others clear it.
+    let overReceiptPatch: { allowOverReceipt?: boolean; overReceiptApprovedBy?: string | null } = {};
     if (body.lines !== undefined) {
+      const allowOver = requestedOverReceipt(req);
       try {
-        lines = validateReceiptLines(po, body.lines, false);
+        lines = validateReceiptLines(po, body.lines, allowOver);
       } catch (e: any) {
         return res.status(400).json({ error: e.message });
       }
+      overReceiptPatch = {
+        allowOverReceipt: allowOver,
+        overReceiptApprovedBy: allowOver ? req.user!.email : null,
+      };
+    } else if (body.allowOverReceipt !== undefined && isOverReceiptApprover(req)) {
+      overReceiptPatch = {
+        allowOverReceipt: !!body.allowOverReceipt,
+        overReceiptApprovedBy: body.allowOverReceipt ? req.user!.email : null,
+      };
     }
     // Normalize an explicit empty-string unlink to null so the PI link clears.
     const newPiId =
@@ -5364,6 +5892,7 @@ router.put("/goods-receipts/:id", authMiddleware, async (req, res) => {
       documents: body.documents ?? receipt.documents,
       lines,
       receivingLocationId: body.receivingLocationId ?? receipt.receivingLocationId,
+      ...overReceiptPatch,
     });
     await syncLinkedPurchaseInvoice(
       updated,
@@ -5394,6 +5923,8 @@ router.delete("/goods-receipts/:id", authMiddleware, async (req, res) => {
       receipt.purchaseInvoiceId ?? undefined,
     );
     await GoodsReceipt.remove(receipt.id);
+    // Close the draft's "create_grn" queue task so it doesn't linger.
+    await WorkflowTask.closeTasksForDoc("grn", receipt.id, req.user, "Draft GRN deleted").catch(() => {});
     res.json({ success: true });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -5794,6 +6325,50 @@ router.get("/goods-sales-orders/:id/pdf", authMiddleware, async (req, res) => {
   }
 });
 
+/** GET /goods-sales-orders/:id/stock-check — check stock availability and reservations for an SO. */
+router.get("/goods-sales-orders/:id/stock-check", authMiddleware, async (req, res) => {
+  try {
+    const so = await GoodsSO.get(req.params.id);
+    if (!so || (so.clientId !== req.user!.userId && !isStaffAccount(req.user?.roles))) {
+      return res.status(404).json({ error: "Sales order not found" });
+    }
+    const locationId = (req.query.locationId as string) || so.dispatchLocation || undefined;
+    const { onHand, reserved, available } = await availableStockByProduct(
+      so.clientId,
+      locationId,
+      so.id,
+    );
+
+    const lineChecks = (so.lines ?? []).map((l: any) => {
+      const pid = String(l.productId || l.product_id || "");
+      const ordered = Number(l.orderedQty ?? l.ordered_qty ?? 0);
+      const dispatched = Number(l.dispatchedQty ?? l.dispatched_qty ?? 0);
+      const needed = Math.max(0, ordered - dispatched);
+      const avail = pid ? (available.get(pid) ?? 0) : 0;
+      const oh = pid ? (onHand.get(pid) ?? 0) : 0;
+      const resCount = pid ? (reserved.get(pid) ?? 0) : 0;
+      return {
+        productId: pid,
+        name: l.name || "Product",
+        required: needed,
+        available: avail,
+        onHand: oh,
+        reservedByOthers: resCount,
+        sufficient: avail >= needed,
+      };
+    });
+
+    const shortLines = lineChecks.filter((c: any) => !c.sufficient);
+    res.json({
+      sufficient: shortLines.length === 0,
+      shortLines,
+      lineChecks,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /** GET /goods-purchase-orders/:id/pdf — download the garment-style purchase-order PDF. */
 router.get("/goods-purchase-orders/:id/pdf", authMiddleware, async (req, res) => {
   try {
@@ -5894,6 +6469,70 @@ router.post(
       if (!["reserved", "in_transit"].includes(stockStatus) && action === "approve") {
         return res.status(400).json({ error: "stockStatus must be reserved or in_transit" });
       }
+
+      // Warehouse may reduce line quantities to what is in stock before
+      // signing off ("Edit qty"). Quantities can only go down, never below
+      // what was already dispatched; a line set to 0 is dropped.
+      let editedLines: any[] | null = null;
+      const edits = Array.isArray(req.body?.editedLines) ? req.body.editedLines : [];
+      if (action === "approve" && edits.length > 0) {
+        const qtyByProduct = new Map<string, number>();
+        for (const e of edits) {
+          const pid = String(e?.productId ?? "");
+          const qty = Number(e?.quantity);
+          if (!pid || !Number.isFinite(qty) || qty < 0) {
+            return res.status(400).json({ error: "Edited quantities must be zero or more" });
+          }
+          qtyByProduct.set(pid, qty);
+        }
+        let changed = false;
+        const next: any[] = [];
+        for (const l of so.lines ?? []) {
+          const edited = qtyByProduct.get(l.productId);
+          if (edited === undefined || edited === Number(l.orderedQty)) {
+            next.push(l);
+            continue;
+          }
+          const dispatched = Number(l.dispatchedQty ?? 0) || 0;
+          if (edited > Number(l.orderedQty)) {
+            return res.status(400).json({ error: `${l.name}: quantity can only be reduced (ordered ${l.orderedQty})` });
+          }
+          if (edited < dispatched) {
+            return res.status(400).json({ error: `${l.name}: ${dispatched} already dispatched — cannot reduce below that` });
+          }
+          changed = true;
+          if (edited > 0) next.push({ ...l, orderedQty: edited });
+        }
+        if (changed) {
+          if (next.length === 0) {
+            return res.status(400).json({ error: "At least one line must keep a quantity above zero" });
+          }
+          editedLines = next;
+        }
+      }
+      const soForCheck = editedLines ? { ...so, lines: editedLines } : so;
+
+      // Auto-check stock on SO before approving: verify stock availability to prevent overselling
+      if (action === "approve" && stockStatus !== "in_transit") {
+        const stockCheck = await assertSOStockAvailable(
+          so.clientId,
+          soForCheck,
+          req.body?.dispatchLocation || so.dispatchLocation,
+        );
+        if (!stockCheck.sufficient) {
+          const details = stockCheck.shortLines
+            .map(
+              (s) =>
+                `${s.name}: required ${s.required}, available ${s.available} (on hand: ${s.onHand}, reserved: ${s.reservedByOthers})`,
+            )
+            .join("; ");
+          return res.status(400).json({
+            error: `Cannot approve sales order — insufficient available stock (prevents overselling): ${details}`,
+            shortLines: stockCheck.shortLines,
+          });
+        }
+      }
+
       const updated = await GoodsSO.update(so.id, {
         status: transition.to as any,
         manualStatus: transition.to as any,
@@ -5901,6 +6540,7 @@ router.post(
         warehouseApprovedBy: req.user!.userId,
         warehouseApprovedAt: new Date().toISOString(),
         warehouseNotes: req.body?.notes ? String(req.body.notes) : null,
+        ...(editedLines ? { lines: editedLines } : {}),
         ...(action === "approve"
           ? {
               stockStatus: stockStatus as any,
@@ -5921,7 +6561,7 @@ router.post(
       timelineStatus(req, { clientId: so.clientId, docType: "sales_order", docId: so.id, docNumber: so.soNumber },
         so.status, transition.to as string,
         action === "approve"
-          ? `Warehouse ${stockStatus === "in_transit" ? "marked Stock In Transit" : "reserved stock"} at ${req.body?.dispatchLocation || so.dispatchLocation || "warehouse"}${req.body?.notes ? ` — ${req.body.notes}` : ""}`
+          ? `Warehouse ${stockStatus === "in_transit" ? "marked Stock In Transit" : "reserved stock"} at ${req.body?.dispatchLocation || so.dispatchLocation || "warehouse"}${editedLines ? " (line quantities reduced to available stock)" : ""}${req.body?.notes ? ` — ${req.body.notes}` : ""}`
           : `Warehouse put order on hold${req.body?.notes ? `: ${req.body.notes}` : ""}`);
       // Signed off → pending in checker: mail admin, treasury, checker users.
       if (action === "approve" && transition.to === "checker_pending") {
@@ -5984,6 +6624,27 @@ router.post(
       const reason = String(req.body?.notes ?? req.body?.reason ?? "").trim();
       if (action === "reject" && !reason) {
         return res.status(400).json({ error: "A reason is required to reject the sales order" });
+      }
+
+      // Auto-check stock on SO before checker confirmation (prevents overselling)
+      if (action === "approve" && so.stockStatus !== "in_transit") {
+        const stockCheck = await assertSOStockAvailable(
+          so.clientId,
+          so,
+          so.dispatchLocation || undefined,
+        );
+        if (!stockCheck.sufficient) {
+          const details = stockCheck.shortLines
+            .map(
+              (s) =>
+                `${s.name}: required ${s.required}, available ${s.available} (on hand: ${s.onHand}, reserved: ${s.reservedByOthers})`,
+            )
+            .join("; ");
+          return res.status(400).json({
+            error: `Cannot confirm sales order — insufficient available stock (prevents overselling): ${details}`,
+            shortLines: stockCheck.shortLines,
+          });
+        }
       }
 
       const updated = await GoodsSO.update(so.id, {
@@ -6850,7 +7511,32 @@ router.post(
         const advancePct = Number((claimed as any).advancePct ?? 0) || 0;
         const needsProforma = advancePct > 0;
         const fakeReq = { user: { userId: (claimed as any).clientId, email: "system", roles: [] } } as any;
-        advanceWorkflow(fakeReq, {
+
+        // Automation: SO approved + customer confirms → sales invoice auto-created,
+        // then invoice ready → dispatch draft auto-created with items pre-filled.
+        // When a gate blocks it (advance due, credit limit…) the Finance task
+        // below is opened instead.
+        let autoInv: any = null;
+        try {
+          autoInv = await autoCreateSalesInvoiceFromSO(claimed, fakeReq);
+          if (autoInv) {
+            await autoCreateDispatchFromInvoice((claimed as any).clientId, autoInv, fakeReq);
+          }
+        } catch (autoErr: any) {
+          console.error("  ⚠ Auto-create invoice / dispatch error upon client confirmation:", autoErr);
+        }
+
+        if (autoInv) {
+          timelineStatus(
+            fakeReq,
+            { clientId: (claimed as any).clientId, docType: "sales_order", docId: (claimed as any).id, docNumber: (claimed as any).soNumber },
+            null,
+            "confirmed",
+            `Client accepted on ${(claimed as any).debtorApprovalRespondedAt ?? "recorded time"} — invoice ${autoInv.invoiceNumber} auto-created`,
+            "system",
+          );
+        }
+        if (!autoInv) advanceWorkflow(fakeReq, {
           clientId: (claimed as any).clientId,
           workflowType: "sales_order",
           stage: needsProforma ? "create_proforma" : "create_invoice",
@@ -7109,6 +7795,231 @@ async function stockBalanceByProduct(
   return balance;
 }
 
+/**
+ * Compute the total reserved quantity per product across all live sales orders
+ * (warehouse-signed-off through partially dispatched) for a client, optionally
+ * limited to one dispatch location. Excludes cancelled SOs and fully dispatched SOs.
+ * For partially dispatched orders, only the remaining un-dispatched portion
+ * (orderedQty - dispatchedQty) counts as reserved.
+ * Optionally excludes a specific SO ID (e.g. when checking that SO's own lines).
+ */
+async function reservedStockByProduct(
+  clientId: string,
+  excludeSoId?: string,
+  locationId?: string,
+): Promise<Map<string, number>> {
+  const sos = await GoodsSO.list(clientId);
+  const reservedMap = new Map<string, number>();
+
+  for (const so of sos) {
+    if (!so || so.id === excludeSoId || so.status === "cancelled") continue;
+    // Stock is held from warehouse sign-off until dispatch. The status decides,
+    // not stockStatus: an order rejected back to draft / warehouse_pending
+    // keeps stockStatus "reserved" but must release its stock.
+    const isReserved = ["checker_pending", "warehouse_approved", "confirmed", "partially_dispatched"].includes(so.status);
+    if (!isReserved) continue;
+    // Orders shipping from another warehouse don't hold this location's stock.
+    if (locationId && so.dispatchLocation && so.dispatchLocation !== locationId) continue;
+
+    for (const l of so.lines ?? []) {
+      const pid = String(l.productId || (l as any).product_id || "");
+      if (!pid) continue;
+      const ordered = Number(l.orderedQty ?? (l as any).ordered_qty ?? 0);
+      const dispatched = Number(l.dispatchedQty ?? (l as any).dispatched_qty ?? 0);
+      const remainingReserved = Math.max(0, ordered - dispatched);
+      if (remainingReserved > 0) {
+        reservedMap.set(pid, (reservedMap.get(pid) ?? 0) + remainingReserved);
+      }
+    }
+  }
+
+  return reservedMap;
+}
+
+/**
+ * Available sellable stock per product (On-hand physical stock − Reserved stock).
+ * Prevents overselling by ensuring confirmed orders lock their stock.
+ */
+async function availableStockByProduct(
+  clientId: string,
+  locationId?: string,
+  excludeSoId?: string,
+): Promise<{
+  onHand: Map<string, number>;
+  reserved: Map<string, number>;
+  available: Map<string, number>;
+}> {
+  let locId = locationId;
+  if (!locId) {
+    try {
+      const def = await StockLocation.getDefaultLocation(clientId);
+      locId = def?.id;
+    } catch {
+      /* ignore */
+    }
+  }
+
+  let onHand = new Map<string, number>();
+  if (locId) {
+    onHand = await stockBalanceByProduct(clientId, locId);
+  } else {
+    const movements = await StockMovement.list(clientId);
+    for (const m of movements) {
+      if (!m.productId || m.status !== "confirmed") continue;
+      onHand.set(
+        m.productId,
+        (onHand.get(m.productId) ?? 0) + (m.direction === "in" ? m.quantity : -m.quantity),
+      );
+    }
+  }
+
+  const reserved = await reservedStockByProduct(clientId, excludeSoId, locId);
+  const available = new Map<string, number>();
+
+  for (const [pid, oh] of onHand.entries()) {
+    const res = reserved.get(pid) ?? 0;
+    available.set(pid, Math.max(0, oh - res));
+  }
+
+  return { onHand, reserved, available };
+}
+
+/**
+ * Auto-check stock availability on a Sales Order.
+ * Validates whether sufficient unreserved stock is available for every line item.
+ */
+async function assertSOStockAvailable(
+  clientId: string,
+  so: any,
+  locationId?: string,
+): Promise<{
+  sufficient: boolean;
+  shortLines: Array<{
+    productId: string;
+    name: string;
+    required: number;
+    available: number;
+    onHand: number;
+    reservedByOthers: number;
+  }>;
+}> {
+  const { onHand, reserved, available } = await availableStockByProduct(
+    clientId,
+    locationId || so.dispatchLocation,
+    so.id,
+  );
+
+  const shortLines: Array<{
+    productId: string;
+    name: string;
+    required: number;
+    available: number;
+    onHand: number;
+    reservedByOthers: number;
+  }> = [];
+
+  for (const l of so.lines ?? []) {
+    const pid = String(l.productId || (l as any).product_id || "");
+    if (!pid) continue;
+    const ordered = Number(l.orderedQty ?? (l as any).ordered_qty ?? 0);
+    const dispatched = Number(l.dispatchedQty ?? (l as any).dispatched_qty ?? 0);
+    const needed = Math.max(0, ordered - dispatched);
+    if (needed <= 0) continue;
+
+    const avail = available.get(pid) ?? 0;
+    const oh = onHand.get(pid) ?? 0;
+    const res = reserved.get(pid) ?? 0;
+
+    if (avail < needed) {
+      shortLines.push({
+        productId: pid,
+        name: l.name || "Product",
+        required: needed,
+        available: avail,
+        onHand: oh,
+        reservedByOthers: res,
+      });
+    }
+  }
+
+  return {
+    sufficient: shortLines.length === 0,
+    shortLines,
+  };
+}
+
+/**
+ * Company-wide stock per product for low-stock alerts (shared-database mode:
+ * every location and user): confirmed on-hand movements, minus what live
+ * sales orders still hold.
+ */
+async function companyStockByProduct(): Promise<{ onHand: Map<string, number>; available: Map<string, number> }> {
+  const [movements, sos] = await Promise.all([StockMovement.list(), GoodsSO.list()]);
+  const onHand = new Map<string, number>();
+  for (const m of movements) {
+    if (!m.productId || m.status !== "confirmed") continue;
+    onHand.set(m.productId, (onHand.get(m.productId) ?? 0) + (m.direction === "in" ? m.quantity : -m.quantity));
+  }
+  const reserved = new Map<string, number>();
+  for (const so of sos as any[]) {
+    if (!["checker_pending", "warehouse_approved", "confirmed", "partially_dispatched"].includes(so?.status)) continue;
+    for (const l of so.lines ?? []) {
+      if (!l.productId) continue;
+      const remaining = Math.max(0, (Number(l.orderedQty) || 0) - (Number(l.dispatchedQty) || 0));
+      if (remaining > 0) reserved.set(l.productId, (reserved.get(l.productId) ?? 0) + remaining);
+    }
+  }
+  const available = new Map<string, number>();
+  for (const [pid, oh] of onHand) available.set(pid, Math.max(0, oh - (reserved.get(pid) ?? 0)));
+  return { onHand, available };
+}
+
+/**
+ * Low stock alerts: raise an alert when any SKU's stock is at or below its
+ * minimum level (reorderLevel). At most one unread alert per SKU per day.
+ * Returns how many alerts were raised.
+ */
+async function checkAndAlertLowStock(clientId: string, productIds: string | string[]): Promise<number> {
+  try {
+    const ids = [...new Set((Array.isArray(productIds) ? productIds : [productIds]).filter(Boolean))];
+    if (ids.length === 0) return 0;
+    const products = (await Promise.all(ids.map((id) => Product.get(id).catch(() => null)))).filter(
+      (p: any) => p && (Number(p.reorderLevel) || 0) > 0,
+    ) as any[];
+    if (products.length === 0) return 0;
+
+    const [{ onHand, available }, existing] = await Promise.all([companyStockByProduct(), Alert.list()]);
+    const today = db.todayDate();
+    let raised = 0;
+    for (const prod of products) {
+      const reorderLevel = Number(prod.reorderLevel) || 0;
+      const avail = available.get(prod.id) ?? 0;
+      const oh = onHand.get(prod.id) ?? 0;
+      if (avail > reorderLevel && oh > reorderLevel) continue;
+      const alreadySentToday = existing.some(
+        (a: any) =>
+          a.type === "low_stock" &&
+          a.productId === prod.id &&
+          !a.isRead &&
+          String(a.createdAt ?? "").slice(0, 10) === today,
+      );
+      if (alreadySentToday) continue;
+      await Alert.create({
+        clientId: prod.clientId ?? clientId,
+        productId: prod.id,
+        type: "low_stock",
+        severity: avail <= 0 ? "critical" : "warning",
+        message: `Low Stock Alert: ${prod.name} (SKU: ${prod.sku || "—"}) is at ${avail} units available (${oh} on-hand), which is at or below the minimum reorder level of ${reorderLevel}. Replenishment recommended.`,
+      });
+      raised++;
+    }
+    return raised;
+  } catch (err) {
+    console.error("  ⚠ checkAndAlertLowStock failed:", err);
+    return 0;
+  }
+}
+
 /** Debit inventory for every dispatch line and fold dispatched qty into the SO. */
 async function debitSalesOrder(clientId: string, dispatch: any, so: any) {
   const unitByProduct = new Map<string, string>(
@@ -7164,6 +8075,8 @@ async function debitSalesOrder(clientId: string, dispatch: any, so: any) {
       dispatchedQty: debitedQty(l),
     })),
   );
+  // One low-stock pass for the whole dispatch (fire-and-forget).
+  void checkAndAlertLowStock(clientId, (dispatch.lines ?? []).map((ln: any) => ln.productId));
 }
 
 /** Create reversing credit (stock-in) entries for a confirmed dispatch and revoke its SO quantities. */
@@ -8180,6 +9093,56 @@ router.get("/goods-dispatches/:id", authMiddleware, async (req, res) => {
   }
 });
 
+/** GET /goods-dispatches/:id/packing-slip — download the Packing Slip / Packing List PDF. */
+router.get("/goods-dispatches/:id/packing-slip", authMiddleware, async (req, res) => {
+  try {
+    const dispatch = await GoodsDispatch.get(req.params.id);
+    if (!dispatch || (dispatch.clientId !== req.user!.userId && !isStaffAccount(req.user?.roles))) {
+      return res.status(404).json({ error: "Dispatch note not found" });
+    }
+    const { seller } = await resolveTallySellerParts(dispatch.clientId);
+    const { dispatchToPackingSlipData, buildPackingSlipPdf } = await import("../lib/document-pdf.js");
+    const data = dispatchToPackingSlipData(dispatch, {
+      name: seller.name || "Adventra",
+      address: seller.address || null,
+      contact: seller.email || null,
+      gstin: seller.gstin || null,
+    });
+    const pdf = await buildPackingSlipPdf(data);
+    const filename = `PackingSlip_${String(dispatch.dispatchNumber || "dispatch").replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(pdf);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Alias for packing slip PDF download */
+router.get("/goods-dispatches/:id/pdf", authMiddleware, async (req, res) => {
+  try {
+    const dispatch = await GoodsDispatch.get(req.params.id);
+    if (!dispatch || (dispatch.clientId !== req.user!.userId && !isStaffAccount(req.user?.roles))) {
+      return res.status(404).json({ error: "Dispatch note not found" });
+    }
+    const { seller } = await resolveTallySellerParts(dispatch.clientId);
+    const { dispatchToPackingSlipData, buildPackingSlipPdf } = await import("../lib/document-pdf.js");
+    const data = dispatchToPackingSlipData(dispatch, {
+      name: seller.name || "Adventra",
+      address: seller.address || null,
+      contact: seller.email || null,
+      gstin: seller.gstin || null,
+    });
+    const pdf = await buildPackingSlipPdf(data);
+    const filename = `PackingSlip_${String(dispatch.dispatchNumber || "dispatch").replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(pdf);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /** POST /goods-dispatches/:id/deliver — record per-line delivered qty + delivery date. No stock impact. */
 router.post(
   "/goods-dispatches/:id/deliver",
@@ -8589,23 +9552,41 @@ router.post(
   auditAdminAction,
   async (req, res) => {
     try {
-      const invoices = await Invoice.list();
-      const alerts: Array<{ message: string; type: string }> = [];
+      const clientId = req.user!.userId;
+      // 1. Low stock — every SKU in the shared catalogue with a reorder level.
+      const products = await Product.list(effectiveListScope(req));
+      const lowStock = await checkAndAlertLowStock(
+        clientId,
+        products.filter((p: any) => (Number(p.reorderLevel) || 0) > 0).map((p: any) => p.id),
+      );
+
+      // 2. Payment due (3 days before / due today) + overdue escalation
+      // (≥ 7 days, once per invoice) — same rules as the hourly scheduler.
+      const { runPaymentAlerts } = await import("../invoice-reminder.js");
+      const { raised } = await runPaymentAlerts();
+
+      // 3. Daily "overdue" signal for invoices 1–6 days past due.
+      const today = db.todayDate();
+      const [invoices, existingAlerts] = await Promise.all([Invoice.list(), Alert.list()]);
+      let overdue = 0;
       for (const inv of invoices) {
-        if (!inv.dueDate) continue;
-        const dpd = Math.max(
-          0,
-          Math.floor((Date.now() - new Date(inv.dueDate).getTime()) / 86400000),
+        if (!inv.dueDate || ["paid", "rejected", "cancelled", "draft"].includes(inv.status)) continue;
+        const dpd = Math.round((new Date(today).getTime() - new Date(inv.dueDate).getTime()) / 86400000);
+        if (dpd <= 0 || dpd >= 7) continue;
+        const already = existingAlerts.some(
+          (a: any) => a.type === "overdue" && a.invoiceId === inv.id && String(a.createdAt ?? "").slice(0, 10) === today,
         );
-        if (dpd > 0 && inv.status !== "paid" && inv.status !== "rejected") {
-          alerts.push({
-            message: `Invoice ${inv.invoiceNumber} overdue ${dpd} days — $${inv.amount}`,
-            type: "overdue",
-          });
-        }
+        if (already) continue;
+        await Alert.create({
+          clientId: inv.clientId,
+          invoiceId: inv.id,
+          type: "overdue",
+          severity: "warning",
+          message: `Invoice ${inv.invoiceNumber} overdue ${dpd} days — ₹${Number(inv.amount || 0).toLocaleString("en-IN")}`,
+        });
+        overdue++;
       }
-      for (const a of alerts) await Alert.create(a);
-      res.json({ generated: alerts.length });
+      res.json({ generated: lowStock + raised + overdue });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
     }
@@ -9015,14 +9996,15 @@ router.put(
   async (req, res) => {
     try {
       const body = req.body || {};
-      if (body.enabled === undefined && body.scheduleDays === undefined) {
+      if (body.enabled === undefined && body.scheduleDays === undefined && body.sendToCustomer === undefined) {
         return res
           .status(400)
-          .json({ error: "Nothing to update — send enabled and/or scheduleDays" });
+          .json({ error: "Nothing to update — send enabled, scheduleDays and/or sendToCustomer" });
       }
       const updated = await ReminderSettings.update({
         enabled: body.enabled,
         scheduleDays: body.scheduleDays,
+        sendToCustomer: body.sendToCustomer,
         updatedBy: req.user?.email ?? null,
       });
       res.json(updated);
@@ -9285,6 +10267,88 @@ router.post(
         });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+/**
+ * POST /document-extract — upload a purchase invoice or proforma, upload to S3,
+ * and automatically extract structured invoice header, supplier, and line items.
+ */
+router.post(
+  "/document-extract",
+  authMiddleware,
+  upload.single("file"),
+  async (req, res) => {
+    try {
+      const file = req.file;
+      if (!file) {
+        return res
+          .status(400)
+          .json({ error: "No file provided (multipart field name: file)" });
+      }
+      const ALLOWED_EXTRACT_SCOPES = ["purchase_invoices", "proformas"];
+      const scope = String((req.body || {}).scope ?? "purchase_invoices");
+      if (!ALLOWED_EXTRACT_SCOPES.includes(scope)) {
+        return res.status(400).json({
+          error: `Invalid scope. Allowed: ${ALLOWED_EXTRACT_SCOPES.join(", ")}`,
+        });
+      }
+      const detected = detectFileType(file.buffer);
+      if (!detected) {
+        return res
+          .status(415)
+          .json({
+            error:
+              "Unsupported file type. Allowed: JPEG, PNG, WebP, GIF, PDF, office documents.",
+          });
+      }
+
+      // Save to S3 so it is already preserved as an attachment. A storage
+      // failure must not throw away the extraction — return file: null plus a
+      // warning and let the user attach the file manually.
+      const safePath = sanitizeS3Key(
+        `${req.user!.userId}/${scope}/${Date.now()}-${uuid().slice(0, 8)}-${file.originalname.replace(/[^a-zA-Z0-9._-]+/g, "_")}`,
+      );
+      const uploadPromise = (async () => {
+        try {
+          const { uploadFile } = await import("../s3.js");
+          const s3Result = await uploadFile(safePath, file.buffer, detected.mime);
+          return {
+            path: safePath,
+            url: s3Result.url,
+            name: file.originalname,
+            size: file.size,
+            type: detected.mime,
+            uploaded_at: new Date().toISOString(),
+          };
+        } catch (uploadErr: any) {
+          console.error("Document extraction: S3 upload failed:", uploadErr?.message);
+          return null;
+        }
+      })();
+
+      // Run document extraction. Shared-database mode: supplier / product
+      // matching reads the whole company's records, not the uploader's.
+      const { extractDocumentDetails } = await import(
+        "../services/document-extraction.js"
+      );
+      const [fileMeta, extracted] = await Promise.all([
+        uploadPromise,
+        extractDocumentDetails(file.buffer, detected.mime, scope),
+      ]);
+
+      res.json({
+        success: true,
+        file: fileMeta,
+        extracted,
+        warning: fileMeta
+          ? null
+          : "The document could not be saved as an attachment (storage upload failed). The details were still read — please attach the file manually.",
+      });
+    } catch (err: any) {
+      console.error("Document extraction endpoint error:", err);
+      res.status(500).json({ error: err.message || "Extraction failed" });
     }
   },
 );

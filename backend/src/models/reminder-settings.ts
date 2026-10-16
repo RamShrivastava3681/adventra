@@ -8,11 +8,11 @@ import * as db from "../dynamodb.js";
 // and the due date itself). Manual sends ("Send Reminder") always work.
 // ---------------------------------------------------------------------------
 
-/** Day offsets (days before the due date) an admin may pick. 0 = due today. */
-export const ALLOWED_REMINDER_DAYS = [0, 1, 2, 7, 15, 30] as const;
+/** Day offsets (days before the due date) an admin may pick. 0 = due today, negative = days overdue. */
+export const ALLOWED_REMINDER_DAYS = [-7, 0, 1, 2, 3, 7, 15, 30] as const;
 
-/** Default schedule — matches the pre-existing hard-coded behaviour. */
-export const DEFAULT_SCHEDULE_DAYS = [15, 7, 2, 1, 0];
+/** Default schedule: 3 days before due, on due date, and 7 days overdue. */
+export const DEFAULT_SCHEDULE_DAYS = [3, 0, -7];
 
 export interface ReminderSettings {
   pk: string;
@@ -23,6 +23,13 @@ export interface ReminderSettings {
   enabled: boolean;
   /** Day offsets before the due date that trigger an email. */
   scheduleDays: number[];
+  /**
+   * Also email sales-invoice reminders straight to the customer's contact
+   * email on the schedule days (admin still gets the usual copy). Off by
+   * default — until enabled, customers are reminded only via the admin's
+   * one-click forward link.
+   */
+  sendToCustomer?: boolean;
   updatedBy?: string | null;
   updatedAt: string;
 }
@@ -42,6 +49,7 @@ export async function get(): Promise<ReminderSettings> {
     id: "reminders",
     enabled: true,
     scheduleDays: [...DEFAULT_SCHEDULE_DAYS],
+    sendToCustomer: false,
     updatedBy: null,
     updatedAt: now,
   };
@@ -70,6 +78,7 @@ export function normalizeScheduleDays(raw: unknown): number[] | null {
 export async function update(data: {
   enabled?: boolean;
   scheduleDays?: number[];
+  sendToCustomer?: boolean;
   updatedBy?: string | null;
 }): Promise<ReminderSettings> {
   const current = await get();
@@ -78,6 +87,7 @@ export async function update(data: {
     updatedAt: db.nowISO(),
   };
   if (data.enabled !== undefined) next.enabled = data.enabled === true;
+  if (data.sendToCustomer !== undefined) next.sendToCustomer = data.sendToCustomer === true;
   if (data.scheduleDays !== undefined) {
     const normalized = normalizeScheduleDays(data.scheduleDays);
     if (!normalized) throw new Error("Choose at least one schedule day");

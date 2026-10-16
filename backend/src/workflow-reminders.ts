@@ -47,7 +47,7 @@ async function resolveRecipients(
 }
 
 /** Resolve escalation recipients: configured address first, then admins. */
-async function resolveEscalationRecipients(
+export async function resolveEscalationRecipients(
   settings: WorkflowSettings.WorkflowSettings,
   clientId: string,
 ): Promise<string[]> {

@@ -1,4 +1,4 @@
-﻿import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
@@ -21,10 +21,16 @@ import {
   AlertTriangle,
   CheckCircle2,
   ShoppingCart,
+  Sparkles,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
 import { DocumentUploader, type DocMeta } from "@/components/document-uploader";
+import {
+  InvoiceAutoExtractModal,
+  hasUsefulExtraction,
+  type ExtractedData,
+} from "@/components/invoice-auto-extract-modal";
 import {
   PaymentTermsFields,
   balanceDaysFor,
@@ -666,6 +672,113 @@ function NewPurchaseModal({
     })),
   );
   const [docs, setDocs] = useState<DocMeta[]>(invoice?.documents ?? []);
+  const [extractModalOpen, setExtractModalOpen] = useState(false);
+
+  const handleApplyExtracted = (data: ExtractedData, uploadedFile: DocMeta | null) => {
+    const extractedLines = Array.isArray(data.lines) ? data.lines : [];
+    const lc = (v: unknown) => String(v ?? "").trim().toLowerCase();
+
+    // 1. Supplier — switch only when the document mapped to a known supplier.
+    const matchedVendor = data.matchedSupplierId
+      ? vendors.find((v: any) => v.id === data.matchedSupplierId)
+      : undefined;
+    const supplierId: string = matchedVendor ? matchedVendor.id : form.vendor_id;
+    const supplierChanged = !!matchedVendor && matchedVendor.id !== form.vendor_id;
+
+    // 2. PO auto-match — exact (case-insensitive, trimmed) number, and only
+    // among the billable POs of that supplier (same rule as eligiblePos).
+    let poToPick: POFragment | null = null;
+    const rawPo = lc(data.poNumber);
+    if (rawPo) {
+      const hits = pos.filter(
+        (p) =>
+          ["approved", "sent", "partially_received"].includes(p.status) &&
+          (!supplierId || p.supplier_id === supplierId) &&
+          lc(p.po_number) === rawPo,
+      );
+      poToPick = hits.length === 1 ? hits[0] : null;
+    }
+    // A linked PO from another supplier can't stay once the supplier changes.
+    const currentPo = pos.find((p) => p.id === form.goods_po_id);
+    const clearPo = supplierChanged && !!currentPo && currentPo.supplier_id !== supplierId && !poToPick;
+
+    // Only fields that were actually extracted overwrite the form.
+    setForm((prev) => ({
+      ...prev,
+      vendor_id: supplierId,
+      ...(supplierChanged && matchedVendor ? toTermsFormFields(matchedVendor) : {}),
+      ...(clearPo ? { goods_po_id: "", goods_po_number: "" } : {}),
+      invoice_number: data.documentNumber?.trim() || prev.invoice_number,
+      issue_date: data.documentDate || prev.issue_date,
+      due_date: data.dueDate || prev.due_date,
+      freight: data.freight != null ? String(data.freight) : prev.freight,
+      po_number: data.poNumber?.trim() || prev.po_number,
+    }));
+    if (clearPo) setLines([]);
+
+    // If matching PO is found and not yet selected, pick it to auto-populate PO lines
+    if (poToPick && poToPick.id !== form.goods_po_id) {
+      pickPo(poToPick.id);
+    }
+
+    // If extracted lines are available
+    if (extractedLines.length > 0) {
+      setLines((prevLines) => {
+        if (prevLines.length === 0) {
+          return extractedLines.map((item) => {
+            const matched = !!item.matchedProductId;
+            const qty = Number(item.quantity) || 0;
+            const price = Number(item.unitPrice) || 0;
+            return {
+              product_id: item.matchedProductId || "",
+              sku: matched ? (item.matchedProductSku ?? null) : null,
+              // Keep the printed description unless a catalogue product matched.
+              name: matched && item.matchedProductName ? item.matchedProductName : item.name || "",
+              unit: item.unit || "unit",
+              ordered_qty: qty,
+              grn_received_qty: 0,
+              invoice_qty: qty ? String(qty) : "",
+              unit_price: price ? String(price) : "",
+              po_unit_price: price || null,
+              gst_rate: item.gstRate != null ? String(item.gstRate) : "",
+            };
+          });
+        }
+
+        return prevLines.map((line) => {
+          const match = extractedLines.find((item) => {
+            if (item.matchedProductId && item.matchedProductId === line.product_id) return true;
+            if (item.productCode && line.sku && lc(item.productCode) === lc(line.sku)) return true;
+            if (item.name && line.name && lc(item.name) === lc(line.name)) return true;
+            return false;
+          });
+          if (match) {
+            return {
+              ...line,
+              invoice_qty: Number(match.quantity) ? String(match.quantity) : line.invoice_qty,
+              unit_price: Number(match.unitPrice) ? String(match.unitPrice) : line.unit_price,
+              gst_rate: match.gstRate != null ? String(match.gstRate) : line.gst_rate,
+            };
+          }
+          return line;
+        });
+      });
+    }
+
+    if (uploadedFile) {
+      setDocs((prev) => {
+        const exists = prev.some((d) => d.path === uploadedFile.path || d.name === uploadedFile.name);
+        return exists ? prev : [...prev, uploadedFile];
+      });
+    }
+
+    setExtractModalOpen(false);
+    if (hasUsefulExtraction(data)) {
+      toast.success("Details applied to the invoice — please verify before saving.");
+    } else if (uploadedFile) {
+      toast.info("Document attached. Nothing could be auto-filled.");
+    }
+  };
 
   // GRN received quantities — from the linked GRN (created after this invoice).
   const linkedGrn = useMemo(() => {
@@ -1071,6 +1184,36 @@ function NewPurchaseModal({
             <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
               Add a supplier first in the Suppliers tab.
             </div>
+          )}
+
+          {/* AI / Document Auto-fill Banner (new invoices only) */}
+          {!isEdit && (
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-primary/30 bg-gradient-to-r from-primary/10 via-primary/5 to-transparent p-3.5 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/20 text-primary ring-1 ring-primary/30">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                  Auto-fill from Supplier Invoice (PDF / Scan)
+                  <span className="rounded-full bg-primary/20 px-1.5 py-0.2 text-[9px] font-normal text-primary">
+                    Smart OCR / Gemini AI
+                  </span>
+                </div>
+                <div className="text-[11px] text-muted-foreground">
+                  Upload supplier tax invoice or bill (PDF or image) to extract invoice #, dates, supplier, PO #, quantities & prices.
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setExtractModalOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-1.5 text-xs font-medium text-primary-foreground shadow transition hover:bg-primary/90"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              Auto-fill from Invoice
+            </button>
+          </div>
           )}
 
           {/* ── Header ── */}
@@ -1585,6 +1728,13 @@ function NewPurchaseModal({
             </div>
           </div>
         </form>
+        <InvoiceAutoExtractModal
+          isOpen={extractModalOpen}
+          onClose={() => setExtractModalOpen(false)}
+          scope="purchase_invoices"
+          suppliers={vendors}
+          onApply={handleApplyExtracted}
+        />
         <style>{`.inp{width:100%;background:var(--color-input);border:1px solid var(--color-border);color:var(--color-foreground);border-radius:6px;padding:.55rem .75rem;font-size:.875rem}.inp:disabled{opacity:.55}.inp:focus{outline:none;border-color:var(--color-primary);box-shadow:0 0 0 3px color-mix(in oklab,var(--color-primary) 25%,transparent)}`}</style>
       </div>
     </div>

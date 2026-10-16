@@ -460,9 +460,12 @@ export async function recordReceipt(
     throw new Error("Approve and send the PO before receiving goods");
   if (po.status === "fully_received")
     throw new Error("PO is already fully received");
+  // Sum every matching entry — a GRN may carry the same product on two lines.
   const lines = (po.lines ?? []).map((l) => {
-    const r = received.find((x) => x.productId === l.productId);
-    return r ? { ...l, receivedQty: (l.receivedQty ?? 0) + r.receivedQty } : l;
+    const rs = received.filter((x) => x.productId === l.productId);
+    if (rs.length === 0) return l;
+    const add = rs.reduce((s, x) => s + (Number(x.receivedQty) || 0), 0);
+    return { ...l, receivedQty: (l.receivedQty ?? 0) + add };
   });
   return update(poId, { lines, status: recomputeStatus({ ...po, lines }) });
 }
@@ -475,10 +478,10 @@ export async function revokeReceipt(
   const po = await get(poId);
   if (!po) throw new Error("PO not found");
   const lines = (po.lines ?? []).map((l) => {
-    const r = revoked.find((x) => x.productId === l.productId);
-    return r
-      ? { ...l, receivedQty: Math.max(0, (l.receivedQty ?? 0) - r.receivedQty) }
-      : l;
+    const rs = revoked.filter((x) => x.productId === l.productId);
+    if (rs.length === 0) return l;
+    const sub = rs.reduce((s, x) => s + (Number(x.receivedQty) || 0), 0);
+    return { ...l, receivedQty: Math.max(0, (l.receivedQty ?? 0) - sub) };
   });
   return update(poId, { lines, status: recomputeStatus({ ...po, lines }) });
 }

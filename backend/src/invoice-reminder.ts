@@ -8,6 +8,7 @@ import { sendInvoiceReminder, sendDebtorReminder, isEmailConfigured } from "./em
 import * as ReminderLog from "./models/reminder-log.js";
 import { config } from "./config.js";
 import * as ReminderSettings from "./models/reminder-settings.js";
+import * as Alert from "./models/alert.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -175,6 +176,134 @@ export async function autoSendReminderOnChange(
 }
 
 // ---------------------------------------------------------------------------
+// In-app payment alerts — independent of SMTP and of the email on/off toggle
+// ---------------------------------------------------------------------------
+
+/** Days before the due date that raise a "payment due" alert (Treasury). */
+const PAYMENT_DUE_ALERT_DAYS = [3, 0];
+/** Days overdue at which the invoice is escalated to managers (once). */
+const ESCALATION_OVERDUE_DAYS = 7;
+
+interface AlertInvoice {
+  id: string;
+  invoiceNumber: string;
+  amount: number;
+  dueDate: string | null;
+  status: string;
+  clientId: string;
+  counterpartyId: string;
+  counterpartyType: "debtor" | "vendor";
+  type: "sales" | "purchase";
+}
+
+/**
+ * Existing alert keys so a run never raises the same alert twice:
+ * payment_due once per invoice per day, overdue_escalation once per invoice.
+ */
+async function existingAlertKeys(): Promise<Set<string>> {
+  const keys = new Set<string>();
+  const alerts = await Alert.list().catch(() => [] as any[]);
+  for (const a of alerts as any[]) {
+    if (!a.invoiceId) continue;
+    if (a.type === "payment_due") keys.add(`payment_due:${a.invoiceId}:${String(a.createdAt ?? "").slice(0, 10)}`);
+    if (a.type === "overdue_escalation") keys.add(`overdue_escalation:${a.invoiceId}`);
+  }
+  return keys;
+}
+
+async function raisePaymentAlerts(inv: AlertInvoice, keys: Set<string>): Promise<number> {
+  if (!inv.dueDate || isPaidOrClosed(inv.status) || inv.status === "draft") return 0;
+  const dud = daysUntilDue(inv.dueDate);
+  const label = inv.type === "sales" ? "Sales" : "Purchase";
+  const amount = `₹${(Number(inv.amount) || 0).toLocaleString("en-IN")}`;
+  let raised = 0;
+
+  if (PAYMENT_DUE_ALERT_DAYS.includes(dud)) {
+    const key = `payment_due:${inv.id}:${todayDate()}`;
+    if (!keys.has(key)) {
+      const cp = await resolveCounterparty(inv.counterpartyId, inv.counterpartyType);
+      await Alert.create({
+        clientId: inv.clientId,
+        invoiceId: inv.id,
+        debtorId: inv.counterpartyType === "debtor" ? inv.counterpartyId : null,
+        type: "payment_due",
+        severity: dud === 0 ? "warning" : "info",
+        message: `Payment Due Alert: ${label} Invoice ${inv.invoiceNumber} (${amount}, ${cp.name}) is due ${dud === 0 ? "today" : `in ${dud} days`} (${inv.dueDate}). Treasury notified.`,
+      }).catch((err) => console.error(`  ❌ Failed to create payment due alert for ${inv.invoiceNumber}:`, err));
+      keys.add(key);
+      raised++;
+    }
+  }
+
+  if (dud <= -ESCALATION_OVERDUE_DAYS) {
+    const key = `overdue_escalation:${inv.id}`;
+    if (!keys.has(key)) {
+      const cp = await resolveCounterparty(inv.counterpartyId, inv.counterpartyType);
+      const message = `OVERDUE ESCALATION: ${label} Invoice ${inv.invoiceNumber} for ${amount} (${cp.name}) is overdue by ${Math.abs(dud)} days. Managerial review required.`;
+      await Alert.create({
+        clientId: inv.clientId,
+        invoiceId: inv.id,
+        debtorId: inv.counterpartyType === "debtor" ? inv.counterpartyId : null,
+        type: "overdue_escalation",
+        severity: "critical",
+        message,
+      }).catch((err) => console.error(`  ❌ Failed to create overdue escalation alert for ${inv.invoiceNumber}:`, err));
+      keys.add(key);
+      raised++;
+      // Email the escalation recipients (configured manager + admins) — same
+      // recipients as overdue workflow-task escalations. Skipped without SMTP.
+      try {
+        const [{ resolveEscalationRecipients }, WorkflowSettings, { sendWorkflowReminderEmail }] = await Promise.all([
+          import("./workflow-reminders.js"),
+          import("./models/workflow-settings.js"),
+          import("./email.js"),
+        ]);
+        const settings = await WorkflowSettings.get(inv.clientId);
+        const recipients = await resolveEscalationRecipients(settings, inv.clientId);
+        await sendWorkflowReminderEmail({
+          to: recipients,
+          subject: `ESCALATION — ${label} invoice ${inv.invoiceNumber} overdue ${Math.abs(dud)} days`,
+          html: `<p>${message}</p><p>Due date: ${inv.dueDate}. Open the platform to follow up.</p>`,
+        });
+      } catch (err) {
+        console.error(`  ⚠ Escalation email failed for ${inv.invoiceNumber}:`, err);
+      }
+    }
+  }
+  return raised;
+}
+
+/** Raise payment-due / overdue-escalation alerts for every open invoice. */
+export async function runPaymentAlerts(): Promise<{ raised: number }> {
+  const keys = await existingAlertKeys();
+  let raised = 0;
+  try {
+    for (const inv of await Invoice.list()) {
+      raised += await raisePaymentAlerts({
+        id: inv.id, invoiceNumber: inv.invoiceNumber, amount: inv.amount, dueDate: inv.dueDate,
+        status: inv.status, clientId: inv.clientId, counterpartyId: inv.debtorId,
+        counterpartyType: "debtor", type: "sales",
+      }, keys);
+    }
+  } catch (err) {
+    console.error("  ❌ Error raising sales invoice payment alerts:", err);
+  }
+  try {
+    for (const inv of await PurchaseInvoice.list()) {
+      raised += await raisePaymentAlerts({
+        id: inv.id, invoiceNumber: inv.invoiceNumber, amount: inv.amount, dueDate: inv.dueDate,
+        status: inv.status, clientId: inv.clientId, counterpartyId: inv.vendorId,
+        counterpartyType: "vendor", type: "purchase",
+      }, keys);
+    }
+  } catch (err) {
+    console.error("  ❌ Error raising purchase invoice payment alerts:", err);
+  }
+  if (raised > 0) console.log(`  🔔 Payment alerts raised: ${raised}`);
+  return { raised };
+}
+
+// ---------------------------------------------------------------------------
 // Process a single invoice (sales or purchase)
 // ---------------------------------------------------------------------------
 
@@ -198,6 +327,10 @@ async function processInvoice(params: {
   type: "sales" | "purchase";
   /** Day offsets (days before due) that trigger an email — from admin settings. */
   scheduleDays: number[];
+  /** Sales only: also email the customer directly (Reminder settings toggle). */
+  sendToCustomer?: boolean;
+  /** Sales only: what the customer still owes (net of advance + receipts). */
+  balanceDue?: number;
 }): Promise<boolean> {
   if (isPaidOrClosed(params.status)) return false;
   if (!params.dueDate) return false;
@@ -205,16 +338,18 @@ async function processInvoice(params: {
   const dud = daysUntilDue(params.dueDate);
   const isOverdue = dud < 0;
 
-  // Check if any reminder should be sent today
+  // Automated schedule: 3 days before due (dud === 3), on due date (dud === 0), and 7 days overdue (dud === -7).
+  // Also checks any admin-configured scheduleDays. Sends at most once per day.
   let shouldSend = false;
 
-  if (isOverdue) {
-    // Once overdue, nudge once per day until the invoice is paid/closed.
-    if (params.lastReminderDate !== todayDate()) {
-      shouldSend = true;
+  if (params.lastReminderDate !== todayDate()) {
+    if (isOverdue) {
+      // 7 days overdue (or custom negative offsets in scheduleDays)
+      shouldSend = dud === -7 || params.scheduleDays.includes(dud);
+    } else {
+      // 3 days before due date, on due date, or custom offsets in scheduleDays
+      shouldSend = dud === 3 || dud === 0 || params.scheduleDays.includes(dud);
     }
-  } else {
-    shouldSend = params.scheduleDays.includes(dud);
   }
 
   if (!shouldSend) return false;
@@ -245,8 +380,46 @@ async function processInvoice(params: {
     debtorReminderToken: params.debtorReminderToken,
   });
 
-  // Record that we sent a reminder today (prevents duplicates)
-  if (sent) {
+  // Direct customer reminder (sales only, opt-in). Only invoices already
+  // issued to the customer, with money still owed and an email on file.
+  // Internal invoice notes are never included.
+  let customerSent = false;
+  const balance = params.balanceDue ?? params.amount;
+  if (
+    params.sendToCustomer &&
+    params.type === "sales" &&
+    !["draft", "pending"].includes(String(params.status).toLowerCase()) &&
+    balance > 0.005 &&
+    cp.email
+  ) {
+    customerSent = await sendDebtorReminder({
+      invoiceNumber: params.invoiceNumber,
+      amount: balance,
+      dueDate: params.dueDate,
+      issueDate: params.issueDate,
+      counterpartyName: cp.name,
+      counterpartyEmail: cp.email,
+      daysUntilDue: dud,
+      isOverdue,
+      lineItems: params.lineItems,
+      notes: null,
+    });
+    await ReminderLog.create({
+      invoiceId: params.id,
+      invoiceNumber: params.invoiceNumber,
+      type: "sales",
+      recipient: "debtor",
+      recipientEmail: cp.email,
+      daysUntilDue: dud,
+      isOverdue,
+      status: customerSent ? "sent" : "failed",
+      counterpartyName: cp.name,
+    }).catch((err) => console.error(`  ❌ Failed to create customer reminder log for ${params.invoiceNumber}:`, err));
+  }
+
+  // Record that we sent a reminder today (prevents duplicates — also stops the
+  // hourly scheduler re-mailing the customer when only their copy went out).
+  if (sent || customerSent) {
     try {
       const update = { lastOverdueReminderDate: todayDate() };
       if (params.type === "sales") {
@@ -255,7 +428,7 @@ async function processInvoice(params: {
         await PurchaseInvoice.update(params.id, update);
       }
       // Create audit log entry
-      await ReminderLog.create({
+      if (sent) await ReminderLog.create({
         invoiceId: params.id,
         invoiceNumber: params.invoiceNumber,
         type: params.type,
@@ -271,7 +444,7 @@ async function processInvoice(params: {
     }
   }
 
-  return sent;
+  return sent || customerSent;
 }
 
 // ---------------------------------------------------------------------------
@@ -279,6 +452,10 @@ async function processInvoice(params: {
 // ---------------------------------------------------------------------------
 
 export async function runDueDateReminders(): Promise<{ checked: number; sent: number; message?: string }> {
+  // In-app alerts (payment due / overdue escalation) run even when email
+  // is not configured or reminder emails are switched off.
+  await runPaymentAlerts().catch((err) => console.error("  ❌ Payment alert run failed:", err));
+
   if (!isEmailConfigured()) {
     console.log("  ⚠ Invoice reminders skipped — SMTP not configured");
     return { checked: 0, sent: 0, message: "SMTP is not configured — cannot send reminders" };
@@ -315,10 +492,20 @@ export async function runDueDateReminders(): Promise<{ checked: number; sent: nu
         counterpartyType: "debtor",
         lastReminderDate: inv.lastOverdueReminderDate,
         debtorReminderToken: inv.debtorReminderToken,
-        lineItems: inv.lineItems,
+        // Goods invoices keep their items in `lines`; legacy ones in `lineItems`.
+        lineItems: inv.lineItems?.length
+          ? inv.lineItems
+          : (inv.lines ?? []).map((l) => ({
+              description: l.name,
+              quantity: Number(l.quantity) || 0,
+              unitCost: Number(l.unitPrice) || 0,
+              amount: Number(l.lineTotal) || 0,
+            })),
         notes: inv.notes,
         type: "sales",
         scheduleDays,
+        sendToCustomer: settings.sendToCustomer === true,
+        balanceDue: Invoice.balanceOutstanding(inv),
       });
       if (wasSent) sent++;
     }

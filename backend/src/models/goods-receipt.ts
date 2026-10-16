@@ -77,6 +77,14 @@ export interface GoodsReceipt {
   /** Stock location where goods are received. Defaults to Central Warehouse. */
   receivingLocationId: string | null;
 
+  /** Over-receipt approved by a checker/admin when the draft was saved. */
+  allowOverReceipt?: boolean;
+  overReceiptApprovedBy?: string | null;
+  /** Warehouse note explaining a received-vs-pending variance (sent at confirm). */
+  varianceNote?: string | null;
+  /** clientId the stock-in movements were created under (set at confirm). */
+  creditedClientId?: string | null;
+
   createdAt: string;
   updatedAt: string;
 }
@@ -149,6 +157,9 @@ export async function create(data: Partial<GoodsReceipt> & { clientId: string; g
     cancelledBy: data.cancelledBy || null,
     lines,
     receivingLocationId: data.receivingLocationId || null,
+    allowOverReceipt: data.allowOverReceipt === true,
+    overReceiptApprovedBy: data.overReceiptApprovedBy || null,
+    varianceNote: data.varianceNote || null,
     createdAt: now,
     updatedAt: now,
   };
@@ -163,7 +174,8 @@ export async function update(id: string, updates: Partial<GoodsReceipt>) {
     "warehouse", "receivedDate", "purchaseInvoiceId", "challanNumber",
     "receivedById", "receivedBy", "notes", "documents", "status", "stockCredited",
     "creditedAt", "creditedBy", "cancelledAt", "cancelledBy", "lines",
-    "receivingLocationId",
+    "receivingLocationId", "allowOverReceipt", "overReceiptApprovedBy",
+    "varianceNote", "creditedClientId",
   ];
   for (const k of allowed) {
     if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k];
@@ -182,17 +194,24 @@ export async function update(id: string, updates: Partial<GoodsReceipt>) {
  * DynamoDB attribute still exists), which would make that check always fail and
  * silently turn every confirm into a no-op.
  */
-export async function flipToConfirmed(id: string, creditedBy: string) {
+export async function flipToConfirmed(
+  id: string,
+  creditedBy: string,
+  extra: { creditedClientId?: string | null; varianceNote?: string | null } = {},
+) {
+  const patch: Record<string, any> = {
+    status: "confirmed",
+    stockCredited: true,
+    creditedAt: db.nowISO(),
+    creditedBy,
+    updatedAt: db.nowISO(),
+  };
+  if (extra.creditedClientId) patch.creditedClientId = extra.creditedClientId;
+  if (extra.varianceNote) patch.varianceNote = extra.varianceNote;
   return db.updateItemIf(
     `GOODS_RECEIPT#${id}`,
     `GOODS_RECEIPT#${id}`,
-    {
-      status: "confirmed",
-      stockCredited: true,
-      creditedAt: db.nowISO(),
-      creditedBy,
-      updatedAt: db.nowISO(),
-    },
+    patch,
     "#status = :draft",
     { ":draft": "draft" },
     true,

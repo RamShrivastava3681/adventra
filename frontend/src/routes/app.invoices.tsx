@@ -11,7 +11,25 @@ import {
   fmtDate,
   daysBetween,
 } from "@/components/ledger-ui";
-import { Plus, X, Loader2, Send, Eye, Mail, FileCheck, FileText, Ban, Trash2 } from "lucide-react";
+import {
+  Plus,
+  X,
+  Loader2,
+  Send,
+  Eye,
+  Mail,
+  FileCheck,
+  FileText,
+  Ban,
+  Trash2,
+  Landmark,
+  CheckCircle2,
+  Sparkles,
+  RefreshCw,
+  AlertCircle,
+  ArrowRight,
+  Check,
+} from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { useFormDraft, DraftResumeBanner } from "@/lib/form-draft";
 import { toast } from "sonner";
@@ -204,6 +222,7 @@ function InvoicesPageContent({
   const [viewing, setViewing] = useState<Inv | null>(null);
   const [utrFor, setUtrFor] = useState<Inv | null>(null);
   const [irnFor, setIrnFor] = useState<Inv | null>(null);
+  const [reconcileOpen, setReconcileOpen] = useState(false);
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", "list"],
@@ -367,18 +386,26 @@ function InvoicesPageContent({
         icon={<FileText className="h-5 w-5" />}
         breadcrumbs={[{ label: "Dashboard", href: "/app/dashboard" }, { label: "Invoices" }]}
         actions={
-          canCreate ? (
+          <div className="flex items-center gap-2">
             <button
-              onClick={() => setOpen(true)}
-              className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
+              onClick={() => setReconcileOpen(true)}
+              className="inline-flex items-center gap-2 rounded-[10px] border border-border bg-card px-3.5 py-2 text-sm font-semibold text-foreground shadow-sm transition-all hover:-translate-y-px hover:border-primary/50 hover:shadow-md"
             >
-              <Plus className="h-4 w-4" /> New invoice
+              <Landmark className="h-4 w-4 text-primary" /> Bank Reconciliation (UTR)
             </button>
-          ) : (
-            <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-              Read-only · {isChecker ? "Checker" : isTreasury ? "Treasury" : "View"}
-            </span>
-          )
+            {canCreate ? (
+              <button
+                onClick={() => setOpen(true)}
+                className="inline-flex items-center gap-2 rounded-[10px] bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
+              >
+                <Plus className="h-4 w-4" /> New invoice
+              </button>
+            ) : (
+              <span className="inline-flex items-center gap-2 rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+                Read-only · {isChecker ? "Checker" : isTreasury ? "Treasury" : "View"}
+              </span>
+            )}
+          </div>
         }
       />
 
@@ -654,6 +681,17 @@ function InvoicesPageContent({
               { id: irnFor.id, irn: vals.irn, ackNo: vals.ackNo, ackDate: vals.ackDate },
               { onSuccess: () => setIrnFor(null) },
             );
+          }}
+        />
+      )}
+      {reconcileOpen && (
+        <BankReconciliationModal
+          onClose={() => setReconcileOpen(false)}
+          onSuccess={() => {
+            qc.invalidateQueries({ queryKey: ["invoices"] });
+            qc.invalidateQueries({ queryKey: ["debtors"] });
+            qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+            qc.invalidateQueries({ queryKey: ["purchase-invoices"] });
           }}
         />
       )}
@@ -2173,6 +2211,577 @@ function IrnModal({
             Record IRN
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Bank Statement Reconciliation Modal (Automated UTR Matching & Settlement)
+// ─────────────────────────────────────────────────────────────────────────────
+
+type ReconMatch = {
+  entryId: string;
+  entryDate: string;
+  narration: string;
+  entryAmount: number;
+  entryType: "credit" | "debit";
+  matchedInvoiceId: string | null;
+  matchedInvoiceNumber: string | null;
+  matchedInvoiceType: "sales" | "purchase" | null;
+  partyName: string | null;
+  invoiceTotal: number | null;
+  invoiceBalance: number | null;
+  detectedUtr: string | null;
+  matchConfidence: "exact_utr" | "invoice_in_narration" | "amount_party_exact" | "unmatched";
+  /** Entry amount equals the invoice's outstanding balance (within ₹1). */
+  amountMatches: boolean;
+  notes: string;
+  /** UTR already recorded on the invoice — nothing left to apply. */
+  applied: boolean;
+};
+
+type ReconResponse = {
+  totalEntries: number;
+  matchedCount: number;
+  partialCount: number;
+  unmatchedCount: number;
+  alreadyAppliedCount: number;
+  matches: ReconMatch[];
+};
+
+/** A row can be applied only when it links an invoice, has a UTR and isn't already recorded. */
+const reconSelectable = (m: ReconMatch) =>
+  !!m.matchedInvoiceId && !m.applied && !!m.detectedUtr && m.matchConfidence !== "unmatched";
+
+/** CSV field split honouring "quoted, fields" and "" escapes. */
+function parseCsvFields(line: string): string[] {
+  const out: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          cur += '"';
+          i++;
+        } else inQuotes = false;
+      } else cur += ch;
+    } else if (ch === '"') inQuotes = true;
+    else if (ch === ",") {
+      out.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  out.push(cur);
+  return out.map((s) => s.trim());
+}
+
+/** "₹1,28,500.00" / "(45,000)" / "-32000" → number (sign kept). */
+function parseStatementAmount(raw: string): number {
+  const s = String(raw || "").replace(/₹|INR|Rs\.?/gi, "").replace(/[,\s]/g, "");
+  const negative = /^\(.*\)$/.test(s) || s.startsWith("-");
+  const n = parseFloat(s.replace(/[()]/g, "").replace(/^-/, ""));
+  return Number.isFinite(n) ? (negative ? -n : n) : 0;
+}
+
+/** YYYY-MM-DD, DD/MM/YYYY, DD-MM-YY … → YYYY-MM-DD ("" when unrecognised). */
+function normalizeStatementDate(raw: string): string {
+  const s = String(raw || "").trim();
+  let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
+  m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})$/);
+  if (m) return `${m[3].length === 2 ? `20${m[3]}` : m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  m = s.match(/^(\d{1,2})[-/\s]([A-Za-z]{3})[A-Za-z]*[-/\s]+(\d{2}|\d{4})$/); // 14-Oct-2026 / 14 Oct 26
+  const mon = m ? "janfebmaraprmayjunjulaugsepoctnovdec".indexOf(m[2].toLowerCase()) : -1;
+  if (m && mon >= 0 && mon % 3 === 0) {
+    return `${m[3].length === 2 ? `20${m[3]}` : m[3]}-${String(mon / 3 + 1).padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  }
+  return "";
+}
+
+const STATEMENT_TYPE = "credit|debit|cr|dr|deposit|withdrawal|in|out";
+// Unquoted comma line: [Date,] Narration (may contain commas), Amount (Indian
+// "1,28,500" / western "128,500" / plain), [Type[, Reference]].
+const UNQUOTED_STATEMENT_LINE = new RegExp(
+  "^\\s*(?:(\\d{1,4}[-/.]\\d{1,2}[-/.]\\d{1,4}|\\d{1,2}[-/ ][A-Za-z]{3,9}[-/ ]+\\d{2,4})\\s*,)?\\s*(.*?)\\s*,\\s*" +
+    "((?:₹|INR|Rs\\.?)?\\s*-?(?:\\d{1,3}(?:,\\d{2})*,\\d{3}|\\d{1,3}(?:,\\d{3})+|\\d+)(?:\\.\\d+)?)" +
+    `(?:\\s*,\\s*(${STATEMENT_TYPE})(?:\\s*,\\s*([^,]*))?)?\\s*$`,
+  "i",
+);
+
+function parseStatementLine(line: string, idx: number) {
+  let f: string[];
+  if (line.includes("\t")) f = line.split("\t").map((s) => s.trim());
+  else if (line.includes('"')) f = parseCsvFields(line);
+  else {
+    const m = line.match(UNQUOTED_STATEMENT_LINE);
+    f = m ? [m[1] ?? "", m[2] ?? "", m[3] ?? "", m[4] ?? "", m[5] ?? ""] : line.split(",").map((s) => s.trim());
+  }
+  // Narration-only / "Narration, Amount" / rows that omit the date column.
+  if (f.length === 1) f = ["", f[0]];
+  else if (f.length === 2) f = ["", f[0], f[1]];
+  else if (f[0] && !normalizeStatementDate(f[0]) && parseStatementAmount(f[1]) !== 0) f = ["", ...f];
+
+  const amount = parseStatementAmount(f[2] ?? "");
+  const t = String(f[3] ?? "").trim().toLowerCase();
+  const type: "credit" | "debit" =
+    /^(dr|debit|withdrawal|out)$/.test(t) || t.includes("deb")
+      ? "debit"
+      : /^(cr|credit|deposit|in)$/.test(t)
+        ? "credit"
+        : amount < 0
+          ? "debit"
+          : "credit";
+  return {
+    id: `entry-${idx + 1}`,
+    date: normalizeStatementDate(f[0] ?? "") || new Date().toISOString().slice(0, 10),
+    description: f[1] ?? "",
+    amount: Math.abs(amount) * (type === "debit" ? -1 : 1),
+    type,
+    reference: String(f[4] ?? "").trim(),
+  };
+}
+
+function BankReconciliationModal({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [tab, setTab] = useState<"input" | "results">("input");
+  const [rawText, setRawText] = useState("");
+  const [results, setResults] = useState<ReconResponse | null>(null);
+  const [selectedMatches, setSelectedMatches] = useState<Set<string>>(new Set());
+  const [reconciling, setReconciling] = useState(false);
+  const [applying, setApplying] = useState(false);
+
+  const handleReconcile = async () => {
+    const lines = rawText
+      .split(/\r?\n/)
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0 && !l.startsWith("#"));
+
+    if (lines.length === 0) {
+      toast.error("Please enter at least one bank statement entry");
+      return;
+    }
+
+    const entries = lines.map((line, idx) => parseStatementLine(line, idx));
+
+    try {
+      setReconciling(true);
+      const res = await api.bankReconciliation.reconcile(entries);
+      setResults(res);
+
+      // Pre-select only lines whose amount equals the outstanding balance;
+      // partial / mismatched amounts need a deliberate tick.
+      const autoSel = new Set<string>();
+      res.matches.forEach((m) => {
+        if (reconSelectable(m) && m.amountMatches) autoSel.add(m.entryId);
+      });
+      setSelectedMatches(autoSel);
+      setTab("results");
+      toast.success(
+        `Reconciliation complete: ${res.matchedCount + res.partialCount} match(es) identified` +
+          (res.alreadyAppliedCount ? `, ${res.alreadyAppliedCount} already recorded` : ""),
+      );
+    } catch (err: any) {
+      toast.error(err?.message || "Reconciliation failed");
+    } finally {
+      setReconciling(false);
+    }
+  };
+
+  const handleApply = async () => {
+    if (!results) return;
+    const toApply = results.matches
+      .filter((m) => selectedMatches.has(m.entryId) && reconSelectable(m))
+      .map((m) => ({
+        entryId: m.entryId,
+        matchedInvoiceId: m.matchedInvoiceId,
+        matchedInvoiceType: m.matchedInvoiceType,
+        entryAmount: m.entryAmount,
+        entryDate: m.entryDate,
+        detectedUtr: m.detectedUtr,
+        narration: m.narration,
+      }));
+
+    if (toApply.length === 0) {
+      toast.error("No matched entries selected to settle");
+      return;
+    }
+
+    try {
+      setApplying(true);
+      const res = await api.bankReconciliation.apply(toApply);
+      const failed = res.results.filter((r) => r.status !== "applied");
+      if (res.appliedCount > 0) {
+        toast.success(`Recorded payments on ${res.appliedCount} invoice(s)`);
+        onSuccess();
+      }
+      if (failed.length === 0) {
+        onClose();
+        return;
+      }
+      toast.error(
+        `${failed.length} line(s) not applied: ` +
+          failed
+            .slice(0, 3)
+            .map((r) => `${r.invoiceNumber}: ${r.error || r.message}`)
+            .join("; ") +
+          (failed.length > 3 ? "…" : ""),
+      );
+      // Keep the modal open; mark the applied rows so they can't be re-sent.
+      const appliedIds = new Set(res.results.filter((r) => r.status === "applied" && r.entryId).map((r) => r.entryId as string));
+      setResults({
+        ...results,
+        matches: results.matches.map((m) =>
+          appliedIds.has(m.entryId) ? { ...m, applied: true, notes: "Payment recorded in this session." } : m,
+        ),
+      });
+      setSelectedMatches(new Set([...selectedMatches].filter((id) => !appliedIds.has(id))));
+    } catch (err: any) {
+      toast.error(err?.message || "Failed to apply reconciliation");
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const toggleAll = () => {
+    if (!results) return;
+    const matchable = results.matches.filter(reconSelectable);
+    if (selectedMatches.size === matchable.length) {
+      setSelectedMatches(new Set());
+    } else {
+      setSelectedMatches(new Set(matchable.map((m) => m.entryId)));
+    }
+  };
+
+  const confidenceBadge = (confidence: ReconMatch["matchConfidence"]) => {
+    switch (confidence) {
+      case "exact_utr":
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full border border-sem-success/40 bg-sem-success/15 px-2 py-0.5 text-[10px] font-medium text-sem-success">
+            <CheckCircle2 className="h-3 w-3" /> Exact UTR
+          </span>
+        );
+      case "invoice_in_narration":
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full border border-primary/40 bg-primary/15 px-2 py-0.5 text-[10px] font-medium text-primary">
+            <FileText className="h-3 w-3" /> Invoice in Narration
+          </span>
+        );
+      case "amount_party_exact":
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full border border-sem-attention/40 bg-sem-attention/15 px-2 py-0.5 text-[10px] font-medium text-sem-attention">
+            <Sparkles className="h-3 w-3" /> Customer + Amount
+          </span>
+        );
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+            <AlertCircle className="h-3 w-3" /> Unmatched
+          </span>
+        );
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-4xl overflow-y-auto rounded-xl border border-border bg-card p-6 shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-border/70 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/15 text-primary">
+              <Landmark className="h-5 w-5" />
+            </div>
+            <div>
+              <h3 className="font-display text-lg">Bank Statement Reconciliation</h3>
+              <p className="text-xs text-muted-foreground">
+                Match bank statement entries to invoices automatically using UTR number & narration parsing
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-lg p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        {/* Tab switch */}
+        <div className="mt-4 flex gap-2 border-b border-border/60 pb-3">
+          <button
+            onClick={() => setTab("input")}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              tab === "input"
+                ? "bg-primary text-primary-foreground"
+                : "border border-border text-muted-foreground hover:border-primary hover:text-primary"
+            }`}
+          >
+            1. Statement Entries
+          </button>
+          <button
+            onClick={() => {
+              if (results) setTab("results");
+              else toast.info("Please run reconciliation first");
+            }}
+            className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+              tab === "results"
+                ? "bg-primary text-primary-foreground"
+                : "border border-border text-muted-foreground hover:border-primary hover:text-primary"
+            } ${!results ? "opacity-50 cursor-not-allowed" : ""}`}
+          >
+            2. Match Results {results ? `(${results.matchedCount + results.partialCount}/${results.totalEntries})` : ""}
+          </button>
+        </div>
+
+        {tab === "input" && (
+          <div className="mt-4 space-y-4 text-sm">
+            <div className="rounded-lg border border-border/60 bg-muted/20 p-3.5 text-xs text-muted-foreground">
+              <p className="font-medium text-foreground">
+                One entry per line — paste straight from Excel / the bank statement (tab separated) or CSV:
+              </p>
+              <code className="mt-1 block font-mono text-[11px] text-primary">
+                Date, Narration, Amount, Type (credit/debit)[, Reference / UTR]
+              </code>
+              <p className="mt-1 text-[11px]">
+                Amounts may use Indian grouping or ₹ (e.g. 1,28,500). Narrations containing commas are fine; wrap
+                fields in "double quotes" if in doubt. A reference column needs the Type column before it. Credits
+                are matched to open sales invoices, debits to open purchase invoices — by UTR, invoice number in the
+                narration, or party name + exact outstanding amount. Only lines with a UTR can be applied, and a
+                UTR already recorded on an invoice is never applied twice.
+              </p>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                Paste Bank Statement Lines:
+              </label>
+              <div className="flex gap-2">
+                {rawText && (
+                  <button
+                    type="button"
+                    onClick={() => setRawText("")}
+                    className="rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-destructive"
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <textarea
+              rows={8}
+              value={rawText}
+              onChange={(e) => setRawText(e.target.value)}
+              placeholder={
+                "e.g.\n" +
+                "14/10/2026, NEFT/AXN882910394821/M/S TEXTILES/INV-001, 45,000, credit, AXN882910394821\n" +
+                "2026-10-14, RTGS/HDFC887766554433/FABRICS PVT LTD, INV-002, 1,28,500, credit\n" +
+                '2026-10-14, "IMPS/412345678901/ACME, MUMBAI", "₹32,000.00", debit'
+              }
+              className="w-full rounded-lg border border-border bg-background p-3 font-mono text-xs focus:border-primary/50 focus:outline-none"
+            />
+
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg border border-border px-4 py-2 text-xs font-medium hover:bg-muted"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleReconcile}
+                disabled={reconciling || !rawText.trim()}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              >
+                {reconciling ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Landmark className="h-4 w-4" />
+                )}
+                Match with Open Invoices
+              </button>
+            </div>
+          </div>
+        )}
+
+        {tab === "results" && results && (
+          <div className="mt-4 space-y-4">
+            {/* Summary statistics */}
+            <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+              <div className="rounded-lg border border-border/60 bg-card p-3">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Total Entries</div>
+                <div className="mt-1 font-mono text-lg font-semibold">{results.totalEntries}</div>
+              </div>
+              <div className="rounded-lg border border-sem-success/40 bg-sem-success/10 p-3">
+                <div className="text-[10px] uppercase tracking-widest text-sem-success">Matched</div>
+                <div className="mt-1 font-mono text-lg font-semibold text-sem-success">{results.matchedCount}</div>
+              </div>
+              <div className="rounded-lg border border-sem-attention/40 bg-sem-attention/10 p-3">
+                <div className="text-[10px] uppercase tracking-widest text-sem-attention">Potential Matches</div>
+                <div className="mt-1 font-mono text-lg font-semibold text-sem-attention">{results.partialCount}</div>
+              </div>
+              <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Unmatched</div>
+                <div className="mt-1 font-mono text-lg font-semibold text-muted-foreground">{results.unmatchedCount}</div>
+              </div>
+            </div>
+            {results.alreadyAppliedCount > 0 && (
+              <p className="text-[11px] text-muted-foreground">
+                {results.alreadyAppliedCount} line(s) carry a UTR that is already recorded on an invoice and are skipped.
+              </p>
+            )}
+
+            {/* Results table */}
+            <div className="overflow-x-auto rounded-lg border border-border/60">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/40 text-[10px] uppercase tracking-widest text-muted-foreground">
+                  <tr className="border-b border-border">
+                    <th className="px-3 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={
+                          results.matches.filter(reconSelectable).length > 0 &&
+                          selectedMatches.size === results.matches.filter(reconSelectable).length
+                        }
+                        onChange={toggleAll}
+                        className="rounded"
+                      />
+                    </th>
+                    <th className="px-3 py-2 text-left">Date & Narration</th>
+                    <th className="px-3 py-2 text-left">Detected UTR</th>
+                    <th className="px-3 py-2 text-left">Matched Invoice / Party</th>
+                    <th className="px-3 py-2 text-right">Entry Amount</th>
+                    <th className="px-3 py-2 text-right">Balance</th>
+                    <th className="px-3 py-2 text-center">Confidence</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border/40">
+                  {results.matches.map((m) => {
+                    const isSelected = selectedMatches.has(m.entryId);
+                    const canSelect = reconSelectable(m);
+                    return (
+                      <tr
+                        key={m.entryId}
+                        className={`hover:bg-muted/30 ${isSelected ? "bg-primary/5" : ""}`}
+                      >
+                        <td className="px-3 py-2.5 text-center">
+                          <input
+                            type="checkbox"
+                            disabled={!canSelect}
+                            checked={isSelected}
+                            onChange={() => {
+                              const next = new Set(selectedMatches);
+                              if (next.has(m.entryId)) next.delete(m.entryId);
+                              else next.add(m.entryId);
+                              setSelectedMatches(next);
+                            }}
+                            className="rounded"
+                          />
+                        </td>
+                        <td className="px-3 py-2.5 max-w-xs">
+                          <div className="text-[10px] text-muted-foreground">{fmtDate(m.entryDate)}</div>
+                          <div className="font-mono text-[11px] truncate" title={m.narration}>
+                            {m.narration}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 font-mono text-[11px]">
+                          {m.detectedUtr ? (
+                            <span className="rounded bg-muted px-1.5 py-0.5 font-semibold text-primary">
+                              {m.detectedUtr}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5">
+                          {m.matchedInvoiceNumber ? (
+                            <div>
+                              <div className="font-semibold text-foreground">
+                                {m.matchedInvoiceNumber}
+                              </div>
+                              <div className="text-[10px] text-muted-foreground">
+                                {m.matchedInvoiceType === "purchase" ? "Purchase · " : "Sales · "}
+                                {m.partyName || (m.matchedInvoiceType === "purchase" ? "Supplier" : "Customer")}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-muted-foreground">No invoice linked</span>
+                          )}
+                          {m.notes && (
+                            <div className="mt-0.5 max-w-xs text-[10px] text-muted-foreground" title={m.notes}>
+                              {m.notes}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-mono font-medium">
+                          {fmtMoney(m.entryAmount)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-mono text-muted-foreground">
+                          {m.invoiceBalance != null ? fmtMoney(m.invoiceBalance) : "—"}
+                        </td>
+                        <td className="px-3 py-2.5 text-center">
+                          {m.applied ? (
+                            <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+                              <CheckCircle2 className="h-3 w-3" /> Already recorded
+                            </span>
+                          ) : (
+                            confidenceBadge(m.matchConfidence)
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="flex items-center justify-between border-t border-border pt-4">
+              <button
+                type="button"
+                onClick={() => setTab("input")}
+                className="rounded-lg border border-border px-3.5 py-2 text-xs font-medium hover:bg-muted"
+              >
+                ← Back to Input
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="rounded-lg border border-border px-3.5 py-2 text-xs font-medium hover:bg-muted"
+                >
+                  Close
+                </button>
+                <button
+                  type="button"
+                  onClick={handleApply}
+                  disabled={applying || selectedMatches.size === 0}
+                  className="inline-flex items-center gap-2 rounded-lg bg-sem-success px-4 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50 shadow-sm"
+                >
+                  {applying ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4" />
+                  )}
+                  Apply & Settle Selected Invoices ({selectedMatches.size})
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
