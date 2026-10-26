@@ -169,67 +169,6 @@ export const PLAIN_ENGLISH_STEPS = [
   },
 ];
 
-const ROLE_CONFIG: Record<
-  string,
-  {
-    title: string;
-    subtitle: string;
-    tab: "platform_dashboard" | "orders" | "workflow" | "inventory" | "mappings" | "exceptions" | "finance" | "architecture";
-    highlight: string;
-    icon: any;
-  }
-> = {
-  all: {
-    title: "All Roles (Full Access View)",
-    subtitle: "Complete operational visibility: platform dashboards, orders, stock ledger, mappings, and fulfillment.",
-    tab: "platform_dashboard",
-    highlight: "All operational modules and ecommerce platform dashboards are visible.",
-    icon: UserCheck,
-  },
-  management: {
-    title: "Management View",
-    subtitle: "Combined ecommerce performance, platform GMV distribution, return rate & settlement pipeline.",
-    tab: "platform_dashboard",
-    highlight: "Executive overview: channel revenue split, platform dashboards, and combined portfolio health.",
-    icon: BarChart3,
-  },
-  sales: {
-    title: "Sales & Operations View",
-    subtitle: "Customer order ingestion, promised delivery dates, cancellations, and real-time fulfillment status.",
-    tab: "orders",
-    highlight: "Central order processing: orders, customer addresses, and dispatch pipeline without logging into Amazon/Flipkart.",
-    icon: ShoppingBag,
-  },
-  warehouse: {
-    title: "Warehouse Fulfillment View",
-    subtitle: "Single unified pick/pack queue, dispatch confirmation with carrier tracking, and return receipt into QC hold.",
-    tab: "inventory",
-    highlight: "Warehouse operations: pick & pack tasks, dispatch confirmation, and return receipt into QC buffer.",
-    icon: Warehouse,
-  },
-  finance: {
-    title: "Finance & Accounts View",
-    subtitle: "Customer invoices (DEMO watermark), marketplace referral commissions, TCS (1%), logistics fees, and net settlement receivables.",
-    tab: "finance",
-    highlight: "Finance ledger: verifies invoices, tracks deductions (commission, shipping, TCS), and reconciles net receivables.",
-    icon: DollarSign,
-  },
-  checker: {
-    title: "Checker & Approvals View",
-    subtitle: "Exception review queue: verify unmapped SKU bindings, QC restock approvals, and settlement reconciliation mismatches.",
-    tab: "exceptions",
-    highlight: "Exception gatekeeper: review unmapped SKU mappings, approval of return restocks, and sync retry authorization.",
-    icon: ShieldCheck,
-  },
-  admin: {
-    title: "System Administrator View",
-    subtitle: "Marketplace credentials, listing mappings, sync frequencies, connector framework, and baseline fixtures reset.",
-    tab: "mappings",
-    highlight: "Admin control: multi-channel SKU mappings, API connectors, and integration framework settings.",
-    icon: Settings,
-  },
-};
-
 const CHANNEL_CONFIG: Record<
   string,
   {
@@ -341,12 +280,8 @@ export default function MarketplaceHubPage() {
   const [mappings, setMappings] = useState<SkuMapping[]>(BASELINE_MAPPINGS);
   const [selectedMappingFilter, setSelectedMappingFilter] = useState("all");
   const [mappingSearch, setMappingSearch] = useState("");
-  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
   const [showMapModal, setShowMapModal] = useState(false);
   const [mapTargetSku, setMapTargetSku] = useState("AD-TS-WHT-M");
-
-  // Non-tech / Plain-English mode toggle
-  const [plainEnglishMode, setPlainEnglishMode] = useState(true);
 
   // Manual Order & Order Detail Modal states
   const [showManualOrderModal, setShowManualOrderModal] = useState(false);
@@ -369,19 +304,6 @@ export default function MarketplaceHubPage() {
   const [manualUnitPrice, setManualUnitPrice] = useState(1000);
   const [manualPaymentMethod, setManualPaymentMethod] = useState<"Prepaid" | "COD">("Prepaid");
   const [manualNotes, setManualNotes] = useState("");
-
-  const handleSelectRole = (roleId: string) => {
-    setState((prev) => ({ ...prev, selectedRole: roleId as any }));
-    const conf = ROLE_CONFIG[roleId];
-    if (conf && roleId !== "all") {
-      setActiveTab(conf.tab);
-      toast.info(`Switched to ${conf.title}`, {
-        description: conf.highlight,
-      });
-    } else {
-      toast.info("Showing Full Access View (All Roles)");
-    }
-  };
 
   // Sync state changes to storage
   useEffect(() => {
@@ -886,11 +808,11 @@ export default function MarketplaceHubPage() {
     }));
     setActiveTab("workflow");
     toast.info(`Loaded ${order.id} into Fulfillment Workflow!`, {
-      description: `Sales Order: ${order.salesOrderId} • Status: ${order.status}`,
+      description: `Tracking: ${order.trackingNumber || "Assigned"} • Status: ${order.status}`,
     });
   };
 
-  // Quick Dispatch & Invoice an order directly from the table
+  // Quick Dispatch an order directly from the table
   const handleQuickDispatchOrder = (order: EcommerceOrder) => {
     const invNumber =
       order.invoiceId ||
@@ -939,7 +861,7 @@ export default function MarketplaceHubPage() {
         : {}),
     }));
 
-    toast.success(`Tax Invoice ${invNumber} generated! Order ${order.id} dispatched via ${carrier}.`, {
+    toast.success(`Order ${order.id} dispatched via ${carrier}!`, {
       description: `Physical stock deducted (${order.quantity} units). Courier Tracking: ${trkNumber}`,
     });
   };
@@ -1030,12 +952,12 @@ export default function MarketplaceHubPage() {
 
   const handleTestIdempotency = () => {
     toast.info(
-      "Replayed Event EVT-1001: Idempotency Key Matched. System recognized duplicate and returned existing sales order. Zero extra reservations created!"
+      "Replayed Event EVT-1001: Idempotency Key Matched. System recognized duplicate event. Zero duplicate inventory deductions permitted!"
     );
     setState((prev) => ({
       ...prev,
       idempotencyReplayMessage:
-        "EVT-1001 previously processed. No duplicate sales order or inventory deduction permitted.",
+        "EVT-1001 previously processed. No duplicate inventory deduction permitted.",
     }));
   };
 
@@ -1051,34 +973,6 @@ export default function MarketplaceHubPage() {
           <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
           Add Manual Order
         </button>
-        {/* View Mode Segmented Toggle: Non-Tech vs Technical ERP */}
-        <div className="inline-flex items-center p-0.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100/90 dark:bg-slate-950/80 shadow-xs">
-          <button
-            type="button"
-            onClick={() => setPlainEnglishMode(true)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              plainEnglishMode
-                ? "bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 shadow-sm ring-1 ring-slate-200/80 dark:ring-slate-800"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-            title="Non-Tech View: Clear plain-language explanations of Sales Orders, Tax Invoices, and stock changes"
-          >
-            <span>Non-Tech View</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setPlainEnglishMode(false)}
-            className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              !plainEnglishMode
-                ? "bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100 shadow-sm ring-1 ring-slate-200/80 dark:ring-slate-800"
-                : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200"
-            }`}
-            title="Technical / ERP Mode: Raw API endpoints, event payloads, and ledger debit/credits"
-          >
-            <Layers className="w-3.5 h-3.5 text-slate-500" />
-            <span>Technical / ERP</span>
-          </button>
-        </div>
         <button
           onClick={handleReset}
           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition shadow-sm cursor-pointer"
@@ -1097,7 +991,7 @@ export default function MarketplaceHubPage() {
         </button>
       </div>
 
-      {/* ─── PAGE HEADER & ROLE SELECTOR ────────────────────────────────── */}
+      {/* ─── PAGE HEADER ────────────────────────────────────────────────── */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
@@ -1114,77 +1008,7 @@ export default function MarketplaceHubPage() {
             </div>
           </div>
         </div>
-
-        {/* Role View Filter (PDF 3 §4 & §9) */}
-        <div className="flex items-center gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-1.5 shadow-sm text-xs">
-          <span className="text-slate-400 font-medium px-2 flex items-center gap-1">
-            <UserCheck className="w-3.5 h-3.5" />
-            Role View:
-          </span>
-          {(
-            [
-              { id: "all", label: "All Roles" },
-              { id: "management", label: "Management" },
-              { id: "sales", label: "Sales" },
-              { id: "warehouse", label: "Warehouse" },
-              { id: "finance", label: "Finance" },
-              { id: "checker", label: "Checker" },
-              { id: "admin", label: "Admin" },
-            ] as const
-          ).map((r) => (
-            <button
-              key={r.id}
-              onClick={() => handleSelectRole(r.id)}
-              className={`px-2.5 py-1 rounded-md font-medium transition cursor-pointer ${
-                state.selectedRole === r.id
-                  ? "bg-indigo-600 text-white shadow-xs"
-                  : "text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
-              }`}
-            >
-              {r.label}
-            </button>
-          ))}
-        </div>
       </div>
-
-
-      {/* ─── ROLE PERSONA SPOTLIGHT BANNER (PDF 3 §4 & §9) ───────────────── */}
-      {state.selectedRole !== "all" && ROLE_CONFIG[state.selectedRole] && (
-        <div className="p-4 rounded-xl border border-indigo-200 dark:border-indigo-800 bg-indigo-50/60 dark:bg-indigo-950/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs shadow-xs transition-all animate-in fade-in slide-in-from-top-2 duration-200">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 rounded-lg bg-indigo-600 text-white shadow-xs">
-              {(() => {
-                const IconComponent = ROLE_CONFIG[state.selectedRole].icon;
-                return <IconComponent className="w-5 h-5" />;
-              })()}
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <h4 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
-                  {ROLE_CONFIG[state.selectedRole].title}
-                </h4>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 font-bold uppercase tracking-wider">
-                  Active Department Filter
-                </span>
-              </div>
-              <p className="text-slate-600 dark:text-slate-300 mt-0.5">
-                {ROLE_CONFIG[state.selectedRole].highlight}
-              </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 self-end sm:self-auto">
-            <span className="text-[11px] text-slate-500 hidden md:inline">
-              Focused Tab: <strong className="text-indigo-600 dark:text-indigo-400 capitalize">{ROLE_CONFIG[state.selectedRole].tab}</strong>
-            </span>
-            <button
-              onClick={() => handleSelectRole("all")}
-              className="px-3 py-1.5 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 font-semibold transition whitespace-nowrap shadow-xs text-xs cursor-pointer"
-            >
-              Reset to All Roles
-            </button>
-          </div>
-        </div>
-      )}
 
       {/* ─── CHANNEL SELECTOR TABS & SUMMARY ROW (PDF 3 §5) ────────────────── */}
       <div className="space-y-3">
@@ -1786,14 +1610,14 @@ export default function MarketplaceHubPage() {
 
             <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
               <span className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                Dispatched & Invoiced
+                Dispatched Orders
                 <Truck className="w-4 h-4 text-emerald-500" />
               </span>
               <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">
-                {(state.orders || BASELINE_ORDERS).filter((o) => o.status === "dispatched" || o.invoiceId).length}
+                {(state.orders || BASELINE_ORDERS).filter((o) => o.status === "dispatched" || o.trackingNumber).length}
               </p>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                Tax invoices generated upon handover
+                Orders dispatched with carrier tracking
               </p>
             </div>
 
@@ -1821,7 +1645,7 @@ export default function MarketplaceHubPage() {
                 <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  placeholder="Search by Order ID, customer, SKU, or SO number..."
+                  placeholder="Search by Order ID, customer, SKU, or tracking..."
                   value={ordersSearch}
                   onChange={(e) => setOrdersSearch(e.target.value)}
                   className="w-full pl-9 pr-3 py-2 text-xs rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-850 text-slate-900 dark:text-slate-100 focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
@@ -1884,7 +1708,6 @@ export default function MarketplaceHubPage() {
                     <th className="py-3 px-3 text-right">Qty</th>
                     <th className="py-3 px-3 text-right">Total (₹)</th>
                     <th className="py-3 px-4">Warehouse & Debit Entry</th>
-                    <th className="py-3 px-4">Tax Invoice (Step 5)</th>
                     <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4 text-center">Actions</th>
                   </tr>
@@ -1899,17 +1722,15 @@ export default function MarketplaceHubPage() {
                         ord.id.toLowerCase().includes(ordersSearch.toLowerCase()) ||
                         ord.customerName.toLowerCase().includes(ordersSearch.toLowerCase()) ||
                         ord.sku.toLowerCase().includes(ordersSearch.toLowerCase()) ||
-                        (ord.salesOrderId &&
-                          ord.salesOrderId.toLowerCase().includes(ordersSearch.toLowerCase())) ||
-                        (ord.invoiceId &&
-                          ord.invoiceId.toLowerCase().includes(ordersSearch.toLowerCase()));
+                        (ord.trackingNumber &&
+                          ord.trackingNumber.toLowerCase().includes(ordersSearch.toLowerCase()));
                       return matchChannel && matchSearch;
                     });
 
                     if (filtered.length === 0) {
                       return (
                         <tr>
-                          <td colSpan={9} className="py-12 text-center text-slate-400">
+                          <td colSpan={8} className="py-12 text-center text-slate-400">
                             <ShoppingBag className="w-8 h-8 mx-auto mb-2 opacity-40" />
                             <p className="font-medium text-slate-600 dark:text-slate-300">
                               No e-commerce orders found
@@ -2000,31 +1821,6 @@ export default function MarketplaceHubPage() {
                             </div>
                           </td>
 
-                          {/* Tax Invoice (Step 5) */}
-                          <td className="py-3.5 px-4">
-                            {ord.invoiceId ? (
-                              <div className="space-y-0.5">
-                                <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-[11px] font-mono font-bold bg-emerald-50 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800 text-emerald-700 dark:text-emerald-300">
-                                  <FileCheck2 className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
-                                  {ord.invoiceId}
-                                </span>
-                                <span className="text-[10px] text-slate-500 block">
-                                  Issued at Dispatch
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="space-y-0.5">
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] bg-slate-100 dark:bg-slate-800 text-slate-500 italic">
-                                  <Clock className="w-3 h-3 text-slate-400" />
-                                  Pending Dispatch
-                                </span>
-                                <span className="text-[10px] text-amber-600 dark:text-amber-400 font-medium block">
-                                  Generates at courier handover
-                                </span>
-                              </div>
-                            )}
-                          </td>
-
                           {/* Status */}
                           <td className="py-3.5 px-4">
                             <span
@@ -2068,11 +1864,11 @@ export default function MarketplaceHubPage() {
                               >
                                 <Eye className="w-3.5 h-3.5" />
                               </button>
-                              {!ord.invoiceId && (
+                              {ord.status !== "dispatched" && ord.status !== "delivered" && (
                                 <button
                                   onClick={() => handleQuickDispatchOrder(ord)}
                                   className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-2xs cursor-pointer"
-                                  title="Quick Dispatch & Generate Tax Invoice"
+                                  title="Quick Dispatch to Courier"
                                 >
                                   <Truck className="w-3.5 h-3.5" />
                                 </button>
@@ -2165,11 +1961,9 @@ export default function MarketplaceHubPage() {
 
           {/* 8-Step Progress Stepper */}
           <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-8 gap-2">
-            {(plainEnglishMode ? PLAIN_ENGLISH_STEPS : WORKFLOW_STEPS).map((ws) => {
+            {WORKFLOW_STEPS.map((ws) => {
               const isPassed = state.currentStep >= ws.step;
               const isCurrent = state.currentStep === ws.step;
-              const isSoStep = ws.step === 3;
-              const isInvStep = ws.step === 5;
 
               return (
                 <button
@@ -2202,20 +1996,8 @@ export default function MarketplaceHubPage() {
                     {ws.title}
                   </p>
 
-                  {/* Plain English Document Milestone Pill */}
-                  {isSoStep && (
-                    <span className="mt-1 inline-block text-[9px] font-black uppercase text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-900/80 px-1.5 py-0.5 rounded">
-                      Sales Order
-                    </span>
-                  )}
-                  {isInvStep && (
-                    <span className="mt-1 inline-block text-[9px] font-black uppercase text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-900/80 px-1.5 py-0.5 rounded">
-                      Tax Invoice
-                    </span>
-                  )}
-
                   <span className="text-[10px] text-slate-400 mt-2 block">
-                    {"role" in ws ? ws.role.split("&")[0] : ws.badge}
+                    {ws.role}
                   </span>
                 </button>
               );
@@ -2234,26 +2016,12 @@ export default function MarketplaceHubPage() {
                     <h4 className="text-base font-bold text-slate-900 dark:text-slate-100">
                       {state.currentStep === 0
                         ? "Step 0: Baseline Initialized (Opening Stock = 20)"
-                        : plainEnglishMode
-                        ? PLAIN_ENGLISH_STEPS[state.currentStep - 1]?.title
                         : WORKFLOW_STEPS[state.currentStep - 1]?.title}
                     </h4>
-                    {state.currentStep === 3 && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 uppercase">
-                        ★ Creates Sales Order
-                      </span>
-                    )}
-                    {state.currentStep === 5 && (
-                      <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 uppercase">
-                        ★ Creates Tax Invoice
-                      </span>
-                    )}
                   </div>
                   <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
                     {state.currentStep === 0
                       ? "Click 'Advance to Next Step' to simulate order import event from channel."
-                      : plainEnglishMode
-                      ? PLAIN_ENGLISH_STEPS[state.currentStep - 1]?.shortDesc
                       : WORKFLOW_STEPS[state.currentStep - 1]?.subtitle}
                   </p>
                 </div>
@@ -2261,15 +2029,6 @@ export default function MarketplaceHubPage() {
 
               {/* Action buttons inside spotlight */}
               <div className="flex items-center gap-2">
-                {state.currentStep >= 5 && (
-                  <button
-                    onClick={() => setShowInvoiceModal(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-800 dark:text-slate-200 hover:bg-slate-200 dark:hover:bg-slate-700 transition cursor-pointer"
-                  >
-                    <FileText className="w-3.5 h-3.5" />
-                    Preview Tax Invoice ({state.demoInvoiceNumber ?? state.invoiceId})
-                  </button>
-                )}
                 {state.currentStep < 8 ? (
                   <button
                     onClick={handleNextStep}
@@ -2287,58 +2046,18 @@ export default function MarketplaceHubPage() {
               </div>
             </div>
 
-            {/* Non-Tech Plain English Spotlight Box */}
-            {plainEnglishMode && state.currentStep > 0 && (
-              <div className="p-4 rounded-xl bg-gradient-to-r from-indigo-50/80 via-white to-sky-50/60 dark:from-indigo-950/40 dark:via-slate-900 dark:to-slate-900 border border-indigo-200/80 dark:border-indigo-800 space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-indigo-900 dark:text-indigo-200 uppercase tracking-wider">
-                      Guide
-                    </span>
-                  </div>
-                  <span className="text-[10px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-950 px-2 py-0.5 rounded-full">
-                    Executive / Business View
-                  </span>
-                </div>
-                <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed font-medium">
-                  {PLAIN_ENGLISH_STEPS[state.currentStep - 1]?.explanation}
-                </p>
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-[11px]">
-                  <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                    <span className="text-slate-400 block font-medium">📄 Document Created:</span>
-                    <strong className="text-slate-800 dark:text-slate-200 mt-0.5 block">
-                      {PLAIN_ENGLISH_STEPS[state.currentStep - 1]?.documentCreated}
-                    </strong>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                    <span className="text-slate-400 block font-medium">📦 Warehouse Stock Change:</span>
-                    <strong className="text-slate-800 dark:text-slate-200 mt-0.5 block">
-                      {PLAIN_ENGLISH_STEPS[state.currentStep - 1]?.stockImpact}
-                    </strong>
-                  </div>
-                  <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                    <span className="text-slate-400 block font-medium">👤 Handled By:</span>
-                    <strong className="text-slate-800 dark:text-slate-200 mt-0.5 block">
-                      {PLAIN_ENGLISH_STEPS[state.currentStep - 1]?.whoDoesThis}
-                    </strong>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Technical / ERP Mode Spotlight Box */}
-            {!plainEnglishMode && state.currentStep > 0 && (
+            {/* Pipeline Architecture Box */}
+            {state.currentStep > 0 && (
               <div className="p-4 rounded-xl bg-slate-50/90 dark:bg-slate-950/70 border border-slate-200 dark:border-slate-800 space-y-2.5 font-mono">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Layers className="w-4 h-4 text-slate-600 dark:text-slate-400" />
                     <span className="text-xs font-bold text-slate-800 dark:text-slate-200 uppercase tracking-wider font-sans">
-                      ERP Technical Architecture & Payload • Step {state.currentStep}
+                      Fulfillment Architecture & Payload • Step {state.currentStep}
                     </span>
                   </div>
                   <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-400 bg-slate-200 dark:bg-slate-800 px-2 py-0.5 rounded-full font-sans">
-                    Technical / ERP View
+                    Pipeline View
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 dark:text-slate-400 font-sans">
@@ -2357,19 +2076,19 @@ export default function MarketplaceHubPage() {
                     </span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-                    <span className="text-slate-400 block font-sans">ERP Transaction:</span>
+                    <span className="text-slate-400 block font-sans">Fulfillment Action:</span>
                     <span className="text-slate-800 dark:text-slate-200 font-bold block truncate">
                       {state.currentStep === 3
-                        ? "SalesOrder.create() [SO Issued]"
+                        ? "InventoryMovement.debit() [MOV-DR-1001]"
                         : state.currentStep === 5
-                        ? "Invoice.issue() [INV Issued]"
+                        ? "CarrierDispatch.handover() [TRK-DEMO-1001]"
                         : "Inventory.sync()"}
                     </span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
                     <span className="text-slate-400 block font-sans">Ledger Event:</span>
                     <span className="text-emerald-600 dark:text-emerald-400 font-bold block truncate">
-                      {state.currentStep >= 5 ? "GST Output Tax Accrued" : "Zero Tax Liability (SO)"}
+                      {state.currentStep >= 3 ? "Stock Debited (On-Hand -2)" : "Live Catalog Sync"}
                     </span>
                   </div>
                 </div>
@@ -2398,11 +2117,9 @@ export default function MarketplaceHubPage() {
                     <span className="font-mono text-slate-700 dark:text-slate-300">{state.externalOrderId}</span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Sales Order (SO):</span>
-                    <span className="font-mono text-slate-700 dark:text-slate-300 font-bold">
-                      {state.currentStep >= 3
-                        ? state.demoSoNumber ?? state.soId
-                        : "Pending Step 3 (Created on order arrival)"}
+                    <span className="text-slate-500">Debit Movement:</span>
+                    <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">
+                      {state.currentStep >= 3 ? (state.debitMovementNumber || "MOV-DR-1001") : "Pending Step 3"}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -2414,11 +2131,9 @@ export default function MarketplaceHubPage() {
                     </span>
                   </div>
                   <div className="flex justify-between">
-                    <span className="text-slate-500">Tax Invoice (INV):</span>
+                    <span className="text-slate-500">Carrier Tracking:</span>
                     <span className="font-mono text-slate-700 dark:text-slate-300 font-bold">
-                      {state.currentStep >= 5
-                        ? state.demoInvoiceNumber ?? state.invoiceId
-                        : "Pending Step 5 (Created on courier dispatch)"}
+                      {state.currentStep >= 5 ? state.trackingNumber : "Pending Handover"}
                     </span>
                   </div>
                 </div>
@@ -2879,7 +2594,7 @@ export default function MarketplaceHubPage() {
                   Unmapped SKU Recovery
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Incoming order with fixture <code>AMZ-UNKNOWN</code> is paused. No sales order or reservation is created until mapped.
+                  Incoming order with fixture <code>AMZ-UNKNOWN</code> is paused. No warehouse allocation or stock debit occurs until mapped.
                 </p>
                 <div className="mt-3 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-850 text-xs font-mono text-slate-700 dark:text-slate-300">
                   <div>Event: DEMO-AMZ-ERR-01</div>
@@ -3021,7 +2736,7 @@ export default function MarketplaceHubPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-850/50 space-y-3">
                 <h4 className="text-xs font-bold uppercase text-slate-500 tracking-wider">
-                  Order Invoicing & Collection Status
+                  Order Fulfillment & Collection Status
                 </h4>
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-800">
@@ -3029,13 +2744,13 @@ export default function MarketplaceHubPage() {
                     <span className="font-mono font-bold text-slate-800 dark:text-slate-200">DEMO-AMZ-1001</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-800">
-                    <span className="text-slate-500">Invoice Issued:</span>
+                    <span className="text-slate-500">Fulfillment Status:</span>
                     <span className="font-mono text-slate-800 dark:text-slate-200">
-                      {state.currentStep >= 5 ? "INV-DEMO-1001" : "Pending Dispatch"}
+                      {state.currentStep >= 5 ? "Handed over to BlueDart" : "Pending Dispatch"}
                     </span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-800">
-                    <span className="text-slate-500">Gross Invoice Value:</span>
+                    <span className="text-slate-500">Gross Order Value:</span>
                     <span className="font-semibold text-slate-900 dark:text-slate-100">₹2,000.00</span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-800">
@@ -3155,106 +2870,7 @@ export default function MarketplaceHubPage() {
         </div>
       )}
 
-      {/* ─── MODAL 1: WATERMARKED DEMO INVOICE PREVIEW ──────────────────── */}
-      {showInvoiceModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
-          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl relative overflow-hidden space-y-4">
-            {/* Watermark Diagonal Banner */}
-            <div className="absolute inset-0 pointer-events-none flex items-center justify-center opacity-10">
-              <span className="text-4xl sm:text-5xl font-black text-rose-600 -rotate-45 select-none uppercase">
-                DEMO / NOT A TAX INVOICE
-              </span>
-            </div>
-
-            <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-              <div className="flex items-center gap-2">
-                <FileCheck2 className="w-5 h-5 text-indigo-600" />
-                <h4 className="font-bold text-slate-900 dark:text-slate-100">
-                  Demo Invoice Preview: {state.demoInvoiceNumber ?? state.invoiceId}
-                </h4>
-              </div>
-              <button
-                onClick={() => setShowInvoiceModal(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-1"
-              >
-                ✕
-              </button>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-200">
-                <strong>Demonstration Watermark Notice:</strong> This document represents an illustrative customer invoice. No statutory tax document has been submitted to GSTN / NIC portals.
-              </div>
-
-              <div className="grid grid-cols-2 gap-3 p-3 rounded-lg bg-slate-50 dark:bg-slate-850">
-                <div>
-                  <span className="text-slate-400 block text-[10px]">Seller</span>
-                  <strong className="text-slate-800 dark:text-slate-200">WhizUnik / Adventra Lifestyle Pvt Ltd</strong>
-                  <p className="text-[11px] text-slate-500">GSTIN: 29AAAAA0000A1Z5</p>
-                </div>
-                <div>
-                  <span className="text-slate-400 block text-[10px]">Buyer (Marketplace Customer)</span>
-                  <strong className="text-slate-800 dark:text-slate-200">Rohan Sharma</strong>
-                  <p className="text-[11px] text-slate-500">Order Ref: DEMO-AMZ-1001</p>
-                </div>
-              </div>
-
-              <div className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300">
-                    <tr>
-                      <th className="p-2">Item Description</th>
-                      <th className="p-2">HSN</th>
-                      <th className="p-2 text-right">Qty</th>
-                      <th className="p-2 text-right">Rate</th>
-                      <th className="p-2 text-right">Total</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr className="border-t border-slate-100 dark:border-slate-800">
-                      <td className="p-2">Adventra Classic Tee (Black - M) [AD-TS-BLK-M]</td>
-                      <td className="p-2 font-mono">61091000</td>
-                      <td className="p-2 text-right font-mono">2</td>
-                      <td className="p-2 text-right font-mono">₹1,000.00</td>
-                      <td className="p-2 text-right font-mono font-bold">₹2,000.00</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="p-2.5 rounded-lg bg-slate-50 dark:bg-slate-850 space-y-1 text-[11px] font-mono text-slate-600 dark:text-slate-400">
-                <div className="flex justify-between">
-                  <span>Taxable Value:</span>
-                  <span>₹1,904.76</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Integrated GST (5%):</span>
-                  <span>₹95.24</span>
-                </div>
-                <div className="flex justify-between font-bold text-slate-900 dark:text-slate-100 text-xs pt-1 border-t border-slate-200 dark:border-slate-700">
-                  <span>Grand Total:</span>
-                  <span>₹2,000.00</span>
-                </div>
-                <div className="flex justify-between text-[10px] text-slate-400 pt-1">
-                  <span>Mock IRN Token:</span>
-                  <span>4b8f9e...demo-mock-irn</span>
-                </div>
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-2">
-              <button
-                onClick={() => setShowInvoiceModal(false)}
-                className="px-4 py-1.5 text-xs font-semibold rounded-lg bg-slate-900 dark:bg-white text-white dark:text-slate-900"
-              >
-                Close Preview
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ─── MODAL 2: MAP UNMAPPED SKU MODAL ────────────────────────────── */}
+      {/* ─── MODAL 1: MAP UNMAPPED SKU MODAL ────────────────────────────── */}
       {showMapModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4">
@@ -3294,7 +2910,7 @@ export default function MarketplaceHubPage() {
               </div>
 
               <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-[11px]">
-                Upon mapping, the pending error event <strong>DEMO-AMZ-ERR-01</strong> will reprocess automatically, creating 1 sales order and reserving 1 unit cleanly.
+                Upon mapping, the pending error event <strong>DEMO-AMZ-ERR-01</strong> will reprocess automatically, allocating stock and debiting 1 unit cleanly.
               </div>
             </div>
 
@@ -3315,7 +2931,7 @@ export default function MarketplaceHubPage() {
           </div>
         </div>
       )}
-      {/* ─── MODAL 3: ADD MANUAL E-COMMERCE ORDER MODAL ─────────────────── */}
+      {/* ─── MODAL 2: ADD MANUAL E-COMMERCE ORDER MODAL ─────────────────── */}
       {showManualOrderModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4 overflow-y-auto">
           <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 my-8">
@@ -3329,7 +2945,7 @@ export default function MarketplaceHubPage() {
                     Add Manual E-Commerce Order
                   </h4>
                   <p className="text-xs text-slate-500 dark:text-slate-400">
-                    Simulate an order or record direct sales with automatic Sales Order generation.
+                    Simulate an incoming channel order or record direct marketplace sales.
                   </p>
                 </div>
               </div>
@@ -3641,10 +3257,10 @@ export default function MarketplaceHubPage() {
                   </p>
                 </div>
 
-                {/* Tax Invoice Box */}
+                {/* Carrier Dispatch & Tracking Box */}
                 <div
                   className={`p-2.5 rounded-lg border ${
-                    selectedOrderForModal.invoiceId
+                    selectedOrderForModal.status === "dispatched" || selectedOrderForModal.status === "delivered"
                       ? "bg-white dark:bg-slate-900 border-emerald-200 dark:border-emerald-900/60"
                       : "bg-slate-100/70 dark:bg-slate-850/80 border-slate-200 dark:border-slate-800"
                   }`}
@@ -3652,35 +3268,31 @@ export default function MarketplaceHubPage() {
                   <div className="flex items-center justify-between mb-1">
                     <span
                       className={`text-[10px] font-bold uppercase flex items-center gap-1 ${
-                        selectedOrderForModal.invoiceId
+                        selectedOrderForModal.status === "dispatched" || selectedOrderForModal.status === "delivered"
                           ? "text-emerald-600 dark:text-emerald-400"
                           : "text-slate-400"
                       }`}
                     >
-                      {selectedOrderForModal.invoiceId ? (
-                        <CheckCircle2 className="w-3 h-3 text-emerald-500" />
-                      ) : (
-                        <Clock className="w-3 h-3 text-slate-400" />
-                      )}
-                      Tax Invoice
+                      <Truck className="w-3 h-3 text-emerald-500" />
+                      Carrier Tracking
                     </span>
                     <span
                       className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
-                        selectedOrderForModal.invoiceId
+                        selectedOrderForModal.status === "dispatched" || selectedOrderForModal.status === "delivered"
                           ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300"
                           : "bg-slate-200 dark:bg-slate-700 text-slate-500"
                       }`}
                     >
-                      {selectedOrderForModal.invoiceId ? "Generated" : "Pending Dispatch"}
+                      {selectedOrderForModal.status === "dispatched" || selectedOrderForModal.status === "delivered" ? "In Transit" : "Pending Handover"}
                     </span>
                   </div>
                   <div className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100">
-                    {selectedOrderForModal.invoiceId || "Awaiting Dispatch"}
+                    {selectedOrderForModal.trackingNumber || "Awaiting Dispatch"}
                   </div>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                    {selectedOrderForModal.invoiceId
-                      ? "Official tax document with GST stamp issued upon courier handover."
-                      : "Generated only when packed parcel is handed over to courier."}
+                    {selectedOrderForModal.trackingNumber
+                      ? `Carrier assigned: ${selectedOrderForModal.carrier || "BlueDart Express"}`
+                      : "Generated when packed carton is handed over to courier."}
                   </p>
                 </div>
               </div>
@@ -3770,7 +3382,7 @@ export default function MarketplaceHubPage() {
               </button>
 
               <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                {!selectedOrderForModal.invoiceId && (
+                {selectedOrderForModal.status !== "dispatched" && selectedOrderForModal.status !== "delivered" && (
                   <button
                     onClick={() => {
                       handleQuickDispatchOrder(selectedOrderForModal);
@@ -3779,7 +3391,7 @@ export default function MarketplaceHubPage() {
                     className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition flex items-center gap-1.5"
                   >
                     <Truck className="w-3.5 h-3.5" />
-                    Dispatch & Issue Invoice
+                    Dispatch to Courier
                   </button>
                 )}
                 <button
