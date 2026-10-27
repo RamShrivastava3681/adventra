@@ -13,7 +13,7 @@ import * as db from "../dynamodb.js";
  * All records carry demo:true and a shared correlationId for drill-down.
  */
 
-export type DemoSoStatus = "reserved" | "dispatched" | "cancelled";
+export type DemoSoStatus = "reserved" | "allocated_debited" | "dispatched" | "cancelled";
 export type DemoPaymentStatus = "pending" | "collected_by_marketplace";
 
 export interface MarketplaceDemoOrder {
@@ -31,6 +31,9 @@ export interface MarketplaceDemoOrder {
   unitPrice: number;
   totalValue: number;
   soNumber: string;
+  fulfillmentRef?: string;
+  debitMovementNumber?: string;
+  ecommerceWarehouse?: string;
   status: DemoSoStatus;
   paymentStatus: DemoPaymentStatus;
   invoiceId: string | null;
@@ -96,12 +99,13 @@ export async function createDemoOrder(data: {
   whizunikSku: string;
   quantity: number;
   unitPrice: number;
+  ecommerceWarehouse?: string;
 }) {
   const existing = await findByExternalOrder(data.clientId, data.marketplace, data.externalOrderId);
   if (existing) return { order: existing, created: false };
 
   if (!data.whizunikSku || data.whizunikSku === "UNMAPPED") {
-    throw new Error("Mapping required — resolve the channel SKU before creating a sales order");
+    throw new Error("Mapping required — resolve the channel SKU before creating an order");
   }
   const qty = Number(data.quantity);
   const price = Number(data.unitPrice);
@@ -111,6 +115,11 @@ export async function createDemoOrder(data: {
   const id = uuid();
   const now = db.nowISO();
   const correlationId = `${data.eventId}:${data.marketplace}:${data.externalOrderId}`;
+  const mktCode = data.marketplace.toUpperCase();
+  const whCode = data.ecommerceWarehouse || `WH-${mktCode}-FC`;
+  const debitNum = `MOV-DR-${now.slice(0, 10).replace(/-/g, "")}-${id.slice(0, 4).toUpperCase()}`;
+  const fulRef = `FUL-${mktCode}-${id.slice(0, 4).toUpperCase()}`;
+
   const item: MarketplaceDemoOrder = {
     ...orderKey(id),
     gsi1pk: `CLIENT#${data.clientId}`,
@@ -129,7 +138,10 @@ export async function createDemoOrder(data: {
     unitPrice: price,
     totalValue: Math.round(qty * price * 100) / 100,
     soNumber: `SO-DEMO-${now.slice(0, 10).replace(/-/g, "")}-${id.slice(0, 4).toUpperCase()}`,
-    status: "reserved",
+    fulfillmentRef: fulRef,
+    debitMovementNumber: debitNum,
+    ecommerceWarehouse: whCode,
+    status: "allocated_debited",
     paymentStatus: "pending",
     invoiceId: null,
     createdAt: now,

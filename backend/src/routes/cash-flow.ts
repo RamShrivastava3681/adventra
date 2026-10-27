@@ -904,7 +904,7 @@ router.get("/marketplace-demo/invoices", async (req: Request, res: Response) => 
 router.post("/marketplace-demo/orders", async (req: Request, res: Response) => {
   try {
     const clientId = (req as any).user.userId;
-    const { marketplace, externalOrderId, eventId, channelSku, whizunikSku, quantity, unitPrice } =
+    const { marketplace, externalOrderId, eventId, channelSku, whizunikSku, quantity, unitPrice, ecommerceWarehouse } =
       req.body || {};
     if (!marketplace) return res.status(400).json({ error: "marketplace is required" });
     if (!externalOrderId) return res.status(400).json({ error: "externalOrderId is required" });
@@ -917,6 +917,7 @@ router.post("/marketplace-demo/orders", async (req: Request, res: Response) => {
       whizunikSku: whizunikSku || "",
       quantity: Number(quantity) || 0,
       unitPrice: Number(unitPrice) || 0,
+      ecommerceWarehouse: ecommerceWarehouse || undefined,
     });
     trackCashFlowAction(req, "marketplace.demo_order_created", order.id, {
       marketplace,
