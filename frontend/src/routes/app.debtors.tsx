@@ -394,15 +394,26 @@ function DebtorModal({
   // the form is not yet submittable (auto-save treats that as "browser only").
   const buildDebtorPayload = () => {
       if (!form.name.trim()) throw new Error("Name is required");
-      if (form.contact_email && !/^\S+@\S+\.\S+$/.test(form.contact_email))
-        throw new Error("Invalid contact email");
-      if (form.website && form.website.length > 255) throw new Error("Website too long");
-      let creditLimit: number | null = null;
-      if (String(form.credit_limit ?? "").trim() !== "") {
-        const n = Number(form.credit_limit);
-        if (!Number.isFinite(n) || n < 0) throw new Error("Credit limit must be zero or more");
-        creditLimit = n;
-      }
+      if (!form.industry.trim()) throw new Error("Industry is required");
+      if (!form.customer_type) throw new Error("Customer type is required");
+      if (!form.website.trim()) throw new Error("Website is required");
+      if (form.website.length > 255) throw new Error("Website too long");
+      if (!form.phone.trim()) throw new Error("Phone is required");
+      if (!form.gstin.trim()) throw new Error("GSTIN is required");
+      if (!form.panCardNo.trim()) throw new Error("PAN card number is required");
+      if (!String(form.credit_limit ?? "").trim()) throw new Error("Credit limit is required");
+      const creditN = Number(form.credit_limit);
+      if (!Number.isFinite(creditN) || creditN < 0) throw new Error("Credit limit must be zero or more");
+      const creditLimit = creditN;
+      if (!form.contact_name.trim()) throw new Error("Contact name is required");
+      if (!form.contact_email.trim()) throw new Error("Contact email is required");
+      if (!/^\S+@\S+\.\S+$/.test(form.contact_email)) throw new Error("Invalid contact email");
+      if (!form.contact_designation.trim()) throw new Error("Contact designation is required");
+      if (!form.contact_phone.trim()) throw new Error("Contact phone is required");
+      if (!form.salesman_name.trim()) throw new Error("Salesman name is required");
+      if (!form.salesman_phone.trim()) throw new Error("Salesman phone is required");
+      if (!form.salesman_email.trim()) throw new Error("Salesman email is required");
+      if (!/^\S+@\S+\.\S+$/.test(form.salesman_email)) throw new Error("Invalid salesman email");
       const cleanBilling = form.billing_addresses
         .map((a) => ({
           label: a.label.trim() || null,
@@ -411,7 +422,7 @@ function DebtorModal({
           state: resolveStandardState(a.state.trim()) ?? (a.state.trim() || null),
           postalCode: a.pin.trim() || null,
         }))
-        .filter((a) => a.address || a.city || a.state || a.postalCode);
+        .filter((a) => a.address && a.city && a.state && a.postalCode);
       const cleanShipping = sameAsBilling
         ? cleanBilling.map((a) => ({ ...a }))
         : form.shipping_addresses
@@ -422,8 +433,10 @@ function DebtorModal({
           state: resolveStandardState(a.state.trim()) ?? (a.state.trim() || null),
           postalCode: a.pin.trim() || null,
         }))
-        .filter((a) => a.address || a.city || a.state || a.postalCode);
-      const termsPayload = toTermsPayload(form);
+        .filter((a) => a.address && a.city && a.state && a.postalCode);
+       if (cleanBilling.length === 0) throw new Error("At least one complete billing address is required");
+       if (!sameAsBilling && cleanShipping.length === 0) throw new Error("At least one complete shipping address is required");
+       const termsPayload = toTermsPayload(form);
       // Delivery-based terms always carry 0 balance days (toPayload enforces
       // it) — the due date is the invoice date entered by the user.
       const payload = {

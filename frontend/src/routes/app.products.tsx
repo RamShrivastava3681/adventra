@@ -1605,6 +1605,7 @@ function ProductModal({
   const save = useMutation({
     mutationFn: async () => {
       if (!f.name.trim()) throw new Error("Name required");
+      if (!f.hsn_code.trim()) throw new Error("HSN code is required");
       const payload = {
         client_id: userId,
         sku: f.sku || undefined,
@@ -2007,13 +2008,14 @@ function ProductModal({
 
           <Section title="Tax details" step="6">
             <div className="grid grid-cols-2 gap-3">
-              <L label="HSN code">
-                <input
-                  className="inp"
-                  value={f.hsn_code}
-                  onChange={(e) => setF({ ...f, hsn_code: e.target.value })}
-                  placeholder="e.g. 6402"
-                />
+               <L label="HSN code *">
+                 <input
+                   className="inp"
+                   value={f.hsn_code}
+                   onChange={(e) => setF({ ...f, hsn_code: e.target.value })}
+                   placeholder="e.g. 6402"
+                   required
+                 />
               </L>
               <L label="GST rate (%)">
                 <input

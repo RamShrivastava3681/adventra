@@ -403,6 +403,7 @@ function PurchasesPageContent({
                         <th className="px-5 py-2 text-left font-normal">PO</th>
                         <th className="px-5 py-2 text-left font-normal">GRN</th>
                         <th className="px-5 py-2 text-right font-normal">Grand total</th>
+                        <th className="px-5 py-2 text-right font-normal">Balance remaining</th>
                         <th className="px-5 py-2 text-left font-normal">Due</th>
                         <th className="px-5 py-2 text-left font-normal">Status</th>
                         <th className="px-5 py-2 text-left font-normal">Linked sales</th>
@@ -479,6 +480,9 @@ function PurchasesPageContent({
                             <td className="px-5 py-3 text-right num">
                               {fmtMoney(p.grand_total ?? p.amount)}
                             </td>
+                            <td className="px-5 py-3 text-right num">
+                              {fmtMoney(Math.max(0, Number(p.amount ?? (Number(p.grand_total ?? 0) - Number(p.advance_deducted ?? 0))) - Number(p.amount_paid ?? 0)))}
+                            </td>
                             <td className="px-5 py-3 text-sm">{fmtDate(p.due_date)}</td>
                             <td className="px-5 py-3">
                               <StatusPill
@@ -526,13 +530,13 @@ function PurchasesPageContent({
                                 {canCreate && p.status === "draft" && (
                                   <button
                                     onClick={() =>
-                                      setStatus.mutate({ id: p.id, status: "verified" })
+                                      setStatus.mutate({ id: p.id, status: "approved_for_payment" })
                                     }
                                     disabled={setStatus.isPending}
                                     className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-60"
-                                    title="Push the invoice to the checker for approval"
+                                    title="Approve the invoice for payment (no checker review)"
                                   >
-                                    <CheckCircle2 className="h-3 w-3" /> Push to checker
+                                    <CheckCircle2 className="h-3 w-3" /> Approve for payment
                                   </button>
                                 )}
                                 {(canCreate || isAdmin) &&
@@ -657,6 +661,7 @@ function NewPurchaseModal({
     difference_notes: invoice?.difference_notes ?? "",
   });
 
+  const [linesLocked, setLinesLocked] = useState(!!invoice?.goods_purchase_order_id);
   const [lines, setLines] = useState<LineDraft[]>(
     (invoice?.lines ?? []).map((l: any) => ({
       product_id: l.product_id,
@@ -862,8 +867,10 @@ function NewPurchaseModal({
         bill_to_address: "",
       }));
       setLines([]);
+      setLinesLocked(false);
       return;
     }
+    setLinesLocked(true);
     setLines(
       (po.lines ?? []).map((l) => ({
         product_id: l.product_id,
@@ -1222,9 +1229,10 @@ function NewPurchaseModal({
               Invoice header
             </legend>
             <div className="grid gap-3 md:grid-cols-3">
-              <L label="Supplier *">
-                <SearchableSelect
-                  value={form.vendor_id}
+               <L label="Supplier *">
+                 <SearchableSelect
+                   disabled={linesLocked}
+                   value={form.vendor_id}
                   onChange={(v) => {
                     const po = pos.find((p) => p.id === form.goods_po_id);
                     if (po && po.supplier_id !== v) {
@@ -1350,7 +1358,7 @@ function NewPurchaseModal({
                 auto-filled here.
               </div>
             ) : (
-              <div className="mt-3 space-y-2">
+              <fieldset disabled={linesLocked} className="mt-3 space-y-2 border-0 p-0">
                 <div className="hidden grid-cols-12 gap-2 text-[9px] uppercase tracking-widest text-muted-foreground md:grid">
                   <div className="col-span-3">SKU / Product</div>
                   <div className="col-span-1">Unit</div>
@@ -1471,7 +1479,7 @@ function NewPurchaseModal({
                     </div>
                   );
                 })}
-              </div>
+              </fieldset>
             )}
           </fieldset>
 
@@ -1642,7 +1650,7 @@ function NewPurchaseModal({
                 scope="purchase_invoices"
                 docs={docs}
                 onChange={setDocs}
-                hint="Attach the supplier invoice PDF/image or other supporting paperwork."
+                 hint="Attach the document received from supplier (invoice PDF/image or other supporting paperwork)."
               />
             </div>
           </div>

@@ -64,10 +64,11 @@ export const Route = createFileRoute("/app/invoices")({
   component: InvoicesPageWrapper,
   // Deep links from the workflow queue: open creation pre-filled from a sales
   // order, or jump straight to the UTR / IRN modal of a specific invoice.
-  validateSearch: (search: Record<string, unknown>): { createFromSo?: string; utrFor?: string; irnFor?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { createFromSo?: string; utrFor?: string; irnFor?: string; view?: string } => ({
     createFromSo: typeof search.createFromSo === "string" ? search.createFromSo : undefined,
     utrFor: typeof search.utrFor === "string" ? search.utrFor : undefined,
     irnFor: typeof search.irnFor === "string" ? search.irnFor : undefined,
+    view: typeof search.view === "string" ? search.view : undefined,
   }),
 });
 
@@ -183,12 +184,13 @@ function InvoicesPageWrapper() {
       createFromSo={search.createFromSo}
       utrForId={search.utrFor}
       irnForId={search.irnFor}
+      viewId={search.view}
     />
   );
 }
 
 export function InvoicesPage(
-  props: { viewOnly?: boolean; createFromSo?: string; utrForId?: string; irnForId?: string } = {},
+  props: { viewOnly?: boolean; createFromSo?: string; utrForId?: string; irnForId?: string; viewId?: string } = {},
 ) {
   return <InvoicesPageContent {...props} />;
 }
@@ -198,11 +200,13 @@ function InvoicesPageContent({
   createFromSo,
   utrForId,
   irnForId,
+  viewId,
 }: {
   viewOnly?: boolean;
   createFromSo?: string;
   utrForId?: string;
   irnForId?: string;
+  viewId?: string;
 }) {
   const { isAdmin, isChecker, isClient, isTreasury, user } = useAuth();
   // Embedded in the Sales Workbench as a view-only tab — invoices may only
@@ -265,13 +269,14 @@ function InvoicesPageContent({
 
   // Deep link: queue payment/IRN tasks → open the matching modal directly.
   useEffect(() => {
-    if (!utrForId && !irnForId) return;
-    const inv = (invoicesQ.data ?? []).find((i) => i.id === utrForId || i.id === irnForId);
+    if (!utrForId && !irnForId && !viewId) return;
+    const inv = (invoicesQ.data ?? []).find((i) => i.id === utrForId || i.id === irnForId || i.id === viewId);
     if (!inv) return; // list not loaded yet — retries when data arrives
     if (utrForId && canUploadUtr) setUtrFor(inv);
     if (irnForId && canRecordIrn) setIrnFor(inv);
+    if (viewId) setEditing(inv);
     clearInvoiceSearch();
-  }, [utrForId, irnForId, invoicesQ.data, canUploadUtr, canRecordIrn]);
+  }, [utrForId, irnForId, viewId, invoicesQ.data, canUploadUtr, canRecordIrn]);
 
   const clearInvoiceSearch = () => {
     try {
@@ -426,7 +431,7 @@ function InvoicesPageContent({
                         <th className="px-5 py-2 text-left font-normal">Customer</th>
                         <th className="px-5 py-2 text-right font-normal">Grand total</th>
                         <th className="px-5 py-2 text-right font-normal">Received</th>
-                        <th className="px-5 py-2 text-right font-normal">Balance</th>
+                        <th className="px-5 py-2 text-right font-normal">Balance remaining</th>
                         <th className="px-5 py-2 text-left font-normal">Due</th>
                         <th className="px-5 py-2 text-left font-normal">Expected Dispatch</th>
                         <th className="px-5 py-2 text-left font-normal">Status</th>
@@ -766,6 +771,7 @@ function NewInvoiceModal({
     freight: invoice?.freight != null ? String(invoice.freight) : "",
     notes: invoice?.notes ?? "",
   });
+  const [linesLocked, setLinesLocked] = useState(!!invoice?.goods_sales_order_id);
   const [lines, setLines] = useState<LineDraft[]>(
     (invoice?.lines ?? []).map((l) => ({
       product_id: l.product_id,
@@ -924,8 +930,10 @@ function NewInvoiceModal({
     setSoSource(id);
     if (!id) {
       setForm((f) => ({ ...f, goods_sales_order_id: "" }));
+      setLinesLocked(false);
       return;
     }
+    setLinesLocked(true);
     const so = (sosQ.data ?? []).find((x: any) => x.id === id);
     if (!so) return;
     setForm((f) => ({
@@ -1359,39 +1367,42 @@ function NewInvoiceModal({
                   onChange={(e) => setForm({ ...form, issue_date: e.target.value })}
                 />
               </Field>
-              <Field label="Customer *">
-                <SearchableSelect
-                  value={form.debtor_id}
-                  onChange={(v) => {
-                    setForm({ ...form, debtor_id: v });
-                    // Pre-fill payment terms from the debtor master (editable).
-                    const d = debtors.find((x: any) => x.id === v);
-                    if (d) setForm((prev) => ({ ...prev, ...toTermsFormFields(d) }));
-                  }}
-                  placeholder="Select customer"
-                  options={debtors.map((d: any) => ({ value: d.id, label: d.name }))}
-                  className={inputBase}
-                />
+                  <Field label="Customer *">
+                    <SearchableSelect
+                      disabled={linesLocked}
+                      value={form.debtor_id}
+                      onChange={(v) => {
+                        setForm({ ...form, debtor_id: v });
+                        const d = debtors.find((x: any) => x.id === v);
+                        if (d) setForm((prev) => ({ ...prev, ...toTermsFormFields(d) }));
+                      }}
+                      placeholder="Select customer"
+                      options={debtors.map((d: any) => ({ value: d.id, label: d.name }))}
+                      className={inputBase}
+                    />
               </Field>
-              <Field label="Customer contact">
-                <input
-                  className={inputBase}
-                  value={form.customer_contact}
-                  onChange={(e) => setForm({ ...form, customer_contact: e.target.value })}
-                  placeholder="Name · email · phone"
-                />
+                  <Field label="Customer contact">
+                    <input
+                      disabled={linesLocked}
+                      className={inputBase}
+                      value={form.customer_contact}
+                      onChange={(e) => setForm({ ...form, customer_contact: e.target.value })}
+                      placeholder="Name · email · phone"
+                    />
               </Field>
-              <Field label="Billing address">
-                <textarea
-                  rows={2}
-                  className={textareaBase}
-                  value={form.billing_address}
-                  onChange={(e) => setForm({ ...form, billing_address: e.target.value })}
-                />
+               <Field label="Billing address">
+                 <textarea
+                   disabled={linesLocked}
+                   rows={2}
+                   className={textareaBase}
+                   value={form.billing_address}
+                   onChange={(e) => setForm({ ...form, billing_address: e.target.value })}
+                 />
               </Field>
-              <Field label="Delivery / shipping address">
-                <textarea
-                  rows={2}
+               <Field label="Delivery / shipping address">
+                 <textarea
+                   disabled={linesLocked}
+                   rows={2}
                   className={textareaBase}
                   value={form.delivery_address}
                   onChange={(e) => setForm({ ...form, delivery_address: e.target.value })}
@@ -1437,7 +1448,7 @@ function NewInvoiceModal({
           </fieldset>
 
           {/* Lines */}
-          <fieldset className="rounded-lg border border-border/60 p-4">
+          <fieldset disabled={linesLocked} className="rounded-lg border border-border/60 p-4">
             <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
               Product lines
             </legend>

@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Store,
   RotateCcw,
@@ -126,8 +127,7 @@ export const PLAIN_ENGLISH_STEPS = [
       "KEY RULE: Official TAX INVOICE is generated! The courier (BlueDart) collects the box. Since physical on-hand stock was already debited upon order arrival (step 3), handover updates the carrier pipeline without duplicate stock adjustments.",
     documentCreated: "Tax Invoice Generated (INV-DEMO-1001) + Courier Tracking",
     documentType: "invoice",
-    stockImpact:
-      "Stock remains 18 (debited at step 3). Package marked in transit with carrier.",
+    stockImpact: "Stock remains 18 (debited at step 3). Package marked in transit with carrier.",
     whoDoesThis: "Finance & Courier Dispatcher (BlueDart Express)",
   },
   {
@@ -188,7 +188,8 @@ const CHANNEL_CONFIG: Record<
   amazon: {
     label: "Amazon India",
     tag: "AMZ-IN",
-    badgeClass: "bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border-amber-300 dark:border-amber-700",
+    badgeClass:
+      "bg-amber-100 text-amber-800 dark:bg-amber-950/70 dark:text-amber-300 border-amber-300 dark:border-amber-700",
     warehouseName: "Amazon FBA Fulfillment Center",
     warehouseCode: "WH-AMAZON-FBA",
     commissionRate: 15.0,
@@ -201,7 +202,8 @@ const CHANNEL_CONFIG: Record<
   flipkart: {
     label: "Flipkart",
     tag: "FK-IN",
-    badgeClass: "bg-blue-100 text-blue-800 dark:bg-blue-950/70 dark:text-blue-300 border-blue-300 dark:border-blue-700",
+    badgeClass:
+      "bg-blue-100 text-blue-800 dark:bg-blue-950/70 dark:text-blue-300 border-blue-300 dark:border-blue-700",
     warehouseName: "Flipkart Fulfillment Hub",
     warehouseCode: "WH-FLIPKART-FC",
     commissionRate: 12.0,
@@ -214,7 +216,8 @@ const CHANNEL_CONFIG: Record<
   myntra: {
     label: "Myntra",
     tag: "MYN-IN",
-    badgeClass: "bg-rose-100 text-rose-800 dark:bg-rose-950/70 dark:text-rose-300 border-rose-300 dark:border-rose-700",
+    badgeClass:
+      "bg-rose-100 text-rose-800 dark:bg-rose-950/70 dark:text-rose-300 border-rose-300 dark:border-rose-700",
     warehouseName: "Myntra Omni / PPMP Warehouse",
     warehouseCode: "WH-MYNTRA-PPMP",
     commissionRate: 18.0,
@@ -227,7 +230,8 @@ const CHANNEL_CONFIG: Record<
   shopify: {
     label: "Shopify Store",
     tag: "SH-DIRECT",
-    badgeClass: "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700",
+    badgeClass:
+      "bg-emerald-100 text-emerald-800 dark:bg-emerald-950/70 dark:text-emerald-300 border-emerald-300 dark:border-emerald-700",
     warehouseName: "Shopify Direct D2C Warehouse",
     warehouseCode: "WH-SHOPIFY-D2C",
     commissionRate: 2.5,
@@ -240,7 +244,8 @@ const CHANNEL_CONFIG: Record<
   marketplace4: {
     label: "Marketplace 4",
     tag: "MKT4",
-    badgeClass: "bg-purple-100 text-purple-800 dark:bg-purple-950/70 dark:text-purple-300 border-purple-300 dark:border-purple-700",
+    badgeClass:
+      "bg-purple-100 text-purple-800 dark:bg-purple-950/70 dark:text-purple-300 border-purple-300 dark:border-purple-700",
     warehouseName: "Partner Ecommerce Warehouse",
     warehouseCode: "WH-MKT4-HUB",
     commissionRate: 10.0,
@@ -253,7 +258,8 @@ const CHANNEL_CONFIG: Record<
   manual: {
     label: "Manual / Direct Sales",
     tag: "MANUAL",
-    badgeClass: "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/70 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700",
+    badgeClass:
+      "bg-indigo-100 text-indigo-800 dark:bg-indigo-950/70 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700",
     warehouseName: "Central Fulfillment Bay",
     warehouseCode: "WH-CENTRAL",
     commissionRate: 0.0,
@@ -265,10 +271,83 @@ const CHANNEL_CONFIG: Record<
   },
 };
 
+type MarketplaceReservation = {
+  id: string;
+  allocation_number: string;
+  marketplace: string;
+  marketplace_name: string;
+  product_id: string;
+  sku: string | null;
+  product_name: string;
+  unit: string;
+  quantity: number;
+  reserved_quantity: number;
+  consumed_quantity: number;
+  source_location_id: string | null;
+  source_location_name: string | null;
+  status: "active" | "depleted" | "reversed";
+  notes: string | null;
+  created_at: string;
+};
+
 export default function MarketplaceHubPage() {
   const [state, setState] = useState<DemoWorkflowState>(loadDemoState);
+  const qc = useQueryClient();
+
+  // Stock reserved from the warehouse's Stock Allocation tab.
+  const reservationsQ = useQuery({
+    queryKey: ["marketplace-allocations"],
+    queryFn: async () =>
+      (await api.marketplaceAllocations.list()) as MarketplaceReservation[],
+  });
+  const reservations = useMemo(
+    () => (reservationsQ.data ?? []) as MarketplaceReservation[],
+    [reservationsQ.data],
+  );
+  const activeReservations = useMemo(
+    () => reservations.filter((r) => r.status === "active"),
+    [reservations],
+  );
+  const reverseReservation = useMutation({
+    mutationFn: async (id: string) => api.marketplaceAllocations.reverse(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["marketplace-allocations"] });
+      qc.invalidateQueries({ queryKey: ["stock-summary"] });
+      toast.success("Marketplace reservation reversed — stock released");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to reverse reservation"),
+  });
+
+  const consumeReservation = async (marketplace: string, sku: string, quantity: number) => {
+    try {
+      const res = await api.marketplaceAllocations.consume({
+        marketplace,
+        sku,
+        quantity,
+      });
+      qc.invalidateQueries({ queryKey: ["marketplace-allocations"] });
+      qc.invalidateQueries({ queryKey: ["stock-summary"] });
+      if (res?.alertsRaised > 0) {
+        qc.invalidateQueries({ queryKey: ["alerts"] });
+        toast.warning("Reserved marketplace stock is now out of stock", {
+          description:
+            "An out-of-stock alert was raised. Replenish the marketplace allocation from Stock Allocation.",
+        });
+      }
+    } catch {
+      /* demo orders continue even when no backend reservation matches */
+    }
+  };
+
   const [activeTab, setActiveTab] = useState<
-    "platform_dashboard" | "orders" | "workflow" | "inventory" | "mappings" | "exceptions" | "finance" | "architecture"
+    | "platform_dashboard"
+    | "orders"
+    | "workflow"
+    | "inventory"
+    | "mappings"
+    | "exceptions"
+    | "finance"
+    | "architecture"
   >("platform_dashboard");
   const [dashboardChannel, setDashboardChannel] = useState<
     "amazon" | "flipkart" | "shopify" | "myntra" | "marketplace4"
@@ -296,7 +375,9 @@ export default function MarketplaceHubPage() {
   const [manualChannel, setManualChannel] = useState<
     "amazon" | "flipkart" | "shopify" | "myntra" | "marketplace4" | "manual"
   >("manual");
-  const [manualOrderId, setManualOrderId] = useState(`ORD-MAN-${Math.floor(1000 + Math.random() * 9000)}`);
+  const [manualOrderId, setManualOrderId] = useState(
+    `ORD-MAN-${Math.floor(1000 + Math.random() * 9000)}`,
+  );
   const [manualCustomerName, setManualCustomerName] = useState("");
   const [manualCustomerCity, setManualCustomerCity] = useState("");
   const [manualSku, setManualSku] = useState("AD-TS-BLK-M");
@@ -341,6 +422,22 @@ export default function MarketplaceHubPage() {
   const displayGmv = currentChannelView ? currentChannelView.grossValue : totalGmv;
   const displayReturns = currentChannelView ? currentChannelView.returns : totalReturns;
 
+  const reservationsByChannel = useMemo(() => {
+    const map = new Map<string, MarketplaceReservation[]>();
+    for (const reservation of activeReservations) {
+      const list = map.get(reservation.marketplace) ?? [];
+      list.push(reservation);
+      map.set(reservation.marketplace, list);
+    }
+    return map;
+  }, [activeReservations]);
+
+  const reservedQtyFor = (channelId: string) =>
+    (reservationsByChannel.get(channelId) ?? []).reduce(
+      (sum, r) => sum + (Number(r.reserved_quantity) || 0),
+      0,
+    );
+
   // Real-time checkpoints for Main SKU (AD-TS-BLK-M)
   const ledgerCheckpoints = getLedgerCheckpoints(state.currentStep);
 
@@ -377,6 +474,8 @@ export default function MarketplaceHubPage() {
         const debitNum = order?.debitMovementNumber ?? "MOV-DR-1001";
         const fulNum = order?.fulfillmentRef ?? "FUL-AMZ-1001";
 
+        await consumeReservation("amazon", "AD-TS-BLK-M", 2);
+
         // Direct Debit: on-hand and available stock drop immediately from 20 to 18
         const updatedInventory = state.inventory.map((inv) => {
           if (inv.whizunikSku === "AD-TS-BLK-M") {
@@ -400,7 +499,7 @@ export default function MarketplaceHubPage() {
                   ecommerceWarehouse: "WH-AMAZON-FBA",
                   salesOrderId: soNum,
                 }
-              : o
+              : o,
           );
           return {
             ...prev,
@@ -415,7 +514,7 @@ export default function MarketplaceHubPage() {
           };
         });
         toast.success(
-          `Step 3: Allocated to WH-AMAZON-FBA & immediate debit entry ${debitNum} recorded (Physical On-Hand dropped to 18)!`
+          `Step 3: Allocated to WH-AMAZON-FBA & immediate debit entry ${debitNum} recorded (Physical On-Hand dropped to 18)!`,
         );
         return;
       } catch (err: any) {
@@ -434,7 +533,9 @@ export default function MarketplaceHubPage() {
           ecommerceWarehouse: "WH-AMAZON-FBA",
           inventory: updatedInventory,
         }));
-        toast.success("Step 3: Stock allocated to WH-AMAZON-FBA & immediate debit entry MOV-DR-1001 logged!");
+        toast.success(
+          "Step 3: Stock allocated to WH-AMAZON-FBA & immediate debit entry MOV-DR-1001 logged!",
+        );
         return;
       }
     }
@@ -457,7 +558,7 @@ export default function MarketplaceHubPage() {
                   trackingNumber: prev.trackingNumber,
                   paymentStatus: "collected_by_marketplace" as const,
                 }
-              : o
+              : o,
           );
           return {
             ...prev,
@@ -473,12 +574,12 @@ export default function MarketplaceHubPage() {
         toast.success(
           (res as any)?.duplicate
             ? `Step 5: Reused demo invoice ${invoice?.invoiceNumber}`
-            : `Step 5: Handed over to BlueDart & Tax Invoice ${invoice?.invoiceNumber ?? state.invoiceId} generated`
+            : `Step 5: Handed over to BlueDart & Tax Invoice ${invoice?.invoiceNumber ?? state.invoiceId} generated`,
         );
         return;
       } catch (err: any) {
         toast.warning(
-          `Demo invoice API unavailable, using mock ${state.invoiceId}: ${err?.message ?? err}`
+          `Demo invoice API unavailable, using mock ${state.invoiceId}: ${err?.message ?? err}`,
         );
       }
     }
@@ -527,13 +628,18 @@ export default function MarketplaceHubPage() {
     const availableStock = targetInventory ? targetInventory.available : 0;
     if (availableStock < manualQuantity) {
       toast.warning(
-        `Notice: Requested quantity (${manualQuantity}) exceeds available stock (${availableStock}). System will fulfill with backorder notice.`
+        `Notice: Requested quantity (${manualQuantity}) exceeds available stock (${availableStock}). System will fulfill with backorder notice.`,
       );
     }
 
-    const orderRef = manualOrderId.trim() || `ORD-${manualChannel.toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    const orderRef =
+      manualOrderId.trim() ||
+      `ORD-${manualChannel.toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const targetChannelObj = state.channels.find((c) => c.id === manualChannel);
-    const assignedWarehouse = targetChannelObj?.warehouseCode || CHANNEL_CONFIG[manualChannel]?.warehouseCode || `WH-${manualChannel.toUpperCase()}-FC`;
+    const assignedWarehouse =
+      targetChannelObj?.warehouseCode ||
+      CHANNEL_CONFIG[manualChannel]?.warehouseCode ||
+      `WH-${manualChannel.toUpperCase()}-FC`;
     const debitRef = `MOV-DR-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
     const fulRef = `FUL-${manualChannel.toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
     const targetMapping =
@@ -573,7 +679,10 @@ export default function MarketplaceHubPage() {
         const onHand = Math.max(0, inv.onHand - manualQuantity);
         const available = Math.max(0, inv.available - manualQuantity);
         const allocated = { ...(inv.allocatedByWarehouse || {}) };
-        allocated[assignedWarehouse] = Math.max(0, (allocated[assignedWarehouse] || 0) - manualQuantity);
+        allocated[assignedWarehouse] = Math.max(
+          0,
+          (allocated[assignedWarehouse] || 0) - manualQuantity,
+        );
         return { ...inv, onHand, available, allocatedByWarehouse: allocated };
       }
       return inv;
@@ -612,6 +721,9 @@ export default function MarketplaceHubPage() {
       console.warn("Backend demo order not saved, continuing in local store:", err);
     }
 
+    // Consume any warehouse reservation for this marketplace + SKU.
+    await consumeReservation(manualChannel, manualSku, manualQuantity);
+
     setState((prev) => ({
       ...prev,
       orders: [newOrder, ...(prev.orders || BASELINE_ORDERS)],
@@ -643,7 +755,7 @@ export default function MarketplaceHubPage() {
       {
         description:
           "Stock was checked, allocated to the ecommerce warehouse, and debited from physical inventory immediately without needing a B2B sales order approval.",
-      }
+      },
     );
   };
 
@@ -654,14 +766,22 @@ export default function MarketplaceHubPage() {
     const targetSku = isAmazon ? "NABetaASINB00551Q3CS" : "AD-TS-BLK-M";
     const qty = 1;
     const unitPrice = isAmazon ? 10 : 1000;
-    const totalVal = isAmazon ? 11.01 : (qty * unitPrice);
+    const totalVal = isAmazon ? 11.01 : qty * unitPrice;
     const randId = Math.floor(1000000 + Math.random() * 9000000);
-    const orderRef = isAmazon ? `902-${randId}-5435065` : channelId === "flipkart" ? `OD${randId}` : `ORD-${channelId.toUpperCase()}-${randId}`;
+    const orderRef = isAmazon
+      ? `902-${randId}-5435065`
+      : channelId === "flipkart"
+        ? `OD${randId}`
+        : `ORD-${channelId.toUpperCase()}-${randId}`;
     const debitRef = `MOV-DR-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`;
     const fulRef = `FUL-${channelId.toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
-    const assignedWarehouse = ch.warehouseCode || CHANNEL_CONFIG[channelId]?.warehouseCode || `WH-${channelId.toUpperCase()}-FC`;
+    const assignedWarehouse =
+      ch.warehouseCode ||
+      CHANNEL_CONFIG[channelId]?.warehouseCode ||
+      `WH-${channelId.toUpperCase()}-FC`;
 
-    const targetInventory = state.inventory.find((inv) => inv.whizunikSku === targetSku) || state.inventory[0];
+    const targetInventory =
+      state.inventory.find((inv) => inv.whizunikSku === targetSku) || state.inventory[0];
     if (targetInventory && targetInventory.available < qty) {
       toast.error(`Out of stock for ${targetSku} on ${ch.name}! Please allocate stock first.`);
       return;
@@ -672,8 +792,20 @@ export default function MarketplaceHubPage() {
       channel: channelId as any,
       channelName: isAmazon ? "Amazon India" : ch.name,
       externalOrderId: orderRef,
-      customerName: isAmazon ? "MFNIntegrationTestMerchant" : channelId === "flipkart" ? "Amit Banerjee" : channelId === "shopify" ? "Rohan Verma" : "Sneha Nair",
-      customerCity: isAmazon ? "Seattle, WA (US)" : channelId === "flipkart" ? "Kolkata, WB" : channelId === "shopify" ? "Bengaluru, KA" : "Hyderabad, TS",
+      customerName: isAmazon
+        ? "MFNIntegrationTestMerchant"
+        : channelId === "flipkart"
+          ? "Amit Banerjee"
+          : channelId === "shopify"
+            ? "Rohan Verma"
+            : "Sneha Nair",
+      customerCity: isAmazon
+        ? "Seattle, WA (US)"
+        : channelId === "flipkart"
+          ? "Kolkata, WB"
+          : channelId === "shopify"
+            ? "Bengaluru, KA"
+            : "Hyderabad, TS",
       sku: targetSku,
       productName: isAmazon ? "B00551Q3CS [Card Book]" : "Adventra Classic Tee",
       variant: isAmazon ? "Standard" : "Black / M",
@@ -693,7 +825,10 @@ export default function MarketplaceHubPage() {
 
     // Direct Debit Entry: drops onHand and available stock immediately!
     const updatedInventory = state.inventory.map((inv) => {
-      if (inv.whizunikSku === targetSku || (targetInventory && inv.whizunikSku === targetInventory.whizunikSku)) {
+      if (
+        inv.whizunikSku === targetSku ||
+        (targetInventory && inv.whizunikSku === targetInventory.whizunikSku)
+      ) {
         const onHand = Math.max(0, inv.onHand - qty);
         const available = Math.max(0, inv.available - qty);
         const allocated = { ...(inv.allocatedByWarehouse || {}) };
@@ -726,7 +861,13 @@ export default function MarketplaceHubPage() {
         unitPrice,
         ecommerceWarehouse: assignedWarehouse,
       });
-    } catch {}
+    } catch {
+      // Backend demo order persistence is best-effort; continue with local state.
+    }
+
+    // Reduce the warehouse reservation for the mapped internal SKU and raise an
+    // out-of-stock alert if this was the last reserved unit.
+    await consumeReservation(channelId, isAmazon ? "AD-TS-BLK-M" : targetSku, qty);
 
     setState((prev) => ({
       ...prev,
@@ -754,7 +895,9 @@ export default function MarketplaceHubPage() {
     const inv = state.inventory.find((i) => i.whizunikSku === sku);
     if (!inv) return;
     if (inv.available < qty) {
-      toast.error(`Cannot allocate ${qty} units. Only ${inv.available} units available in Central Warehouse.`);
+      toast.error(
+        `Cannot allocate ${qty} units. Only ${inv.available} units available in Central Warehouse.`,
+      );
       return;
     }
 
@@ -801,10 +944,10 @@ export default function MarketplaceHubPage() {
         order.status === "dispatched" || order.status === "delivered"
           ? 6
           : order.status === "picked_packed"
-          ? 4
-          : order.status === "return_qc"
-          ? 7
-          : 3,
+            ? 4
+            : order.status === "return_qc"
+              ? 7
+              : 3,
     }));
     setActiveTab("workflow");
     toast.info(`Loaded ${order.id} into Fulfillment Workflow!`, {
@@ -871,11 +1014,7 @@ export default function MarketplaceHubPage() {
       ...prev,
       currentStep: stepNumber,
       outboundSyncStatus:
-        stepNumber >= 6
-          ? "Simulated Acknowledged"
-          : stepNumber === 5
-          ? "Queued"
-          : "Idle",
+        stepNumber >= 6 ? "Simulated Acknowledged" : stepNumber === 5 ? "Queued" : "Idle",
     }));
     toast.info(`Jumped to Step ${stepNumber}`);
   };
@@ -901,7 +1040,7 @@ export default function MarketplaceHubPage() {
         loading: "Running Path Demonstration...",
         success: "Path Demonstration completed (All 8 steps verified)!",
         error: "Simulation interrupted",
-      }
+      },
     );
   };
 
@@ -917,8 +1056,8 @@ export default function MarketplaceHubPage() {
               productName: "Adventra Classic Tee",
               variant: "White / M",
             }
-          : m
-      )
+          : m,
+      ),
     );
     setState((prev) => ({
       ...prev,
@@ -927,7 +1066,7 @@ export default function MarketplaceHubPage() {
     }));
     setShowMapModal(false);
     toast.success(
-      `Resolved AMZ-UNKNOWN -> mapped to ${mapTargetSku}. Re-processed event created SO-ERR-01 cleanly!`
+      `Resolved AMZ-UNKNOWN -> mapped to ${mapTargetSku}. Re-processed event created SO-ERR-01 cleanly!`,
     );
   };
 
@@ -946,13 +1085,13 @@ export default function MarketplaceHubPage() {
       outboundRetryCount: prev.outboundRetryCount + 1,
     }));
     toast.success(
-      "Outbound sync retry succeeded! Acknowledgement updated without re-dispatching or duplicating stock."
+      "Outbound sync retry succeeded! Acknowledgement updated without re-dispatching or duplicating stock.",
     );
   };
 
   const handleTestIdempotency = () => {
     toast.info(
-      "Replayed Event EVT-1001: Idempotency Key Matched. System recognized duplicate event. Zero duplicate inventory deductions permitted!"
+      "Replayed Event EVT-1001: Idempotency Key Matched. System recognized duplicate event. Zero duplicate inventory deductions permitted!",
     );
     setState((prev) => ({
       ...prev,
@@ -1003,7 +1142,8 @@ export default function MarketplaceHubPage() {
                 Marketplace Integration Hub
               </h1>
               <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400">
-                Centralized channel synchronization, stock reservation ledger, fulfillment & exception queues
+                Centralized channel synchronization, stock reservation ledger, fulfillment &
+                exception queues
               </p>
             </div>
           </div>
@@ -1160,419 +1300,564 @@ export default function MarketplaceHubPage() {
       {/* ═══════════════════════════════════════════════════════════════════ */}
       {/* TAB 0: DEDICATED E-COMMERCE PLATFORM DASHBOARDS                    */}
       {/* ═══════════════════════════════════════════════════════════════════ */}
-      {activeTab === "platform_dashboard" && (() => {
-        const currentChannel =
-          state.channels.find((c) => c.id === dashboardChannel) || state.channels[0];
-        const channelOrders = (state.orders || BASELINE_ORDERS).filter(
-          (o) => o.channel === dashboardChannel && (dashboardChannel !== "amazon" || (!o.customerName?.includes("Pooja") && o.id !== "DEMO-AMZ-1001"))
-        );
-        const channelGross = currentChannel.grossValue;
-        const commRate = currentChannel.commissionRate || 0.15;
-        const estCommission = Math.round(channelGross * commRate);
-        const fixedFees = channelOrders.length * 25;
-        const tcs = Math.round(channelGross * 0.01);
-        const netPayout = Math.max(0, channelGross - estCommission - fixedFees - tcs);
+      {activeTab === "platform_dashboard" &&
+        (() => {
+          const currentChannel =
+            state.channels.find((c) => c.id === dashboardChannel) || state.channels[0];
+          const channelOrders = (state.orders || BASELINE_ORDERS).filter(
+            (o) =>
+              o.channel === dashboardChannel &&
+              (dashboardChannel !== "amazon" ||
+                (!o.customerName?.includes("Pooja") && o.id !== "DEMO-AMZ-1001")),
+          );
+          const channelGross = currentChannel.grossValue;
+          const commRate = currentChannel.commissionRate || 0.15;
+          const estCommission = Math.round(channelGross * commRate);
+          const fixedFees = channelOrders.length * 25;
+          const tcs = Math.round(channelGross * 0.01);
+          const netPayout = Math.max(0, channelGross - estCommission - fixedFees - tcs);
 
-        return (
-          <div className="space-y-6">
-            {/* Top Platform Switcher Strip */}
-            <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-              <div className="flex items-center justify-between pb-2.5 px-1 border-b border-slate-100 dark:border-slate-800 mb-2.5">
-                <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                  <Store className="w-3.5 h-3.5 text-indigo-500" />
-                  Select Channel Platform Dashboard
-                </span>
-                <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-                  All 5 Connectors Synchronized
-                </span>
-              </div>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
-                {[
-                  { id: "amazon", name: "Amazon India", code: "WH-AMAZON-FBA" },
-                  { id: "flipkart", name: "Flipkart", code: "WH-FLIPKART-FC" },
-                  { id: "shopify", name: "Shopify D2C", code: "WH-SHOPIFY-D2C" },
-                  { id: "myntra", name: "Myntra", code: "WH-MYNTRA-PPMP" },
-                  { id: "marketplace4", name: "QuickCommerce (Mkt 4)", code: "WH-MKT4-LOCAL" },
-                ].map((p) => {
-                  const chData = state.channels.find((c) => c.id === p.id);
-                  const isSelected = dashboardChannel === p.id;
-                  return (
-                    <button
-                      key={p.id}
-                      onClick={() => setDashboardChannel(p.id as any)}
-                      className={`p-3 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
-                        isSelected
-                          ? "border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/60 shadow-xs ring-2 ring-indigo-500/20"
-                          : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/50 dark:bg-slate-850/50"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between gap-1 mb-1.5">
-                        <span className="font-bold text-xs text-slate-900 dark:text-slate-100 truncate">
-                          {p.name}
-                        </span>
-                        <span className={`w-2 h-2 rounded-full ${isSelected ? "bg-indigo-600" : "bg-emerald-500"}`} />
-                      </div>
-                      <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">
-                        {p.code}
-                      </div>
-                      <div className="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between text-[11px]">
-                        <span className="text-slate-500">{chData?.orders || 0} orders</span>
-                        <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
-                          ₹{((chData?.grossValue || 0) / 1000).toFixed(0)}k
-                        </span>
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Platform Brand Header & Quick Ingestion Actions */}
-            <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white shadow-md flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shrink-0 shadow-inner">
-                  <Store className="w-7 h-7 text-indigo-300" />
+          return (
+            <div className="space-y-6">
+              {/* Top Platform Switcher Strip */}
+              <div className="p-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+                <div className="flex items-center justify-between pb-2.5 px-1 border-b border-slate-100 dark:border-slate-800 mb-2.5">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <Store className="w-3.5 h-3.5 text-indigo-500" />
+                    Select Channel Platform Dashboard
+                  </span>
+                  <span className="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    All 5 Connectors Synchronized
+                  </span>
                 </div>
-                <div>
-                  <h2 className="text-xl font-bold tracking-tight">
-                    {currentChannel.name} Hub
-                  </h2>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
-                <button
-                  onClick={() => handleSimulatePlatformOrder(dashboardChannel)}
-                  className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs transition shadow-sm flex items-center gap-1.5 cursor-pointer"
-                >
-                  <Zap className="w-4 h-4 fill-slate-950" />
-                  Simulate Live Order
-                </button>
-                <button
-                  onClick={() => {
-                    setAllocateTargetChannel(dashboardChannel);
-                    setShowAllocateModal(true);
-                  }}
-                  className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs border border-white/20 transition flex items-center gap-1.5 cursor-pointer"
-                >
-                  <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-300" />
-                  Allocate Stock to WH
-                </button>
-                <button
-                  onClick={() => toast.success(`Stock levels synchronized across ${currentChannel.name} catalog!`)}
-                  className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs border border-white/10 transition flex items-center gap-1.5 cursor-pointer"
-                  title="Push latest inventory count to marketplace"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  Sync Stock
-                </button>
-              </div>
-            </div>
-
-            {/* 4 Executive Platform KPI Cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                  {currentChannel.name} GMV
-                  <DollarSign className="w-4 h-4 text-emerald-500" />
-                </span>
-                <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">
-                  ₹{channelGross.toLocaleString("en-IN")}
-                </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Avg Order: ₹{currentChannel.avgOrderValue ? currentChannel.avgOrderValue.toLocaleString("en-IN") : "1,850"}
-                </p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                  Total Orders
-                  <Package className="w-4 h-4 text-indigo-500" />
-                </span>
-                <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">
-                  {currentChannel.orders}
-                </p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                  Channel WH Stock
-                  <Building2 className="w-4 h-4 text-indigo-600" />
-                </span>
-                <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 mt-1">
-                  {currentChannel.allocatedStock || 12} <span className="text-sm font-normal text-slate-400">units</span>
-                </p>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
-                  Dedicated in {currentChannel.warehouseCode}
-                </p>
-              </div>
-
-              <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
-                <span className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-between">
-                  Est. Net Settlement
-                  <TrendingUp className="w-4 h-4 text-amber-500" />
-                </span>
-                <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">
-                  ₹{netPayout.toLocaleString("en-IN")}
-                </p>
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5 font-medium">
-                  After {((currentChannel.commissionRate || 0.15) * 100).toFixed(0)}% commission & fees
-                </p>
-              </div>
-            </div>
-
-            {/* Split Views: Left (Warehouse Stock & Finance) + Right (Live Ingested Orders) */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Left Column (7 cols): Warehouse Stock Allocations & Settlement */}
-              <div className="lg:col-span-7 space-y-6">
-                {/* Dedicated Warehouse Stock Widget */}
-                <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
-                        <Boxes className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
-                          SKU Inventory Allocation ({currentChannel.warehouseCode})
-                        </h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                          Physical stock dedicated to this channel. Auto-debited on each customer order.
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => {
-                        setAllocateTargetChannel(dashboardChannel);
-                        setShowAllocateModal(true);
-                      }}
-                      className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition shadow-xs flex items-center gap-1 cursor-pointer"
-                    >
-                      <Plus className="w-3.5 h-3.5" />
-                      Allocate Stock
-                    </button>
-                  </div>
-
-                  <div className="divide-y divide-slate-100 dark:divide-slate-800">
-                    {state.inventory.map((inv) => {
-                      const allocatedToWh =
-                        inv.allocatedByWarehouse?.[currentChannel.warehouseCode] ??
-                        (dashboardChannel === "amazon" && inv.whizunikSku === "AD-TS-BLK-M" ? 4 : 2);
-                      const totalStock = inv.onHand;
-                      const percent = totalStock > 0 ? Math.min(100, Math.round((allocatedToWh / totalStock) * 100)) : 0;
-
-                      return (
-                        <div key={inv.whizunikSku} className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                          <div className="space-y-0.5">
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100">
-                                {inv.whizunikSku}
-                              </span>
-                              <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 font-semibold text-slate-600 dark:text-slate-300">
-                                {inv.productName}
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-slate-500 dark:text-slate-400">
-                              Total Enterprise Stock: <strong className="text-slate-700 dark:text-slate-300">{inv.onHand}</strong> units | Available in Central: <strong className="text-emerald-600">{inv.available}</strong>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-4">
-                            <div className="w-32 text-right">
-                              <div className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
-                                {allocatedToWh} units in WH
-                              </div>
-                              <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-1 overflow-hidden">
-                                <div
-                                  className="bg-indigo-600 h-1.5 rounded-full transition-all duration-300"
-                                  style={{ width: `${percent}%` }}
-                                />
-                              </div>
-                              <span className="text-[10px] text-slate-400">{percent}% of enterprise</span>
-                            </div>
-
-                            <button
-                              onClick={() => {
-                                setAllocateTargetSku(inv.whizunikSku);
-                                setAllocateTargetChannel(dashboardChannel);
-                                setShowAllocateModal(true);
-                              }}
-                              className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition cursor-pointer"
-                            >
-                              + Stock
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {/* Platform Financial Settlement Breakdown */}
-                <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
-                        <DollarSign className="w-4 h-4" />
-                      </div>
-                      <div>
-                        <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
-                          {currentChannel.name} Settlement Statement
-                        </h3>
-                        <p className="text-xs text-slate-500 dark:text-slate-400">
-                          Automated deduction of channel commission, fixed closing fee, and GST/TCS.
-                        </p>
-                      </div>
-                    </div>
-                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-bold">
-                      Settlement: Weekly (Fri)
-                    </span>
-                  </div>
-
-                  <div className="space-y-2 text-xs">
-                    <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
-                      <span className="text-slate-600 dark:text-slate-400">Gross Sales Value (GMV)</span>
-                      <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                        ₹{channelGross.toLocaleString("en-IN")}
-                      </span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800 text-rose-600 dark:text-rose-400">
-                      <span>Channel Commission ({((currentChannel.commissionRate || 0.15) * 100).toFixed(0)}%)</span>
-                      <span className="font-mono font-semibold">- ₹{estCommission.toLocaleString("en-IN")}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800 text-rose-600 dark:text-rose-400">
-                      <span>Marketplace Fixed Closing Fees (₹25 × {channelOrders.length} orders)</span>
-                      <span className="font-mono font-semibold">- ₹{fixedFees.toLocaleString("en-IN")}</span>
-                    </div>
-                    <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800 text-rose-600 dark:text-rose-400">
-                      <span>GST / TCS under Sec 52 CGST Act (1%)</span>
-                      <span className="font-mono font-semibold">- ₹{tcs.toLocaleString("en-IN")}</span>
-                    </div>
-                    <div className="flex justify-between py-2 font-bold text-sm bg-emerald-50/70 dark:bg-emerald-950/40 p-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
-                      <span className="text-emerald-900 dark:text-emerald-200">Net Estimated Payout</span>
-                      <span className="font-mono text-emerald-700 dark:text-emerald-300">
-                        ₹{netPayout.toLocaleString("en-IN")}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Right Column (5 cols): Live Ingestion Feed with Immediate Debit Entries */}
-              <div className="lg:col-span-5 space-y-6">
-                <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
-                    <div className="flex items-center gap-2">
-                      <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
-                      <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
-                        Recent Ingested Orders ({channelOrders.length})
-                      </h3>
-                    </div>
-                  </div>
-
-                  {channelOrders.length === 0 ? (
-                    <div className="py-8 text-center text-slate-400 text-xs">
-                      <ShoppingBag className="w-8 h-8 mx-auto mb-2 opacity-40" />
-                      <p>No orders yet for {currentChannel.name}.</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2.5">
+                  {[
+                    { id: "amazon", name: "Amazon India", code: "WH-AMAZON-FBA" },
+                    { id: "flipkart", name: "Flipkart", code: "WH-FLIPKART-FC" },
+                    { id: "shopify", name: "Shopify D2C", code: "WH-SHOPIFY-D2C" },
+                    { id: "myntra", name: "Myntra", code: "WH-MYNTRA-PPMP" },
+                    { id: "marketplace4", name: "QuickCommerce (Mkt 4)", code: "WH-MKT4-LOCAL" },
+                  ].map((p) => {
+                    const chData = state.channels.find((c) => c.id === p.id);
+                    const isSelected = dashboardChannel === p.id;
+                    return (
                       <button
-                        onClick={() => handleSimulatePlatformOrder(dashboardChannel)}
-                        className="mt-2 text-indigo-600 dark:text-indigo-400 font-semibold underline cursor-pointer"
+                        key={p.id}
+                        onClick={() => setDashboardChannel(p.id as any)}
+                        className={`p-3 rounded-xl border text-left transition flex flex-col justify-between cursor-pointer ${
+                          isSelected
+                            ? "border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/60 shadow-xs ring-2 ring-indigo-500/20"
+                            : "border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/50 dark:bg-slate-850/50"
+                        }`}
                       >
-                        Click here to simulate an order
+                        <div className="flex items-center justify-between gap-1 mb-1.5">
+                          <span className="font-bold text-xs text-slate-900 dark:text-slate-100 truncate">
+                            {p.name}
+                          </span>
+                          <span
+                            className={`w-2 h-2 rounded-full ${isSelected ? "bg-indigo-600" : "bg-emerald-500"}`}
+                          />
+                        </div>
+                        <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 truncate">
+                          {p.code}
+                        </div>
+                        <div className="mt-2 pt-2 border-t border-slate-200/60 dark:border-slate-800 flex items-center justify-between text-[11px]">
+                          <span className="text-slate-500">{chData?.orders || 0} orders</span>
+                          <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                            ₹{((chData?.grossValue || 0) / 1000).toFixed(0)}k
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Platform Brand Header & Quick Ingestion Actions */}
+              <div className="p-5 rounded-2xl bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white shadow-md flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white shrink-0 shadow-inner">
+                    <Store className="w-7 h-7 text-indigo-300" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold tracking-tight">{currentChannel.name} Hub</h2>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
+                  <button
+                    onClick={() => handleSimulatePlatformOrder(dashboardChannel)}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs transition shadow-sm flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Zap className="w-4 h-4 fill-slate-950" />
+                    Simulate Live Order
+                  </button>
+                  <button
+                    onClick={() => {
+                      setAllocateTargetChannel(dashboardChannel);
+                      setShowAllocateModal(true);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-semibold text-xs border border-white/20 transition flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <ArrowRightLeft className="w-3.5 h-3.5 text-indigo-300" />
+                    Allocate Stock to WH
+                  </button>
+                  <button
+                    onClick={() =>
+                      toast.success(
+                        `Stock levels synchronized across ${currentChannel.name} catalog!`,
+                      )
+                    }
+                    className="px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs border border-white/10 transition flex items-center gap-1.5 cursor-pointer"
+                    title="Push latest inventory count to marketplace"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Sync Stock
+                  </button>
+                </div>
+              </div>
+
+              {/* 4 Executive Platform KPI Cards */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                    {currentChannel.name} GMV
+                    <DollarSign className="w-4 h-4 text-emerald-500" />
+                  </span>
+                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">
+                    ₹{channelGross.toLocaleString("en-IN")}
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    Avg Order: ₹
+                    {currentChannel.avgOrderValue
+                      ? currentChannel.avgOrderValue.toLocaleString("en-IN")
+                      : "1,850"}
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                    Total Orders
+                    <Package className="w-4 h-4 text-indigo-500" />
+                  </span>
+                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">
+                    {currentChannel.orders}
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                    Reserved from Warehouse
+                    <Building2 className="w-4 h-4 text-indigo-600" />
+                  </span>
+                  <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400 mt-1">
+                    {reservedQtyFor(dashboardChannel).toLocaleString()}{" "}
+                    <span className="text-sm font-normal text-slate-400">units</span>
+                  </p>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+                    {(reservationsByChannel.get(dashboardChannel) ?? []).length} reservation(s) ·{" "}
+                    {currentChannel.warehouseCode}
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+                  <span className="text-xs font-medium text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                    Est. Net Settlement
+                    <TrendingUp className="w-4 h-4 text-amber-500" />
+                  </span>
+                  <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">
+                    ₹{netPayout.toLocaleString("en-IN")}
+                  </p>
+                  <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-0.5 font-medium">
+                    After {((currentChannel.commissionRate || 0.15) * 100).toFixed(0)}% commission &
+                    fees
+                  </p>
+                </div>
+              </div>
+
+              {/* Split Views: Left (Warehouse Stock & Finance) + Right (Live Ingested Orders) */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                {/* Left Column (7 cols): Warehouse Stock Allocations & Settlement */}
+                <div className="lg:col-span-7 space-y-6">
+                  {/* Stock reserved from the warehouse Stock Allocation tab */}
+                  <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-amber-50 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                          <Warehouse className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
+                            Reserved Stock from Warehouse
+                          </h3>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Stock earmarked for {currentChannel.name} in Stock Allocation. Reserved
+                            units are unavailable to other channels until sold or reversed.
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-bold">
+                        {reservedQtyFor(dashboardChannel).toLocaleString()} reserved
+                      </span>
+                    </div>
+
+                    {reservationsQ.isLoading ? (
+                      <div className="py-4 text-center text-xs text-slate-500">
+                        Loading reservations…
+                      </div>
+                    ) : (reservationsByChannel.get(dashboardChannel) ?? []).length === 0 ? (
+                      <div className="py-6 text-center text-xs text-slate-500 dark:text-slate-400">
+                        <Warehouse className="w-6 h-6 mx-auto mb-2 opacity-40" />
+                        No warehouse stock reserved for {currentChannel.name}. Reserve stock from
+                        the Inventory → Stock Allocation tab to make it appear here.
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {(reservationsByChannel.get(dashboardChannel) ?? []).map((reservation) => (
+                          <div
+                            key={reservation.id}
+                            className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                          >
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100">
+                                  {reservation.sku || reservation.product_name}
+                                </span>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 font-semibold text-slate-600 dark:text-slate-300">
+                                  {reservation.allocation_number}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                {reservation.product_name} · Source:{" "}
+                                {reservation.source_location_name || "—"}
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-3">
+                              <div className="text-right">
+                                <div className="text-sm font-mono font-bold text-amber-600 dark:text-amber-400">
+                                  {reservation.reserved_quantity}{" "}
+                                  <span className="text-[10px] font-normal text-slate-400">
+                                    / {reservation.quantity} {reservation.unit}
+                                  </span>
+                                </div>
+                                {reservation.consumed_quantity > 0 && (
+                                  <div className="text-[10px] text-slate-500">
+                                    {reservation.consumed_quantity} sold
+                                  </div>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => reverseReservation.mutate(reservation.id)}
+                                disabled={reverseReservation.isPending}
+                                className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-slate-300 dark:border-slate-700 hover:border-rose-400 hover:text-rose-600 text-slate-700 dark:text-slate-200 transition cursor-pointer disabled:opacity-60"
+                                title="Reverse reservation and release stock"
+                              >
+                                Reverse
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Dedicated Warehouse Stock Widget */}
+                  <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 text-indigo-600 dark:text-indigo-400 flex items-center justify-center">
+                          <Boxes className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
+                            SKU Inventory Allocation ({currentChannel.warehouseCode})
+                          </h3>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Physical stock dedicated to this channel. Auto-debited on each customer
+                            order.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setAllocateTargetChannel(dashboardChannel);
+                          setShowAllocateModal(true);
+                        }}
+                        className="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-xs transition shadow-xs flex items-center gap-1 cursor-pointer"
+                      >
+                        <Plus className="w-3.5 h-3.5" />
+                        Allocate Stock
                       </button>
                     </div>
-                  ) : (
-                    <div className="space-y-3">
-                      {channelOrders.slice(0, 5).map((ord) => (
-                        <div
-                          key={ord.id}
-                          className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850/60 space-y-2 hover:border-indigo-300 dark:hover:border-indigo-800 transition"
-                        >
-                          <div className="flex items-center justify-between">
-                            <span className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100">
-                              {ord.id}
-                            </span>
-                            <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300/40">
-                              {ord.status === "dispatched" ? "Dispatched" : "Allocated & Debited"}
-                            </span>
-                          </div>
 
-                          <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
-                            <span>{ord.customerName} ({ord.customerCity})</span>
-                            <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
-                              ₹{ord.totalValue.toLocaleString("en-IN")}
-                            </span>
-                          </div>
+                    <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                      {state.inventory.map((inv) => {
+                        const allocatedToWh =
+                          inv.allocatedByWarehouse?.[currentChannel.warehouseCode] ??
+                          (dashboardChannel === "amazon" && inv.whizunikSku === "AD-TS-BLK-M"
+                            ? 4
+                            : 2);
+                        const totalStock = inv.onHand;
+                        const percent =
+                          totalStock > 0
+                            ? Math.min(100, Math.round((allocatedToWh / totalStock) * 100))
+                            : 0;
 
-                          {/* Immediate Debit Movement Entry Badge */}
-                          <div className="p-2 rounded-lg bg-emerald-50/80 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-[11px] flex items-center justify-between">
-                            <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 font-medium">
-                              <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
-                              <span>Debit: <strong className="font-mono">{ord.debitMovementNumber || ord.fulfillmentRef || "MOV-DR-1001"}</strong></span>
+                        return (
+                          <div
+                            key={inv.whizunikSku}
+                            className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                          >
+                            <div className="space-y-0.5">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100">
+                                  {inv.whizunikSku}
+                                </span>
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 font-semibold text-slate-600 dark:text-slate-300">
+                                  {inv.productName}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-500 dark:text-slate-400">
+                                Total Enterprise Stock:{" "}
+                                <strong className="text-slate-700 dark:text-slate-300">
+                                  {inv.onHand}
+                                </strong>{" "}
+                                units | Available in Central:{" "}
+                                <strong className="text-emerald-600">{inv.available}</strong>
+                              </div>
                             </div>
-                            <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
-                              {ord.ecommerceWarehouse || currentChannel.warehouseCode}
-                            </span>
-                          </div>
 
-                          <div className="flex items-center justify-between pt-1 text-[11px]">
-                            <span className="text-slate-400">{ord.createdAt}</span>
-                            <div className="flex items-center gap-1.5">
+                            <div className="flex items-center gap-4">
+                              <div className="w-32 text-right">
+                                <div className="text-xs font-mono font-bold text-indigo-600 dark:text-indigo-400">
+                                  {allocatedToWh} units in WH
+                                </div>
+                                <div className="w-full bg-slate-100 dark:bg-slate-800 h-1.5 rounded-full mt-1 overflow-hidden">
+                                  <div
+                                    className="bg-indigo-600 h-1.5 rounded-full transition-all duration-300"
+                                    style={{ width: `${percent}%` }}
+                                  />
+                                </div>
+                                <span className="text-[10px] text-slate-400">
+                                  {percent}% of enterprise
+                                </span>
+                              </div>
+
                               <button
                                 onClick={() => {
-                                  setSelectedOrderForModal(ord);
-                                  setShowOrderDetailsModal(true);
+                                  setAllocateTargetSku(inv.whizunikSku);
+                                  setAllocateTargetChannel(dashboardChannel);
+                                  setShowAllocateModal(true);
                                 }}
-                                className="px-2 py-1 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:text-indigo-600 transition font-medium cursor-pointer"
+                                className="px-2.5 py-1 text-[11px] font-semibold rounded-lg border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 transition cursor-pointer"
                               >
-                                View Slip
+                                + Stock
                               </button>
-                              {ord.status !== "dispatched" && (
-                                <button
-                                  onClick={() => handleQuickDispatchOrder(ord)}
-                                  className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition cursor-pointer"
-                                >
-                                  Dispatch
-                                </button>
-                              )}
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
-                  )}
+                  </div>
+
+                  {/* Platform Financial Settlement Breakdown */}
+                  <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center">
+                          <DollarSign className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
+                            {currentChannel.name} Settlement Statement
+                          </h3>
+                          <p className="text-xs text-slate-500 dark:text-slate-400">
+                            Automated deduction of channel commission, fixed closing fee, and
+                            GST/TCS.
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-bold">
+                        Settlement: Weekly (Fri)
+                      </span>
+                    </div>
+
+                    <div className="space-y-2 text-xs">
+                      <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800">
+                        <span className="text-slate-600 dark:text-slate-400">
+                          Gross Sales Value (GMV)
+                        </span>
+                        <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                          ₹{channelGross.toLocaleString("en-IN")}
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800 text-rose-600 dark:text-rose-400">
+                        <span>
+                          Channel Commission (
+                          {((currentChannel.commissionRate || 0.15) * 100).toFixed(0)}%)
+                        </span>
+                        <span className="font-mono font-semibold">
+                          - ₹{estCommission.toLocaleString("en-IN")}
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800 text-rose-600 dark:text-rose-400">
+                        <span>
+                          Marketplace Fixed Closing Fees (₹25 × {channelOrders.length} orders)
+                        </span>
+                        <span className="font-mono font-semibold">
+                          - ₹{fixedFees.toLocaleString("en-IN")}
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-1.5 border-b border-slate-100 dark:border-slate-800 text-rose-600 dark:text-rose-400">
+                        <span>GST / TCS under Sec 52 CGST Act (1%)</span>
+                        <span className="font-mono font-semibold">
+                          - ₹{tcs.toLocaleString("en-IN")}
+                        </span>
+                      </div>
+                      <div className="flex justify-between py-2 font-bold text-sm bg-emerald-50/70 dark:bg-emerald-950/40 p-2.5 rounded-lg border border-emerald-200 dark:border-emerald-800">
+                        <span className="text-emerald-900 dark:text-emerald-200">
+                          Net Estimated Payout
+                        </span>
+                        <span className="font-mono text-emerald-700 dark:text-emerald-300">
+                          ₹{netPayout.toLocaleString("en-IN")}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
-                {/* Channel Integration & Connector Telemetry */}
-                <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 text-xs space-y-2.5">
-                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
-                    Connector Specifications & API Health
-                  </span>
-                  <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                    <span>API Endpoint</span>
-                    <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">
-                      {dashboardChannel === "amazon" ? "sp-api.amazon.in/v2" : dashboardChannel === "flipkart" ? "api.flipkart.net/seller/v3" : "admin.shopify.com/api/2024-04"}
+                {/* Right Column (5 cols): Live Ingestion Feed with Immediate Debit Entries */}
+                <div className="lg:col-span-5 space-y-6">
+                  <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+                    <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                        <h3 className="font-bold text-slate-900 dark:text-slate-100 text-sm">
+                          Recent Ingested Orders ({channelOrders.length})
+                        </h3>
+                      </div>
+                    </div>
+
+                    {channelOrders.length === 0 ? (
+                      <div className="py-8 text-center text-slate-400 text-xs">
+                        <ShoppingBag className="w-8 h-8 mx-auto mb-2 opacity-40" />
+                        <p>No orders yet for {currentChannel.name}.</p>
+                        <button
+                          onClick={() => handleSimulatePlatformOrder(dashboardChannel)}
+                          className="mt-2 text-indigo-600 dark:text-indigo-400 font-semibold underline cursor-pointer"
+                        >
+                          Click here to simulate an order
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="space-y-3">
+                        {channelOrders.slice(0, 5).map((ord) => (
+                          <div
+                            key={ord.id}
+                            className="p-3.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-850/60 space-y-2 hover:border-indigo-300 dark:hover:border-indigo-800 transition"
+                          >
+                            <div className="flex items-center justify-between">
+                              <span className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100">
+                                {ord.id}
+                              </span>
+                              <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-300/40">
+                                {ord.status === "dispatched" ? "Dispatched" : "Allocated & Debited"}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300">
+                              <span>
+                                {ord.customerName} ({ord.customerCity})
+                              </span>
+                              <span className="font-mono font-bold text-slate-900 dark:text-slate-100">
+                                ₹{ord.totalValue.toLocaleString("en-IN")}
+                              </span>
+                            </div>
+
+                            {/* Immediate Debit Movement Entry Badge */}
+                            <div className="p-2 rounded-lg bg-emerald-50/80 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-[11px] flex items-center justify-between">
+                              <div className="flex items-center gap-1.5 text-emerald-800 dark:text-emerald-300 font-medium">
+                                <Zap className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                                <span>
+                                  Debit:{" "}
+                                  <strong className="font-mono">
+                                    {ord.debitMovementNumber || ord.fulfillmentRef || "MOV-DR-1001"}
+                                  </strong>
+                                </span>
+                              </div>
+                              <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                                {ord.ecommerceWarehouse || currentChannel.warehouseCode}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center justify-between pt-1 text-[11px]">
+                              <span className="text-slate-400">{ord.createdAt}</span>
+                              <div className="flex items-center gap-1.5">
+                                <button
+                                  onClick={() => {
+                                    setSelectedOrderForModal(ord);
+                                    setShowOrderDetailsModal(true);
+                                  }}
+                                  className="px-2 py-1 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:text-indigo-600 transition font-medium cursor-pointer"
+                                >
+                                  View Slip
+                                </button>
+                                {ord.status !== "dispatched" && (
+                                  <button
+                                    onClick={() => handleQuickDispatchOrder(ord)}
+                                    className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-semibold transition cursor-pointer"
+                                  >
+                                    Dispatch
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Channel Integration & Connector Telemetry */}
+                  <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200 dark:border-slate-800 text-xs space-y-2.5">
+                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">
+                      Connector Specifications & API Health
                     </span>
-                  </div>
-                  <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                    <span>Order Processing Pipeline</span>
-                    <span className="font-semibold text-emerald-600 dark:text-emerald-400">Direct Debit (No SO)</span>
-                  </div>
-                  <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                    <span>Inventory Push Interval</span>
-                    <span className="font-mono text-slate-700 dark:text-slate-300">30 seconds (Live Sync)</span>
-                  </div>
-                  <div className="flex justify-between text-slate-600 dark:text-slate-300">
-                    <span>Safety Stock Buffer</span>
-                    <span className="font-mono text-slate-700 dark:text-slate-300">2 units reserved</span>
+                    <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                      <span>API Endpoint</span>
+                      <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">
+                        {dashboardChannel === "amazon"
+                          ? "sp-api.amazon.in/v2"
+                          : dashboardChannel === "flipkart"
+                            ? "api.flipkart.net/seller/v3"
+                            : "admin.shopify.com/api/2024-04"}
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                      <span>Order Processing Pipeline</span>
+                      <span className="font-semibold text-emerald-600 dark:text-emerald-400">
+                        Direct Debit (No SO)
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                      <span>Inventory Push Interval</span>
+                      <span className="font-mono text-slate-700 dark:text-slate-300">
+                        30 seconds (Live Sync)
+                      </span>
+                    </div>
+                    <div className="flex justify-between text-slate-600 dark:text-slate-300">
+                      <span>Safety Stock Buffer</span>
+                      <span className="font-mono text-slate-700 dark:text-slate-300">
+                        2 units reserved
+                      </span>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
-        );
-      })()}
+          );
+        })()}
 
       {/* ═══════════════════════════════════════════════════════════════════ */}
       {/* TAB: E-COMMERCE ORDERS QUEUE (LIVE & MANUAL ORDERS)                */}
@@ -1600,7 +1885,11 @@ export default function MarketplaceHubPage() {
                 <Zap className="w-4 h-4 text-emerald-600" />
               </span>
               <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400 mt-1">
-                {(state.orders || BASELINE_ORDERS).filter((o) => o.debitMovementNumber || o.salesOrderId).length}
+                {
+                  (state.orders || BASELINE_ORDERS).filter(
+                    (o) => o.debitMovementNumber || o.salesOrderId,
+                  ).length
+                }
               </p>
               <p className="text-[11px] text-emerald-600 dark:text-emerald-400 mt-0.5 font-medium flex items-center gap-1">
                 <Check className="w-3 h-3" />
@@ -1614,7 +1903,11 @@ export default function MarketplaceHubPage() {
                 <Truck className="w-4 h-4 text-emerald-500" />
               </span>
               <p className="text-2xl font-bold text-slate-900 dark:text-slate-100 mt-1">
-                {(state.orders || BASELINE_ORDERS).filter((o) => o.status === "dispatched" || o.trackingNumber).length}
+                {
+                  (state.orders || BASELINE_ORDERS).filter(
+                    (o) => o.status === "dispatched" || o.trackingNumber,
+                  ).length
+                }
               </p>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
                 Orders dispatched with carrier tracking
@@ -1816,7 +2109,9 @@ export default function MarketplaceHubPage() {
                                 {ord.debitMovementNumber || ord.fulfillmentRef || "MOV-DR-1001"}
                               </span>
                               <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium block">
-                                {ord.ecommerceWarehouse || CHANNEL_CONFIG[ord.channel]?.warehouseCode || "WH-AMAZON-FBA"}
+                                {ord.ecommerceWarehouse ||
+                                  CHANNEL_CONFIG[ord.channel]?.warehouseCode ||
+                                  "WH-AMAZON-FBA"}
                               </span>
                             </div>
                           </td>
@@ -1828,19 +2123,19 @@ export default function MarketplaceHubPage() {
                                 ord.status === "dispatched" || ord.status === "delivered"
                                   ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300"
                                   : ord.status === "picked_packed"
-                                  ? "bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300"
-                                  : ord.status === "return_qc"
-                                  ? "bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300"
-                                  : "bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300"
+                                    ? "bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300"
+                                    : ord.status === "return_qc"
+                                      ? "bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300"
+                                      : "bg-indigo-100 dark:bg-indigo-950 text-indigo-800 dark:text-indigo-300"
                               }`}
                             >
                               {ord.status === "dispatched"
                                 ? "Dispatched"
                                 : ord.status === "picked_packed"
-                                ? "Packed"
-                                : ord.status === "return_qc"
-                                ? "Return in QC"
-                                : "Allocated & Debited"}
+                                  ? "Packed"
+                                  : ord.status === "return_qc"
+                                    ? "Return in QC"
+                                    : "Allocated & Debited"}
                             </span>
                           </td>
 
@@ -1901,7 +2196,9 @@ export default function MarketplaceHubPage() {
                 <select
                   value={state.activeOrderId || state.orderId}
                   onChange={(e) => {
-                    const found = (state.orders || BASELINE_ORDERS).find((o) => o.id === e.target.value);
+                    const found = (state.orders || BASELINE_ORDERS).find(
+                      (o) => o.id === e.target.value,
+                    );
                     if (found) handleLoadOrderInWorkflow(found);
                   }}
                   className="font-mono text-xs font-bold px-2 py-1 rounded border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-indigo-600 dark:text-indigo-400 cursor-pointer"
@@ -1917,15 +2214,25 @@ export default function MarketplaceHubPage() {
               <p className="text-xs text-slate-500 dark:text-slate-400">
                 Target SKU:{" "}
                 <strong className="font-mono text-slate-700 dark:text-slate-200">
-                  {(state.orders || BASELINE_ORDERS).find((o) => o.id === (state.activeOrderId || state.orderId))?.sku || "AD-TS-BLK-M"}
+                  {(state.orders || BASELINE_ORDERS).find(
+                    (o) => o.id === (state.activeOrderId || state.orderId),
+                  )?.sku || "AD-TS-BLK-M"}
                 </strong>{" "}
                 • Quantity:{" "}
                 <strong>
-                  {(state.orders || BASELINE_ORDERS).find((o) => o.id === (state.activeOrderId || state.orderId))?.quantity || 2} Units
+                  {(state.orders || BASELINE_ORDERS).find(
+                    (o) => o.id === (state.activeOrderId || state.orderId),
+                  )?.quantity || 2}{" "}
+                  Units
                 </strong>{" "}
                 • Total:{" "}
                 <strong>
-                  ₹{((state.orders || BASELINE_ORDERS).find((o) => o.id === (state.activeOrderId || state.orderId))?.totalValue || 2000).toLocaleString("en-IN")}
+                  ₹
+                  {(
+                    (state.orders || BASELINE_ORDERS).find(
+                      (o) => o.id === (state.activeOrderId || state.orderId),
+                    )?.totalValue || 2000
+                  ).toLocaleString("en-IN")}
                 </strong>
               </p>
             </div>
@@ -1973,8 +2280,8 @@ export default function MarketplaceHubPage() {
                     isCurrent
                       ? "border-indigo-600 bg-indigo-50/60 dark:bg-indigo-950/40 dark:border-indigo-500 shadow-xs ring-1 ring-indigo-500"
                       : isPassed
-                      ? "border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/30 dark:bg-emerald-950/20"
-                      : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 opacity-70"
+                        ? "border-emerald-300 dark:border-emerald-800/60 bg-emerald-50/30 dark:bg-emerald-950/20"
+                        : "border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 opacity-70"
                   }`}
                 >
                   <div className="flex items-center justify-between w-full mb-1">
@@ -1983,22 +2290,22 @@ export default function MarketplaceHubPage() {
                         isCurrent
                           ? "bg-indigo-600 text-white"
                           : isPassed
-                          ? "bg-emerald-600 text-white"
-                          : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
+                            ? "bg-emerald-600 text-white"
+                            : "bg-slate-200 dark:bg-slate-800 text-slate-600 dark:text-slate-400"
                       }`}
                     >
                       Step {ws.step}
                     </span>
-                    {isPassed && <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />}
+                    {isPassed && (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                    )}
                   </div>
 
                   <p className="text-xs font-bold text-slate-800 dark:text-slate-200 line-clamp-2">
                     {ws.title}
                   </p>
 
-                  <span className="text-[10px] text-slate-400 mt-2 block">
-                    {ws.role}
-                  </span>
+                  <span className="text-[10px] text-slate-400 mt-2 block">{ws.role}</span>
                 </button>
               );
             })}
@@ -2071,8 +2378,8 @@ export default function MarketplaceHubPage() {
                       {state.currentStep === 3
                         ? "POST /api/marketplace-demo/orders"
                         : state.currentStep === 5
-                        ? "POST /api/dispatches/confirm"
-                        : "PUT /api/marketplace-demo/status"}
+                          ? "POST /api/dispatches/confirm"
+                          : "PUT /api/marketplace-demo/status"}
                     </span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
@@ -2081,8 +2388,8 @@ export default function MarketplaceHubPage() {
                       {state.currentStep === 3
                         ? "InventoryMovement.debit() [MOV-DR-1001]"
                         : state.currentStep === 5
-                        ? "CarrierDispatch.handover() [TRK-DEMO-1001]"
-                        : "Inventory.sync()"}
+                          ? "CarrierDispatch.handover() [TRK-DEMO-1001]"
+                          : "Inventory.sync()"}
                     </span>
                   </div>
                   <div className="p-2.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
@@ -2105,21 +2412,29 @@ export default function MarketplaceHubPage() {
                   <div className="flex justify-between">
                     <span className="text-slate-500">Marketplace / Channel:</span>
                     <strong className="text-slate-800 dark:text-slate-200">
-                      {(state.orders || BASELINE_ORDERS).find((o) => o.id === (state.activeOrderId || state.orderId))?.channelName || "Amazon India"}
+                      {(state.orders || BASELINE_ORDERS).find(
+                        (o) => o.id === (state.activeOrderId || state.orderId),
+                      )?.channelName || "Amazon India"}
                     </strong>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Order Reference:</span>
-                    <span className="font-mono text-indigo-600 dark:text-indigo-400 font-semibold">{state.orderId}</span>
+                    <span className="font-mono text-indigo-600 dark:text-indigo-400 font-semibold">
+                      {state.orderId}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">External ID:</span>
-                    <span className="font-mono text-slate-700 dark:text-slate-300">{state.externalOrderId}</span>
+                    <span className="font-mono text-slate-700 dark:text-slate-300">
+                      {state.externalOrderId}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Debit Movement:</span>
                     <span className="font-mono text-emerald-600 dark:text-emerald-400 font-bold">
-                      {state.currentStep >= 3 ? (state.debitMovementNumber || "MOV-DR-1001") : "Pending Step 3"}
+                      {state.currentStep >= 3
+                        ? state.debitMovementNumber || "MOV-DR-1001"
+                        : "Pending Step 3"}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -2146,7 +2461,9 @@ export default function MarketplaceHubPage() {
                 <div className="mt-2 space-y-1 text-xs">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Warehouse:</span>
-                    <span className="font-semibold text-slate-800 dark:text-slate-200">WH-DEMO</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-200">
+                      WH-DEMO
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Pick / Pack Task:</span>
@@ -2205,15 +2522,15 @@ export default function MarketplaceHubPage() {
                         state.currentStep >= 8
                           ? "text-emerald-600 dark:text-emerald-400"
                           : state.currentStep === 7
-                          ? "text-amber-600 dark:text-amber-400"
-                          : "text-slate-400"
+                            ? "text-amber-600 dark:text-amber-400"
+                            : "text-slate-400"
                       }`}
                     >
                       {state.currentStep >= 8
                         ? "Pass / Resalable"
                         : state.currentStep === 7
-                        ? "QC Hold (1 unit held)"
-                        : "—"}
+                          ? "QC Hold (1 unit held)"
+                          : "—"}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -2243,10 +2560,13 @@ export default function MarketplaceHubPage() {
                 </span>
                 <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
                   Target SKU Stock Ledger Checkpoints:{" "}
-                  <span className="font-mono text-indigo-600 dark:text-indigo-400">AD-TS-BLK-M</span>
+                  <span className="font-mono text-indigo-600 dark:text-indigo-400">
+                    AD-TS-BLK-M
+                  </span>
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Available = On-hand − Reserved − QC hold. Evaluated in real time from workflow actions.
+                  Available = On-hand − Reserved − QC hold. Evaluated in real time from workflow
+                  actions.
                 </p>
               </div>
               <div className="text-xs text-right text-slate-500">
@@ -2276,8 +2596,8 @@ export default function MarketplaceHubPage() {
                         row.isCurrent
                           ? "bg-indigo-50/70 dark:bg-indigo-950/40 font-semibold"
                           : row.isPassed
-                          ? "hover:bg-slate-50/50 dark:hover:bg-slate-850/40"
-                          : "opacity-40"
+                            ? "hover:bg-slate-50/50 dark:hover:bg-slate-850/40"
+                            : "opacity-40"
                       }`}
                     >
                       <td className="py-3 px-3">
@@ -2289,7 +2609,11 @@ export default function MarketplaceHubPage() {
                           ) : (
                             <Clock className="w-3.5 h-3.5 text-slate-400" />
                           )}
-                          <span className={row.isCurrent ? "text-indigo-600 dark:text-indigo-400 font-bold" : ""}>
+                          <span
+                            className={
+                              row.isCurrent ? "text-indigo-600 dark:text-indigo-400 font-bold" : ""
+                            }
+                          >
                             {row.checkpoint}
                           </span>
                         </div>
@@ -2321,7 +2645,8 @@ export default function MarketplaceHubPage() {
                 Seeded Adventra Catalogue & Stock (Warehouse: WH-DEMO)
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                All channel SKUs point to one central WhizUnik inventory record. No duplicates created.
+                All channel SKUs point to one central WhizUnik inventory record. No duplicates
+                created.
               </p>
             </div>
 
@@ -2349,10 +2674,11 @@ export default function MarketplaceHubPage() {
                       ? state.currentStep >= 7
                         ? 19
                         : state.currentStep >= 5
-                        ? 18
-                        : 20
+                          ? 18
+                          : 20
                       : inv.onHand;
-                    const reserved = isMainSku && state.currentStep >= 3 && state.currentStep < 5 ? 2 : 0;
+                    const reserved =
+                      isMainSku && state.currentStep >= 3 && state.currentStep < 5 ? 2 : 0;
                     const qcHold = isMainSku && state.currentStep === 7 ? 1 : 0;
                     const available = onHand - reserved - qcHold;
 
@@ -2371,7 +2697,9 @@ export default function MarketplaceHubPage() {
                             </span>
                           )}
                         </td>
-                        <td className="py-3 px-3 text-slate-700 dark:text-slate-300">{inv.variant}</td>
+                        <td className="py-3 px-3 text-slate-700 dark:text-slate-300">
+                          {inv.variant}
+                        </td>
                         <td className="py-3 px-3 font-mono text-slate-500">{inv.amazonSku}</td>
                         <td className="py-3 px-3 font-mono text-slate-500">{inv.shopifyVariant}</td>
                         <td className="py-3 px-3 text-right font-mono font-medium">{onHand}</td>
@@ -2406,7 +2734,8 @@ export default function MarketplaceHubPage() {
                   Cross-Channel SKU Mapping Table
                 </h3>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  Multiple channel listings map to single WhizUnik child SKUs. Prevents inventory fragmentation.
+                  Multiple channel listings map to single WhizUnik child SKUs. Prevents inventory
+                  fragmentation.
                 </p>
               </div>
 
@@ -2447,7 +2776,8 @@ export default function MarketplaceHubPage() {
                       Unmapped Listing Exception: AMZ-UNKNOWN (Amazon India)
                     </h5>
                     <p className="text-[11px] text-rose-700 dark:text-rose-300">
-                      Order DEMO-AMZ-ERR-01 is paused. Auto-creation of inventory is blocked per Section 6 policy.
+                      Order DEMO-AMZ-ERR-01 is paused. Auto-creation of inventory is blocked per
+                      Section 6 policy.
                     </p>
                   </div>
                 </div>
@@ -2478,22 +2808,20 @@ export default function MarketplaceHubPage() {
                 <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                   {mappings
                     .filter((m) =>
-                      selectedMappingFilter === "all" ? true : m.channel === selectedMappingFilter
+                      selectedMappingFilter === "all" ? true : m.channel === selectedMappingFilter,
                     )
                     .filter((m) =>
                       mappingSearch
                         ? m.channelSku.toLowerCase().includes(mappingSearch.toLowerCase()) ||
                           m.whizunikSku.toLowerCase().includes(mappingSearch.toLowerCase()) ||
                           m.productName.toLowerCase().includes(mappingSearch.toLowerCase())
-                        : true
+                        : true,
                     )
                     .map((mapItem) => (
                       <tr
                         key={mapItem.id}
                         className={`hover:bg-slate-50/50 dark:hover:bg-slate-850/40 transition ${
-                          mapItem.status === "Error"
-                            ? "bg-rose-50/30 dark:bg-rose-950/20"
-                            : ""
+                          mapItem.status === "Error" ? "bg-rose-50/30 dark:bg-rose-950/20" : ""
                         }`}
                       >
                         <td className="py-3 px-3 font-semibold text-slate-800 dark:text-slate-200">
@@ -2570,7 +2898,8 @@ export default function MarketplaceHubPage() {
               Exception & Sync Recovery Center
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              Simulate and verify the 3 required exception patterns from PDF 3 §8 (Unmapped SKU, Outbound Retry, Idempotency).
+              Simulate and verify the 3 required exception patterns from PDF 3 §8 (Unmapped SKU,
+              Outbound Retry, Idempotency).
             </p>
           </div>
 
@@ -2584,7 +2913,9 @@ export default function MarketplaceHubPage() {
                   </span>
                   <span
                     className={`text-xs font-semibold ${
-                      state.unmappedErrorStatus === "resolved" ? "text-emerald-600" : "text-rose-600"
+                      state.unmappedErrorStatus === "resolved"
+                        ? "text-emerald-600"
+                        : "text-rose-600"
                     }`}
                   >
                     {state.unmappedErrorStatus === "resolved" ? "Resolved" : "Active Error"}
@@ -2594,7 +2925,8 @@ export default function MarketplaceHubPage() {
                   Unmapped SKU Recovery
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Incoming order with fixture <code>AMZ-UNKNOWN</code> is paused. No warehouse allocation or stock debit occurs until mapped.
+                  Incoming order with fixture <code>AMZ-UNKNOWN</code> is paused. No warehouse
+                  allocation or stock debit occurs until mapped.
                 </p>
                 <div className="mt-3 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-850 text-xs font-mono text-slate-700 dark:text-slate-300">
                   <div>Event: DEMO-AMZ-ERR-01</div>
@@ -2643,8 +2975,8 @@ export default function MarketplaceHubPage() {
                       state.outboundSyncStatus.includes("Failed")
                         ? "text-rose-600"
                         : state.outboundSyncStatus.includes("Acknowledged")
-                        ? "text-emerald-600"
-                        : "text-slate-500"
+                          ? "text-emerald-600"
+                          : "text-slate-500"
                     }`}
                   >
                     {state.outboundSyncStatus}
@@ -2654,7 +2986,8 @@ export default function MarketplaceHubPage() {
                   Failed Outbound Sync & Safe Retry
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Dispatched order tracking push fails. WhizUnik order stays Dispatched. Retry must not duplicate invoice or alter stock.
+                  Dispatched order tracking push fails. WhizUnik order stays Dispatched. Retry must
+                  not duplicate invoice or alter stock.
                 </p>
                 <div className="mt-3 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-850 text-xs font-mono text-slate-700 dark:text-slate-300">
                   <div>Order: DEMO-AMZ-1001</div>
@@ -2692,7 +3025,8 @@ export default function MarketplaceHubPage() {
                   Duplicate Event & Stock Protection
                 </h4>
                 <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-                  Replays <code>EVT-1001</code> to prove that duplicate webhook delivery is safely ignored without extra reservation.
+                  Replays <code>EVT-1001</code> to prove that duplicate webhook delivery is safely
+                  ignored without extra reservation.
                 </p>
                 <div className="mt-3 p-2.5 rounded-lg bg-slate-50 dark:bg-slate-850 text-xs font-mono text-slate-700 dark:text-slate-300">
                   <div>Idempotency Key: EVT-1001:AMZ:L1</div>
@@ -2728,7 +3062,8 @@ export default function MarketplaceHubPage() {
                 Customer Payment vs Marketplace Settlement Ledger
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                A customer payment marked "Collected by Marketplace" is NOT automatically marked as money received in WhizUnik Treasury.
+                A customer payment marked "Collected by Marketplace" is NOT automatically marked as
+                money received in WhizUnik Treasury.
               </p>
             </div>
 
@@ -2741,7 +3076,9 @@ export default function MarketplaceHubPage() {
                 <div className="space-y-2 text-xs">
                   <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-800">
                     <span className="text-slate-500">Order Reference:</span>
-                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200">DEMO-AMZ-1001</span>
+                    <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
+                      DEMO-AMZ-1001
+                    </span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-800">
                     <span className="text-slate-500">Fulfillment Status:</span>
@@ -2751,7 +3088,9 @@ export default function MarketplaceHubPage() {
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-800">
                     <span className="text-slate-500">Gross Order Value:</span>
-                    <span className="font-semibold text-slate-900 dark:text-slate-100">₹2,000.00</span>
+                    <span className="font-semibold text-slate-900 dark:text-slate-100">
+                      ₹2,000.00
+                    </span>
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-200/60 dark:border-slate-800">
                     <span className="text-slate-500">Customer Payment State:</span>
@@ -2790,7 +3129,9 @@ export default function MarketplaceHubPage() {
                     <span>−₹20.00</span>
                   </div>
                   <div className="flex justify-between py-1.5 pt-2 text-sm font-bold border-t-2 border-indigo-200 dark:border-indigo-800">
-                    <span className="text-slate-900 dark:text-slate-100">Net Expected Receivable:</span>
+                    <span className="text-slate-900 dark:text-slate-100">
+                      Net Expected Receivable:
+                    </span>
                     <span className="text-emerald-600 dark:text-emerald-400">₹1,650.00</span>
                   </div>
                 </div>
@@ -2814,7 +3155,8 @@ export default function MarketplaceHubPage() {
                 Common Marketplace Framework & Connector Abstraction
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Marketplace-specific APIs never communicate directly with internal inventory tables. All traffic flows through the normalized common contract.
+                Marketplace-specific APIs never communicate directly with internal inventory tables.
+                All traffic flows through the normalized common contract.
               </p>
             </div>
 
@@ -2891,7 +3233,8 @@ export default function MarketplaceHubPage() {
 
             <div className="space-y-3 text-xs">
               <p className="text-slate-600 dark:text-slate-300">
-                Select the destination WhizUnik child SKU to bind <code>AMZ-UNKNOWN</code>. Per Section 8 exception script, map to <strong>AD-TS-WHT-M</strong>:
+                Select the destination WhizUnik child SKU to bind <code>AMZ-UNKNOWN</code>. Per
+                Section 8 exception script, map to <strong>AD-TS-WHT-M</strong>:
               </p>
 
               <div>
@@ -2910,7 +3253,8 @@ export default function MarketplaceHubPage() {
               </div>
 
               <div className="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 text-[11px]">
-                Upon mapping, the pending error event <strong>DEMO-AMZ-ERR-01</strong> will reprocess automatically, allocating stock and debiting 1 unit cleanly.
+                Upon mapping, the pending error event <strong>DEMO-AMZ-ERR-01</strong> will
+                reprocess automatically, allocating stock and debiting 1 unit cleanly.
               </div>
             </div>
 
@@ -2964,7 +3308,10 @@ export default function MarketplaceHubPage() {
                 E-Commerce Rule: Direct Allocation & Immediate Debit Entry
               </div>
               <p className="text-[11px] leading-relaxed text-emerald-800/90 dark:text-emerald-300/90">
-                E-commerce retail orders bypass B2B Sales Orders. Submitting this order will check live SKU stock, allocate the units directly to that channel's dedicated warehouse (e.g. <strong>WH-AMAZON-FBA</strong>), and write an immediate physical debit entry (<code className="font-mono font-bold">MOV-DR-...</code>) in the inventory ledger.
+                E-commerce retail orders bypass B2B Sales Orders. Submitting this order will check
+                live SKU stock, allocate the units directly to that channel's dedicated warehouse
+                (e.g. <strong>WH-AMAZON-FBA</strong>), and write an immediate physical debit entry (
+                <code className="font-mono font-bold">MOV-DR-...</code>) in the inventory ledger.
               </p>
             </div>
 
@@ -3043,7 +3390,8 @@ export default function MarketplaceHubPage() {
                     const inv = state.inventory.find((i) => i.whizunikSku === manualSku);
                     return inv ? (
                       <span className="text-[10px] font-mono text-indigo-600 dark:text-indigo-400">
-                        Available in WH: <strong>{inv.available}</strong> (On-hand: {inv.onHand}, Res: {inv.reserved})
+                        Available in WH: <strong>{inv.available}</strong> (On-hand: {inv.onHand},
+                        Res: {inv.reserved})
                       </span>
                     ) : null;
                   })()}
@@ -3069,7 +3417,8 @@ export default function MarketplaceHubPage() {
                     const price = m?.sellingPrice || (inv.whizunikSku.includes("PO") ? 1400 : 1000);
                     return (
                       <option key={inv.whizunikSku} value={inv.whizunikSku}>
-                        {inv.whizunikSku} — {inv.variant} (Available: {inv.available}) - ₹{price.toLocaleString("en-IN")}
+                        {inv.whizunikSku} — {inv.variant} (Available: {inv.available}) - ₹
+                        {price.toLocaleString("en-IN")}
                       </option>
                     );
                   })}
@@ -3099,7 +3448,9 @@ export default function MarketplaceHubPage() {
                     type="number"
                     min="1"
                     value={manualUnitPrice}
-                    onChange={(e) => setManualUnitPrice(Math.max(1, parseFloat(e.target.value) || 0))}
+                    onChange={(e) =>
+                      setManualUnitPrice(Math.max(1, parseFloat(e.target.value) || 0))
+                    }
                     className="w-full p-2 rounded-lg border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono text-xs font-semibold focus:outline-hidden"
                   />
                 </div>
@@ -3243,24 +3594,32 @@ export default function MarketplaceHubPage() {
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase flex items-center gap-1">
                       <Zap className="w-3 h-3 text-emerald-500" />
-                      Debit Entry ({selectedOrderForModal.ecommerceWarehouse || CHANNEL_CONFIG[selectedOrderForModal.channel]?.warehouseCode || "WH-AMAZON-FBA"})
+                      Debit Entry (
+                      {selectedOrderForModal.ecommerceWarehouse ||
+                        CHANNEL_CONFIG[selectedOrderForModal.channel]?.warehouseCode ||
+                        "WH-AMAZON-FBA"}
+                      )
                     </span>
                     <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-bold">
                       Stock Debited
                     </span>
                   </div>
                   <div className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100">
-                    {selectedOrderForModal.debitMovementNumber || selectedOrderForModal.fulfillmentRef || "MOV-DR-1001"}
+                    {selectedOrderForModal.debitMovementNumber ||
+                      selectedOrderForModal.fulfillmentRef ||
+                      "MOV-DR-1001"}
                   </div>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1">
-                    Stock allocated to channel warehouse and immediately debited in inventory ledger (SO bypassed).
+                    Stock allocated to channel warehouse and immediately debited in inventory ledger
+                    (SO bypassed).
                   </p>
                 </div>
 
                 {/* Carrier Dispatch & Tracking Box */}
                 <div
                   className={`p-2.5 rounded-lg border ${
-                    selectedOrderForModal.status === "dispatched" || selectedOrderForModal.status === "delivered"
+                    selectedOrderForModal.status === "dispatched" ||
+                    selectedOrderForModal.status === "delivered"
                       ? "bg-white dark:bg-slate-900 border-emerald-200 dark:border-emerald-900/60"
                       : "bg-slate-100/70 dark:bg-slate-850/80 border-slate-200 dark:border-slate-800"
                   }`}
@@ -3268,7 +3627,8 @@ export default function MarketplaceHubPage() {
                   <div className="flex items-center justify-between mb-1">
                     <span
                       className={`text-[10px] font-bold uppercase flex items-center gap-1 ${
-                        selectedOrderForModal.status === "dispatched" || selectedOrderForModal.status === "delivered"
+                        selectedOrderForModal.status === "dispatched" ||
+                        selectedOrderForModal.status === "delivered"
                           ? "text-emerald-600 dark:text-emerald-400"
                           : "text-slate-400"
                       }`}
@@ -3278,12 +3638,16 @@ export default function MarketplaceHubPage() {
                     </span>
                     <span
                       className={`text-[9px] px-1.5 py-0.2 rounded font-bold ${
-                        selectedOrderForModal.status === "dispatched" || selectedOrderForModal.status === "delivered"
+                        selectedOrderForModal.status === "dispatched" ||
+                        selectedOrderForModal.status === "delivered"
                           ? "bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300"
                           : "bg-slate-200 dark:bg-slate-700 text-slate-500"
                       }`}
                     >
-                      {selectedOrderForModal.status === "dispatched" || selectedOrderForModal.status === "delivered" ? "In Transit" : "Pending Handover"}
+                      {selectedOrderForModal.status === "dispatched" ||
+                      selectedOrderForModal.status === "delivered"
+                        ? "In Transit"
+                        : "Pending Handover"}
                     </span>
                   </div>
                   <div className="font-mono font-bold text-xs text-slate-900 dark:text-slate-100">
@@ -3301,7 +3665,9 @@ export default function MarketplaceHubPage() {
             {/* Customer & Courier Information */}
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Customer Details</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase">
+                  Customer Details
+                </span>
                 <div className="font-semibold text-slate-800 dark:text-slate-200">
                   {selectedOrderForModal.customerName}
                 </div>
@@ -3312,7 +3678,9 @@ export default function MarketplaceHubPage() {
               </div>
 
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800 space-y-1">
-                <span className="text-[10px] font-bold text-slate-400 uppercase">Fulfillment & Courier</span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase">
+                  Fulfillment & Courier
+                </span>
                 <div className="font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-1">
                   <Truck className="w-3 h-3 text-slate-400" />
                   {selectedOrderForModal.carrier || "Courier not yet assigned"}
@@ -3382,18 +3750,19 @@ export default function MarketplaceHubPage() {
               </button>
 
               <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                {selectedOrderForModal.status !== "dispatched" && selectedOrderForModal.status !== "delivered" && (
-                  <button
-                    onClick={() => {
-                      handleQuickDispatchOrder(selectedOrderForModal);
-                      setShowOrderDetailsModal(false);
-                    }}
-                    className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition flex items-center gap-1.5"
-                  >
-                    <Truck className="w-3.5 h-3.5" />
-                    Dispatch to Courier
-                  </button>
-                )}
+                {selectedOrderForModal.status !== "dispatched" &&
+                  selectedOrderForModal.status !== "delivered" && (
+                    <button
+                      onClick={() => {
+                        handleQuickDispatchOrder(selectedOrderForModal);
+                        setShowOrderDetailsModal(false);
+                      }}
+                      className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition flex items-center gap-1.5"
+                    >
+                      <Truck className="w-3.5 h-3.5" />
+                      Dispatch to Courier
+                    </button>
+                  )}
                 <button
                   onClick={() => setShowOrderDetailsModal(false)}
                   className="px-3.5 py-2 text-xs font-medium rounded-lg border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition"
@@ -3488,7 +3857,8 @@ export default function MarketplaceHubPage() {
               {(() => {
                 const targetInv = state.inventory.find((i) => i.whizunikSku === allocateTargetSku);
                 const currentAvail = targetInv?.available || 0;
-                const whCode = CHANNEL_CONFIG[allocateTargetChannel]?.warehouseCode || "WH-AMAZON-FBA";
+                const whCode =
+                  CHANNEL_CONFIG[allocateTargetChannel]?.warehouseCode || "WH-AMAZON-FBA";
                 const currentAlloc = targetInv?.allocatedByWarehouse?.[whCode] || 0;
 
                 return (
@@ -3498,11 +3868,21 @@ export default function MarketplaceHubPage() {
                     </span>
                     <div className="flex items-center justify-between text-slate-700 dark:text-slate-300 text-xs">
                       <span>Central Warehouse Available:</span>
-                      <span className="font-mono">{currentAvail} ➔ <strong className="text-indigo-600 dark:text-indigo-400">{Math.max(0, currentAvail - allocateQuantity)}</strong></span>
+                      <span className="font-mono">
+                        {currentAvail} ➔{" "}
+                        <strong className="text-indigo-600 dark:text-indigo-400">
+                          {Math.max(0, currentAvail - allocateQuantity)}
+                        </strong>
+                      </span>
                     </div>
                     <div className="flex items-center justify-between text-slate-700 dark:text-slate-300 text-xs">
                       <span>{whCode} Dedicated Stock:</span>
-                      <span className="font-mono">{currentAlloc} ➔ <strong className="text-emerald-600 dark:text-emerald-400">{currentAlloc + allocateQuantity}</strong></span>
+                      <span className="font-mono">
+                        {currentAlloc} ➔{" "}
+                        <strong className="text-emerald-600 dark:text-emerald-400">
+                          {currentAlloc + allocateQuantity}
+                        </strong>
+                      </span>
                     </div>
                   </div>
                 );
@@ -3519,7 +3899,13 @@ export default function MarketplaceHubPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handleAllocateStockToWarehouse(allocateTargetChannel, allocateTargetSku, allocateQuantity)}
+                  onClick={() =>
+                    handleAllocateStockToWarehouse(
+                      allocateTargetChannel,
+                      allocateTargetSku,
+                      allocateQuantity,
+                    )
+                  }
                   className="px-5 py-2 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-sm flex items-center gap-1.5 cursor-pointer"
                 >
                   <ArrowRightLeft className="w-4 h-4" />

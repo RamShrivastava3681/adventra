@@ -87,11 +87,17 @@ const api = {
   get: <T = any>(path: string) => request<T>(path),
   post: <T = any>(path: string, body?: any) => {
     const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
-    return request<T>(path, { method: "POST", body: isFormData ? body : body ? JSON.stringify(body) : undefined });
+    return request<T>(path, {
+      method: "POST",
+      body: isFormData ? body : body ? JSON.stringify(body) : undefined,
+    });
   },
   put: <T = any>(path: string, body?: any) => {
     const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
-    return request<T>(path, { method: "PUT", body: isFormData ? body : body ? JSON.stringify(body) : undefined });
+    return request<T>(path, {
+      method: "PUT",
+      body: isFormData ? body : body ? JSON.stringify(body) : undefined,
+    });
   },
   delete: <T = any>(path: string) => request<T>(path, { method: "DELETE" }),
 
@@ -114,7 +120,10 @@ const api = {
         };
         extracted: any;
       }>("/document-extract", formData);
-      return { ...res, extracted: res?.extracted ? camelizeResponse(res.extracted) : res?.extracted };
+      return {
+        ...res,
+        extracted: res?.extracted ? camelizeResponse(res.extracted) : res?.extracted,
+      };
     },
   },
 
@@ -154,12 +163,16 @@ const api = {
         data,
       ),
     checkSku: (sku: string) =>
-      api.get<{ exists: boolean; sku: string }>(`/products/check-sku?sku=${encodeURIComponent(sku)}`),
+      api.get<{ exists: boolean; sku: string }>(
+        `/products/check-sku?sku=${encodeURIComponent(sku)}`,
+      ),
   },
 
   skuMasters: {
-    list: (type: "category" | "gender" | "color" | "size") => api.get<any[]>(`/sku-masters/${type}`),
-    create: (type: "category" | "gender" | "color" | "size", data: any) => api.post<any>(`/sku-masters/${type}`, data),
+    list: (type: "category" | "gender" | "color" | "size") =>
+      api.get<any[]>(`/sku-masters/${type}`),
+    create: (type: "category" | "gender" | "color" | "size", data: any) =>
+      api.post<any>(`/sku-masters/${type}`, data),
     update: (id: string, data: any) => api.put<any>(`/sku-masters/${id}`, data),
   },
 
@@ -224,6 +237,14 @@ const api = {
       api.post<any>(`/stock-transfers/${transferId}/receive`, data),
   },
 
+  // Marketplace Allocations (stock reserved for a sales channel)
+  marketplaceAllocations: {
+    list: () => api.get<any[]>("/marketplace-allocations"),
+    create: (data: any) => api.post<any>("/marketplace-allocations", data),
+    reverse: (id: string) => api.post<any>(`/marketplace-allocations/${id}/reverse`, {}),
+    consume: (data: any) => api.post<any>("/marketplace-allocations/consume", data),
+  },
+
   // Customers
   debtors: {
     list: () => api.get<any[]>("/debtors"),
@@ -271,8 +292,10 @@ const api = {
     delete: (id: string) => api.delete(`/invoices/${id}`),
     issue: (id: string) => api.post<any>(`/invoices/${id}/issue`, {}),
     // Manual e-invoice IRN from Tally (v1: paste; later written by integration).
-    recordIrn: (id: string, data: { irn: string; ackNo?: string | null; ackDate?: string | null }) =>
-      api.post<any>(`/invoices/${id}/irn`, data),
+    recordIrn: (
+      id: string,
+      data: { irn: string; ackNo?: string | null; ackDate?: string | null },
+    ) => api.post<any>(`/invoices/${id}/irn`, data),
     clearIrn: (id: string, reason: string) =>
       api.delete<any>(`/invoices/${id}/irn?reason=${encodeURIComponent(reason)}`),
     // Tally-style tax-invoice PDF download.
@@ -413,7 +436,10 @@ const api = {
         notes,
         // Sent as a list: product ids must not be rewritten by the key transform.
         edited_lines: editedQuantities
-          ? Object.entries(editedQuantities).map(([product_id, quantity]) => ({ product_id, quantity }))
+          ? Object.entries(editedQuantities).map(([product_id, quantity]) => ({
+              product_id,
+              quantity,
+            }))
           : undefined,
       }),
     salesReview: (id: string, action: "submit" | "approve" | "reject" | "push", notes?: string) =>
@@ -421,28 +447,33 @@ const api = {
     checkerApprove: (id: string, action: "approve" | "reject") =>
       api.post<any>(`/goods-sales-orders/${id}/checker-approve`, { action }),
     checkStock: (id: string, locationId?: string) =>
-      api.get<any>(
-        `/goods-sales-orders/${id}/stock-check${locationId ? `?locationId=${encodeURIComponent(locationId)}` : ""}`,
-      ).then((res) => camelizeResponse(res) as {
-        sufficient: boolean;
-        shortLines: Array<{
-          productId: string;
-          name: string;
-          required: number;
-          available: number;
-          onHand: number;
-          reservedByOthers: number;
-        }>;
-        lineChecks: Array<{
-          productId: string;
-          name: string;
-          required: number;
-          available: number;
-          onHand: number;
-          reservedByOthers: number;
-          sufficient: boolean;
-        }>;
-      }),
+      api
+        .get<any>(
+          `/goods-sales-orders/${id}/stock-check${locationId ? `?locationId=${encodeURIComponent(locationId)}` : ""}`,
+        )
+        .then(
+          (res) =>
+            camelizeResponse(res) as {
+              sufficient: boolean;
+              shortLines: Array<{
+                productId: string;
+                name: string;
+                required: number;
+                available: number;
+                onHand: number;
+                reservedByOthers: number;
+              }>;
+              lineChecks: Array<{
+                productId: string;
+                name: string;
+                required: number;
+                available: number;
+                onHand: number;
+                reservedByOthers: number;
+                sufficient: boolean;
+              }>;
+            },
+        ),
   },
 
   // Customer document approvals (public, token-authenticated — no login)
@@ -480,8 +511,16 @@ const api = {
     // send the order back for correction, confirm captures actuals.
     submitToFinance: (id: string, data: any) =>
       api.post<any>(`/goods-dispatches/${id}/submit-to-finance`, data),
-    recordEwb: (id: string, data: { ewbNumber?: string; generatedAt?: string; validUntil?: string; notRequired?: boolean; reason?: string }) =>
-      api.post<any>(`/goods-dispatches/${id}/record-ewb`, data),
+    recordEwb: (
+      id: string,
+      data: {
+        ewbNumber?: string;
+        generatedAt?: string;
+        validUntil?: string;
+        notRequired?: boolean;
+        reason?: string;
+      },
+    ) => api.post<any>(`/goods-dispatches/${id}/record-ewb`, data),
     sendBack: (id: string, reason: string) =>
       api.post<any>(`/goods-dispatches/${id}/send-back`, { reason }),
     downloadPackingSlip: async (id: string, filename?: string) => {
@@ -525,7 +564,13 @@ const api = {
     add: (
       docType: string,
       docId: string,
-      data: { text?: string; kind?: string; attachment?: { name: string; url: string } | null; mentionedUser?: string | null; docNumber?: string | null },
+      data: {
+        text?: string;
+        kind?: string;
+        attachment?: { name: string; url: string } | null;
+        mentionedUser?: string | null;
+        docNumber?: string | null;
+      },
     ) => api.post<any>(`/timeline/${docType}/${docId}`, data),
   },
 
@@ -878,69 +923,76 @@ const api = {
   // sales, debits → purchase) by UTR / invoice number / party + amount, then
   // record the confirmed lines as payments. Responses are camelized back.
   bankReconciliation: {
-    reconcile: (entries: Array<{
-      id?: string;
-      date?: string;
-      description?: string;
-      amount?: number;
-      type?: "credit" | "debit";
-      reference?: string;
-    }>) =>
-      api
-        .post<any>("/bank-reconciliation/reconcile", { entries })
-        .then((res) => camelizeResponse(res) as {
-          totalEntries: number;
-          matchedCount: number;
-          partialCount: number;
-          unmatchedCount: number;
-          alreadyAppliedCount: number;
-          matches: Array<{
-            entryId: string;
-            entryDate: string;
-            narration: string;
-            entryAmount: number;
-            entryType: "credit" | "debit";
-            matchedInvoiceId: string | null;
-            matchedInvoiceNumber: string | null;
-            matchedInvoiceType: "sales" | "purchase" | null;
-            partyName: string | null;
-            invoiceTotal: number | null;
-            invoiceBalance: number | null;
-            detectedUtr: string | null;
-            matchConfidence: "exact_utr" | "invoice_in_narration" | "amount_party_exact" | "unmatched";
-            amountMatches: boolean;
-            notes: string;
-            applied: boolean;
-          }>;
-        }),
+    reconcile: (
+      entries: Array<{
+        id?: string;
+        date?: string;
+        description?: string;
+        amount?: number;
+        type?: "credit" | "debit";
+        reference?: string;
+      }>,
+    ) =>
+      api.post<any>("/bank-reconciliation/reconcile", { entries }).then(
+        (res) =>
+          camelizeResponse(res) as {
+            totalEntries: number;
+            matchedCount: number;
+            partialCount: number;
+            unmatchedCount: number;
+            alreadyAppliedCount: number;
+            matches: Array<{
+              entryId: string;
+              entryDate: string;
+              narration: string;
+              entryAmount: number;
+              entryType: "credit" | "debit";
+              matchedInvoiceId: string | null;
+              matchedInvoiceNumber: string | null;
+              matchedInvoiceType: "sales" | "purchase" | null;
+              partyName: string | null;
+              invoiceTotal: number | null;
+              invoiceBalance: number | null;
+              detectedUtr: string | null;
+              matchConfidence:
+                "exact_utr" | "invoice_in_narration" | "amount_party_exact" | "unmatched";
+              amountMatches: boolean;
+              notes: string;
+              applied: boolean;
+            }>;
+          },
+      ),
 
-    apply: (matches: Array<{
-      entryId?: string;
-      matchedInvoiceId: string | null;
-      matchedInvoiceType: "sales" | "purchase" | null;
-      entryAmount: number;
-      entryDate?: string;
-      detectedUtr?: string | null;
-      narration?: string;
-    }>) =>
-      api
-        .post<any>("/bank-reconciliation/apply", { matches })
-        .then((res) => camelizeResponse(res) as {
-          success: boolean;
-          appliedCount: number;
-          failedCount: number;
-          results: Array<{
-            entryId: string | null;
-            invoiceId: string;
-            invoiceNumber: string;
-            invoiceType: string;
-            status: "applied" | "failed";
-            invoiceStatus: string | null;
-            amountApplied: number;
-            message: string;
-            error?: string;
-          }>;
-        }),
+    apply: (
+      matches: Array<{
+        entryId?: string;
+        matchedInvoiceId: string | null;
+        matchedInvoiceType: "sales" | "purchase" | null;
+        entryAmount: number;
+        entryDate?: string;
+        detectedUtr?: string | null;
+        narration?: string;
+      }>,
+    ) =>
+      api.post<any>("/bank-reconciliation/apply", { matches }).then(
+        (res) =>
+          camelizeResponse(res) as {
+            success: boolean;
+            appliedCount: number;
+            failedCount: number;
+            results: Array<{
+              entryId: string | null;
+              invoiceId: string;
+              invoiceNumber: string;
+              invoiceType: string;
+              status: "applied" | "failed";
+              invoiceStatus: string | null;
+              amountApplied: number;
+              message: string;
+              error?: string;
+            }>;
+          },
+      ),
   },
 };
 
