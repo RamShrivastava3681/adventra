@@ -135,6 +135,7 @@ import * as Journal from "../models/journal.js";
 import * as CDNote from "../models/credit-debit-note.js";
 import * as Combined from "../models/models-combined.js";
 import * as StockLocation from "../models/stock-location.js";
+import * as MarketplaceAllocation from "../models/marketplace-allocation.js";
 import * as DebtorTerm from "../models/debtor-payment-term.js";
 import * as WorkflowTask from "../models/workflow-task.js";
 import * as DocTimeline from "../models/doc-timeline.js";
@@ -658,6 +659,9 @@ router.post("/products", authMiddleware, async (req, res) => {
     } catch (err: any) {
       return res.status(400).json({ error: err.message });
     }
+  }
+  if (!String(body.hsnCode ?? "").trim()) {
+    return res.status(400).json({ error: "HSN code is required" });
   }
   try {
     const item = await Product.create({
@@ -3877,7 +3881,7 @@ router.put("/purchase-invoices/:id", authMiddleware, async (req, res) => {
           : toStatus === "paid" || toStatus === "partially_paid"
             ? isAdmin || isTreasury
             : toStatus === "approved_for_payment"
-              ? isAdmin || isChecker
+              ? isAdmin || isChecker || isCreator || isOperations
               : toStatus === "verified"
                 ? // Procurement pushes its invoices to the checker (verified).
                   isAdmin || isCreator || isOperations
@@ -4280,29 +4284,25 @@ router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
     // ── Maker–checker–treasury funding workflow (enforced server-side) ──
     // pending_review (maker) → approved/rejected (checker) → funded (treasury).
     if (body.proformaStatus !== undefined) {
-      const roles: string[] = req.user!.roles || [];
-      const isAdmin = roles.includes("factor_admin");
-      const isChecker = roles.includes("checker");
-      const isTreasury = roles.includes("treasury");
-      switch (body.proformaStatus) {
-        case "approved":
-        case "rejected": {
-          if (!isAdmin && !isChecker) {
-            return res
-              .status(403)
-              .json({
-                error:
-                  "Only the checker (or admin) can approve or reject proformas",
-              });
-          }
-          if (!isAdmin && current.clientId === req.user!.userId) {
-            return res
-              .status(403)
-              .json({
-                error:
-                  "You cannot review a proforma you created (segregation of duties)",
-              });
-          }
+     const roles: string[] = req.user!.roles || [];
+     const isAdmin = roles.includes("factor_admin");
+     const isChecker = roles.includes("checker");
+     const isTreasury = roles.includes("treasury");
+     const isOperations = roles.includes("operations");
+     switch (body.proformaStatus) {
+         case "approved":
+         case "rejected": {
+           // Checker approval is no longer required for proformas — makers
+           // (and operations) can move a proforma straight to the approved
+           // (treasury-funding) stage.
+           if (!isAdmin && !isChecker && !isOperations && req.user!.userId !== current.clientId) {
+             return res
+               .status(403)
+               .json({
+                 error:
+                   "Only the maker, operations, checker or admin can approve or reject proformas",
+               });
+           }
           if (current.proformaStatus === "funded") {
             return res
               .status(400)
@@ -6454,10 +6454,10 @@ router.post(
       const so = await GoodsSO.get(req.params.id);
       if (!so) return res.status(404).json({ error: "Sales order not found" });
       const action = String(req.body?.action || "approve");
-      const transitions: Record<string, { from: string; to: string }> = {
-        approve: { from: "warehouse_pending", to: "checker_pending" },
-        reject: { from: "warehouse_pending", to: "draft" },
-      };
+       const transitions: Record<string, { from: string; to: string }> = {
+         approve: { from: "warehouse_pending", to: "confirmed" },
+         reject: { from: "warehouse_pending", to: "draft" },
+       };
       const transition = transitions[action];
       if (!transition)
         return res.status(400).json({ error: "action must be approve or reject" });
@@ -6546,12 +6546,12 @@ router.post(
               stockStatus: stockStatus as any,
               dispatchLocation: req.body?.dispatchLocation ? String(req.body.dispatchLocation) : so.dispatchLocation,
               expectedInwardDate: stockStatus === "in_transit" ? String(req.body?.expectedInwardDate || "") || null : null,
-              reservedBy: req.user!.userId,
-              reservedAt: new Date().toISOString(),
-              workflowStatus: "checker_pending",
-              currentOwnerRole: "checker",
-              nextRequiredAction: "Approve or reject Sales Order",
-            }
+               reservedBy: req.user!.userId,
+               reservedAt: new Date().toISOString(),
+               workflowStatus: "sent_to_client",
+               currentOwnerRole: "client",
+               nextRequiredAction: "Accept, reject or request change",
+             }
           : {}),
       });
       trackAction(req, `sales_order.warehouse_${action}`, so.id, {
@@ -6563,30 +6563,45 @@ router.post(
         action === "approve"
           ? `Warehouse ${stockStatus === "in_transit" ? "marked Stock In Transit" : "reserved stock"} at ${req.body?.dispatchLocation || so.dispatchLocation || "warehouse"}${editedLines ? " (line quantities reduced to available stock)" : ""}${req.body?.notes ? ` — ${req.body.notes}` : ""}`
           : `Warehouse put order on hold${req.body?.notes ? `: ${req.body.notes}` : ""}`);
-      // Signed off → pending in checker: mail admin, treasury, checker users.
-      if (action === "approve" && transition.to === "checker_pending") {
-        notifyPendingQueue(req, {
-          stage: "checker",
-          kind: "sales_order",
-          number: so.soNumber,
-          amount: Number((updated as any)?.grandTotal ?? so.grandTotal) || 0,
-          dueDate: (updated as any)?.expectedDeliveryDate ?? (so as any)?.expectedDeliveryDate ?? null,
-          reviewPath: "/app/checker",
-        });
+      // Signed off → confirmed (no checker): auto-send the SO to the client.
+      if (action === "approve") {
+        let sendNote: string | null = null;
+        try {
+          const sent = await sendDocumentToDebtor("sales_order", { ...so, ...(updated as any) }, so.clientId);
+          await GoodsSO.update(so.id, {
+            debtorApprovalStatus: "pending",
+            debtorApprovalToken: sent.token,
+            debtorApprovalSentAt: db.nowISO(),
+            debtorApprovalRespondedAt: null,
+            debtorApprovalComments: null,
+            debtorApprovalEmail: sent.email,
+          });
+          timelineStatus(req, { clientId: so.clientId, docType: "sales_order", docId: so.id, docNumber: so.soNumber },
+            "confirmed", "sent_to_client", `Warehouse approved — SO emailed to ${sent.email} for client acceptance`);
+        } catch (e: any) {
+          sendNote = e?.message ?? "automatic email failed";
+          timelineStatus(req, { clientId: so.clientId, docType: "sales_order", docId: so.id, docNumber: so.soNumber },
+            "confirmed", "confirmed", `Warehouse approved — auto-email failed (${sendNote}); resend from Sales Orders`);
+        }
         advanceWorkflow(req, {
           workflowType: "sales_order",
-          stage: "checker_approval",
+          stage: "client_acceptance",
           docType: "sales_order",
           docId: so.id,
           docNumber: so.soNumber,
           counterparty: so.customerName,
-          docStatus: "checker_pending",
-          ownerRole: "checker",
-          requiredAction: "Approve or reject Sales Order",
-          nextAction: "Send to Client",
+          docStatus: "confirmed",
+          ownerRole: "client",
+          requiredAction: "Accept, reject or request change",
+          nextAction: "Create Finance task",
           amount: Number((updated as any)?.grandTotal ?? so.grandTotal) || 0,
           inventoryStatus: (updated as any)?.stockStatus ?? "reserved",
-        }, { timelineKind: "system", docType: "sales_order", appPath: "/app/checker" });
+        }, {
+          timelineKind: "system",
+          timelineText: sendNote ? `Awaiting client acceptance (auto-email failed: ${sendNote})` : "Awaiting client acceptance — approval link emailed",
+          docType: "sales_order",
+          appPath: "/app/sales-orders",
+        });
       }
       res.json(updated);
     } catch (err: any) {
@@ -10620,19 +10635,33 @@ router.get("/stock-summary", authMiddleware, async (req, res) => {
   try {
     const clientId = effectiveListScope(req);
     const productId = req.query.productId as string | undefined;
-    const [movements, locations, products] = await Promise.all([
+    const [movements, locations, products, allocations] = await Promise.all([
       StockMovement.list(clientId),
       StockLocation.list(clientId),
       Product.list(clientId),
+      MarketplaceAllocation.list(clientId),
     ]);
     const confirmed = movements.filter((m: any) => m.status === "confirmed");
     const activeProducts = products.filter((p: any) => p.status === "active");
+
+    // Marketplace reservations are subtracted from the location's available
+    // stock (on-hand itself is unchanged — reserved stock is still owned).
+    const reservedByLocationProduct = new Map<string, number>();
+    for (const allocation of allocations) {
+      if (allocation.status !== "active") continue;
+      const key = `${allocation.productId}::${allocation.sourceLocationId ?? ""}`;
+      reservedByLocationProduct.set(
+        key,
+        (reservedByLocationProduct.get(key) ?? 0) + (Number(allocation.reservedQuantity) || 0),
+      );
+    }
 
     const result: any[] = [];
     for (const p of productId ? activeProducts.filter((p: any) => p.id === productId) : activeProducts) {
       const pMovements = confirmed.filter((m: any) => m.productId === p.id);
       const locationBreakdown: any[] = [];
       let totalCompanyStock = 0;
+      let totalReservedStock = 0;
 
       for (const loc of locations) {
         let qty = 0;
@@ -10643,8 +10672,17 @@ router.get("/stock-summary", authMiddleware, async (req, res) => {
             qty -= Number(m.quantity);
           }
         }
-        locationBreakdown.push({ locationId: loc.id, locationName: loc.name, locationType: loc.locationType, quantity: qty });
+        const reservedQuantity = reservedByLocationProduct.get(`${p.id}::${loc.id}`) ?? 0;
+        locationBreakdown.push({
+          locationId: loc.id,
+          locationName: loc.name,
+          locationType: loc.locationType,
+          quantity: qty,
+          reservedQuantity,
+          availableQuantity: qty - reservedQuantity,
+        });
         totalCompanyStock += qty;
+        totalReservedStock += reservedQuantity;
       }
       // Also count movements without a location (legacy)
       let legacyStock = 0;
@@ -10654,7 +10692,7 @@ router.get("/stock-summary", authMiddleware, async (req, res) => {
         }
       }
       if (legacyStock !== 0) {
-        locationBreakdown.unshift({ locationId: "_legacy", locationName: "Unallocated (Legacy)", locationType: "other_warehouse", quantity: legacyStock });
+        locationBreakdown.unshift({ locationId: "_legacy", locationName: "Unallocated (Legacy)", locationType: "other_warehouse", quantity: legacyStock, reservedQuantity: 0, availableQuantity: legacyStock });
         totalCompanyStock += legacyStock;
       }
 
@@ -10663,6 +10701,8 @@ router.get("/stock-summary", authMiddleware, async (req, res) => {
         sku: p.sku,
         name: p.name,
         totalCompanyStock,
+        reservedStock: totalReservedStock,
+        availableStock: totalCompanyStock - totalReservedStock,
         locationBreakdown,
       });
     }
@@ -10671,6 +10711,190 @@ router.get("/stock-summary", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ===================== MARKETPLACE ALLOCATIONS =====================
+/**
+ * GET /marketplace-allocations — stock reserved for each marketplace.
+ * Active reservations are deducted from the source location's available stock
+ * in /stock-summary; on-hand stock itself is unchanged.
+ */
+router.get("/marketplace-allocations", authMiddleware, async (req, res) => {
+  try {
+    const items = await MarketplaceAllocation.list(effectiveListScope(req));
+    res.json(items);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /marketplace-allocations — reserve on-hand stock for a marketplace.
+ * Validates that the source location holds enough un-reserved stock so the
+ * same units cannot be promised to two channels.
+ */
+router.post("/marketplace-allocations", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const body = req.body || {};
+    const marketplace = String(body.marketplace ?? "").toLowerCase();
+    if (!MarketplaceAllocation.isMarketplace(marketplace)) {
+      return res.status(400).json({ error: "Select a valid marketplace" });
+    }
+    if (!body.productId) return res.status(400).json({ error: "Product is required" });
+    const quantity = Number(body.quantity);
+    if (!(quantity > 0)) {
+      return res.status(400).json({ error: "Quantity must be greater than zero" });
+    }
+
+    const product = await Product.get(body.productId);
+    if (!product) return res.status(400).json({ error: "Product not found" });
+
+    const sourceLocation = body.sourceLocationId
+      ? await StockLocation.get(body.sourceLocationId)
+      : await StockLocation.getDefaultLocation(clientId);
+    if (!sourceLocation) {
+      return res.status(400).json({ error: "Source location not found" });
+    }
+
+    const scope = effectiveListScope(req);
+    const [movements, allocations] = await Promise.all([
+      StockMovement.list(scope),
+      MarketplaceAllocation.list(scope),
+    ]);
+    let onHand = 0;
+    for (const m of movements) {
+      if (m.status !== "confirmed" || m.productId !== product.id) continue;
+      if (m.direction === "in" && m.destinationLocationId === sourceLocation.id) {
+        onHand += Number(m.quantity);
+      } else if (m.direction === "out" && m.sourceLocationId === sourceLocation.id) {
+        onHand -= Number(m.quantity);
+      }
+    }
+    const alreadyReserved = allocations
+      .filter(
+        (a) =>
+          a.status === "active" &&
+          a.productId === product.id &&
+          a.sourceLocationId === sourceLocation.id,
+      )
+      .reduce((sum, a) => sum + (Number(a.reservedQuantity) || 0), 0);
+    const available = onHand - alreadyReserved;
+    if (available < quantity) {
+      return res.status(400).json({
+        error: `Insufficient un-reserved stock at ${sourceLocation.name}. Available: ${available}, Requested: ${quantity}`,
+      });
+    }
+
+    const item = await MarketplaceAllocation.create({
+      clientId,
+      marketplace,
+      marketplaceName:
+        MarketplaceAllocation.MARKETPLACE_LABELS[marketplace] ?? marketplace,
+      productId: product.id,
+      sku: product.sku ?? null,
+      productName: product.name,
+      unit: product.unitOfMeasure || "unit",
+      quantity,
+      sourceLocationId: sourceLocation.id,
+      sourceLocationName: sourceLocation.name,
+      notes: String(body.notes ?? "").trim() || null,
+      createdById: req.user!.userId,
+      createdByName: req.user!.email,
+    });
+    trackAction(req, "marketplace_allocation.created", item.id, {
+      entityType: "marketplace_allocation",
+      entityRef: item.allocationNumber,
+      marketplace,
+      productId: product.id,
+      sku: product.sku,
+      quantity,
+      sourceLocationId: sourceLocation.id,
+    });
+    res.status(201).json(item);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** POST /marketplace-allocations/:id/reverse — release a reservation. */
+router.post(
+  "/marketplace-allocations/:id/reverse",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const current = await MarketplaceAllocation.get(req.params.id);
+      if (!current) {
+        return res.status(404).json({ error: "Marketplace allocation not found" });
+      }
+      const item = await MarketplaceAllocation.reverse(current.id, {
+        id: req.user!.userId,
+        name: req.user!.email,
+      });
+      trackAction(req, "marketplace_allocation.reversed", current.id, {
+        entityType: "marketplace_allocation",
+        entityRef: current.allocationNumber,
+        marketplace: current.marketplace,
+        productId: current.productId,
+        sku: current.sku,
+        remainingQuantity: current.reservedQuantity,
+      });
+      res.json(item);
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  },
+);
+
+/**
+ * POST /marketplace-allocations/consume — decrement reserved stock when a
+ * marketplace order is fulfilled. Raises an out-of-stock alert for each
+ * reservation that reaches zero.
+ */
+router.post(
+  "/marketplace-allocations/consume",
+  authMiddleware,
+  async (req, res) => {
+    try {
+      const body = req.body || {};
+      const marketplace = String(body.marketplace ?? "").toLowerCase();
+      if (!MarketplaceAllocation.isMarketplace(marketplace)) {
+        return res.status(400).json({ error: "Select a valid marketplace" });
+      }
+      const quantity = Number(body.quantity);
+      if (!(quantity > 0)) {
+        return res.status(400).json({ error: "Quantity must be greater than zero" });
+      }
+
+      const result = await MarketplaceAllocation.consume({
+        clientId: effectiveListScope(req),
+        marketplace,
+        productId: body.productId ?? null,
+        sku: body.sku ?? null,
+        quantity,
+      });
+
+      let alertsRaised = 0;
+      for (const allocation of result.depleted) {
+        await Alert.create({
+          clientId: allocation.clientId,
+          productId: allocation.productId,
+          type: "marketplace_out_of_stock",
+          severity: "critical",
+          message: `Marketplace stock out: ${allocation.marketplaceName} reserved stock for ${allocation.productName} (SKU: ${allocation.sku || "—"}) is now 0 units. Replenish this marketplace allocation.`,
+        });
+        alertsRaised++;
+      }
+
+      res.json({
+        consumed: result.consumed,
+        depletedAllocations: result.depleted,
+        alertsRaised,
+      });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message });
+    }
+  },
+);
 
 // ===================== STOCK TRANSFER =====================
 /**
@@ -10701,8 +10925,19 @@ router.post("/stock-transfers", authMiddleware, async (req, res) => {
       if (m.direction === "in" && m.destinationLocationId === sourceLocationId) sourceStock += Number(m.quantity);
       else if (m.direction === "out" && m.sourceLocationId === sourceLocationId) sourceStock -= Number(m.quantity);
     }
-    if (sourceStock < Number(quantity)) {
-      return res.status(400).json({ error: `Insufficient stock at source location. Available: ${sourceStock}, Requested: ${quantity}` });
+    // Marketplace reservations are a hard hold — transferring them away would
+    // break the promise made to the channel.
+    const marketplaceReserved = (await MarketplaceAllocation.list(effectiveListScope(req)))
+      .filter(
+        (a) =>
+          a.status === "active" &&
+          a.productId === productId &&
+          a.sourceLocationId === sourceLocationId,
+      )
+      .reduce((sum, a) => sum + (Number(a.reservedQuantity) || 0), 0);
+    const availableAtSource = sourceStock - marketplaceReserved;
+    if (availableAtSource < Number(quantity)) {
+      return res.status(400).json({ error: `Insufficient un-reserved stock at source location. Available: ${availableAtSource}, Reserved for marketplaces: ${marketplaceReserved}, Requested: ${quantity}` });
     }
 
     const transferId = uuid();

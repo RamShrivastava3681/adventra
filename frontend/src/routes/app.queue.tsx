@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useState } from "react";
 import api from "@/lib/api-client";
@@ -66,6 +66,7 @@ type Row = {
 };
 
 export function QueuePage() {
+  const navigate = useNavigate();
   const { isAdmin, isTreasury: isTreasuryRole, user } = useAuth();
   const isTreasury = isTreasuryRole || isAdmin;
   const qc = useQueryClient();
@@ -230,14 +231,18 @@ export function QueuePage() {
     },
   });
 
+  const [fundFor, setFundFor] = useState<any | null>(null);
+  const [fundUtr, setFundUtr] = useState("");
   const fundProforma = useMutation({
-    mutationFn: async (p: any) => {
+    mutationFn: async ({ p, utr }: { p: any; utr: string }) => {
       const today = new Date().toISOString().slice(0, 10);
+      if (!utr.trim()) throw new Error("UTR / payment reference is required");
       await api.purchaseOrders.update(p.id, {
         proforma_status: "funded",
         proforma_funded_by: user!.id,
         proforma_funded_at: new Date().toISOString(),
         proforma_funded_amount: Number(p.amount),
+        proforma_funding_reference: utr.trim(),
       });
       await api.advances.create({
         clientId: p.client_id,
@@ -245,7 +250,7 @@ export function QueuePage() {
         purchaseOrderId: p.id,
         amount: Number(p.amount),
         advanceDate: today,
-        reference: p.proforma_number ?? p.po_number,
+        reference: utr.trim(),
         status: "open",
       });
     },
@@ -512,7 +517,7 @@ export function QueuePage() {
                     <th className="px-5 py-2 text-left font-normal">Counterparty</th>
                     <th className="px-5 py-2 text-right font-normal">Gross</th>
                     <th className="px-5 py-2 text-right font-normal">Advance applied</th>
-                    <th className="px-5 py-2 text-right font-normal">Balance</th>
+                    <th className="px-5 py-2 text-right font-normal">Balance remaining</th>
                     <th className="px-5 py-2 text-left font-normal">Due</th>
                     <th className="px-5 py-2 text-right font-normal">Late days</th>
                     <th className="px-5 py-2 text-left font-normal">Status</th>
@@ -552,7 +557,10 @@ export function QueuePage() {
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                               <span className="font-mono text-xs">{r.invoice_number}</span>
                               <button
-                                onClick={() => setViewInv({ kind: r.kind, raw: r.raw })}
+                                onClick={() => {
+                                  if (r.kind === "sale") navigate({ to: "/app/invoices", search: { view: r.id } });
+                                  else navigate({ to: "/app/purchases", search: { openInvoice: r.id } });
+                                }}
                                 className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-sans text-muted-foreground hover:border-primary hover:text-primary"
                                 title="View invoice details"
                               >
@@ -671,7 +679,7 @@ export function QueuePage() {
                       <td className="px-5 py-3 text-right">
                         {isTreasury ? (
                           <button
-                            onClick={() => fundProforma.mutate(p)}
+                            onClick={() => { setFundFor(p); setFundUtr(""); }}
                             disabled={fundProforma.isPending}
                             className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-sem-attention/50 px-2.5 py-1 text-xs text-sem-attention hover:bg-sem-attention/10 disabled:opacity-60"
                           >
@@ -691,6 +699,34 @@ export function QueuePage() {
           )}
         </Card>
 
+        {fundFor && (
+          <div className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4" onClick={() => setFundFor(null)}>
+            <div className="w-full max-w-md rounded-xl border border-border bg-card p-5" onClick={(e) => e.stopPropagation()}>
+              <h3 className="font-display text-lg">Fund proforma advance</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {fundFor.proforma_number ?? fundFor.po_number} — {fmtMoney(fundFor.amount)}
+              </p>
+              <label className="mt-4 block text-xs uppercase tracking-widest text-muted-foreground">UTR / payment reference *</label>
+              <input
+                className="inp mt-1 w-full"
+                value={fundUtr}
+                onChange={(e) => setFundUtr(e.target.value)}
+                placeholder="Enter UTR / reference"
+                autoFocus
+              />
+              <div className="mt-4 flex justify-end gap-2">
+                <button onClick={() => setFundFor(null)} className="rounded-md border border-border px-3 py-1.5 text-xs">Cancel</button>
+                <button
+                  onClick={() => fundProforma.mutate({ p: fundFor, utr: fundUtr }, { onSuccess: () => setFundFor(null) })}
+                  disabled={fundProforma.isPending || !fundUtr.trim()}
+                  className="rounded-md border border-primary/50 px-3 py-1.5 text-xs text-primary hover:bg-primary/10 disabled:opacity-60"
+                >
+                  {fundProforma.isPending ? "Funding…" : "Fund"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {viewInv && (
           <InvoiceDetailModal
             invoice={viewInv.raw}

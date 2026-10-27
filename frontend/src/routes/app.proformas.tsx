@@ -401,16 +401,15 @@ function ProformasPageContent({
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  // Maker action: explicitly submit a draft (or checker-rejected) proforma to
-  // the checker. Approval itself only ever happens on the Checker workbench —
-  // procurement/finance can never approve from here.
+  // Maker action: submit a draft proforma straight to the approved (treasury
+  // funding) stage — checker approval is no longer required.
   const submitForReview = useMutation({
     mutationFn: async (id: string) => {
-      await api.purchaseOrders.update(id, { proforma_status: "pending_review" });
+      await api.purchaseOrders.update(id, { proforma_status: "approved" });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["proformas"] });
-      toast.success("Submitted to checker for review");
+      toast.success("Approved — sent to treasury funding");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -638,8 +637,8 @@ function ProformasPageContent({
                                       disabled={submitForReview.isPending}
                                       className="rounded-md border border-primary/50 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10 disabled:opacity-50"
                                     >
-                                      Submit to checker
-                                    </button>
+                                       Approve & send to treasury
+                                     </button>
                                   )}
                                 {/* No approve/reject here: approval is a
                                   checker-only decision made on the Checker
@@ -795,6 +794,7 @@ function SalesProformaModal({
     amount: pf?.amount != null && pf.amount > 0 ? String(pf.amount) : "",
     freight: pf?.freight != null ? String(pf.freight) : "",
   });
+  const [linesLocked, setLinesLocked] = useState(false);
   const [lines, setLines] = useState<LineDraft[]>(
     (pf?.lines ?? []).map((l) => ({
       product_id: l.product_id,
@@ -905,8 +905,10 @@ function SalesProformaModal({
   const pickSo = (id: string) => {
     if (!id) {
       setF((prev) => ({ ...prev, linked_so_id: "" }));
+      setLinesLocked(false);
       return;
     }
+    setLinesLocked(true);
     const so = (sosQ.data ?? []).find((x: any) => x.id === id) as any;
     if (!so) {
       setF((prev) => ({ ...prev, linked_so_id: id }));
@@ -1069,9 +1071,10 @@ function SalesProformaModal({
                 onChange={(e) => setF({ ...f, proforma_date: e.target.value })}
               />
             </L>
-            <L label="Customer *">
-              <SearchableSelect
-                value={f.party_id}
+             <L label="Customer *">
+               <SearchableSelect
+                 disabled={linesLocked}
+                 value={f.party_id}
                 onChange={(v) => {
                   const d = (partiesQ.data ?? []).find((x) => x.id === v);
                   setF((prev) => ({
@@ -1184,7 +1187,7 @@ function SalesProformaModal({
         </fieldset>
 
         {/* Lines */}
-        <fieldset className="rounded-lg border border-border/60 p-4">
+        <fieldset disabled={linesLocked} className="rounded-lg border border-border/60 p-4">
           <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
             Product lines
           </legend>
@@ -1424,6 +1427,7 @@ function PurchaseProformaModal({
     amount: pf?.amount != null && pf.amount > 0 ? String(pf.amount) : "",
     freight: pf?.freight != null ? String(pf.freight) : "",
   });
+  const [linesLocked, setLinesLocked] = useState(false);
   const [lines, setLines] = useState<LineDraft[]>(
     (pf?.lines ?? []).map((l) => ({
       product_id: l.product_id,
@@ -1545,8 +1549,10 @@ function PurchaseProformaModal({
   const pickPo = (id: string) => {
     if (!id) {
       setF((prev) => ({ ...prev, linked_po_id: "" }));
+      setLinesLocked(false);
       return;
     }
+    setLinesLocked(true);
     const po = (posQ.data ?? []).find((x: any) => x.id === id) as any;
     if (!po) {
       setF((prev) => ({ ...prev, linked_po_id: id }));
@@ -1813,6 +1819,7 @@ function PurchaseProformaModal({
             </L>
             <L label="Supplier *">
               <SearchableSelect
+                disabled={linesLocked}
                 value={f.supplier_id}
                 onChange={(v) => {
                   const s = suppliers.find((x) => x.id === v) as any;
@@ -1937,13 +1944,13 @@ function PurchaseProformaModal({
               scope="proformas"
               docs={docs}
               onChange={setDocs}
-              hint="Attach the supplier proforma / quotation (PDF or image)."
+               hint="Attach the document received from supplier (proforma / quotation PDF or image)."
             />
           </div>
         </fieldset>
 
         {/* Lines */}
-        <fieldset className="rounded-lg border border-border/60 p-4">
+        <fieldset disabled={linesLocked} className="rounded-lg border border-border/60 p-4">
           <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
             Product lines
           </legend>

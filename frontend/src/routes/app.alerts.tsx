@@ -122,7 +122,8 @@ function actionGroup(e: AuditEntry): string {
   if (part === "approved") return "approved";
   if (part === "rejected") return "rejected";
   if (part === "disputed") return "disputed";
-  if (part === "paid" || part === "payment" || part === "partially_paid" || part === "funded") return "paid";
+  if (part === "paid" || part === "payment" || part === "partially_paid" || part === "funded")
+    return "paid";
   if (part === "verified") return "verified";
   if (part === "confirmed") return "confirmed";
   if (part === "cancelled") return "cancelled";
@@ -166,7 +167,16 @@ function roleBadgeClass(roles: string[] | undefined): string {
 
 function primaryRoleLabel(roles: string[] | undefined): string {
   const r = roles ?? [];
-  for (const x of ["super_admin", "factor_admin", "checker", "treasury", "reporting_manager", "sales_rep", "operations", "client"]) {
+  for (const x of [
+    "super_admin",
+    "factor_admin",
+    "checker",
+    "treasury",
+    "reporting_manager",
+    "sales_rep",
+    "operations",
+    "client",
+  ]) {
     if (r.includes(x)) return ROLE_LABELS[x] ?? x;
   }
   return "User";
@@ -192,35 +202,64 @@ function activityMessage(e: AuditEntry): string {
   const d = e.detail ?? {};
   const amt = money(d.amount ?? d.amount_paid ?? d.amount_received);
   switch (e.action) {
-    case "invoice.created": return `Invoice ${ref} was created`;
-    case "invoice.issued": return `Invoice ${ref} was submitted for review`;
-    case "invoice.approved": return `Invoice ${ref} was approved`;
-    case "invoice.rejected": return `Invoice ${ref} was rejected`;
-    case "invoice.disputed": return `Invoice ${ref} was marked as disputed`;
-    case "invoice.payment": return `Payment of ${amt || "—"} was recorded on ${ref}`;
-    case "invoice.cancelled": return `Invoice ${ref} was cancelled`;
-    case "purchase_invoice.created": return `Purchase invoice ${ref} was created`;
-    case "purchase_invoice.verified": return `Purchase invoice ${ref} was verified`;
-    case "purchase_invoice.approved": return `Purchase invoice ${ref} was approved for payment`;
-    case "purchase_invoice.partially_paid": return `Purchase invoice ${ref} was partially paid`;
-    case "purchase_invoice.paid": return `Purchase invoice ${ref} was paid`;
-    case "purchase_invoice.payment": return `Payment of ${amt || "—"} was recorded on purchase invoice ${ref}`;
-    case "purchase_invoice.cancelled": return `Purchase invoice ${ref} was cancelled`;
-    case "proforma.created": return `Proforma ${ref} was created`;
-    case "proforma.submitted": return `Proforma ${ref} was submitted for review`;
-    case "proforma.approved": return `Proforma ${ref} was approved`;
-    case "proforma.rejected": return `Proforma ${ref} was rejected`;
-    case "proforma.funded": return `Proforma ${ref} was funded`;
-    case "grn.confirmed": return `GRN ${ref} was confirmed — stock credited`;
-    case "grn.cancelled": return `GRN ${ref} was cancelled`;
-    case "dispatch.confirmed": return `Dispatch ${ref} was confirmed — released for picking`;
-    case "dispatch.cancelled": return `Dispatch ${ref} was cancelled`;
-    case "dispatch.delivered": return `Dispatch ${ref} was marked delivered`;
-    case "dispatch.returned": return `Return was recorded on dispatch ${ref}`;
-    case "stock.created": return `Stock movement was created for ${ref}`;
-    case "stock.confirmed": return `Stock movement ${ref} was confirmed`;
-    case "stock.cancelled": return `Stock movement ${ref} was cancelled`;
-    case "expense.created": return `Expense ${ref} was created`;
+    case "invoice.created":
+      return `Invoice ${ref} was created`;
+    case "invoice.issued":
+      return `Invoice ${ref} was submitted for review`;
+    case "invoice.approved":
+      return `Invoice ${ref} was approved`;
+    case "invoice.rejected":
+      return `Invoice ${ref} was rejected`;
+    case "invoice.disputed":
+      return `Invoice ${ref} was marked as disputed`;
+    case "invoice.payment":
+      return `Payment of ${amt || "—"} was recorded on ${ref}`;
+    case "invoice.cancelled":
+      return `Invoice ${ref} was cancelled`;
+    case "purchase_invoice.created":
+      return `Purchase invoice ${ref} was created`;
+    case "purchase_invoice.verified":
+      return `Purchase invoice ${ref} was verified`;
+    case "purchase_invoice.approved":
+      return `Purchase invoice ${ref} was approved for payment`;
+    case "purchase_invoice.partially_paid":
+      return `Purchase invoice ${ref} was partially paid`;
+    case "purchase_invoice.paid":
+      return `Purchase invoice ${ref} was paid`;
+    case "purchase_invoice.payment":
+      return `Payment of ${amt || "—"} was recorded on purchase invoice ${ref}`;
+    case "purchase_invoice.cancelled":
+      return `Purchase invoice ${ref} was cancelled`;
+    case "proforma.created":
+      return `Proforma ${ref} was created`;
+    case "proforma.submitted":
+      return `Proforma ${ref} was submitted for review`;
+    case "proforma.approved":
+      return `Proforma ${ref} was approved`;
+    case "proforma.rejected":
+      return `Proforma ${ref} was rejected`;
+    case "proforma.funded":
+      return `Proforma ${ref} was funded`;
+    case "grn.confirmed":
+      return `GRN ${ref} was confirmed — stock credited`;
+    case "grn.cancelled":
+      return `GRN ${ref} was cancelled`;
+    case "dispatch.confirmed":
+      return `Dispatch ${ref} was confirmed — released for picking`;
+    case "dispatch.cancelled":
+      return `Dispatch ${ref} was cancelled`;
+    case "dispatch.delivered":
+      return `Dispatch ${ref} was marked delivered`;
+    case "dispatch.returned":
+      return `Return was recorded on dispatch ${ref}`;
+    case "stock.created":
+      return `Stock movement was created for ${ref}`;
+    case "stock.confirmed":
+      return `Stock movement ${ref} was confirmed`;
+    case "stock.cancelled":
+      return `Stock movement ${ref} was cancelled`;
+    case "expense.created":
+      return `Expense ${ref} was created`;
     default:
       if (e.action.startsWith("admin.")) {
         const parts = e.action.split(".").filter(Boolean).slice(1);
@@ -234,21 +273,33 @@ function activityMessage(e: AuditEntry): string {
 
 function activityMeta(e: AuditEntry): { icon: LucideIcon; chip: string } {
   const a = e.action;
-  if (["invoice.payment", "purchase_invoice.paid", "purchase_invoice.partially_paid", "purchase_invoice.payment", "proforma.funded"].includes(a))
+  if (
+    [
+      "invoice.payment",
+      "purchase_invoice.paid",
+      "purchase_invoice.partially_paid",
+      "purchase_invoice.payment",
+      "proforma.funded",
+    ].includes(a)
+  )
     return { icon: Landmark, chip: "bg-sem-success/15 text-sem-success" };
   if (["invoice.approved", "purchase_invoice.approved", "proforma.approved"].includes(a))
     return { icon: ShieldCheck, chip: "bg-sem-success/15 text-sem-success" };
   if (["invoice.rejected", "proforma.rejected"].includes(a))
     return { icon: ShieldX, chip: "bg-sem-critical/15 text-sem-critical" };
-  if (a === "invoice.disputed") return { icon: ShieldAlert, chip: "bg-sem-caution/15 text-sem-caution" };
+  if (a === "invoice.disputed")
+    return { icon: ShieldAlert, chip: "bg-sem-caution/15 text-sem-caution" };
   if (a.startsWith("invoice.")) return { icon: Receipt, chip: "bg-sem-info/15 text-sem-info" };
-  if (a.startsWith("purchase_invoice.")) return { icon: FileSpreadsheet, chip: "bg-sem-info/15 text-sem-info" };
+  if (a.startsWith("purchase_invoice."))
+    return { icon: FileSpreadsheet, chip: "bg-sem-info/15 text-sem-info" };
   if (a.startsWith("proforma.")) return { icon: FileText, chip: "bg-sem-info/15 text-sem-info" };
   if (a.startsWith("grn.")) return { icon: PackageCheck, chip: "bg-sem-info/15 text-sem-info" };
-  if (a.startsWith("dispatch.")) return { icon: Truck, chip: "bg-sem-attention/15 text-sem-attention" };
+  if (a.startsWith("dispatch."))
+    return { icon: Truck, chip: "bg-sem-attention/15 text-sem-attention" };
   if (a.startsWith("stock.")) return { icon: Package, chip: "bg-sem-info/15 text-sem-info" };
   if (a.startsWith("expense.")) return { icon: Wallet, chip: "bg-muted text-muted-foreground" };
-  if (a.startsWith("admin.")) return { icon: Shield, chip: "bg-slate-500/15 text-slate-600 dark:text-slate-400" };
+  if (a.startsWith("admin."))
+    return { icon: Shield, chip: "bg-slate-500/15 text-slate-600 dark:text-slate-400" };
   return { icon: Activity, chip: "bg-muted text-muted-foreground" };
 }
 
@@ -346,8 +397,7 @@ function AlertsPage() {
           );
         }
         return (
-          item.alert.message.toLowerCase().includes(s) ||
-          item.alert.type.toLowerCase().includes(s)
+          item.alert.message.toLowerCase().includes(s) || item.alert.type.toLowerCase().includes(s)
         );
       });
     }
@@ -366,7 +416,9 @@ function AlertsPage() {
 
     if (actionFilter !== "all") {
       list = list.filter((item) =>
-        item.kind === "activity" ? actionGroup(item.entry) === actionFilter : "alert" === actionFilter,
+        item.kind === "activity"
+          ? actionGroup(item.entry) === actionFilter
+          : "alert" === actionFilter,
       );
     }
 
@@ -375,7 +427,12 @@ function AlertsPage() {
 
   const unread = alerts.filter((a) => !a.is_read).length;
   const loading = alertsQ.isLoading || (isAdmin && activityQ.isLoading);
-  const hasFilters = !!(search || userFilter !== "all" || typeFilter !== "all" || actionFilter !== "all");
+  const hasFilters = !!(
+    search ||
+    userFilter !== "all" ||
+    typeFilter !== "all" ||
+    actionFilter !== "all"
+  );
 
   const clearFilters = () => {
     setSearch("");
@@ -397,18 +454,18 @@ function AlertsPage() {
         actions={
           <div className="flex items-center gap-2">
             {isAdmin && (
-            <button
-              onClick={() => generateAlerts.mutate()}
-              disabled={generateAlerts.isPending}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium hover:border-primary/50 disabled:opacity-60"
-            >
-              {generateAlerts.isPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
-              ) : (
-                <RefreshCw className="h-3.5 w-3.5 text-primary" />
-              )}
-              Run Risk Scan
-            </button>
+              <button
+                onClick={() => generateAlerts.mutate()}
+                disabled={generateAlerts.isPending}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium hover:border-primary/50 disabled:opacity-60"
+              >
+                {generateAlerts.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                ) : (
+                  <RefreshCw className="h-3.5 w-3.5 text-primary" />
+                )}
+                Run Risk Scan
+              </button>
             )}
             <span className="rounded-full border border-border px-3 py-1 text-xs">
               <span className="num text-primary">{unread}</span> unread
@@ -572,11 +629,30 @@ function AlertsPage() {
 }
 
 const ALERT_TYPE_META: Record<string, { label: string; cls: string }> = {
-  low_stock: { label: "Low stock alert", cls: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30" },
-  payment_due: { label: "Payment due", cls: "bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30" },
-  overdue_escalation: { label: "Overdue auto-escalation", cls: "bg-destructive/15 text-destructive border border-destructive/30" },
-  overdue: { label: "Payment overdue", cls: "bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30" },
-  credit_limit_exceeded: { label: "Credit limit exceeded", cls: "bg-destructive/15 text-destructive border border-destructive/30" },
+  low_stock: {
+    label: "Low stock alert",
+    cls: "bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30",
+  },
+  marketplace_out_of_stock: {
+    label: "Marketplace stock out",
+    cls: "bg-destructive/15 text-destructive border border-destructive/30",
+  },
+  payment_due: {
+    label: "Payment due",
+    cls: "bg-blue-500/15 text-blue-600 dark:text-blue-400 border border-blue-500/30",
+  },
+  overdue_escalation: {
+    label: "Overdue auto-escalation",
+    cls: "bg-destructive/15 text-destructive border border-destructive/30",
+  },
+  overdue: {
+    label: "Payment overdue",
+    cls: "bg-rose-500/15 text-rose-600 dark:text-rose-400 border border-rose-500/30",
+  },
+  credit_limit_exceeded: {
+    label: "Credit limit exceeded",
+    cls: "bg-destructive/15 text-destructive border border-destructive/30",
+  },
 };
 
 function AlertRow({ alert, onMarkRead }: { alert: AlertItem; onMarkRead: (id: string) => void }) {
@@ -620,7 +696,9 @@ function ActivityRow({ entry }: { entry: AuditEntry }) {
   const roles = entry.actor_roles ?? [];
   return (
     <li className="flex items-start gap-4 p-4">
-      <span className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${chip}`}>
+      <span
+        className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${chip}`}
+      >
         <Icon className="h-4 w-4" />
       </span>
       <div className="min-w-0 flex-1">
@@ -631,7 +709,9 @@ function ActivityRow({ entry }: { entry: AuditEntry }) {
             {actorLabel(entry)}
           </span>
           {roles.length > 0 && (
-            <span className={`rounded-full border px-2 py-px text-[10px] font-medium ${roleBadgeClass(roles)}`}>
+            <span
+              className={`rounded-full border px-2 py-px text-[10px] font-medium ${roleBadgeClass(roles)}`}
+            >
               {primaryRoleLabel(roles)}
             </span>
           )}

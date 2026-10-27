@@ -220,9 +220,16 @@ function SalesWorkbenchPage() {
     queryFn: () => api.purchaseOrders.list(),
   });
 
-  const tasks: Task[] = ((tasksQ.data ?? []) as Task[]).filter((t) =>
-    SALES_WF_TYPES.has(t.workflow_type),
+  const salesProformaIds = new Set(
+    ((proformasQ.data ?? []) as any[])
+      .filter((p: any) => p.side === "sales")
+      .map((p: any) => p.id),
   );
+  const tasks: Task[] = ((tasksQ.data ?? []) as Task[]).filter((t) => {
+    if (!SALES_WF_TYPES.has(t.workflow_type)) return false;
+    if (t.workflow_type === "proforma" && !salesProformaIds.has(t.doc_id)) return false;
+    return true;
+  });
 
   /* ── KPIs — computed from live engine/document data ── */
   const kpis = useMemo(() => {

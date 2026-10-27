@@ -2314,15 +2314,15 @@ function POModal({
           {/* Status actions + save */}
           <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3">
             <div className="flex flex-wrap gap-2">
-              {isEdit && canWrite && status === "draft" && (
-                <button
-                  type="button"
-                  onClick={() => changeStatus("pending_review")}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
-                >
-                  <Send className="h-3.5 w-3.5" /> Push to checker
-                </button>
-              )}
+               {isEdit && canWrite && status === "draft" && (
+                 <button
+                   type="button"
+                   onClick={() => changeStatus("approved")}
+                   className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
+                 >
+                   <Send className="h-3.5 w-3.5" /> Approve & send to supplier
+                 </button>
+               )}
               {isEdit && status === "pending_review" && canApprove && (
                 <>
                   <button

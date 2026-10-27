@@ -38,7 +38,7 @@ function catLabel(id: string) {
   return CATS.find((c) => c.id === id)?.label ?? id;
 }
 
-function ExpensesPage() {
+export function ExpensesPage() {
   const { user, isAdmin, isClient, isChecker, isTreasury } = useAuth();
   const canCreate = isAdmin || (isClient && !isChecker && !isTreasury);
   const qc = useQueryClient();

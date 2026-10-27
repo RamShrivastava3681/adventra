@@ -172,6 +172,7 @@ type FinanceSection =
   | "advances"
   | "purchase-invoices"
   | "dispatch-orders"
+  | "expenses"
   | "tasks";
 
 const CashPanel = lazy(() =>
@@ -202,6 +203,9 @@ const DispatchOrdersPanel = lazy(() =>
   import("@/routes/app.finance-dispatches").then((m) => ({
     default: m.FinanceDispatchOrdersPanel,
   })),
+);
+const ExpensesPanel = lazy(() =>
+  import("@/routes/app.expenses").then((m) => ({ default: m.ExpensesPage })),
 );
 const FinanceTasksPanel = lazy(() =>
   import("@/routes/app.tasks").then((m) => ({ default: m.TasksPage })),
@@ -433,6 +437,11 @@ function FinanceWorkbenchPage() {
               label="Purchase Invoices"
               active={section === "purchase-invoices"}
               onClick={() => setSection("purchase-invoices")}
+            />
+            <NavTab
+              label="Expenses"
+              active={section === "expenses"}
+              onClick={() => setSection("expenses")}
             />
             <NavTab
               label="Dispatch Orders"
@@ -816,6 +825,7 @@ function FinanceWorkbenchPage() {
           {/* Finance sees both proforma streams — no side lock. */}
           {section === "advances" && <AdvancesPanel />}
           {section === "purchase-invoices" && <PurchaseInvoicesPanel />}
+          {section === "expenses" && <ExpensesPanel />}
           {section === "dispatch-orders" && <DispatchOrdersPanel />}
           {section === "tasks" && <FinanceTasksPanel />}
         </Suspense>
