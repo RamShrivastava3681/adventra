@@ -211,17 +211,30 @@ function ProcurementWorkbenchPage() {
   const [supplier, setSupplier] = useState("all");
   const [owner, setOwner] = useState(isOperations ? "procurement" : "all");
   const [page, setPage] = useState(1);
+  /* The document a work item wants opened. The target tab reads the id and
+   * opens that record's modal, then calls back so the request is cleared. */
+  const [pendingDoc, setPendingDoc] = useState<{ docType: string; docId: string } | null>(null);
+  const clearPendingDoc = () => setPendingDoc(null);
 
-  /* Row-level open: stay in-page when the doc has its own tab, else deep-link. */
-  function openDoc(t: { doc_type: string }) {
+  /* Row-level open: switch to the doc's tab AND open that very document. */
+  function openDoc(t: { doc_type: string; doc_id: string; stage?: string }) {
+    const stage = (t.stage ?? "").toLowerCase();
     switch (t.doc_type) {
       case "purchase_order":
+        // "Receive the remaining goods" acts on a GRN, not on the PO itself.
+        if (stage === "await_goods" || stage === "create_grn") {
+          navigate({ to: "/app/grn", search: { createFromPo: t.doc_id } });
+          return;
+        }
+        setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
         setSection("purchase-orders");
         return;
       case "proforma":
+        setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
         setSection("proformas");
         return;
       case "purchase_invoice":
+        setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
         setSection("purchase-invoices");
         return;
       default:
@@ -863,9 +876,28 @@ function ProcurementWorkbenchPage() {
       ) : (
         <Suspense fallback={<SectionFallback />}>
           {section === "suppliers" && <SuppliersPanel />}
-          {section === "purchase-orders" && <PurchaseOrdersPanel />}
-          {section === "proformas" && <ProformasPanel side="purchase" />}
-          {section === "purchase-invoices" && <PurchaseInvoicesPanel viewOnly={invoicesReadOnly} />}
+          {section === "purchase-orders" && (
+            <PurchaseOrdersPanel
+              openPo={pendingDoc?.docType === "purchase_order" ? pendingDoc.docId : undefined}
+              onOpenHandled={clearPendingDoc}
+            />
+          )}
+          {section === "proformas" && (
+            <ProformasPanel
+              side="purchase"
+              pfId={pendingDoc?.docType === "proforma" ? pendingDoc.docId : undefined}
+              onPfHandled={clearPendingDoc}
+            />
+          )}
+          {section === "purchase-invoices" && (
+            <PurchaseInvoicesPanel
+              viewOnly={invoicesReadOnly}
+              openInvoice={
+                pendingDoc?.docType === "purchase_invoice" ? pendingDoc.docId : undefined
+              }
+              onOpenHandled={clearPendingDoc}
+            />
+          )}
           {section === "tasks" && <ProcTasksPanel />}
         </Suspense>
       )}

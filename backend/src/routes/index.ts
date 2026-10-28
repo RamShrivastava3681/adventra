@@ -33,6 +33,7 @@ import {
   effectiveListScope,
   isStaffAccount,
 } from "../middleware/roles.js";
+import { exGstPrice, inclusiveTotals } from "../lib/gst.js";
 import * as User from "../models/user.js";
 import * as Submission from "../models/submission.js";
 import * as ReminderLog from "../models/reminder-log.js";
@@ -119,6 +120,7 @@ import * as StockMovement from "../models/stock-movement.js";
 import * as Debtor from "../models/debtor.js";
 import * as Vendor from "../models/vendor.js";
 import * as Supplier from "../models/supplier.js";
+import * as Transporter from "../models/transporter.js";
 import * as Invoice from "../models/invoice.js";
 import * as PurchaseInvoice from "../models/purchase-invoice.js";
 import * as PurchaseOrder from "../models/purchase-order.js";
@@ -133,6 +135,19 @@ import * as Alert from "../models/alert.js";
 import * as CoA from "../models/chart-of-account.js";
 import * as Journal from "../models/journal.js";
 import * as CDNote from "../models/credit-debit-note.js";
+import * as PurchaseReturn from "../models/purchase-return.js";
+import {
+  applyDebitNoteToInvoice,
+  listSupplierCredits,
+} from "../services/purchase-credit.js";
+import {
+  computeInvoiceOutstanding,
+  computeNoteRemaining,
+  computeReturnTotals,
+  normalizeReturnLines,
+  round2 as roundReturn2,
+} from "../lib/purchase-returns.js";
+import { fyTag, nextInSeries } from "../lib/doc-series.js";
 import * as Combined from "../models/models-combined.js";
 import * as StockLocation from "../models/stock-location.js";
 import * as MarketplaceAllocation from "../models/marketplace-allocation.js";
@@ -1990,6 +2005,46 @@ router.delete("/suppliers/:id", authMiddleware, requireAdmin, async (req, res) =
   }
 });
 
+// ===================== TRANSPORTERS =====================
+router.get("/transporters", authMiddleware, async (req, res) => {
+  try {
+    res.json(await Transporter.list(effectiveListScope(req)));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.post("/transporters", authMiddleware, async (req, res) => {
+  try {
+    res
+      .status(201)
+      .json(await Transporter.create({ ...req.body, clientId: req.user!.userId }));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.put("/transporters/:id", authMiddleware, async (req, res) => {
+  try {
+    res.json(await Transporter.update(req.params.id, req.body));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.delete("/transporters/:id", authMiddleware, requireAdmin, async (req, res) => {
+  try {
+    const existing = await Transporter.get(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Transporter not found" });
+    const deleted = await Transporter.remove(req.params.id);
+    trackAction(req, "transporter.deleted", req.params.id, {
+      entityType: "transporter",
+      name: (existing as any).name ?? null,
+      deleted,
+    });
+    res.json({ success: true, deleted });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ===================== INVOICES (Sales) =====================
 
 // Public token-authenticated endpoint: send reminder to debtor (clicked from admin email)
@@ -2085,9 +2140,9 @@ function applyInvoicePrintSnapshot(line: any, product: any): void {
     if (hsn) line.hsnCode = hsn;
   }
   if (line.rateInclTax === undefined || line.rateInclTax === null) {
-    const base = Number(line.unitPrice) || 0;
-    const gst = Number(line.gstRate ?? product?.gstRate ?? product?.gst_rate ?? 0) || 0;
-    line.rateInclTax = Math.round(base * (1 + gst / 100) * 100) / 100;
+    // The line price is already GST-inclusive, so it is also the tax-inclusive
+    // rate printed on the Tally-style invoice — nothing is added on top.
+    line.rateInclTax = Math.round((Number(line.unitPrice) || 0) * 100) / 100;
   }
 }
 
@@ -2175,12 +2230,17 @@ async function resolveProformaForInvoice(
 async function assertPaymentConditionForInvoice(so: any, lines: any[]): Promise<void> {
   const condition = (so as any).dispatchCondition ?? "no_check";
   if (condition === "no_check") return;
-  const lineTotal = lines.reduce((s: number, l: any) => s + (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0) * (1 - (Number(l.discountPct) || 0) / 100), 0);
-  const gstEst = lines.reduce((s: number, l: any) => {
-    const net = (Number(l.quantity) || 0) * (Number(l.unitPrice) || 0) * (1 - (Number(l.discountPct) || 0) / 100);
-    return s + (net * (Number(l.gstRate) || 0)) / 100;
-  }, 0);
-  const invoiceValue = Math.round((lineTotal + gstEst) * 100) / 100;
+  // Line prices are GST-inclusive, so the order value is simply the sum of the
+  // line amounts — GST is already inside them.
+  const invoiceValue = inclusiveTotals(
+    lines.map((l: any) => ({
+      amount:
+        (Number(l.quantity) || 0) *
+        (Number(l.unitPrice) || 0) *
+        (1 - (Number(l.discountPct) || 0) / 100),
+      gstRate: l.gstRate,
+    })),
+  ).grandTotal;
   // Verified money = receipts against any proforma/invoice of this order.
   const receipts = await PaymentReceipt.list((so as any).clientId).catch(() => [] as any[]);
   const mine = (receipts as any[]).filter(
@@ -3795,11 +3855,44 @@ router.post("/purchase-invoices", authMiddleware, async (req, res) => {
         return res.status(400).json({ error: e.message });
       }
     }
+    // Optional supplier debit-note credit applied at invoice creation.
+    const creditRequest = (body as any).applyCredit ?? null;
+    const creditNoteId = creditRequest?.noteId ? String(creditRequest.noteId) : null;
+    if (creditNoteId) {
+      const creditNote = await CDNote.get(creditNoteId);
+      if (!creditNote)
+        return res.status(400).json({ error: "Supplier debit note not found" });
+      if (creditNote.kind !== "debit")
+        return res.status(400).json({ error: "Only supplier debit notes can be applied" });
+      if (creditNote.supplierId && creditNote.supplierId !== body.vendorId) {
+        return res
+          .status(400)
+          .json({ error: "This debit note belongs to a different supplier" });
+      }
+      if (computeNoteRemaining(creditNote) <= 0) {
+        return res.status(400).json({ error: "This debit note is already fully applied" });
+      }
+    }
     const item = await PurchaseInvoice.create({
       ...body,
       clientId,
       vendorId: body.vendorId,
     });
+    let creditApplied = 0;
+    let creditError: string | null = null;
+    if (creditNoteId) {
+      try {
+        const result = await applyDebitNoteToInvoice(
+          clientId,
+          item.id,
+          creditNoteId,
+          creditRequest?.amount ?? null,
+        );
+        creditApplied = result.applied;
+      } catch (e: any) {
+        creditError = e.message;
+      }
+    }
     trackAction(req, "purchase_invoice.created", item.id, {
       entityType: "purchase_invoice",
       entityRef: item.invoiceNumber,
@@ -3854,7 +3947,7 @@ router.post("/purchase-invoices", authMiddleware, async (req, res) => {
       const { autoSendReminderOnChange } = await import("../invoice-reminder.js");
       void autoSendReminderOnChange(item.id, "purchase");
     }
-    res.status(201).json(item);
+    res.status(201).json({ ...item, creditApplied, creditError });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }
@@ -5092,6 +5185,15 @@ router.put("/goods-purchase-orders/:id", authMiddleware, async (req, res) => {
       }
       body.lines = lines;
     }
+    // Two-checker gate: a PO may only reach "approved" through the dedicated
+    // checker-approve endpoint below (which proves two distinct checkers
+    // signed off). A direct PUT can never approve a PO, so an admin who is
+    // not a checker cannot bypass the queue.
+    if (body.status === "approved" && current?.status !== "approved") {
+      return res.status(403).json({
+        error: "Purchase orders are approved only by two checkers. Use the checker approval action.",
+      });
+    }
     const updated = await GoodsPO.update(req.params.id, body);
     // Submitted → pending in checker: mail admin, treasury and checker users.
     if (body.status === "pending_review" && current?.status !== "pending_review") {
@@ -5120,67 +5222,6 @@ router.put("/goods-purchase-orders/:id", authMiddleware, async (req, res) => {
         amount: Number((updated as any)?.grandTotal) || 0,
       }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/checker" });
     }
-    // Approved → auto-email to supplier + procurement tracking task (PDF-3 §3).
-    if (body.status === "approved" && current?.status !== "approved") {
-      timelineStatus(req, { clientId: req.user!.userId, docType: "purchase_order", docId: req.params.id, docNumber: (updated as any)?.poNumber },
-        current?.status ?? null, "approved", `Checker approved PO ${(updated as any)?.poNumber ?? ""}`);
-      try {
-        const po = await GoodsPO.get(req.params.id);
-        if (po && po.status === "approved") {
-          const sent = await sendPurchaseOrderToSupplier(po, req.user!.userId);
-          await GoodsPO.update(po.id, {
-            supplierApprovalStatus: "pending",
-            supplierApprovalToken: sent.token,
-            supplierApprovalSentAt: db.nowISO(),
-            supplierApprovalRespondedAt: null,
-            supplierApprovalComments: null,
-            supplierApprovalEmail: sent.email,
-            status: "sent",
-          } as any);
-          timelineStatus(req, { clientId: req.user!.userId, docType: "purchase_order", docId: po.id, docNumber: (po as any).poNumber },
-            "approved", "sent", `System emailed PO to supplier (${sent.email})`);
-        }
-      } catch (e: any) {
-        console.error("  ⚠ Auto supplier email failed:", e?.message ?? e);
-      }
-      // Two PARALLEL tasks (PDF-3 §3): the supplier may respond before the
-      // invoice arrives, and the invoice may arrive before the response is
-      // recorded — so neither closes the other. The response task retires
-      // when the supplier answers; the invoice task retires when a purchase
-      // invoice is recorded against this PO.
-      await advanceWorkflow(req, {
-        workflowType: "purchase_order",
-        stage: "await_supplier_response",
-        docType: "purchase_order",
-        docId: req.params.id,
-        docNumber: (updated as any)?.poNumber ?? null,
-        counterparty: (updated as any)?.supplierName ?? null,
-        docStatus: "sent",
-        ownerRole: "procurement",
-        requiredAction: "Track supplier response",
-        nextAction: "Chase acknowledgement, then record supplier invoice",
-        amount: Number((updated as any)?.grandTotal) || 0,
-      }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchase-orders" });
-      const linkedPf = await findPurchaseProformaForGoodsPo(
-        req.params.id,
-        (updated as any)?.poNumber ?? null,
-        effectiveListScope(req),
-      );
-      await advanceWorkflow(req, {
-        workflowType: "purchase_order",
-        stage: "record_supplier_invoice",
-        docType: "purchase_order",
-        docId: req.params.id,
-        docNumber: (updated as any)?.poNumber ?? null,
-        counterparty: (updated as any)?.supplierName ?? null,
-        docStatus: "sent",
-        ownerRole: "procurement",
-        requiredAction: "Record supplier invoice",
-        nextAction: "Submit invoice for checker approval",
-        amount: Number((updated as any)?.grandTotal) || 0,
-        linkedDocs: linkedPf ? [linkedPf] : [],
-      }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchases", keepSiblingsOpen: true });
-    }
     if (body.status === "cancelled" && current?.status !== "cancelled") {
       const reason = String(body.notes ?? req.body?.reason ?? "").trim();
       if (!reason) return res.status(400).json({ error: "A reason is required to cancel the purchase order" });
@@ -5193,6 +5234,161 @@ router.put("/goods-purchase-orders/:id", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+/**
+ * Checker approval — the TWO-CHECKER rule.
+ *
+ * A purchase order becomes "approved" only after TWO distinct checkers have
+ * signed off. Only users holding the `checker` role may approve; an admin who
+ * is not a checker is rejected, so no other admin can push a PO through. Each
+ * sign-off stores the checker's name on the PO (visible to the next checker as
+ * "Approved by …"). The first sign-off keeps the PO at pending_review and just
+ * records who approved; the second advances it to the next workflow step
+ * (auto-email to the supplier + procurement tasks).
+ */
+router.post(
+  "/goods-purchase-orders/:id/checker-approve",
+  authMiddleware,
+  requireRole("checker"),
+  async (req, res) => {
+    try {
+      const po = await GoodsPO.get(req.params.id);
+      if (!po) return res.status(404).json({ error: "Purchase order not found" });
+      if (po.status !== "pending_review") {
+        return res.status(409).json({
+          error: "This purchase order is not awaiting checker approval",
+        });
+      }
+      const action = String(req.body?.action || "approve");
+      if (action === "reject") {
+        // Rejection is a single click (a reason is optional but recorded when given).
+        const reason = String(req.body?.notes ?? req.body?.reason ?? "").trim();
+        const updated = await GoodsPO.update(po.id, {
+          status: "draft",
+          reviewedBy: req.user!.userId,
+          reviewedAt: db.nowISO(),
+          firstCheckerId: null,
+          firstCheckerName: null,
+          secondCheckerId: null,
+          secondCheckerName: null,
+        });
+        timelineStatus(req, { clientId: po.clientId, docType: "purchase_order", docId: po.id, docNumber: po.poNumber },
+          po.status, "draft", `Checker rejected PO${reason ? `: ${reason}` : ""}`, "rejection");
+        await WorkflowTask.closeTasksForDoc("purchase_order", po.id, req.user, `Rejected by checker${reason ? `: ${reason}` : ""}`);
+        return res.json(updated);
+      }
+      if (action !== "approve") {
+        return res.status(400).json({ error: "action must be approve or reject" });
+      }
+
+      const userId = req.user!.userId;
+      // Prefer the checker's display name; fall back to their email.
+      const actor: any = await db.getItem(`USER#${userId}`);
+      const userName = actor?.contactName || req.user!.email;
+      // A checker may not sign the same PO twice.
+      if (po.firstCheckerId === userId || po.secondCheckerId === userId) {
+        return res.status(409).json({
+          error: "You have already approved this purchase order — a second, different checker must approve it",
+        });
+      }
+
+      // ── First sign-off: record the checker and keep the PO pending. ──
+      if (!po.firstCheckerId) {
+        const updated = await GoodsPO.update(po.id, {
+          firstCheckerId: userId,
+          firstCheckerName: userName,
+          reviewedBy: userId,
+          reviewedAt: db.nowISO(),
+        });
+        timelineStatus(req, { clientId: po.clientId, docType: "purchase_order", docId: po.id, docNumber: po.poNumber },
+          po.status, "pending_review", `Approved by ${userName} — 1 of 2 checker approvals`);
+        // Remind the other checker(s) that a second sign-off is still required.
+        // Fire-and-forget: email failures must never block the approval.
+        void (async () => {
+          try {
+            const { notifySecondChecker } = await import("../email.js");
+            await notifySecondChecker({
+              number: po.poNumber,
+              amount: Number(po.grandTotal) || 0,
+              counterparty: po.supplierName ?? null,
+              firstCheckerName: userName,
+              firstCheckerEmail: req.user!.email,
+              reviewPath: "/app/checker",
+            });
+          } catch (err) {
+            console.error("  ⚠ Second-checker email failed:", err);
+          }
+        })();
+        return res.json(updated);
+      }
+
+      // ── Second distinct sign-off: complete approval and advance. ──
+      const updated = await GoodsPO.update(po.id, {
+        secondCheckerId: userId,
+        secondCheckerName: userName,
+        reviewedBy: userId,
+        reviewedAt: db.nowISO(),
+        status: "approved",
+      });
+      timelineStatus(req, { clientId: po.clientId, docType: "purchase_order", docId: po.id, docNumber: po.poNumber },
+        po.status, "approved", `Approved by ${po.firstCheckerName ?? "checker 1"} and ${userName} — 2 of 2 checker approvals`);
+      try {
+        const finalPo = await GoodsPO.get(po.id);
+        if (finalPo && finalPo.status === "approved") {
+          const sent = await sendPurchaseOrderToSupplier(finalPo, req.user!.userId);
+          await GoodsPO.update(finalPo.id, {
+            supplierApprovalStatus: "pending",
+            supplierApprovalToken: sent.token,
+            supplierApprovalSentAt: db.nowISO(),
+            supplierApprovalRespondedAt: null,
+            supplierApprovalComments: null,
+            supplierApprovalEmail: sent.email,
+            status: "sent",
+          } as any);
+          timelineStatus(req, { clientId: finalPo.clientId, docType: "purchase_order", docId: finalPo.id, docNumber: finalPo.poNumber },
+            "approved", "sent", `System emailed PO to supplier (${sent.email})`);
+        }
+      } catch (e: any) {
+        console.error("  ⚠ Auto supplier email failed:", e?.message ?? e);
+      }
+      await advanceWorkflow(req, {
+        workflowType: "purchase_order",
+        stage: "await_supplier_response",
+        docType: "purchase_order",
+        docId: po.id,
+        docNumber: po.poNumber,
+        counterparty: po.supplierName ?? null,
+        docStatus: "sent",
+        ownerRole: "procurement",
+        requiredAction: "Track supplier response",
+        nextAction: "Chase acknowledgement, then record supplier invoice",
+        amount: Number(po.grandTotal) || 0,
+      }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchase-orders" });
+      const linkedPf = await findPurchaseProformaForGoodsPo(
+        po.id,
+        po.poNumber ?? null,
+        effectiveListScope(req),
+      );
+      await advanceWorkflow(req, {
+        workflowType: "purchase_order",
+        stage: "record_supplier_invoice",
+        docType: "purchase_order",
+        docId: po.id,
+        docNumber: po.poNumber,
+        counterparty: po.supplierName ?? null,
+        docStatus: "sent",
+        ownerRole: "procurement",
+        requiredAction: "Record supplier invoice",
+        nextAction: "Submit invoice for checker approval",
+        amount: Number(po.grandTotal) || 0,
+        linkedDocs: linkedPf ? [linkedPf] : [],
+      }, { timelineKind: "system", docType: "purchase_order", appPath: "/app/purchases", keepSiblingsOpen: true });
+      res.json(await GoodsPO.get(po.id));
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
 router.delete(
   "/goods-purchase-orders/:id",
   authMiddleware,
@@ -5356,11 +5552,20 @@ function validateReceiptLines(
       receivedQty,
       acceptedQty,
       rejectedQty,
-      unitCost: Number(ln.unitCost ?? poLine.unitPrice) || 0,
+      // GRN unit cost is stored ex-GST (inventory value); the PO price it falls
+      // back to is GST-inclusive, so strip the GST out of it.
+      unitCost:
+        ln.unitCost != null && Number.isFinite(Number(ln.unitCost))
+          ? Number(ln.unitCost)
+          : exGstPrice(Number(poLine.unitPrice) || 0, poLine.gstRate),
       gstRate: poLine.gstRate ?? null,
       lineValue:
         Math.round(
-          acceptedQty * (Number(ln.unitCost ?? poLine.unitPrice) || 0) * 100,
+          acceptedQty *
+            (ln.unitCost != null && Number.isFinite(Number(ln.unitCost))
+              ? Number(ln.unitCost)
+              : exGstPrice(Number(poLine.unitPrice) || 0, poLine.gstRate)) *
+            100,
         ) / 100,
       notes: ln.notes || null,
     });
@@ -5559,9 +5764,8 @@ router.post("/goods-receipts", authMiddleware, async (req, res) => {
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
-    const receivingLocation = body.receivingLocationId
-      ? await StockLocation.get(body.receivingLocationId)
-      : await StockLocation.getDefaultLocation(clientId);
+    // There is only one warehouse (Central). All GRN inventory is stored there.
+    const receivingLocation = await StockLocation.getDefaultLocation(clientId);
     if (!receivingLocation || receivingLocation.clientId !== clientId || receivingLocation.status !== "active")
       return res.status(400).json({ error: "A valid active receiving location is required" });
     const receipt = await GoodsReceipt.create({
@@ -5640,9 +5844,8 @@ router.post("/goods-receipts/:id/confirm", authMiddleware, async (req, res) => {
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
-    const receivingLocation = receipt.receivingLocationId
-      ? await StockLocation.get(receipt.receivingLocationId)
-      : await StockLocation.getDefaultLocation(clientId);
+    // There is only one warehouse (Central). All GRN inventory is stored there.
+    const receivingLocation = await StockLocation.getDefaultLocation(clientId);
     if (!receivingLocation || receivingLocation.clientId !== clientId || receivingLocation.status !== "active")
       return res.status(400).json({ error: "The GRN receiving location is missing or inactive" });
     // Re-validate at confirm time — the PO may have been received further in the
@@ -5891,7 +6094,7 @@ router.put("/goods-receipts/:id", authMiddleware, async (req, res) => {
       notes: body.notes ?? receipt.notes,
       documents: body.documents ?? receipt.documents,
       lines,
-      receivingLocationId: body.receivingLocationId ?? receipt.receivingLocationId,
+      receivingLocationId: (await StockLocation.getDefaultLocation(req.user!.userId)).id,
       ...overReceiptPatch,
     });
     await syncLinkedPurchaseInvoice(
@@ -8046,10 +8249,12 @@ async function debitSalesOrder(clientId: string, dispatch: any, so: any) {
   for (const ln of dispatch.lines ?? []) {
     const qty = debitedQty(ln);
     if (!(qty > 0)) continue;
-    let unitCost = ln.unitPrice;
+    // Catalogue prices include GST; stock moves at the ex-GST cost.
+    let unitCost = exGstPrice(ln.unitPrice, ln.gstRate);
     try {
       const prod = await Product.get(ln.productId);
-      if (prod && prod.unitCost != null) unitCost = prod.unitCost;
+      if (prod && prod.unitCost != null)
+        unitCost = exGstPrice(prod.unitCost, prod.gstRate ?? ln.gstRate);
     } catch {
       /* keep the dispatch snapshot */
     }
@@ -8105,10 +8310,12 @@ async function reverseDispatch(clientId: string, dispatch: any, so: any) {
   for (const ln of dispatch.lines ?? []) {
     const qty = debitedQty(ln);
     if (!(qty > 0)) continue;
-    let unitCost = ln.unitPrice;
+    // Catalogue prices include GST; stock moves at the ex-GST cost.
+    let unitCost = exGstPrice(ln.unitPrice, ln.gstRate);
     try {
       const prod = await Product.get(ln.productId);
-      if (prod && prod.unitCost != null) unitCost = prod.unitCost;
+      if (prod && prod.unitCost != null)
+        unitCost = exGstPrice(prod.unitCost, prod.gstRate ?? ln.gstRate);
     } catch {
       /* keep the dispatch snapshot */
     }
@@ -8219,18 +8426,16 @@ router.post("/goods-dispatches", authMiddleware, async (req, res) => {
       const inv = await Invoice.get(body.linkedSalesInvoiceId);
       linkedInvoiceNumber = inv ? inv.invoiceNumber : null;
     }
-    // Default Central Warehouse: dispatches work even when the user never
-    // created / selected a warehouse. The confirm step re-resolves this too.
-    let defaultSourceId: string | null = body.sourceLocationId || null;
+    // There is only one warehouse (Central). Ignore any client-supplied
+    // source location and always dispatch from Central Warehouse.
     let defaultWarehouseName: string | null = body.warehouse ?? null;
-    if (!defaultSourceId) {
-      try {
-        const def = await StockLocation.getDefaultLocation(clientId);
-        defaultSourceId = def.id;
-        if (!defaultWarehouseName) defaultWarehouseName = def.name;
-      } catch {
-        /* best-effort */
-      }
+    let defaultSourceId: string | null = null;
+    try {
+      const def = await StockLocation.getDefaultLocation(clientId);
+      defaultSourceId = def.id;
+      if (!defaultWarehouseName) defaultWarehouseName = def.name;
+    } catch {
+      /* best-effort */
     }
     const dispatch = await GoodsDispatch.create({
       clientId,
@@ -8356,17 +8561,17 @@ router.post(
       // Drafts created before this fallback (or with an empty selection) are
       // resolved to Central Warehouse here so confirm just works.
       let dispatchForDebit: any = dispatch;
-      if (!dispatch.sourceLocationId) {
-        try {
-          const def = await StockLocation.getDefaultLocation(clientId);
+      try {
+        const def = await StockLocation.getDefaultLocation(clientId);
+        if (dispatch.sourceLocationId !== def.id) {
           await GoodsDispatch.update(dispatch.id, {
             sourceLocationId: def.id,
             warehouse: (dispatch as any).warehouse || def.name,
           } as any);
-          dispatchForDebit = { ...dispatch, sourceLocationId: def.id };
-        } catch {
-          return res.status(400).json({ error: "No warehouse available — create a stock location first" });
         }
+        dispatchForDebit = { ...dispatch, sourceLocationId: def.id };
+      } catch {
+        return res.status(400).json({ error: "No warehouse available — create a stock location first" });
       }
       const sourceLocation = await StockLocation.get(dispatchForDebit.sourceLocationId);
       if (!sourceLocation || sourceLocation.clientId !== clientId || sourceLocation.status !== "active")
@@ -8867,17 +9072,17 @@ router.post(
           return res.status(400).json({ error: e.message });
         }
         let dispatchForDebit: any = dispatch;
-        if (!dispatch.sourceLocationId) {
-          try {
-            const def = await StockLocation.getDefaultLocation(clientId);
+        try {
+          const def = await StockLocation.getDefaultLocation(clientId);
+          if (dispatch.sourceLocationId !== def.id) {
             await GoodsDispatch.update(dispatch.id, {
               sourceLocationId: def.id,
               warehouse: (dispatch as any).warehouse || def.name,
             } as any);
-            dispatchForDebit = { ...dispatch, sourceLocationId: def.id };
-          } catch {
-            return res.status(400).json({ error: "No warehouse available — create a stock location first" });
           }
+          dispatchForDebit = { ...dispatch, sourceLocationId: def.id };
+        } catch {
+          return res.status(400).json({ error: "No warehouse available — create a stock location first" });
         }
         const sourceLocation = await StockLocation.get(dispatchForDebit.sourceLocationId);
         if (!sourceLocation || sourceLocation.clientId !== clientId || sourceLocation.status !== "active")
@@ -9065,7 +9270,7 @@ router.put("/goods-dispatches/:id", authMiddleware, async (req, res) => {
       contactPerson: body.contactPerson ?? dispatch.contactPerson,
       deliveryAddress: body.deliveryAddress ?? dispatch.deliveryAddress,
       dispatchType: body.dispatchType ?? dispatch.dispatchType,
-      sourceLocationId: body.sourceLocationId ?? dispatch.sourceLocationId,
+      sourceLocationId: (await StockLocation.getDefaultLocation(dispatch.clientId)).id,
       destinationLocationId: body.destinationLocationId ?? dispatch.destinationLocationId,
       channel: body.channel ?? dispatch.channel,
       ...packing,
@@ -9324,10 +9529,11 @@ router.post(
           (l: any) => l.productId === r.productId,
         );
         if (!dLine) continue;
-        let unitCost = dLine.unitPrice;
+        let unitCost = exGstPrice(dLine.unitPrice, dLine.gstRate);
         try {
           const prod = await Product.get(dLine.productId);
-          if (prod && prod.unitCost != null) unitCost = prod.unitCost;
+          if (prod && prod.unitCost != null)
+            unitCost = exGstPrice(prod.unitCost, prod.gstRate ?? dLine.gstRate);
         } catch {
           /* keep the dispatch snapshot */
         }
@@ -9714,6 +9920,425 @@ router.get(
     }
   },
 );
+
+// ===================== PURCHASE RETURNS =====================
+
+function fmtMoneySafe(n: number): string {
+  return `₹${(Number(n) || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+}
+
+/** Next supplier debit-note number in the ADV-<FY>-DN- series. */
+async function nextSupplierDebitNoteNumber(clientId: string): Promise<string> {
+  // Shared-database mode: sequence against every note in the portfolio.
+  void clientId;
+  const prefix = `ADV-${fyTag()}-DN-`;
+  const notes = await CDNote.list();
+  return nextInSeries(prefix, notes.map((n) => n.noteNumber));
+}
+
+router.get("/purchase-returns", authMiddleware, async (req, res) => {
+  try {
+    const all = await PurchaseReturn.list(effectiveListScope(req));
+    const invoiceId = req.query.purchaseInvoiceId
+      ? String(req.query.purchaseInvoiceId)
+      : null;
+    res.json(invoiceId ? all.filter((r) => r.purchaseInvoiceId === invoiceId) : all);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get("/purchase-returns/:id", authMiddleware, async (req, res) => {
+  try {
+    const item = await PurchaseReturn.get(req.params.id);
+    if (!item) return res.status(404).json({ error: "Purchase return not found" });
+    res.json(item);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Raise a purchase return against a purchase invoice.
+ * Creates the return (pending checker approval) and its supplier debit note in
+ * one step. No stock moves and no balance changes until approval.
+ */
+router.post("/purchase-returns", authMiddleware, async (req, res) => {
+  try {
+    const body = req.body || {};
+    if (!body.purchaseInvoiceId) {
+      return res.status(400).json({ error: "Select the purchase invoice to return against" });
+    }
+    const invoice = await PurchaseInvoice.get(String(body.purchaseInvoiceId));
+    if (!invoice) return res.status(404).json({ error: "Purchase invoice not found" });
+    if (invoice.status === "cancelled") {
+      return res.status(400).json({ error: "Cannot return against a cancelled purchase invoice" });
+    }
+    if (!Array.isArray(invoice.lines) || invoice.lines.length === 0) {
+      return res.status(400).json({ error: "This purchase invoice has no lines to return" });
+    }
+    const reason = String(body.reason ?? "").trim();
+    if (!reason) return res.status(400).json({ error: "A return reason is required" });
+
+    // Previously returned quantities include pending and approved returns so a
+    // second return can never exceed the invoice quantity.
+    const existing = await PurchaseReturn.listForInvoice(invoice.id);
+    const previously: Record<string, number> = {};
+    for (const r of existing) {
+      if (r.status !== "pending_approval" && r.status !== "approved") continue;
+      for (const l of r.lines ?? []) {
+        previously[l.productId] = (previously[l.productId] ?? 0) + (Number(l.returnQty) || 0);
+      }
+    }
+
+    let lines;
+    try {
+      lines = normalizeReturnLines(
+        invoice.lines.map((l) => ({
+          productId: l.productId,
+          sku: l.sku,
+          name: l.name,
+          unit: l.unit,
+          invoiceQty: Number(l.invoiceQty) || 0,
+          unitPrice: Number(l.unitPrice) || 0,
+          gstRate: l.gstRate,
+        })),
+        body.lines ?? [],
+        previously,
+      );
+    } catch (e: any) {
+      return res.status(400).json({ error: e.message });
+    }
+    const totals = computeReturnTotals(lines);
+
+    const ret = await PurchaseReturn.create({
+      clientId: req.user!.userId,
+      purchaseInvoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      supplierId: invoice.vendorId,
+      supplierName: invoice.supplierName,
+      goodsPurchaseOrderId: invoice.goodsPurchaseOrderId,
+      warehouse: body.warehouse ?? null,
+      returnDate: body.returnDate ?? null,
+      reason,
+      notes: body.notes ?? null,
+      documents: body.documents ?? [],
+      lines,
+      subtotal: totals.subtotal,
+      gstTotal: totals.gstTotal,
+      totalAmount: totals.totalAmount,
+    });
+
+    const noteNumber = await nextSupplierDebitNoteNumber(req.user!.userId);
+    const note = await CDNote.create({
+      clientId: req.user!.userId,
+      kind: "debit",
+      noteNumber,
+      noteDate: ret.returnDate,
+      amount: totals.totalAmount,
+      reason: `Purchase return ${ret.returnNumber} — ${reason}`,
+      status: "pending",
+      purchaseInvoiceId: invoice.id,
+      counterparty: invoice.supplierName ?? null,
+      supplierId: invoice.vendorId,
+      purchaseReturnId: ret.id,
+      purchaseReturnNumber: ret.returnNumber,
+      source: "purchase_return",
+      lineItems: lines.map((l) => ({
+        productId: l.productId,
+        name: l.name,
+        sku: l.sku,
+        quantity: l.returnQty,
+        unitPrice: l.unitPrice,
+        lineTotal: l.lineTotal,
+      })),
+      subtotal: totals.subtotal,
+      taxRate: 0,
+      taxAmount: totals.gstTotal,
+    });
+    const withNote = await PurchaseReturn.update(ret.id, {
+      debitNoteId: note.id,
+      debitNoteNumber: note.noteNumber,
+    });
+    trackAction(req, "purchase_return.created", ret.id, {
+      entityType: "purchase_return",
+      entityRef: ret.returnNumber,
+      amount: totals.totalAmount,
+      invoice: invoice.invoiceNumber,
+      supplier: invoice.supplierName,
+    });
+    timelineStatus(
+      req,
+      { clientId: ret.clientId, docType: "purchase_invoice", docId: invoice.id, docNumber: invoice.invoiceNumber },
+      null,
+      "purchase_return",
+      `Purchase return ${ret.returnNumber} raised — ${fmtMoneySafe(totals.totalAmount)} awaiting checker approval`,
+    );
+    advanceWorkflow(
+      req,
+      {
+        workflowType: "purchase_invoice",
+        stage: "purchase_return_approval",
+        docType: "purchase_return",
+        docId: ret.id,
+        docNumber: ret.returnNumber,
+        counterparty: invoice.supplierName ?? null,
+        docStatus: "pending_approval",
+        ownerRole: "checker",
+        requiredAction: "Approve or reject the purchase return",
+        nextAction: "Reduce stock and apply the supplier debit note",
+        amount: totals.totalAmount,
+        linkedDocs: [
+          { type: "purchase_invoice", id: invoice.id, number: invoice.invoiceNumber },
+        ],
+      },
+      { timelineKind: "system", docType: "purchase_invoice", appPath: "/app/checker" },
+    );
+    res.status(201).json({ return: withNote, note });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * Checker approval of a purchase return: reduces stock exactly once and applies
+ * the debit note to the source invoice (if open) or leaves it as supplier
+ * credit. Idempotent — re-approving an approved return does not double-apply.
+ */
+router.post(
+  "/purchase-returns/:id/approve",
+  authMiddleware,
+  requireRole("checker"),
+  async (req, res) => {
+    try {
+      const ret = await PurchaseReturn.get(req.params.id);
+      if (!ret) return res.status(404).json({ error: "Purchase return not found" });
+      if (ret.status === "approved") {
+        const note = ret.debitNoteId ? await CDNote.get(ret.debitNoteId) : null;
+        return res.json({
+          return: ret,
+          note,
+          applied: ret.appliedAmount,
+          supplierCredit: ret.supplierCredit,
+          alreadyApproved: true,
+        });
+      }
+      if (ret.status !== "pending_approval") {
+        return res.status(409).json({ error: `This return is ${ret.status}` });
+      }
+      const actor: any = await db.getItem(`USER#${req.user!.userId}`);
+      const actorName = actor?.contactName || req.user!.email;
+      const invoice = await PurchaseInvoice.get(ret.purchaseInvoiceId);
+
+      // 1. Stock out — only once (guarded by stockAppliedAt).
+      if (!ret.stockAppliedAt) {
+        const location = await StockLocation.getDefaultLocation(ret.clientId);          for (const l of ret.lines ?? []) {
+          if (!(Number(l.returnQty) > 0)) continue;
+          await StockMovement.create({
+            clientId: ret.clientId,
+            direction: "out",
+            itemName: l.name,
+            productId: l.productId,
+            sku: l.sku,
+            quantity: Number(l.returnQty),
+            unit: l.unit,
+            unitCost:
+              l.unitPriceExGst ?? exGstPrice(l.unitPrice, l.gstRate),
+            warehouse: ret.warehouse,
+            reason: "Supplier return",
+            linkedDocumentType: "Purchase Return",
+            linkedDocumentNumber: ret.returnNumber,
+            status: "confirmed",
+            createdById: req.user!.userId,
+            createdByName: actorName,
+            confirmedById: req.user!.userId,
+            confirmedByName: actorName,
+            confirmedAt: db.nowISO(),
+            notes: `Purchase return ${ret.returnNumber} against invoice ${ret.invoiceNumber}`,
+            movementDate: ret.returnDate,
+            purchaseInvoiceId: ret.purchaseInvoiceId,
+            purchaseOrderId: ret.goodsPurchaseOrderId,
+            dispatchType: "return_to_supplier",
+            sourceLocationId: location.id,
+          });
+        }
+      }
+
+      // 2. Approve the debit note and apply it to the source invoice.
+      let applied = 0;
+      let supplierCredit = 0;
+      let note: any = ret.debitNoteId ? await CDNote.get(ret.debitNoteId) : null;
+      if (note) {
+        if (String(note.status || "").toLowerCase() === "pending") {
+          note = (await CDNote.update(note.id, { status: "approved" })) as any;
+        }
+        supplierCredit = computeNoteRemaining(note);
+        if (invoice && computeInvoiceOutstanding(invoice) > 0) {
+          const result = await applyDebitNoteToInvoice(
+            ret.clientId,
+            invoice.id,
+            note.id,
+          );
+          applied = result.applied;
+          supplierCredit = result.remainingNote;
+          note = result.note as any;
+        }
+      }
+
+      const updated = await PurchaseReturn.update(ret.id, {
+        status: "approved",
+        approvedBy: req.user!.userId,
+        approvedByName: actorName,
+        approvedAt: db.nowISO(),
+        appliedAmount: roundReturn2(applied),
+        supplierCredit: roundReturn2(supplierCredit),
+        stockAppliedAt: ret.stockAppliedAt ?? db.nowISO(),
+      });
+      trackAction(req, "purchase_return.approved", ret.id, {
+        entityType: "purchase_return",
+        entityRef: ret.returnNumber,
+        amount: ret.totalAmount,
+        applied,
+        supplierCredit,
+      });
+      timelineStatus(
+        req,
+        { clientId: ret.clientId, docType: "purchase_invoice", docId: ret.purchaseInvoiceId, docNumber: ret.invoiceNumber },
+        "pending_approval",
+        "purchase_return_approved",
+        `Purchase return ${ret.returnNumber} approved by ${actorName} — stock reduced, ${applied > 0 ? `${fmtMoneySafe(applied)} applied to the invoice` : "held as supplier credit"}`,
+      );
+      await WorkflowTask.closeTaskStage(
+        "purchase_return",
+        ret.id,
+        "purchase_return_approval",
+        req.user,
+        `Return ${ret.returnNumber} approved`,
+      );
+      advanceWorkflow(
+        req,
+        {
+          workflowType: "purchase_invoice",
+          stage: "record_supplier_credit_note",
+          docType: "purchase_return",
+          docId: ret.id,
+          docNumber: ret.returnNumber,
+          counterparty: ret.supplierName ?? null,
+          docStatus: "approved",
+          ownerRole: "procurement",
+          requiredAction: "Record the supplier's credit note when received",
+          nextAction: "Reconcile the supplier credit / refund",
+          amount: ret.totalAmount,
+          linkedDocs: [
+            { type: "purchase_invoice", id: ret.purchaseInvoiceId, number: ret.invoiceNumber },
+          ],
+        },
+        { timelineKind: "system", docType: "purchase_invoice", appPath: "/app/purchases" },
+      );
+      res.json({ return: updated, note, applied, supplierCredit });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+router.post(
+  "/purchase-returns/:id/reject",
+  authMiddleware,
+  requireRole("checker"),
+  async (req, res) => {
+    try {
+      const ret = await PurchaseReturn.get(req.params.id);
+      if (!ret) return res.status(404).json({ error: "Purchase return not found" });
+      if (ret.status !== "pending_approval") {
+        return res.status(409).json({ error: `This return is ${ret.status}` });
+      }
+      const reason = String(req.body?.reason ?? req.body?.notes ?? "").trim();
+      const actor: any = await db.getItem(`USER#${req.user!.userId}`);
+      const actorName = actor?.contactName || req.user!.email;
+      const updated = await PurchaseReturn.update(ret.id, {
+        status: "rejected",
+        rejectedBy: req.user!.userId,
+        rejectedByName: actorName,
+        rejectedAt: db.nowISO(),
+        rejectionReason: reason || null,
+      });
+      if (ret.debitNoteId) {
+        await CDNote.update(ret.debitNoteId, { status: "cancelled" });
+      }
+      timelineStatus(
+        req,
+        { clientId: ret.clientId, docType: "purchase_invoice", docId: ret.purchaseInvoiceId, docNumber: ret.invoiceNumber },
+        "pending_approval",
+        "purchase_return_rejected",
+        `Purchase return ${ret.returnNumber} rejected${reason ? `: ${reason}` : ""}`,
+        "rejection",
+      );
+      await WorkflowTask.closeTaskStage(
+        "purchase_return",
+        ret.id,
+        "purchase_return_approval",
+        req.user,
+        `Return ${ret.returnNumber} rejected`,
+      );
+      res.json(updated);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  },
+);
+
+router.post("/purchase-returns/:id/cancel", authMiddleware, async (req, res) => {
+  try {
+    const ret = await PurchaseReturn.get(req.params.id);
+    if (!ret) return res.status(404).json({ error: "Purchase return not found" });
+    if (ret.status !== "pending_approval") {
+      return res.status(409).json({ error: `Only a pending return can be cancelled (this is ${ret.status})` });
+    }
+    const updated = await PurchaseReturn.update(ret.id, { status: "cancelled" });
+    if (ret.debitNoteId) await CDNote.update(ret.debitNoteId, { status: "cancelled" });
+    await WorkflowTask.closeTaskStage("purchase_return", ret.id, "purchase_return_approval", req.user, "Return cancelled");
+    res.json(updated);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Available supplier credit from unapplied debit notes. */
+router.get("/suppliers/:id/credits", authMiddleware, async (req, res) => {
+  try {
+    res.json(await listSupplierCredits(req.user!.userId, req.params.id));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** Apply an existing supplier debit note to an open purchase invoice. */
+router.post("/purchase-invoices/:id/apply-credit", authMiddleware, async (req, res) => {
+  try {
+    const body = req.body || {};
+    const noteId = String(body.noteId ?? body.debitNoteId ?? "").trim();
+    if (!noteId) return res.status(400).json({ error: "Select a supplier debit note" });
+    const invoice = await PurchaseInvoice.get(req.params.id);
+    if (!invoice) return res.status(404).json({ error: "Purchase invoice not found" });
+    const result = await applyDebitNoteToInvoice(
+      invoice.clientId,
+      invoice.id,
+      noteId,
+      body.amount ?? null,
+    );
+    trackAction(req, "purchase_invoice.credit_applied", invoice.id, {
+      entityType: "purchase_invoice",
+      entityRef: invoice.invoiceNumber,
+      noteId,
+      amount: result.applied,
+      supplierCredit: result.remainingNote,
+    });
+    res.json(result);
+  } catch (err: any) {
+    res.status(400).json({ error: err.message });
+  }
+});
 
 // ===================== CREDIT/DEBIT NOTES =====================
 router.get("/credit-debit-notes", authMiddleware, async (req, res) => {

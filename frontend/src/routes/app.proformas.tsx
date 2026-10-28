@@ -3,6 +3,7 @@ import { useEffect, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import api from "@/lib/api-client";
+import { inclusiveTotals, exGstPrice } from "@/lib/gst";
 import { useAuth } from "@/lib/auth-context";
 import { DocumentStatusStripCompact } from "@/components/document-status-strip";
 import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
@@ -201,7 +202,13 @@ type GoodsPOForConvert = {
 };
 
 export function ProformasPage(
-  props: { createFromSo?: string; createFromPo?: string; side?: "sales" | "purchase"; pfId?: string } = {},
+  props: {
+    createFromSo?: string;
+    createFromPo?: string;
+    side?: "sales" | "purchase";
+    pfId?: string;
+    onPfHandled?: () => void;
+  } = {},
 ) {
   return <ProformasPageContent {...props} />;
 }
@@ -217,11 +224,13 @@ function ProformasPageContent({
   createFromPo,
   side,
   pfId,
+  onPfHandled,
 }: {
   createFromSo?: string;
   createFromPo?: string;
   side?: "sales" | "purchase";
   pfId?: string;
+  onPfHandled?: () => void;
 }) {
   const { user, isAdmin, isClient, isChecker, isTreasury } = useAuth();
   const canCreate = isAdmin || (isClient && !isChecker && !isTreasury);
@@ -278,6 +287,7 @@ function ProformasPageContent({
     const found = ((listQ.data ?? []) as PF[]).find((p) => p.id === pfId);
     if (found) {
       setViewingPf(found);
+      onPfHandled?.();
       try {
         if (window.location.pathname.startsWith("/app/proformas")) {
           navigate({ to: "/app/proformas", search: {}, replace: true });
@@ -841,20 +851,21 @@ function SalesProformaModal({
     ]);
 
   const totals = useMemo(() => {
-    const subtotal = round2(
-      lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0),
+    // Prices are GST-inclusive: the proforma total is the sum of the line
+    // amounts as entered and GST is the part already inside them.
+    const billed = inclusiveTotals(
+      lines.map((l) => ({
+        amount: (Number(l.quantity) || 0) * (Number(l.unit_price) || 0),
+        gstRate: l.gst_rate,
+      })),
+      Number(f.freight) || 0,
     );
-    const gstTotal = round2(
-      lines.reduce(
-        (s, l) =>
-          s +
-          ((Number(l.quantity) || 0) * (Number(l.unit_price) || 0) * (Number(l.gst_rate) || 0)) /
-            100,
-        0,
-      ),
-    );
-    const freight = Number(f.freight) || 0;
-    return { subtotal, gstTotal, freight, grandTotal: round2(subtotal + gstTotal + freight) };
+    return {
+      subtotal: billed.subtotal,
+      gstTotal: billed.gstTotal,
+      freight: billed.freight,
+      grandTotal: billed.grandTotal,
+    };
   }, [lines, f.freight]);
 
   const partiesQ = useQuery({
@@ -1249,6 +1260,11 @@ function SalesProformaModal({
                           value={l.unit_price}
                           onChange={(e) => setLine(i, { unit_price: e.target.value })}
                         />
+                        {(Number(l.unit_price) || 0) > 0 && (
+                          <div className="mt-1 text-right text-[10px] text-muted-foreground">
+                            ex-GST {fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate))}
+                          </div>
+                        )}
                       </L>
                       <L label="GST %">
                         <input
@@ -1292,7 +1308,7 @@ function SalesProformaModal({
 
         {/* Totals */}
         <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
-          <Row label="Subtotal" value={fmtMoney(totals.subtotal)} />
+          <Row label="Subtotal (ex-GST)" value={fmtMoney(totals.subtotal)} />
           <Row label="GST total" value={fmtMoney(totals.gstTotal)} />
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs uppercase tracking-widest text-muted-foreground">
@@ -1638,20 +1654,21 @@ function PurchaseProformaModal({
     ]);
 
   const totals = useMemo(() => {
-    const subtotal = round2(
-      lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0),
+    // Prices are GST-inclusive: the proforma total is the sum of the line
+    // amounts as entered and GST is the part already inside them.
+    const billed = inclusiveTotals(
+      lines.map((l) => ({
+        amount: (Number(l.quantity) || 0) * (Number(l.unit_price) || 0),
+        gstRate: l.gst_rate,
+      })),
+      Number(f.freight) || 0,
     );
-    const gstTotal = round2(
-      lines.reduce(
-        (s, l) =>
-          s +
-          ((Number(l.quantity) || 0) * (Number(l.unit_price) || 0) * (Number(l.gst_rate) || 0)) /
-            100,
-        0,
-      ),
-    );
-    const freight = Number(f.freight) || 0;
-    return { subtotal, gstTotal, freight, grandTotal: round2(subtotal + gstTotal + freight) };
+    return {
+      subtotal: billed.subtotal,
+      gstTotal: billed.gstTotal,
+      freight: billed.freight,
+      grandTotal: billed.grandTotal,
+    };
   }, [lines, f.freight]);
 
   /* ── Auto-computed advance (purchase side) ──
@@ -2012,6 +2029,11 @@ function PurchaseProformaModal({
                           value={l.unit_price}
                           onChange={(e) => setLine(i, { unit_price: e.target.value })}
                         />
+                        {(Number(l.unit_price) || 0) > 0 && (
+                          <div className="mt-1 text-right text-[10px] text-muted-foreground">
+                            ex-GST {fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate))}
+                          </div>
+                        )}
                       </L>
                       <L label="GST %">
                         <input
@@ -2055,7 +2077,7 @@ function PurchaseProformaModal({
 
         {/* Totals */}
         <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
-          <Row label="Subtotal" value={fmtMoney(totals.subtotal)} />
+          <Row label="Subtotal (ex-GST)" value={fmtMoney(totals.subtotal)} />
           <Row label="GST total" value={fmtMoney(totals.gstTotal)} />
           <div className="flex items-center justify-between gap-3">
             <span className="text-xs uppercase tracking-widest text-muted-foreground">
@@ -2350,6 +2372,7 @@ function ProformaDetailModal({
                   <th className="px-3 py-2 text-left font-normal">HSN</th>
                   <th className="px-3 py-2 text-right font-normal">Qty</th>
                   <th className="px-3 py-2 text-right font-normal">Unit price</th>
+                  <th className="px-3 py-2 text-right font-normal">Ex-GST</th>
                   <th className="px-3 py-2 text-right font-normal">GST %</th>
                   <th className="px-3 py-2 text-right font-normal">Line total</th>
                 </tr>
@@ -2373,6 +2396,9 @@ function ProformaDetailModal({
                       {fmtMoney(l.unit_price)}
                     </td>
                     <td className="px-3 py-2 text-right num text-muted-foreground">
+                      {fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate))}
+                    </td>
+                    <td className="px-3 py-2 text-right num text-muted-foreground">
                       {l.gst_rate != null ? `${l.gst_rate}%` : "—"}
                     </td>
                     <td className="px-3 py-2 text-right num">{fmtMoney(l.line_total)}</td>
@@ -2381,7 +2407,7 @@ function ProformaDetailModal({
               </tbody>
             </table>
             <div className="ml-auto max-w-[220px] space-y-0.5 p-3 text-xs">
-              <Row label="Subtotal" value={fmtMoney(pf.subtotal ?? 0)} />
+              <Row label="Subtotal (ex-GST)" value={fmtMoney(pf.subtotal ?? 0)} />
               <Row label="GST total" value={fmtMoney(pf.gst_total ?? 0)} />
               <Row label="Freight" value={fmtMoney(pf.freight ?? 0)} />
               <div className="flex justify-between border-t border-border pt-1 font-medium">

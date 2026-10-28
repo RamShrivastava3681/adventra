@@ -1,6 +1,7 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
 import { fyTag, nextInSeries } from "../lib/doc-series.js";
+import { inclusiveTotals } from "../lib/gst.js";
 import { PaymentTermsType, normalizePaymentTermsType, normalizeAdvancePct } from "../lib/payment-terms.js";
 
 /**
@@ -23,7 +24,7 @@ export interface GoodsPOLine {
   unitPrice: number;
   /** GST rate as a percentage (0–99), from the catalogue or overridden. */
   gstRate: number | null;
-  /** System-calculated: orderedQty × unitPrice (before GST). */
+  /** System-calculated: orderedQty × unitPrice — the ordered amount (GST included). */
   lineTotal: number;
   /** System-maintained: sum of received quantities from GRNs. */
   receivedQty: number;
@@ -146,6 +147,14 @@ export interface GoodsPurchaseOrder {
   reviewedBy: string | null;
   /** When the checker reviewed this PO. null = not yet reviewed. */
   reviewedAt: string | null;
+  /** First checker approval ID and name. null = not yet approved. */
+  firstCheckerId: string | null;
+  /** First checker name displayed on the PO. */
+  firstCheckerName: string | null;
+  /** Second checker approval ID and name. null = not yet approved. */
+  secondCheckerId: string | null;
+  /** Second checker name displayed on the PO. */
+  secondCheckerName: string | null;
   /** Supplier (vendor) approval via the emailed PDF. null = never sent. */
   supplierApprovalStatus: "pending" | "approved" | "rejected" | null;
   /** One-time secure token embedded in the approval link — nulled on response. */
@@ -202,20 +211,18 @@ function computeLineTotals(lines: GoodsPOLine[]): GoodsPOLine[] {
 export function computeTotals(lines: GoodsPOLine[], freight: number) {
   const normalized = computeLineTotals(lines);
   const totalQty = normalized.reduce((s, l) => s + l.orderedQty, 0);
-  const subtotal = round2(normalized.reduce((s, l) => s + l.lineTotal, 0));
-  const gstTotal = round2(
-    normalized.reduce(
-      (s, l) => s + (l.orderedQty * l.unitPrice * (l.gstRate ?? 0)) / 100,
-      0,
-    ),
+  // Supplier prices are GST-inclusive: the order total is the sum of the line
+  // amounts as entered, with GST shown as the part inside them.
+  const totals = inclusiveTotals(
+    normalized.map((l) => ({ amount: l.lineTotal, gstRate: l.gstRate })),
+    freight,
   );
-  const f = Number(freight) || 0;
   return {
     totalQty,
-    subtotal,
-    gstTotal,
-    freight: round2(f),
-    grandTotal: round2(subtotal + gstTotal + f),
+    subtotal: totals.subtotal,
+    gstTotal: totals.gstTotal,
+    freight: totals.freight,
+    grandTotal: totals.grandTotal,
   };
 }
 
@@ -333,6 +340,10 @@ export async function create(
     manualStatus: status,
     reviewedBy: data.reviewedBy || null,
     reviewedAt: data.reviewedAt || null,
+    firstCheckerId: data.firstCheckerId || null,
+    firstCheckerName: data.firstCheckerName || null,
+    secondCheckerId: data.secondCheckerId || null,
+    secondCheckerName: data.secondCheckerName || null,
     supplierApprovalStatus: (data.supplierApprovalStatus as any) || null,
     supplierApprovalToken: data.supplierApprovalToken || null,
     supplierApprovalSentAt: data.supplierApprovalSentAt || null,
@@ -403,6 +414,10 @@ export async function update(id: string, updates: Partial<GoodsPurchaseOrder>) {
     "manualStatus",
     "reviewedBy",
     "reviewedAt",
+    "firstCheckerId",
+    "firstCheckerName",
+    "secondCheckerId",
+    "secondCheckerName",
     "supplierApprovalStatus",
     "supplierApprovalToken",
     "supplierApprovalSentAt",

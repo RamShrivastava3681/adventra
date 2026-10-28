@@ -280,6 +280,17 @@ const api = {
     create: (data: any) => api.post<any>("/suppliers", data),
     update: (id: string, data: any) => api.put<any>(`/suppliers/${id}`, data),
     delete: (id: string) => api.delete(`/suppliers/${id}`),
+    // Unapplied supplier debit notes (credit available for a future invoice).
+    credits: (id: string) =>
+      api.get<{ credits: any[]; total: number }>(`/suppliers/${id}/credits`),
+  },
+
+  // Transporters
+  transporters: {
+    list: () => api.get<any[]>("/transporters"),
+    create: (data: any) => api.post<any>("/transporters", data),
+    update: (id: string, data: any) => api.put<any>(`/transporters/${id}`, data),
+    delete: (id: string) => api.delete(`/transporters/${id}`),
   },
 
   // Invoices (Sales)
@@ -330,6 +341,23 @@ const api = {
     create: (data: any) => api.post<any>("/purchase-invoices", data),
     update: (id: string, data: any) => api.put<any>(`/purchase-invoices/${id}`, data),
     delete: (id: string) => api.delete(`/purchase-invoices/${id}`),
+    // Apply an existing supplier debit note to an open invoice.
+    applyCredit: (id: string, data: { noteId: string; amount?: number | null }) =>
+      api.post<any>(`/purchase-invoices/${id}/apply-credit`, data),
+  },
+
+  // Purchase Returns — goods returned to a supplier against a purchase invoice.
+  purchaseReturns: {
+    list: (purchaseInvoiceId?: string) =>
+      api.get<any[]>(
+        `/purchase-returns${purchaseInvoiceId ? `?purchaseInvoiceId=${encodeURIComponent(purchaseInvoiceId)}` : ""}`,
+      ),
+    get: (id: string) => api.get<any>(`/purchase-returns/${id}`),
+    create: (data: any) => api.post<any>("/purchase-returns", data),
+    approve: (id: string) => api.post<any>(`/purchase-returns/${id}/approve`, {}),
+    reject: (id: string, reason?: string) =>
+      api.post<any>(`/purchase-returns/${id}/reject`, { reason }),
+    cancel: (id: string) => api.post<any>(`/purchase-returns/${id}/cancel`, {}),
   },
 
   // Purchase Orders (Proformas)
@@ -375,6 +403,10 @@ const api = {
     create: (data: any) => api.post<any>("/goods-purchase-orders", data),
     update: (id: string, data: any) => api.put<any>(`/goods-purchase-orders/${id}`, data),
     delete: (id: string) => api.delete(`/goods-purchase-orders/${id}`),
+    // Two-checker approval: each checker signs once; the PO advances to
+    // "approved" only after a second, distinct checker approves it.
+    checkerApprove: (id: string, action: "approve" | "reject", notes?: string) =>
+      api.post<any>(`/goods-purchase-orders/${id}/checker-approve`, { action, notes }),
     // Email the PO PDF to the supplier for their approval.
     sendToSupplier: (id: string) =>
       api.post<any>(`/goods-purchase-orders/${id}/send-to-supplier`, {}),

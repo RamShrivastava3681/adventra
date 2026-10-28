@@ -160,7 +160,11 @@ const ProformasPanel = lazy(() =>
 );
 const InvoicesPanel = lazy(() =>
   import("@/routes/app.invoices").then((m) => ({
-    default: () => <m.InvoicesPage viewOnly />,
+    // viewOnly keeps the sales tab read-only, but the deep-link props still
+    // flow through so a work item opens its invoice.
+    default: (props: { viewId?: string; onViewHandled?: () => void }) => (
+      <m.InvoicesPage viewOnly {...props} />
+    ),
   })),
 );
 const NotesPanel = lazy(() =>
@@ -183,18 +187,29 @@ function SalesWorkbenchPage() {
   const [section, setSection] = useState<SalesSection>("workbench");
   const [filter, setFilter] = useState<FilterKey>("all");
   const [page, setPage] = useState(1);
+  /* The document a work item wants opened. The target tab reads the id and
+   * opens that record's modal, then calls back so the request is cleared. */
+  const [pendingDoc, setPendingDoc] = useState<{ docType: string; docId: string } | null>(null);
+  const clearPendingDoc = () => setPendingDoc(null);
 
-  /* Row-level open: stay in-page when the doc has its own tab, else deep-link. */
+  /* Row-level open: switch to the doc's tab AND open that very document. */
   function openDoc(t: Task) {
     switch (t.doc_type) {
       case "sales_order":
+        setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
         setSection("sales-orders");
         return;
       case "proforma":
+        setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
         setSection("proformas");
         return;
       case "sales_invoice":
+        setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
         setSection("invoices");
+        return;
+      case "dispatch":
+        // No dispatch tab in the sales workbench — open the dispatch itself.
+        navigate({ to: "/app/dispatches", search: { dispatchId: t.doc_id } });
         return;
       default:
         navigate({ to: docAppPath(t) as any });
@@ -662,9 +677,25 @@ function SalesWorkbenchPage() {
       ) : (
         <Suspense fallback={<SectionFallback />}>
           {section === "customers" && <DebtorsPanel />}
-          {section === "sales-orders" && <SalesOrdersPanel />}
-          {section === "proformas" && <ProformasPanel side="sales" />}
-          {section === "invoices" && <InvoicesPanel />}
+          {section === "sales-orders" && (
+            <SalesOrdersPanel
+              openSo={pendingDoc?.docType === "sales_order" ? pendingDoc.docId : undefined}
+              onOpenHandled={clearPendingDoc}
+            />
+          )}
+          {section === "proformas" && (
+            <ProformasPanel
+              side="sales"
+              pfId={pendingDoc?.docType === "proforma" ? pendingDoc.docId : undefined}
+              onPfHandled={clearPendingDoc}
+            />
+          )}
+          {section === "invoices" && (
+            <InvoicesPanel
+              viewId={pendingDoc?.docType === "sales_invoice" ? pendingDoc.docId : undefined}
+              onViewHandled={clearPendingDoc}
+            />
+          )}
           {section === "ageing" && <ClientAgeingPanel onOpenInvoices={() => setSection("invoices")} />}
           {section === "notes" && <NotesPanel />}
           {section === "tasks" && <TasksPanel />}

@@ -29,6 +29,7 @@ import { Plus, X, Loader2, ShieldAlert, Building2, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { DocumentUploader, DocumentList, type DocMeta } from "@/components/document-uploader";
 import { useFormDraft, DraftResumeBanner } from "@/lib/form-draft";
+import { PRICE_TIERS } from "./app.sales-orders";
 
 export const Route = createFileRoute("/app/debtors")({
   component: DebtorsPage,
@@ -569,16 +570,15 @@ function DebtorModal({
                   onChange={set("industry")}
                 />
               </L>
-              <L label="Customer type">
+              <L label="Price Tier">
                 <select
                   className={selectBase}
                   value={form.customer_type}
                   onChange={(e) => setForm({ ...form, customer_type: e.target.value })}
                 >
-                  <option value="">Not set</option>
-                  {["Dealer", "Distributor", "Retailer", "Defence", "Others"].map((t) => (
-                    <option key={t} value={t}>
-                      {t}
+                  {PRICE_TIERS.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
                     </option>
                   ))}
                 </select>

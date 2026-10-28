@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
+import { inclusiveTotals, exGstPrice } from "@/lib/gst";
 import { useAuth } from "@/lib/auth-context";
 import {
   PageHeader,
@@ -22,6 +23,7 @@ import {
   CheckCircle2,
   ShoppingCart,
   Sparkles,
+  RotateCcw,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -41,6 +43,7 @@ import {
 } from "@/components/payment-terms";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
+import { PurchaseReturnModal } from "@/components/purchase-return-modal";
 
 export const Route = createFileRoute("/app/purchases")({
   component: PurchasesPageWrapper,
@@ -149,7 +152,13 @@ type GRNFragment = {
 };
 
 export function PurchasesPage(
-  props: { viewOnly?: boolean; createFromPo?: string; createFromPf?: string; openInvoice?: string } = {},
+  props: {
+    viewOnly?: boolean;
+    createFromPo?: string;
+    createFromPf?: string;
+    openInvoice?: string;
+    onOpenHandled?: () => void;
+  } = {},
 ) {
   return <PurchasesPageContent {...props} />;
 }
@@ -159,11 +168,13 @@ function PurchasesPageContent({
   createFromPo,
   createFromPf,
   openInvoice,
+  onOpenHandled,
 }: {
   viewOnly?: boolean;
   createFromPo?: string;
   createFromPf?: string;
   openInvoice?: string;
+  onOpenHandled?: () => void;
 }) {
   const { user, isAdmin, isChecker, isClient, isTreasury, isOperations } = useAuth();
   // Procurement (operations) records and owns supplier invoices; checker and
@@ -176,6 +187,7 @@ function PurchasesPageContent({
   const [createFromPfId, setCreateFromPfId] = useState<string | null>(createFromPf ?? null);
   const [editing, setEditing] = useState<any | null>(null);
   const [viewing, setViewing] = useState<any | null>(null);
+  const [returning, setReturning] = useState<any | null>(null);
 
   // Deep link: queue "Record supplier invoice" task → open the create form
   // with the PO preselected (the modal auto-fills lines from it) and the
@@ -198,12 +210,18 @@ function PurchasesPageContent({
   // (view modal) with its PO + proforma links visible. Clears the URL once
   // the invoice is found so refresh stays on the list.
   const [openInvoiceId, setOpenInvoiceId] = useState<string | null>(openInvoice ?? null);
+  // Workbench deep links arrive after mount (the panel is already rendered) —
+  // keep the request in sync with the prop.
+  useEffect(() => {
+    if (openInvoice) setOpenInvoiceId(openInvoice);
+  }, [openInvoice]);
   useEffect(() => {
     if (!openInvoiceId || viewing) return;
     const found = (piQ.data ?? []).find((p: any) => p.id === openInvoiceId);
     if (found) {
       setViewing(found);
       setOpenInvoiceId(null);
+      onOpenHandled?.();
       try {
         if (window.location.pathname.startsWith("/app/purchases")) {
           navigate({ to: "/app/purchases", search: {}, replace: true });
@@ -519,6 +537,17 @@ function PurchasesPageContent({
                                 >
                                   View
                                 </button>
+                                {canCreate &&
+                                  !["draft", "cancelled"].includes(p.status) &&
+                                  (p.lines ?? []).length > 0 && (
+                                    <button
+                                      onClick={() => setReturning(p)}
+                                      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] hover:border-sem-attention hover:text-sem-attention"
+                                      title="Return goods to the supplier and raise a debit note"
+                                    >
+                                      <RotateCcw className="h-3 w-3" /> Return
+                                    </button>
+                                  )}
                                 {canEdit && (
                                   <button
                                     onClick={() => setEditing(p)}
@@ -603,6 +632,13 @@ function PurchasesPageContent({
           onClose={() => setViewing(null)}
         />
       )}
+      {returning && (
+        <PurchaseReturnModal
+          invoice={returning}
+          onClose={() => setReturning(null)}
+          onCreated={() => qc.invalidateQueries({ queryKey: ["purchase_invoices"] })}
+        />
+      )}
     </div>
   );
 }
@@ -678,6 +714,9 @@ function NewPurchaseModal({
   );
   const [docs, setDocs] = useState<DocMeta[]>(invoice?.documents ?? []);
   const [extractModalOpen, setExtractModalOpen] = useState(false);
+  // Optional supplier credit (debit note) applied to this new invoice.
+  const [applyCreditNoteId, setApplyCreditNoteId] = useState("");
+  const [applyCreditAmount, setApplyCreditAmount] = useState("");
 
   const handleApplyExtracted = (data: ExtractedData, uploadedFile: DocMeta | null) => {
     const extractedLines = Array.isArray(data.lines) ? data.lines : [];
@@ -805,6 +844,14 @@ function NewPurchaseModal({
   }, [linkedGrn]);
 
   const selectedVendor = vendors.find((v: any) => v.id === form.vendor_id);
+  // Unapplied supplier debit notes (credit available for this new invoice).
+  const supplierCreditsQ = useQuery({
+    queryKey: ["supplier-credits", form.vendor_id],
+    enabled: !isEdit && !!form.vendor_id,
+    queryFn: () => api.suppliers.credits(form.vendor_id),
+  });
+  const supplierCredits = supplierCreditsQ.data?.credits ?? [];
+  const supplierCreditTotal = supplierCreditsQ.data?.total ?? 0;
   const effectiveTermsType =
     (form as any).payment_terms_type ||
     (selectedVendor as any)?.paymentTermsType ||
@@ -982,22 +1029,20 @@ function NewPurchaseModal({
   }, [initialPfId, initialPoId, isEdit, proformasReady]);
 
   const totals = useMemo(() => {
-    let subtotal = 0;
-    let gst = 0;
-    for (const l of lines) {
-      const qty = Number(l.invoice_qty) || 0;
-      const price = Number(l.unit_price) || 0;
-      const rate = Number(l.gst_rate) || 0;
-      const lt = round2(qty * price);
-      subtotal += lt;
-      gst += round2((lt * rate) / 100);
-    }
-    const freight = Number(form.freight) || 0;
+    // Supplier prices are GST-inclusive: the invoice total is the sum of the
+    // line amounts as entered, with GST split out of them.
+    const billed = inclusiveTotals(
+      lines.map((l) => ({
+        amount: (Number(l.invoice_qty) || 0) * (Number(l.unit_price) || 0),
+        gstRate: l.gst_rate,
+      })),
+      Number(form.freight) || 0,
+    );
     return {
-      subtotal: round2(subtotal),
-      gst: round2(gst),
-      freight: round2(freight),
-      grand: round2(subtotal + gst + freight),
+      subtotal: billed.subtotal,
+      gst: billed.gstTotal,
+      freight: billed.freight,
+      grand: billed.grandTotal,
     };
   }, [lines, form.freight]);
 
@@ -1100,7 +1145,15 @@ function NewPurchaseModal({
 
   const amountPaid = Number(invoice?.amount_paid) || 0;
   const netPayable = round2(Math.max(0, totals.grand - advanceToDeduct));
-  const balanceDue = round2(Math.max(0, netPayable - amountPaid));
+  const selectedCredit =
+    supplierCredits.find((c: any) => c.id === applyCreditNoteId) ?? null;
+  const creditCap = round2(
+    Math.min(Number(selectedCredit?.remaining_amount ?? 0), netPayable),
+  );
+  const appliedCredit = isEdit
+    ? 0
+    : Math.min(Number(applyCreditAmount) || 0, creditCap);
+  const balanceDue = round2(Math.max(0, netPayable - amountPaid - appliedCredit));
 
   const save = useMutation({
     mutationFn: async () => {
@@ -1139,6 +1192,11 @@ function NewPurchaseModal({
         notes: form.notes || null,
         difference_notes: differences.length > 0 ? form.difference_notes.trim() || null : null,
         documents: docs,
+        // Optional supplier debit note applied to this invoice on creation.
+        apply_credit:
+          !isEdit && applyCreditNoteId && appliedCredit > 0
+            ? { note_id: applyCreditNoteId, amount: appliedCredit }
+            : undefined,
       };
       // Lines are mandatory (every invoice links to a PO that supplies them).
       payload.lines = payloadLines;
@@ -1444,6 +1502,11 @@ function NewPurchaseModal({
                             value={l.unit_price}
                             onChange={(e) => setLine(i, { unit_price: e.target.value })}
                           />
+                          {(Number(l.unit_price) || 0) > 0 && (
+                            <div className="mt-1 text-right text-[10px] text-muted-foreground">
+                              ex-GST {fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate))}
+                            </div>
+                          )}
                         </L>
                       </div>
                       <div>
@@ -1580,7 +1643,7 @@ function NewPurchaseModal({
           {/* ── Totals ── */}
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
-              <Row label="Subtotal" value={fmtMoney(totals.subtotal)} />
+              <Row label="Subtotal (ex-GST)" value={fmtMoney(totals.subtotal)} />
               <Row label="GST total" value={fmtMoney(totals.gst)} />
               <div className="flex items-center justify-between">
                 <span className="text-xs uppercase tracking-widest text-muted-foreground">
@@ -1706,6 +1769,68 @@ function NewPurchaseModal({
             </div>
           )}
 
+          {!isEdit && supplierCreditTotal > 0 && (
+            <div className="rounded-lg border border-sem-success/40 bg-sem-success/5 p-4 text-sm">
+              <div className="flex items-center justify-between">
+                <div className="text-xs font-bold uppercase tracking-widest text-sem-success">
+                  Supplier credit available
+                </div>
+                <span className="num font-medium">{fmtMoney(supplierCreditTotal)}</span>
+              </div>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Unapplied debit notes from purchase returns. Apply one to this invoice now,
+                or leave it as supplier credit for a future invoice.
+              </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <L label="Debit note">
+                  <select
+                    className="inp"
+                    value={applyCreditNoteId}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      setApplyCreditNoteId(id);
+                      const credit = supplierCredits.find((c: any) => c.id === id);
+                      setApplyCreditAmount(
+                        credit
+                          ? String(
+                              Math.min(Number(credit.remaining_amount) || 0, netPayable),
+                            )
+                          : "",
+                      );
+                    }}
+                  >
+                    <option value="">Do not apply now</option>
+                    {supplierCredits.map((c: any) => (
+                      <option key={c.id} value={c.id}>
+                        {c.note_number} · {fmtMoney(c.remaining_amount)} available
+                      </option>
+                    ))}
+                  </select>
+                </L>
+                <L
+                  label={`Apply amount${selectedCredit ? ` (max ${fmtMoney(creditCap)})` : ""}`}
+                >
+                  <input
+                    type="number"
+                    min="0"
+                    max={creditCap}
+                    step="0.01"
+                    className="inp text-right"
+                    disabled={!applyCreditNoteId}
+                    value={applyCreditAmount}
+                    onChange={(e) => setApplyCreditAmount(e.target.value)}
+                  />
+                </L>
+              </div>
+              {applyCreditNoteId && (
+                <div className="mt-2 flex justify-between border-t border-border/60 pt-2 text-xs">
+                  <span>Balance due after credit</span>
+                  <span className="num font-medium">{fmtMoney(balanceDue)}</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {isEdit && invoice?.status === "approved_for_payment" && !isAdmin && !isTreasury && (
             <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-muted-foreground">
               This invoice is approved for payment. Only treasury/admin can record payments — use
@@ -1786,10 +1911,11 @@ function PurchaseDetailModal({
   const advance = Number(invoice?.advance_deducted ?? 0);
   const netAmount = Number(invoice?.amount ?? Math.max(0, grandTotal - advance));
   const amountPaid = Number(invoice?.amount_paid) || 0;
+  const creditAdjusted = Number(invoice?.credit_adjusted) || 0;
   const balanceDue =
     invoice?.balance_due != null
       ? Number(invoice.balance_due)
-      : Math.max(0, netAmount - amountPaid);
+      : Math.max(0, netAmount - amountPaid - creditAdjusted);
 
   return (
     <div
@@ -1867,6 +1993,7 @@ function PurchaseDetailModal({
                     <th className="px-3 py-2 text-right font-normal">GRN recv</th>
                     <th className="px-3 py-2 text-right font-normal">Invoice qty</th>
                     <th className="px-3 py-2 text-right font-normal">Unit price</th>
+                    <th className="px-3 py-2 text-right font-normal">Ex-GST</th>
                     <th className="px-3 py-2 text-right font-normal">GST %</th>
                     <th className="px-3 py-2 text-right font-normal">Line total</th>
                   </tr>
@@ -1910,6 +2037,9 @@ function PurchaseDetailModal({
                         <td className="px-3 py-2 text-right num">{grnQty}</td>
                         <td className="px-3 py-2 text-right num">{qty}</td>
                         <td className="px-3 py-2 text-right num">{fmtMoney(price)}</td>
+                        <td className="px-3 py-2 text-right num text-muted-foreground">
+                          {fmtMoney(exGstPrice(price, l.gst_rate))}
+                        </td>
                         <td className="px-3 py-2 text-right num">{l.gst_rate ?? 0}%</td>
                         <td className="px-3 py-2 text-right num">
                           {fmtMoney(Number(l.line_total) || 0)}
@@ -1923,7 +2053,7 @@ function PurchaseDetailModal({
           )}
 
           <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4">
-            <Row label="Subtotal" value={fmtMoney(subtotal)} />
+            <Row label="Subtotal (ex-GST)" value={fmtMoney(subtotal)} />
             <Row label="GST total" value={fmtMoney(gstTotal)} />
             <Row label="Freight / other" value={fmtMoney(freight)} />
             <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
@@ -1952,6 +2082,14 @@ function PurchaseDetailModal({
               </span>
               <span className="num text-sem-success">{fmtMoney(amountPaid)}</span>
             </div>
+            {creditAdjusted > 0 && (
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Less supplier debit notes applied
+                </span>
+                <span className="num text-destructive">−{fmtMoney(creditAdjusted)}</span>
+              </div>
+            )}
             <div className="flex items-center justify-between">
               <span className="text-xs uppercase tracking-widest text-muted-foreground">
                 Balance due

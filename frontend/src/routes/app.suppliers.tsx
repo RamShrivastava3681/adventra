@@ -669,6 +669,13 @@ function SupplierDetailModal({
   const address = [supplier.address_line, supplier.city, (supplier as any).state_code ?? (supplier as any).stateCode ?? (supplier as any).state_code, supplier.country, supplier.postal_code]
     .filter(Boolean)
     .join(", ");
+  // Unapplied purchase-return debit notes = supplier credit for a future invoice.
+  const creditsQ = useQuery({
+    queryKey: ["supplier-credits", supplier.id],
+    queryFn: () => api.suppliers.credits(supplier.id),
+  });
+  const credits = creditsQ.data?.credits ?? [];
+  const creditTotal = creditsQ.data?.total ?? 0;
   return (
     <div
       className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
@@ -742,6 +749,46 @@ function SupplierDetailModal({
             </div>
             <div className="col-span-2">
               <Detail label="Notes" value={supplier.notes ?? "—"} />
+            </div>
+            <div className="col-span-2 rounded-md border border-sem-success/30 bg-sem-success/5 p-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                  Supplier credit available
+                </span>
+                <span className="num font-medium text-sem-success">
+                  {fmtMoney(creditTotal)}
+                </span>
+              </div>
+              {creditsQ.isLoading ? (
+                <p className="mt-1 text-xs text-muted-foreground">Loading…</p>
+              ) : credits.length === 0 ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  No unapplied debit notes. Purchase returns create credit here when
+                  the source invoice is already settled.
+                </p>
+              ) : (
+                <ul className="mt-2 space-y-1 text-xs">
+                  {credits.map((c: any) => (
+                    <li key={c.id} className="flex items-start justify-between gap-2">
+                      <span>
+                        <span className="font-mono text-[11px]">{c.note_number}</span>
+                        {c.purchase_return_number ? (
+                          <span className="text-muted-foreground">
+                            {" "}· return {c.purchase_return_number}
+                          </span>
+                        ) : null}
+                        {c.reason ? (
+                          <span className="block text-[10px] text-muted-foreground">{c.reason}</span>
+                        ) : null}
+                      </span>
+                      <span className="num shrink-0">{fmtMoney(c.remaining_amount)}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <p className="mt-2 text-[10px] text-muted-foreground">
+                Apply this credit from the next purchase invoice for this supplier.
+              </p>
             </div>
           </div>
           <div className="flex justify-end border-t border-border pt-3">

@@ -29,7 +29,7 @@ export interface DocumentPdfLine {
   /** Pre-formatted discount label: "10%", "₹50.00" or "—". */
   discountLabel: string;
   gstRate: number | null;
-  /** Line total after discount, before GST. */
+  /** Line total after discount — the GST-inclusive amount billed. */
   amount: number;
 }
 
@@ -361,7 +361,7 @@ function drawTotals(doc: PDFKit.PDFDocument, data: DocumentPdfData, y: number): 
   const boxX = PAGE.width - PAGE.margin - boxW;
 
   const rows: Array<[string, string, boolean]> = [
-    ["Subtotal", money(data.subtotal), false],
+    ["Subtotal (ex-GST)", money(data.subtotal), false],
     ["Total discount", `-${money(data.totalDiscount)}`, false],
     ["GST total", money(data.gstTotal), false],
     ["Freight / charges", money(data.freight), false],
@@ -848,7 +848,7 @@ export function buildInvoicePdf(data: InvoicePdfData): Promise<Buffer> {
     const boxW = 200;
     const boxX = PAGE.width - PAGE.margin - boxW;
     const totalRows: Array<[string, string, boolean]> = [
-      ["Subtotal", money(data.subtotal), false],
+      ["Subtotal (ex-GST)", money(data.subtotal), false],
     ];
     if (data.totalDiscount > 0) totalRows.push(["Total discount", `-${money(data.totalDiscount)}`, false]);
     if (data.gstTotal > 0) totalRows.push(["GST", money(data.gstTotal), false]);

@@ -109,14 +109,17 @@ function taskTarget(t: Task): { to: string; search?: Record<string, string> } {
         return { to: "/app/invoices", search: { createFromSo: id } };
       if (stage === "create_proforma")
         return { to: "/app/proformas", search: { createFromSo: id, side: "sales" } };
-      return { to: "/app/sales-orders" };
+      // Every other sales-order stage is performed on the sales order itself
+      // (checker approval, customer acceptance, stock check, dispatch prep).
+      return { to: "/app/sales-orders", search: { soId: id } };
     case "sales_invoice":
       if (stage === "record_irn") return { to: "/app/invoices", search: { irnFor: id } };
       if (stage === "record_utr" || stage === "await_payment")
         return { to: "/app/invoices", search: { utrFor: id } };
       if (stage === "prepare_dispatch" || stage === "confirm_dispatch")
         return { to: "/app/dispatches", search: { createFromInvoice: id } };
-      return { to: "/app/invoices" };
+      // Checker approval / issue / payment stages act on the invoice itself.
+      return { to: "/app/invoices", search: { view: id } };
     case "proforma":
       // Open the proforma itself (view/edit) instead of the bare list.
       return { to: "/app/proformas", search: { pfId: id } };
@@ -135,11 +138,11 @@ function taskTarget(t: Task): { to: string; search?: Record<string, string> } {
           search: pfId ? { createFromPo: id, createFromPf: pfId } : { createFromPo: id },
         };
       }
-      if (stage === "await_supplier_response" || stage === "resolve_supplier_rejection")
-        return { to: "/app/purchase-orders" };
       if (stage === "await_goods" || stage === "create_grn")
         return { to: "/app/grn", search: { createFromPo: id } };
-      return { to: "/app/purchase-orders" };
+      // Draft submission, checker approval and supplier follow-up all happen on
+      // the purchase order itself.
+      return { to: "/app/purchase-orders", search: { poId: id } };
     case "purchase_invoice": {
       if (stage === "await_goods" || stage === "create_grn")
         return { to: "/app/grn", search: { createFromPo: linkedDocId(t, "purchase_order") ?? "" } };
@@ -156,9 +159,11 @@ function taskTarget(t: Task): { to: string; search?: Record<string, string> } {
       return { to: "/app/purchases", search: { openInvoice: id } };
     }
     case "grn":
-      return { to: "/app/grn" };
+      // Open the receipt itself so it can be confirmed / over-received.
+      return { to: "/app/grn", search: { grnId: id } };
     case "dispatch":
-      return { to: "/app/dispatches" };
+      // Open the dispatch itself (packing, EWB, confirm handoff).
+      return { to: "/app/dispatches", search: { dispatchId: id } };
     case "payment":
       return { to: "/app/queue" };
     default:

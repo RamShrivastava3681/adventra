@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api-client";
+import { inclusiveTotals, exGstPrice } from "@/lib/gst";
 import { useAuth } from "@/lib/auth-context";
 import { PageHeader, Card, fmtMoney, fmtDate } from "@/components/ledger-ui";
 import { DocumentStatusStripCompact } from "@/components/document-status-strip";
@@ -57,8 +58,19 @@ import {
 } from "@/components/dialog";
 
 export const Route = createFileRoute("/app/sales-orders")({
-  component: SalesOrdersPage,
+  component: SalesOrdersPageRoute,
+  // Deep links: ?new=1 opens the create form (Sales workbench),
+  // ?soId=<id> opens one existing sales order (queue / workbench task).
+  validateSearch: (search: Record<string, unknown>): { new?: string; soId?: string } => ({
+    new: typeof search.new === "string" ? search.new : undefined,
+    soId: typeof search.soId === "string" ? search.soId : undefined,
+  }),
 });
+
+function SalesOrdersPageRoute() {
+  const search = Route.useSearch();
+  return <SalesOrdersPage openSo={search.soId} />;
+}
 
 const API_URL = import.meta.env.VITE_API_URL || "/api";
 
@@ -180,6 +192,12 @@ type CatalogueProduct = {
   distributor_price: number | null;
   flexible_price: number | null;
   status: string;
+};
+
+type StockSummaryItem = {
+  productId: string;
+  totalCompanyStock: number | null;
+  locationBreakdown?: Array<{ locationId: string; quantity: number; reservedQuantity: number }>;
 };
 
 type CustomerAddress = { label: string | null; address: string; city?: string | null; state?: string | null; postalCode?: string | null };
@@ -332,7 +350,7 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-const PRICE_TIERS = [
+export const PRICE_TIERS = [
   { value: "", label: "Default" },
   { value: "mrp", label: "MRP" },
   { value: "ecommerce", label: "E-commerce" },
@@ -389,6 +407,7 @@ function getTierForCustomerType(customerType?: string | null): string {
   const s = customerType.toLowerCase().trim();
   if (s === "retailer") return "retailer";
   if (s === "distributor" || s === "dealer") return "distributor";
+  if (s === "mrp" || s === "ecommerce" || s === "flexible") return s;
   return "";
 }
 
@@ -407,7 +426,9 @@ function resolvePriceForCustomerType(
   return fallback != null ? String(fallback) : "";
 }
 
-export function SalesOrdersPage() {
+export function SalesOrdersPage(
+  { openSo, onOpenHandled }: { openSo?: string; onOpenHandled?: () => void } = {},
+) {
   const { user, isSalesRep } = useAuth();
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();
@@ -453,6 +474,25 @@ export function SalesOrdersPage() {
       return data.sort((a, b) => (b.order_date || "").localeCompare(a.order_date || ""));
     },
   });
+
+  // Deep link: queue / workbench task → open that sales order's modal
+  // (customer acceptance, stock check, dispatch preparation).
+  useEffect(() => {
+    if (!openSo) return;
+    const found = (sosQ.data ?? []).find((s) => s.id === openSo);
+    if (!found) return; // list still loading — retries when data arrives
+    setEditing(found);
+    setOpen(true);
+    onOpenHandled?.();
+    try {
+      if (window.location.pathname.startsWith("/app/sales-orders")) {
+        navigate({ to: "/app/sales-orders", search: {}, replace: true });
+      }
+    } catch {
+      // embedded / no router context — nothing to clear
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openSo, sosQ.data]);
 
   // Catalogue + customers (debtor master).
   const productsQ = useQuery({
@@ -867,6 +907,21 @@ function SOModal({
     queryFn: () => (so?.id ? api.goodsSalesOrders.checkStock(so.id) : null),
     enabled: !!(isEdit && so?.id),
   });
+
+  // Live available stock per product (total company stock), used to block
+  // creating/editing a sales order when ordered qty exceeds inventory.
+  const stockSummaryQ = useQuery({
+    queryKey: ["so_stock_summary"],
+    queryFn: async () => api.stockSummary.list(),
+  });
+
+  const stockBalance = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const s of (stockSummaryQ.data ?? []) as StockSummaryItem[]) {
+      map.set(s.productId, Number(s.totalCompanyStock ?? 0));
+    }
+    return map;
+  }, [stockSummaryQ.data]);
 
   const [f, setF] = useState({
     order_date: (so?.order_date ?? new Date().toISOString().slice(0, 10)).slice(0, 10),
@@ -1361,16 +1416,8 @@ function SOModal({
   };
 
   const totals = useMemo(() => {
-    const subtotal = round2(
-      lines.reduce(
-        (s, l) =>
-          s +
-          (Number(l.ordered_qty) || 0) *
-            (Number(l.unit_price) || 0) *
-            (1 - (Number(l.discount_pct) || 0) / 100),
-        0,
-      ),
-    );
+    // Catalogue prices are GST-inclusive: the line amounts add up to the order
+    // total as entered, with GST shown as the part already inside them.
     const totalDiscount = round2(
       lines.reduce(
         (s, l) =>
@@ -1381,24 +1428,22 @@ function SOModal({
         0,
       ),
     );
-    const gstTotal = round2(
-      lines.reduce(
-        (s, l) =>
-          s +
+    const billed = inclusiveTotals(
+      lines.map((l) => ({
+        amount:
           (Number(l.ordered_qty) || 0) *
-            (Number(l.unit_price) || 0) *
-            (1 - (Number(l.discount_pct) || 0) / 100) *
-            ((Number(l.gst_rate) || 0) / 100),
-        0,
-      ),
+          (Number(l.unit_price) || 0) *
+          (1 - (Number(l.discount_pct) || 0) / 100),
+        gstRate: l.gst_rate,
+      })),
+      Number(f.freight) || 0,
     );
-    const freight = Number(f.freight) || 0;
     return {
-      subtotal,
+      subtotal: billed.subtotal,
       totalDiscount,
-      gstTotal,
-      freight,
-      grandTotal: round2(subtotal + gstTotal + freight),
+      gstTotal: billed.gstTotal,
+      freight: billed.freight,
+      grandTotal: billed.grandTotal,
     };
   }, [lines, f.freight]);
 
@@ -1431,6 +1476,17 @@ function SOModal({
           throw new Error("Discount must be a percentage between 0 and 100");
         }
       }
+      // Block creation/edit when ordered qty exceeds available inventory.
+      const short: string[] = [];
+      for (const l of payloadLines) {
+        if (!l.product_id) continue;
+        const available = stockBalance.get(l.product_id) ?? 0;
+        if (l.ordered_qty > 0 && l.ordered_qty > available) {
+          const p = products.find((x) => x.id === l.product_id);
+          short.push(`${l.name ?? p?.name ?? l.product_id}: ordered ${l.ordered_qty}, available ${available}`);
+        }
+      }
+      if (short.length > 0) throw new Error("Insufficient inventory — " + short.join("; "));
       if (!f.customer_id) throw new Error("Select a billing customer");
       const sameAsBilling = (f as any).same_as_billing !== false;
       const shipId = sameAsBilling ? f.customer_id : ((f as any).ship_customer_id as string);
@@ -1690,38 +1746,26 @@ function SOModal({
                   options={customers.map((c) => ({ value: c.id, label: c.name }))}
                 />
               </L>
-              <L label="Customer Type (Price Category)">
+              <L label="Customer Type (Price Tier)">
                 <select
                   className={inputBase}
                   value={f.customer_type}
                   onChange={(e) => handleCustomerTypeChange(e.target.value)}
                   disabled={!editable}
                 >
-                  <option value="">Default (Master Selling Price)</option>
-                  <option value="Retailer">Retailer (Fetches Retailer Price)</option>
-                  <option value="Distributor">Distributor (Fetches Distributor Price)</option>
-                  <option value="Dealer">Dealer (Fetches Distributor Price)</option>
-                  <option value="Defence">Defence (0% Concessional GST)</option>
-                  <option value="Others">Others (Standard Selling Price)</option>
+                  {PRICE_TIERS.map((t) => (
+                    <option key={t.value} value={t.value}>
+                      {t.label}
+                    </option>
+                  ))}
                 </select>
                 {(() => {
                   const cType = f.customer_type;
                   if (!cType) return null;
-                  const isDef = cType.toLowerCase() === "defence";
-                  const isRet = cType.toLowerCase() === "retailer";
-                  const isDist = cType.toLowerCase() === "distributor" || cType.toLowerCase() === "dealer";
                   return (
                     <div className="mt-1 flex items-center gap-1.5 text-[11px]">
-                      <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                        isDef
-                          ? "bg-sem-success/15 text-sem-success"
-                          : isRet
-                          ? "bg-blue-500/15 text-blue-600 dark:text-blue-400"
-                          : isDist
-                          ? "bg-purple-500/15 text-purple-600 dark:text-purple-400"
-                          : "bg-primary/10 text-primary"
-                      }`}>
-                        {cType} {isDef ? "· 0% Concessional GST" : isRet ? "· Retailer Pricing Active" : isDist ? "· Distributor Pricing Active" : "· Standard GST"}
+                      <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold bg-primary/10 text-primary">
+                        {cType.toUpperCase()} Pricing Active
                       </span>
                     </div>
                   );
@@ -2259,7 +2303,7 @@ function SOModal({
                           </select>
                         </div>
                         <div>
-                          {l.product_id ? (
+                          {l.product_id && !f.customer_id ? (
                             <>
                               <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
                                 Price tier
@@ -2293,6 +2337,11 @@ function SOModal({
                               disabled={!editable}
                               placeholder="Selling price"
                             />
+                          {(Number(l.unit_price) || 0) > 0 && (
+                            <div className="mt-1 text-right text-[10px] text-muted-foreground">
+                              ex-GST {fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate))}
+                            </div>
+                          )}
                         </div>
                         <div>
                           <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
@@ -2393,7 +2442,7 @@ function SOModal({
               label="Total quantity"
               value={lines.reduce((s, l) => s + (Number(l.ordered_qty) || 0), 0).toLocaleString()}
             />
-            <Row label="Subtotal" value={fmtMoney(totals.subtotal)} />
+            <Row label="Subtotal (ex-GST)" value={fmtMoney(totals.subtotal)} />
             <Row label="Total discount" value={fmtMoney(totals.totalDiscount)} />
             <Row label="GST total" value={fmtMoney(totals.gstTotal)} />
             <div className="flex items-center justify-between gap-3">

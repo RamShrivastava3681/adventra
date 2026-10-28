@@ -43,12 +43,13 @@ import { TransactionFilters, type TxFiltersConfig } from "@/components/transacti
 
 export const Route = createFileRoute("/app/dispatches")({
   component: DispatchesPage,
-  validateSearch: (search: Record<string, unknown>): { soId?: string; soFilter?: string; createFromInvoice?: string; createFromSO?: string; initialStatus?: string } => ({
+  validateSearch: (search: Record<string, unknown>): { soId?: string; soFilter?: string; createFromInvoice?: string; createFromSO?: string; initialStatus?: string; dispatchId?: string } => ({
     soId: typeof search.soId === "string" ? search.soId : undefined,
     soFilter: typeof search.soFilter === "string" ? search.soFilter : undefined,
     createFromInvoice: typeof search.createFromInvoice === "string" ? search.createFromInvoice : undefined,
     createFromSO: typeof search.createFromSO === "string" ? search.createFromSO : undefined,
     initialStatus: typeof search.initialStatus === "string" ? search.initialStatus : undefined,
+    dispatchId: typeof search.dispatchId === "string" ? search.dispatchId : undefined,
   }),
 });
 
@@ -206,6 +207,7 @@ export function DispatchesPage() {
       createFromInvoice={search.createFromInvoice}
       createFromSO={search.createFromSO}
       initialStatus={search.initialStatus}
+      dispatchId={search.dispatchId}
     />
   );
 }
@@ -220,12 +222,16 @@ export function DispatchesPageContent({
   createFromInvoice,
   createFromSO,
   initialStatus,
+  dispatchId,
+  onOpenHandled,
 }: {
   soId?: string;
   soFilter?: string;
   createFromInvoice?: string;
   createFromSO?: string;
   initialStatus?: string;
+  dispatchId?: string;
+  onOpenHandled?: () => void;
 }) {
   const { user, isSalesRep, isAdmin, isChecker } = useAuth();
   const canWrite = !isSalesRep && !!user;
@@ -286,6 +292,18 @@ export function DispatchesPageContent({
       return data.sort((a, b) => (b.dispatch_date || "").localeCompare(a.dispatch_date || ""));
     },
   });
+
+  // Deep link: queue / workbench task → open that dispatch's detail modal
+  // (packing, E-Way Bill, confirm handoff).
+  useEffect(() => {
+    if (!dispatchId) return;
+    const found = (dispatchQ.data ?? []).find((d) => d.id === dispatchId);
+    if (!found) return; // list still loading — retries when data arrives
+    setView(found);
+    onOpenHandled?.();
+    clearDispatchSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dispatchId, dispatchQ.data]);
   const sosQ = useQuery({
     queryKey: ["goods-sos"],
     queryFn: async () => api.goodsSalesOrders.list(),
@@ -1522,33 +1540,11 @@ function DispatchCreateModal({
                   <option value="damage_sample_adjustment">Damage / Sample / Adjustment</option>
                 </select>
               </L>
-              {stockLocations.length === 0 ? (
-                <L label="Source Location">
-                  <div className="inp flex items-center bg-muted/30 text-xs text-muted-foreground">
-                    Central Warehouse (default — no warehouse created yet)
-                  </div>
-                </L>
-              ) : (
-                <L label="Source Location">
-                  <select
-                    className="inp"
-                    value={f.source_location_id}
-                    onChange={(e) => setF({ ...f, source_location_id: e.target.value })}
-                  >
-                    <option value="">Central Warehouse (default)</option>
-                    {stockLocations.map((loc: any) => (
-                      <option key={loc.id} value={loc.id}>
-                        {loc.name}{loc.channel ? ` (${loc.channel})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  {stockLocations.length === 1 && (
-                    <div className="mt-0.5 text-[10px] text-muted-foreground">
-                      Only Central Warehouse exists — dispatching from there.
-                    </div>
-                  )}
-                </L>
-              )}
+              <L label="Source Warehouse">
+                <div className="inp flex items-center bg-muted/30 text-xs text-muted-foreground">
+                  Central Warehouse (single warehouse — all stock)
+                </div>
+              </L>
               {f.dispatch_type === "stock_transfer" && (
                 <L label="Destination Location">
                   <select
@@ -1556,6 +1552,36 @@ function DispatchCreateModal({
                     value={f.destination_location_id}
                     onChange={(e) => setF({ ...f, destination_location_id: e.target.value })}
                   >
+                    <option value="">Select destination…</option>
+                    {stockLocations.map((loc: any) => (
+                      <option key={loc.id} value={loc.id}>
+                        {loc.name}{loc.channel ? ` (${loc.channel})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </L>
+              )}
+              {f.dispatch_type === "marketplace_sale" && (
+                <L label="Channel">
+                  <input
+                    className="inp"
+                    value={f.channel}
+                    onChange={(e) => setF({ ...f, channel: e.target.value })}
+                    placeholder="e.g. Amazon, Flipkart"
+                  />
+                </L>
+              )}
+              <L label="Source Warehouse">
+                <div className="inp flex items-center bg-muted/30 text-xs text-muted-foreground">
+                  Central Warehouse (single warehouse — all stock)
+                </div>
+              </L>
+              {f.dispatch_type === "stock_transfer" && (
+                <L label="Destination Location">
+                  <select
+                    className="inp"
+                    value={f.destination_location_id}
+                    onChange={(e) => setF({ ...f, destination_location_id: e.target.value })}>
                     <option value="">Select destination…</option>
                     {stockLocations.map((loc: any) => (
                       <option key={loc.id} value={loc.id}>

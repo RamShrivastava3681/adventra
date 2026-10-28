@@ -217,14 +217,20 @@ function WarehouseWorkbenchPage() {
   const [filter, setFilter] = useState<FilterKey>("all");
   const [query, setQuery] = useState("");
   const [page, setPage] = useState(1);
+  /* The document a work item wants opened. The target tab reads the id and
+   * opens that record's modal, then calls back so the request is cleared. */
+  const [pendingDoc, setPendingDoc] = useState<{ docType: string; docId: string } | null>(null);
+  const clearPendingDoc = () => setPendingDoc(null);
 
-  /* Row-level open: stay in-page when the doc has its own tab, else deep-link. */
-  function openDoc(t: { doc_type: string }) {
+  /* Row-level open: switch to the doc's tab AND open that very document. */
+  function openDoc(t: { doc_type: string; doc_id: string }) {
     switch (t.doc_type) {
       case "grn":
+        setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
         setSection("grn");
         return;
       case "dispatch":
+        setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
         setSection("dispatch");
         return;
       default:
@@ -686,8 +692,18 @@ function WarehouseWorkbenchPage() {
         <Suspense fallback={<SectionFallback />}>
           {section === "warehouse" && <WarehousePanel />}
           {section === "forecast" && <ForecastPanel />}
-          {section === "grn" && <GrnPanel />}
-          {section === "dispatch" && <DispatchPanel />}
+          {section === "grn" && (
+            <GrnPanel
+              grnId={pendingDoc?.docType === "grn" ? pendingDoc.docId : undefined}
+              onOpenHandled={clearPendingDoc}
+            />
+          )}
+          {section === "dispatch" && (
+            <DispatchPanel
+              dispatchId={pendingDoc?.docType === "dispatch" ? pendingDoc.docId : undefined}
+              onOpenHandled={clearPendingDoc}
+            />
+          )}
           {section === "stock" && <StockPanel />}
           {section === "samples" && <SamplesPanel />}
           {section === "tasks" && <WarehouseTasksPanel />}
