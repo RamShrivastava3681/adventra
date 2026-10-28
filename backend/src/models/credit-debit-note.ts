@@ -11,6 +11,16 @@ export interface CreditDebitNote {
   status: string;
   invoiceId: string | null; purchaseInvoiceId: string | null;
   counterparty: string | null;
+  /** Party id the note belongs to (supplier/vendor for purchase-side notes). */
+  supplierId: string | null;
+  /** Purchase return that raised this note (if any). */
+  purchaseReturnId: string | null;
+  purchaseReturnNumber: string | null;
+  /** How much of this note has been applied to an invoice. */
+  appliedAmount: number;
+  appliedInvoiceId: string | null;
+  appliedInvoiceNumber: string | null;
+  appliedAt: string | null;
   lineItems: any[]; subtotal: number | null;
   taxRate: number; taxAmount: number;
   notes: string | null; documents: any[];
@@ -39,6 +49,13 @@ export async function create(data: Partial<CreditDebitNote> & { clientId: string
     status: data.status || "pending",
     invoiceId: data.invoiceId || null, purchaseInvoiceId: data.purchaseInvoiceId || null,
     counterparty: data.counterparty || null,
+    supplierId: data.supplierId || null,
+    purchaseReturnId: data.purchaseReturnId || null,
+    purchaseReturnNumber: data.purchaseReturnNumber || null,
+    appliedAmount: Number(data.appliedAmount) || 0,
+    appliedInvoiceId: data.appliedInvoiceId || null,
+    appliedInvoiceNumber: data.appliedInvoiceNumber || null,
+    appliedAt: data.appliedAt || null,
     lineItems: data.lineItems || [], subtotal: data.subtotal || null,
     taxRate: data.taxRate || 0, taxAmount: data.taxAmount || 0,
     notes: data.notes || null, documents: data.documents || [],
@@ -51,7 +68,7 @@ export async function create(data: Partial<CreditDebitNote> & { clientId: string
 
 export async function update(id: string, updates: Partial<CreditDebitNote>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
-  const allowed = ["kind","noteNumber","noteDate","amount","reason","status","invoiceId","purchaseInvoiceId","counterparty","lineItems","subtotal","taxRate","taxAmount","notes","documents"];
+  const allowed = ["kind","noteNumber","noteDate","amount","reason","status","invoiceId","purchaseInvoiceId","counterparty","lineItems","subtotal","taxRate","taxAmount","notes","documents","supplierId","purchaseReturnId","purchaseReturnNumber","appliedAmount","appliedInvoiceId","appliedInvoiceNumber","appliedAt"];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   return db.updateItem(`CD_NOTE#${id}`, `CD_NOTE#${id}`, patch);
 }

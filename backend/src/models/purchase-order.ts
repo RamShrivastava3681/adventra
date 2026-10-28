@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
+import { inclusiveTotals } from "../lib/gst.js";
 import { PaymentTermsType, normalizePaymentTermsType, normalizeAdvancePct } from "../lib/payment-terms.js";
 
 export interface ProformaLine {
@@ -14,7 +15,7 @@ export interface ProformaLine {
   unitPrice: number;
   /** GST rate as a percentage (0–99). */
   gstRate: number | null;
-  /** System-calculated: quantity × unitPrice (before GST). */
+  /** System-calculated: quantity × unitPrice — the quoted amount (GST included). */
   lineTotal: number;
 }
 
@@ -98,12 +99,18 @@ function computeLineTotals(lines: ProformaLine[]): ProformaLine[] {
 
 export function computeProformaTotals(lines: ProformaLine[], freight: number) {
   const normalized = computeLineTotals(lines);
-  const subtotal = round2(normalized.reduce((s, l) => s + l.lineTotal, 0));
-  const gstTotal = round2(
-    normalized.reduce((s, l) => s + (l.quantity * l.unitPrice * (l.gstRate ?? 0)) / 100, 0),
+  // GST-inclusive prices: the line total is the amount payable, subtotal/GST
+  // are the split inside it.
+  const totals = inclusiveTotals(
+    normalized.map((l) => ({ amount: l.lineTotal, gstRate: l.gstRate })),
+    freight,
   );
-  const f = Number(freight) || 0;
-  return { subtotal, gstTotal, freight: round2(f), grandTotal: round2(subtotal + gstTotal + f) };
+  return {
+    subtotal: totals.subtotal,
+    gstTotal: totals.gstTotal,
+    freight: totals.freight,
+    grandTotal: totals.grandTotal,
+  };
 }
 
 export async function list(clientId?: string) {

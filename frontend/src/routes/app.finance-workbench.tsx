@@ -233,23 +233,31 @@ function FinanceWorkbenchPage() {
   const [query, setQuery] = useState("");
   const [owner, setOwner] = useState(isTreasury ? "treasury" : "all");
   const [page, setPage] = useState(1);
+  /* The document a work item wants opened. The target tab reads the id and
+   * opens that record's modal, then calls back so the request is cleared. */
+  const [pendingDoc, setPendingDoc] = useState<{ docType: string; docId: string } | null>(null);
+  const clearPendingDoc = () => setPendingDoc(null);
 
-  /* Row-level open: stay in-page when the doc has its own tab, else deep-link. */
-  function openDoc(t: { doc_type: string }) {
+  /* Row-level open: switch to the doc's tab AND open that very document. */
+  function openDoc(t: { doc_type: string; doc_id: string }) {
     switch (t.doc_type) {
       case "sales_invoice":
+        setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
         setSection("sales-invoices");
         return;
       case "purchase_invoice":
+        setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
         setSection("purchase-invoices");
         return;
       case "proforma":
+        setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
         setSection("proformas");
         return;
       case "payment":
         setSection("treasury");
         return;
       case "dispatch":
+        setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
         setSection("dispatch-orders");
         return;
       default:
@@ -820,13 +828,35 @@ function FinanceWorkbenchPage() {
           {section === "treasury" && <TreasuryPanel />}
           {section === "bulk" && <BulkPanel />}
           {section === "sales-orders" && <SalesOrdersPanel />}
-          {section === "sales-invoices" && <SalesInvoicesPanel />}
-          {section === "proformas" && <ProformasPanel />}
+          {section === "sales-invoices" && (
+            <SalesInvoicesPanel
+              viewId={pendingDoc?.docType === "sales_invoice" ? pendingDoc.docId : undefined}
+              onViewHandled={clearPendingDoc}
+            />
+          )}
+          {section === "proformas" && (
+            <ProformasPanel
+              pfId={pendingDoc?.docType === "proforma" ? pendingDoc.docId : undefined}
+              onPfHandled={clearPendingDoc}
+            />
+          )}
           {/* Finance sees both proforma streams — no side lock. */}
           {section === "advances" && <AdvancesPanel />}
-          {section === "purchase-invoices" && <PurchaseInvoicesPanel />}
+          {section === "purchase-invoices" && (
+            <PurchaseInvoicesPanel
+              openInvoice={
+                pendingDoc?.docType === "purchase_invoice" ? pendingDoc.docId : undefined
+              }
+              onOpenHandled={clearPendingDoc}
+            />
+          )}
           {section === "expenses" && <ExpensesPanel />}
-          {section === "dispatch-orders" && <DispatchOrdersPanel />}
+          {section === "dispatch-orders" && (
+            <DispatchOrdersPanel
+              openDispatch={pendingDoc?.docType === "dispatch" ? pendingDoc.docId : undefined}
+              onOpenHandled={clearPendingDoc}
+            />
+          )}
           {section === "tasks" && <FinanceTasksPanel />}
         </Suspense>
       )}

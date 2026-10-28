@@ -61,7 +61,7 @@ function invalidateCatalogue(qc: ReturnType<typeof useQueryClient>) {
  * (e.g. a purchase order's line editor) without visiting the Product
  * catalogue tab. A trimmed-down catalogue form: SKU, name, unit, and the
  * full price/cost set (cost, unit price, MRP, e-commerce, retailer,
- * distributor, flexible) plus GST.
+ * distributor, flexible) — these are GST-inclusive selling prices.
  */
 export function QuickCreateProductModal({
   userId,

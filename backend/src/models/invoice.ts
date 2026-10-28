@@ -1,6 +1,7 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
 import { fyTag, nextInSeries } from "../lib/doc-series.js";
+import { inclusiveTotals } from "../lib/gst.js";
 import { PaymentTermsType, normalizePaymentTermsType, normalizeAdvancePct } from "../lib/payment-terms.js";
 
 /** A catalogue-backed line on a sales invoice (mirrors the SO line shape). */
@@ -180,11 +181,12 @@ function computeLineTotals(lines: InvoiceLine[]): InvoiceLine[] {
         : Math.min(100, Math.max(0, Number(l.discountPct) || 0));
     const gstRate =
       l.gstRate === undefined || l.gstRate === null ? null : Number(l.gstRate);
-    // Tax-inclusive rate for the Tally print; defaults from base + GST so
-    // legacy lines without the field still print a sane value.
+    // The line price is GST-inclusive, so it doubles as the tax-inclusive
+    // rate for the Tally print. Legacy lines that stored a derived value keep
+    // the stored figure.
     const rateInclTax =
       l.rateInclTax === undefined || l.rateInclTax === null
-        ? round2(unitPrice * (1 + (gstRate ?? 0) / 100))
+        ? round2(unitPrice)
         : round2(Number(l.rateInclTax) || 0);
     return {
       ...l,
@@ -202,18 +204,20 @@ function computeLineTotals(lines: InvoiceLine[]): InvoiceLine[] {
 
 export function computeTotals(lines: InvoiceLine[], freight: number) {
   const normalized = computeLineTotals(lines);
-  const subtotalGoods = round2(normalized.reduce((s, l) => s + l.lineTotal, 0));
-  const totalDiscount = round2(normalized.reduce((s, l) => s + (grossValue(l) - netValue(l)), 0));
-  const gstTotal = round2(
-    normalized.reduce((s, l) => s + (netValue(l) * (l.gstRate ?? 0)) / 100, 0),
+  // Prices are GST-inclusive: the line total is the amount billed as entered,
+  // and subtotal/GST are that amount split out (never GST on top of it).
+  const totals = inclusiveTotals(
+    normalized.map((l) => ({ amount: l.lineTotal, gstRate: l.gstRate })),
+    freight,
   );
-  const f = Number(freight) || 0;
+  const subtotalGoods = totals.subtotal;
+  const totalDiscount = round2(normalized.reduce((s, l) => s + (grossValue(l) - netValue(l)), 0));
   return {
     subtotalGoods,
     totalDiscount,
-    gstTotal,
-    freight: round2(f),
-    grandTotal: round2(subtotalGoods + gstTotal + f),
+    gstTotal: totals.gstTotal,
+    freight: totals.freight,
+    grandTotal: totals.grandTotal,
   };
 }
 

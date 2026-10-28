@@ -820,6 +820,86 @@ export async function notifyPendingApprovers(params: {
   }
 }
 
+/**
+ * Nudge the remaining checkers when a purchase order has one of the two
+ * required approvals. Sent to checker-role users only (the checker who already
+ * signed off is excluded), so the second reviewer knows a PO is waiting on
+ * them. Fire-and-forget safe — never throws.
+ */
+export async function notifySecondChecker(params: {
+  number: string;
+  amount: number;
+  counterparty?: string | null;
+  firstCheckerName: string;
+  firstCheckerEmail?: string | null;
+  reviewPath?: string;
+}): Promise<boolean> {
+  try {
+    if (!isEmailConfigured()) {
+      console.log(`  ⚠ Email not configured — skipping second-checker notice for ${params.number}`);
+      return false;
+    }
+    const users = await db.scanByType("User");
+    const alreadyApproved = String(params.firstCheckerEmail || "").trim().toLowerCase();
+    const recipients = Array.from(
+      new Set(
+        (users as any[])
+          .filter((u) => Array.isArray(u?.roles) && u.roles.includes("checker"))
+          .map((u) => String(u?.email || "").trim().toLowerCase())
+          .filter((email) => email && email.includes("@") && email !== alreadyApproved),
+      ),
+    );
+    if (recipients.length === 0) {
+      console.log(`  ⚠ No other checker found — skipping second-checker notice for ${params.number}`);
+      return false;
+    }
+
+    const reviewUrl = `${config.appUrl}${params.reviewPath || "/app/checker"}`;
+    const amountLabel = `₹${Number(params.amount || 0).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+    const safeNumber = esc(params.number);
+    const subject = `[Action required] Purchase Order ${params.number} needs a second checker — ${amountLabel}`;
+    const body = `
+      <div style="margin-bottom:20px;">
+        <div style="font-size:13px;color:#64748b;margin-bottom:4px;">SECOND CHECKER APPROVAL REQUIRED</div>
+        <div style="font-size:22px;font-weight:700;color:#1e293b;">${safeNumber}</div>
+      </div>
+
+      <div style="background:#fffbeb;border-radius:8px;padding:12px 16px;margin-bottom:20px;border-left:4px solid #f59e0b;">
+        <div style="font-size:14px;font-weight:700;color:#d97706;">🟡 1 of 2 checker approvals recorded</div>
+        <div style="font-size:12px;color:#d97706;margin-top:4px;">
+          Approved by ${esc(params.firstCheckerName)}. A purchase order needs two distinct checkers before it can move to the next workflow step.
+        </div>
+      </div>
+
+      <table cellpadding="0" cellspacing="0" style="width:100%;">
+        ${invoiceTableRow("Document", `Purchase Order ${safeNumber}`)}
+        ${invoiceTableRow("Amount", `<strong>${amountLabel}</strong>`)}
+        ${params.counterparty ? invoiceTableRow("Counterparty", esc(params.counterparty)) : ""}
+        ${invoiceTableRow("First approval", esc(params.firstCheckerName))}
+        ${invoiceTableRow("Still required", "1 more checker approval")}
+      </table>
+
+      <div style="margin-top:24px;text-align:center;">
+        <a href="${reviewUrl}" style="display:inline-block;background:#1e293b;color:#ffffff;text-decoration:none;padding:12px 24px;border-radius:8px;font-size:14px;font-weight:600;">
+          ✅ Review in Checker Workbench
+        </a>
+      </div>
+    `;
+    const transporter = getTransporter();
+    await transporter.sendMail({
+      from: `"${senderName()}" <${config.smtp.user}>`,
+      to: recipients.join(", "),
+      subject,
+      html: wrapHTML(body, `⏳ ${safeNumber} awaiting second checker`),
+    });
+    console.log(`  ✅ Second-checker notice sent: ${params.number} → ${recipients.length} checker(s)`);
+    return true;
+  } catch (err) {
+    console.error(`  ❌ Failed to send second-checker notice for ${params.number}:`, err);
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Unified workflow task notifications (PDF-3 §6)
 // Subject: Action Required — [Task Name] — [Document Number]. Never includes

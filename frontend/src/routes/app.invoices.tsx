@@ -2,6 +2,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
+import { inclusiveTotals, exGstPrice } from "@/lib/gst";
 import { useAuth } from "@/lib/auth-context";
 import {
   PageHeader,
@@ -190,7 +191,14 @@ function InvoicesPageWrapper() {
 }
 
 export function InvoicesPage(
-  props: { viewOnly?: boolean; createFromSo?: string; utrForId?: string; irnForId?: string; viewId?: string } = {},
+  props: {
+    viewOnly?: boolean;
+    createFromSo?: string;
+    utrForId?: string;
+    irnForId?: string;
+    viewId?: string;
+    onViewHandled?: () => void;
+  } = {},
 ) {
   return <InvoicesPageContent {...props} />;
 }
@@ -201,12 +209,14 @@ function InvoicesPageContent({
   utrForId,
   irnForId,
   viewId,
+  onViewHandled,
 }: {
   viewOnly?: boolean;
   createFromSo?: string;
   utrForId?: string;
   irnForId?: string;
   viewId?: string;
+  onViewHandled?: () => void;
 }) {
   const { isAdmin, isChecker, isClient, isTreasury, user } = useAuth();
   // Embedded in the Sales Workbench as a view-only tab — invoices may only
@@ -274,8 +284,12 @@ function InvoicesPageContent({
     if (!inv) return; // list not loaded yet — retries when data arrives
     if (utrForId && canUploadUtr) setUtrFor(inv);
     if (irnForId && canRecordIrn) setIrnFor(inv);
-    if (viewId) setEditing(inv);
+    if (viewId) {
+      setEditing(inv);
+      onViewHandled?.();
+    }
     clearInvoiceSearch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [utrForId, irnForId, viewId, invoicesQ.data, canUploadUtr, canRecordIrn]);
 
   const clearInvoiceSearch = () => {
@@ -970,36 +984,41 @@ function NewInvoiceModal({
   };
 
   const totals = useMemo(() => {
-    const subtotal = round2(
+    // Line prices are GST-inclusive: the sum of line amounts is what the
+    // customer pays, and subtotal/GST are that amount split out.
+    const grossTotal = round2(
+      lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0),
+    );
+    const billed = inclusiveTotals(
+      lines.map((l) => ({
+        amount:
+          (Number(l.quantity) || 0) *
+          (Number(l.unit_price) || 0) *
+          (1 - (Number(l.discount_pct) || 0) / 100),
+        gstRate: l.gst_rate,
+      })),
+      Number(form.freight) || 0,
+    );
+    const totalDiscount = round2(
       lines.reduce(
         (s, l) =>
           s +
           (Number(l.quantity) || 0) *
             (Number(l.unit_price) || 0) *
-            (1 - (Number(l.discount_pct) || 0) / 100),
+            ((Number(l.discount_pct) || 0) / 100),
         0,
       ),
     );
-    const grossTotal = round2(
-      lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0),
-    );
-    const totalDiscount = round2(grossTotal - subtotal);
-    const gstTotal = round2(
-      lines.reduce(
-        (s, l) =>
-          s +
-          ((Number(l.quantity) || 0) *
-            (Number(l.unit_price) || 0) *
-            (1 - (Number(l.discount_pct) || 0) / 100) *
-            (Number(l.gst_rate) || 0)) /
-            100,
-        0,
-      ),
-    );
-    const freight = Number(form.freight) || 0;
-    const grandTotal = round2(subtotal + gstTotal + freight);
-    const balanceDue = Math.max(0, grandTotal - advancesTotal);
-    return { subtotal, totalDiscount, gstTotal, freight, grandTotal, balanceDue };
+    const balanceDue = Math.max(0, billed.grandTotal - advancesTotal);
+    return {
+      subtotal: billed.subtotal,
+      totalDiscount,
+      gstTotal: billed.gstTotal,
+      freight: billed.freight,
+      grandTotal: billed.grandTotal,
+      balanceDue,
+      grossTotal,
+    };
   }, [lines, form.freight, advancesTotal]);
 
   // Auto-fill the PO amount from the matched proforma once per PO number entry.
@@ -1514,6 +1533,11 @@ function NewInvoiceModal({
                           value={l.unit_price}
                           onChange={(e) => setLine(i, { unit_price: e.target.value })}
                         />
+                        {(Number(l.unit_price) || 0) > 0 && (
+                          <div className="mt-1 text-right text-[10px] text-muted-foreground">
+                            ex-GST {fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate))}
+                          </div>
+                        )}
                       </Field>
                       <Field label="Disc %">
                         <input
@@ -1563,7 +1587,7 @@ function NewInvoiceModal({
           <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
             <div className="flex items-center justify-between">
               <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                Subtotal
+                Subtotal (ex-GST)
               </span>
               <span className="num">{fmtMoney(totals.subtotal)}</span>
             </div>
@@ -1880,6 +1904,7 @@ function InvoiceDetailModal({ invoice, onClose, hideIrn = false }: { invoice: In
                     <th className="px-3 py-2 text-left font-normal">HSN</th>
                     <th className="px-3 py-2 text-right font-normal">Qty</th>
                     <th className="px-3 py-2 text-right font-normal">Unit price</th>
+                    <th className="px-3 py-2 text-right font-normal">Ex-GST</th>
                     <th className="px-3 py-2 text-right font-normal">Disc %</th>
                     <th className="px-3 py-2 text-right font-normal">GST %</th>
                     <th className="px-3 py-2 text-right font-normal">Line total</th>
@@ -1904,6 +1929,9 @@ function InvoiceDetailModal({ invoice, onClose, hideIrn = false }: { invoice: In
                         {fmtMoney(l.unit_price)}
                       </td>
                       <td className="px-3 py-2 text-right num text-muted-foreground">
+                        {fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate))}
+                      </td>
+                      <td className="px-3 py-2 text-right num text-muted-foreground">
                         {l.discount_pct != null ? `${l.discount_pct}%` : "—"}
                       </td>
                       <td className="px-3 py-2 text-right num text-muted-foreground">
@@ -1916,7 +1944,7 @@ function InvoiceDetailModal({ invoice, onClose, hideIrn = false }: { invoice: In
               </table>
               <div className="ml-auto max-w-[240px] space-y-0.5 p-3 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="text-muted-foreground">Subtotal (ex-GST)</span>
                   <span className="num">{fmtMoney(invoice.subtotal_goods ?? 0)}</span>
                 </div>
                 {Number(invoice.total_discount ?? 0) > 0 && (

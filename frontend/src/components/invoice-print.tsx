@@ -281,7 +281,7 @@ export function PrintShell({
                       <div className="text-xs text-slate-400">−{li.discount_pct}%</div>
                     )}
                     {li.gst_rate != null && li.gst_rate > 0 && (
-                      <div className="text-xs text-slate-400">+{li.gst_rate}% GST</div>
+                      <div className="text-xs text-slate-400">incl. {li.gst_rate}% GST</div>
                     )}
                   </td>
                   <td className="px-3 py-2 text-right align-top">{fmt(li.line_total)}</td>
@@ -294,7 +294,7 @@ export function PrintShell({
           <div className="mt-4 flex justify-end">
             <div className="w-72 text-sm">
               <div className="flex justify-between py-1">
-                <span className="text-slate-600">Subtotal</span>
+                <span className="text-slate-600">Subtotal (ex-GST)</span>
                 <span>{fmt(doc.subtotal)}</span>
               </div>
               {doc.total_discount != null && doc.total_discount > 0 && (

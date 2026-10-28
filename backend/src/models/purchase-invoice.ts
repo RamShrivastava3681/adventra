@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
+import { inclusiveTotals } from "../lib/gst.js";
 import { PaymentTermsType, normalizePaymentTermsType, normalizeAdvancePct } from "../lib/payment-terms.js";
 
 /**
@@ -29,7 +30,7 @@ export interface PurchaseInvoiceLine {
   poUnitPrice: number | null;
   /** GST rate as a percentage (0–99), from the PO or overridden. */
   gstRate: number | null;
-  /** System-calculated: invoiceQty × unitPrice (before GST). */
+  /** System-calculated: invoiceQty × unitPrice — the billed amount (GST included). */
   lineTotal: number;
 }
 
@@ -86,6 +87,9 @@ export interface PurchaseInvoice {
    */
   advanceDeducted: number;
   amountPaid: number; balanceDue: number;
+  /** Supplier debit notes / credits applied to this invoice (reduces the
+   *  outstanding balance without reopening or editing the invoice total). */
+  creditAdjusted: number;
   /** Explanations for quantity/price differences vs GRN/PO. */
   differenceNotes: string | null;
   advanceRate: number; advancePaidDate: string | null;
@@ -141,12 +145,18 @@ function computeLineTotals(lines: PurchaseInvoiceLine[]): PurchaseInvoiceLine[] 
 
 export function computeTotals(lines: PurchaseInvoiceLine[], freight: number) {
   const normalized = computeLineTotals(lines);
-  const subtotal = round2(normalized.reduce((s, l) => s + l.lineTotal, 0));
-  const gstTotal = round2(
-    normalized.reduce((s, l) => s + (l.invoiceQty * l.unitPrice * (l.gstRate ?? 0)) / 100, 0),
+  // Unit prices from the supplier are GST-inclusive: the line amount is billed
+  // as entered and subtotal/GST are the split of it, not an addition.
+  const totals = inclusiveTotals(
+    normalized.map((l) => ({ amount: l.lineTotal, gstRate: l.gstRate })),
+    freight,
   );
-  const f = Number(freight) || 0;
-  return { subtotal, gstTotal, freight: round2(f), grandTotal: round2(subtotal + gstTotal + f) };
+  return {
+    subtotal: totals.subtotal,
+    gstTotal: totals.gstTotal,
+    freight: totals.freight,
+    grandTotal: totals.grandTotal,
+  };
 }
 
 /**
@@ -196,6 +206,7 @@ export async function create(data: Partial<PurchaseInvoice> & { clientId: string
   const advanceDeducted = Math.min(grandTotal, Math.max(0, round2(Number(data.advanceDeducted) || 0)));
   const amount = round2(Math.max(0, grandTotal - advanceDeducted));
   const amountPaid = Number(data.amountPaid) || 0;
+  const creditAdjusted = Math.max(0, round2(Number(data.creditAdjusted) || 0));
   const item: PurchaseInvoice = {
     pk: `PURCHASE_INVOICE#${id}`, sk: `PURCHASE_INVOICE#${id}`,
     gsi1pk: `CLIENT#${data.clientId}`, gsi1sk: `PurchaseInvoice#${now}`,
@@ -224,7 +235,8 @@ export async function create(data: Partial<PurchaseInvoice> & { clientId: string
     ...totals,
     advanceDeducted,
     amountPaid,
-    balanceDue: round2(Math.max(0, amount - amountPaid)),
+    creditAdjusted,
+    balanceDue: round2(Math.max(0, amount - amountPaid - creditAdjusted)),
     differenceNotes: data.differenceNotes || null,
     lastOverdueReminderDate: null,
     advanceRate: data.advanceRate ?? 0.80, advancePaidDate: null,
@@ -247,7 +259,7 @@ export async function update(id: string, updates: Partial<PurchaseInvoice>) {
     "billToContactPerson", "billToAddress", "paymentTermsType", "advancePct",
     "linkedGoodsReceiptId", "linkedGoodsReceiptNumber",
     "lines", "subtotal", "gstTotal", "freight", "grandTotal",
-    "amountPaid", "balanceDue", "differenceNotes",
+    "amountPaid", "balanceDue", "differenceNotes", "creditAdjusted",
     "linkedSupplierProformaId", "linkedSupplierProformaNumber", "advanceDeducted",
     "paymentReference",
   ];
@@ -258,7 +270,10 @@ export async function update(id: string, updates: Partial<PurchaseInvoice>) {
     updates.freight !== undefined ||
     updates.advanceDeducted !== undefined ||
     updates.linkedSupplierProformaId !== undefined;
-  const needsPayment = updates.amountPaid !== undefined || updates.amount !== undefined;
+  const needsPayment =
+    updates.amountPaid !== undefined ||
+    updates.amount !== undefined ||
+    updates.creditAdjusted !== undefined;
   const current = needsTotals || needsPayment ? await get(id) : null;
 
   // Recompute line totals + document totals whenever lines/freight change.
@@ -310,9 +325,14 @@ export async function update(id: string, updates: Partial<PurchaseInvoice>) {
       updates.amountPaid !== undefined
         ? Number(updates.amountPaid) || 0
         : Number(current?.amountPaid) || 0;
+    const credit =
+      updates.creditAdjusted !== undefined
+        ? Math.max(0, round2(Number(updates.creditAdjusted) || 0))
+        : Math.max(0, Number(current?.creditAdjusted) || 0);
     if (updates.amount !== undefined) patch.amount = payable;
     if (updates.amountPaid !== undefined) patch.amountPaid = paid;
-    patch.balanceDue = round2(Math.max(0, payable - paid));
+    if (updates.creditAdjusted !== undefined) patch.creditAdjusted = credit;
+    patch.balanceDue = round2(Math.max(0, payable - paid - credit));
     if (updates.amountPaid !== undefined && updates.status === undefined) {
       if (payable > 0 && paid >= payable - 1e-9) {
         patch.status = "paid";

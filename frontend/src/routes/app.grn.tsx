@@ -2,6 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import api from "@/lib/api-client";
+import { exGstPrice } from "@/lib/gst";
 import { useAuth } from "@/lib/auth-context";
 import { DocumentStatusStripCompact } from "@/components/document-status-strip";
 import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
@@ -41,16 +42,18 @@ import { TransactionFilters, type TxFiltersConfig } from "@/components/transacti
 
 export const Route = createFileRoute("/app/grn")({
   component: GrnPageWrapper,
-  // Queue deep link: open GRN creation pre-filled from a purchase order
-  // ("Receive goods" / "Create GRN" tasks).
-  validateSearch: (search: Record<string, unknown>): { createFromPo?: string } => ({
+  // Queue deep links: open GRN creation pre-filled from a purchase order
+  // ("Receive goods" / "Create GRN" tasks), or open one existing receipt
+  // ("Confirm the GRN" tasks).
+  validateSearch: (search: Record<string, unknown>): { createFromPo?: string; grnId?: string } => ({
     createFromPo: typeof search.createFromPo === "string" ? search.createFromPo : undefined,
+    grnId: typeof search.grnId === "string" ? search.grnId : undefined,
   }),
 });
 
 function GrnPageWrapper() {
   const search = Route.useSearch();
-  return <GrnPageContent createFromPo={search.createFromPo} />;
+  return <GrnPageContent createFromPo={search.createFromPo} grnId={search.grnId} />;
 }
 
 // ─── Types (snake_case — the API transform middleware shapes responses) ───
@@ -171,11 +174,21 @@ function acceptedFollows(l: { received_qty: string; accepted_qty: string; reject
   return acc === r || l.accepted_qty === derivedAccepted(l.received_qty, l.rejected_qty);
 }
 
-export function GrnPage(props: { createFromPo?: string } = {}) {
+export function GrnPage(
+  props: { createFromPo?: string; grnId?: string; onOpenHandled?: () => void } = {},
+) {
   return <GrnPageContent {...props} />;
 }
 
-function GrnPageContent({ createFromPo }: { createFromPo?: string }) {
+function GrnPageContent({
+  createFromPo,
+  grnId,
+  onOpenHandled,
+}: {
+  createFromPo?: string;
+  grnId?: string;
+  onOpenHandled?: () => void;
+}) {
   const { user, isSalesRep, isReportingManager, isAdmin, isChecker } = useAuth();
   const canWrite = !!user && !isSalesRep && !isReportingManager;
   const qc = useQueryClient();
@@ -209,6 +222,24 @@ function GrnPageContent({ createFromPo }: { createFromPo?: string }) {
       return data.sort((a, b) => (b.received_date || "").localeCompare(a.received_date || ""));
     },
   });
+
+  // Deep link: queue / workbench task → open that receipt's detail modal
+  // ("Confirm the GRN to credit inventory").
+  useEffect(() => {
+    if (!grnId) return;
+    const found = (grnsQ.data ?? []).find((g) => g.id === grnId);
+    if (!found) return; // list still loading — retries when data arrives
+    setViewing(found);
+    onOpenHandled?.();
+    try {
+      if (window.location.pathname.startsWith("/app/grn")) {
+        navigate({ to: "/app/grn", search: {}, replace: true });
+      }
+    } catch {
+      // embedded / no router context — nothing to clear
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grnId, grnsQ.data]);
   const posQ = useQuery({
     queryKey: ["goods-pos-for-grn"],
     queryFn: async () => api.goodsPurchaseOrders.list(),
@@ -696,7 +727,8 @@ function GrnModal({
         name: l.name,
         unit: l.unit,
         ordered_qty: String(l.ordered_qty),
-        unit_cost: String(l.unit_price),
+        // PO price is GST-inclusive; inventory is valued at the ex-GST cost.
+        unit_cost: String(exGstPrice(Number(l.unit_price) || 0, l.gst_rate)),
         gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
         received_qty: "",
         accepted_qty: "",
@@ -982,34 +1014,14 @@ function GrnModal({
                   disabled
                 />
               </L>
-              {stockLocations.length === 0 ? (
-                <L label="Receiving Location">
-                  <div className={`${inputBase} flex items-center bg-muted/30 text-xs text-muted-foreground`}>
-                    Central Warehouse (default — no warehouse created yet)
-                  </div>
-                  <div className="mt-0.5 text-[10px] text-muted-foreground">
-                    Stock will be added to Central Warehouse.
-                  </div>
-                </L>
-              ) : (
-                <L label="Receiving Location">
-                  <select
-                    className={inputBase}
-                    value={f.receiving_location_id}
-                    onChange={(e) => setF({ ...f, receiving_location_id: e.target.value })}
-                  >
-                    <option value="">Central Warehouse (default)</option>
-                    {stockLocations.map((loc: any) => (
-                      <option key={loc.id} value={loc.id}>
-                        {loc.name}{loc.channel ? ` (${loc.channel})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="mt-0.5 text-[10px] text-muted-foreground">
-                    Stock will be added to this location. Default: Central Warehouse.
-                  </div>
-                </L>
-              )}
+              <L label="Receiving Warehouse">
+                <div className={`${inputBase} flex items-center bg-muted/30 text-xs text-muted-foreground`}>
+                  Central Warehouse (single warehouse — all stock)
+                </div>
+                <div className="mt-0.5 text-[10px] text-muted-foreground">
+                  Stock will be added to Central Warehouse.
+                </div>
+              </L>
               <L label="Delivery warehouse / store (legacy)">
                 <input
                   className={inputBase}
@@ -1119,7 +1131,7 @@ function GrnModal({
                   <div className="col-span-2">Received</div>
                   <div className="col-span-1">Accepted</div>
                   <div className="col-span-1">Rejected</div>
-                  <div className="col-span-1">Unit cost</div>
+                  <div className="col-span-1">Ex-GST cost</div>
                   <div className="col-span-1 text-right">Line value</div>
                   <div className="col-span-1"></div>
                 </div>
@@ -1213,7 +1225,7 @@ function GrnModal({
                         )}
                       </div>
                       <div>
-                        <L label="Unit cost">
+                        <L label="Unit cost (ex-GST)">
                           <input className={inputBase} value={l.unit_cost} disabled />
                         </L>
                       </div>
@@ -1389,7 +1401,7 @@ function GrnDetailModal({
                   <th className="px-3 py-2 text-right font-normal">Received</th>
                   <th className="px-3 py-2 text-right font-normal">Accepted</th>
                   <th className="px-3 py-2 text-right font-normal">Rejected</th>
-                  <th className="px-3 py-2 text-right font-normal">Unit cost</th>
+                  <th className="px-3 py-2 text-right font-normal">Ex-GST cost</th>
                   <th className="px-3 py-2 text-right font-normal">Value</th>
                 </tr>
               </thead>

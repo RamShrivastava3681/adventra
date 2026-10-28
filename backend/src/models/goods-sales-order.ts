@@ -1,6 +1,7 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
 import { fyTag, nextInSeries } from "../lib/doc-series.js";
+import { inclusiveTotals } from "../lib/gst.js";
 import { PaymentTermsType, DispatchCondition, DueBasis, normalizePaymentTermsType, normalizeAdvancePct, normalizeBalancePct, normalizeBalanceDueDays, normalizeDueBasis, normalizeDispatchCondition, balancePctFor } from "../lib/payment-terms.js";
 
 /**
@@ -273,21 +274,22 @@ function computeLineTotals(
 export function computeTotals(lines: GoodsSalesOrderLine[], freight: number) {
   const normalized = computeLineTotals(lines);
   const totalQty = normalized.reduce((s, l) => s + l.orderedQty, 0);
-  const subtotal = round2(normalized.reduce((s, l) => s + l.lineTotal, 0));
   const totalDiscount = round2(
     normalized.reduce((s, l) => s + (grossValue(l) - netValue(l)), 0),
   );
-  const gstTotal = round2(
-    normalized.reduce((s, l) => s + (netValue(l) * (l.gstRate ?? 0)) / 100, 0),
+  // Catalogue prices are GST-inclusive, so the order total is the sum of the
+  // line amounts as entered and GST is the part already inside them.
+  const totals = inclusiveTotals(
+    normalized.map((l) => ({ amount: l.lineTotal, gstRate: l.gstRate })),
+    freight,
   );
-  const f = Number(freight) || 0;
   return {
     totalQty,
-    subtotal,
+    subtotal: totals.subtotal,
     totalDiscount,
-    gstTotal,
-    freight: round2(f),
-    grandTotal: round2(subtotal + gstTotal + f),
+    gstTotal: totals.gstTotal,
+    freight: totals.freight,
+    grandTotal: totals.grandTotal,
   };
 }
 

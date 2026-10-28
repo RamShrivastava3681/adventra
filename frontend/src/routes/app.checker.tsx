@@ -305,6 +305,8 @@ function CheckerPage() {
 
   // Reject-with-reason prompt state for proformas (approval is one click).
   const [pfRejectFor, setPfRejectFor] = useState<{ id: string; number: string } | null>(null);
+  // Reject-with-reason prompt state for purchase orders.
+  const [poRejectFor, setPoRejectFor] = useState<{ id: string; number: string } | null>(null);
 
   // Resolve counterparty names for proformas (debtor for sales, supplier/vendor for purchase)
   const partiesQ = useQuery({
@@ -335,14 +337,40 @@ function CheckerPage() {
   });
 
   const reviewNote = useMutation({
-    mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "rejected" }) => {
+    mutationFn: async ({
+      id,
+      decision,
+      purchaseReturnId,
+    }: {
+      id: string;
+      decision: "approved" | "rejected";
+      purchaseReturnId?: string | null;
+    }) => {
+      // A debit note raised by a purchase return carries the whole return: the
+      // checker's decision must approve/reject the return (stock + credit),
+      // not just flip the note status.
+      if (purchaseReturnId) {
+        return decision === "approved"
+          ? await api.purchaseReturns.approve(purchaseReturnId)
+          : await api.purchaseReturns.reject(purchaseReturnId);
+      }
       await api.creditDebitNotes.update(id, { status: decision });
     },
-    onSuccess: () => {
+    onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["checker-notes"] });
       qc.invalidateQueries({ queryKey: ["credit-debit-notes"] });
       qc.invalidateQueries({ queryKey: ["queue-notes"] });
-      toast.success("Note decision recorded");
+      qc.invalidateQueries({ queryKey: ["purchase-returns"] });
+      qc.invalidateQueries({ queryKey: ["purchase_invoices"] });
+      qc.invalidateQueries({ queryKey: ["supplier-credits"] });
+      qc.invalidateQueries({ queryKey: ["stock_movements_all"] });
+      toast.success(
+        vars.purchaseReturnId
+          ? vars.decision === "approved"
+            ? "Purchase return approved — stock reduced and debit note applied"
+            : "Purchase return rejected"
+          : "Note decision recorded",
+      );
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -357,21 +385,36 @@ function CheckerPage() {
   });
 
   const reviewPO = useMutation({
-    mutationFn: async ({ id, decision }: { id: string; decision: "approved" | "draft" }) => {
-      // Approve → Approved (can then be sent to the supplier). Reject → back
-      // to draft so the maker can fix and resubmit.
-      await api.goodsPurchaseOrders.update(id, {
-        status: decision,
-        reviewed_by: user!.id,
-        reviewed_at: new Date().toISOString(),
-      });
+    mutationFn: async ({
+      id,
+      decision,
+      comments,
+    }: {
+      id: string;
+      decision: "approved" | "draft";
+      comments?: string;
+    }) => {
+      // Two-checker rule: each checker signs once. The PO only becomes
+      // "approved" and advances after a second, distinct checker approves.
+      // Reject sends it back to draft with the checker's reason.
+      return await api.goodsPurchaseOrders.checkerApprove(
+        id,
+        decision === "approved" ? "approve" : "reject",
+        comments,
+      );
     },
-    onSuccess: () => {
+    onSuccess: (data: any, vars) => {
       qc.invalidateQueries({ queryKey: ["checker-pos"] });
       qc.invalidateQueries({ queryKey: ["goods-pos"] });
       qc.invalidateQueries({ queryKey: ["goods-pos-for-pi"] });
       qc.invalidateQueries({ queryKey: ["goods-pos-for-convert"] });
-      toast.success("Purchase order decision recorded");
+      if (vars.decision !== "approved") {
+        toast.success("Purchase order rejected");
+      } else if (["approved", "sent"].includes(data?.status)) {
+        toast.success("Second checker approved — purchase order sent to the next workflow");
+      } else {
+        toast.success("Approval recorded — a second checker must still approve");
+      }
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -546,12 +589,18 @@ function CheckerPage() {
       });
     }
 
-    // Purchase orders
+    // Purchase orders — two-checker rule: the first sign-off keeps the PO in
+    // the queue, and its checker's name is shown so the second checker sees
+    // who already approved ("Approved by …").
     for (const p of (posQ.data ?? []) as any[]) {
       const lineCount = (p.lines ?? []).reduce(
         (n: number, l: any) => n + (Number(l.ordered_qty) || 0),
         0,
       );
+      const approvedByMe = p.first_checker_id === user?.id || p.second_checker_id === user?.id;
+      const priorApproval = p.first_checker_name
+        ? ` · Approved by ${p.first_checker_name} (1 of 2)`
+        : "";
       out.push({
         key: `po-${p.id}`,
         type: "purchase_order",
@@ -560,13 +609,21 @@ function CheckerPage() {
         createdBy: creatorFor(p.buyer_name, p.client_id),
         value: Number(p.grand_total) || 0,
         submittedOn: p.created_at,
-        summary: `Supplier order · ${lineCount.toLocaleString()} units${p.supplier_name ? ` · ${p.supplier_name}` : ""}`,
+        summary: `Supplier order · ${lineCount.toLocaleString()} units${p.supplier_name ? ` · ${p.supplier_name}` : ""}${priorApproval}`,
         ageDays: ageDaysSince(p.created_at),
         selfCreated: p.client_id === user?.id && !isAdmin,
         onReview: () => setViewPo(p),
-        onApprove: () => reviewPO.mutate({ id: p.id, decision: "approved" }),
-        onReject: () => reviewPO.mutate({ id: p.id, decision: "draft" }),
-        approveLabel: "Approve",
+        onApprove: () =>
+          !isChecker
+            ? toast.error("Only checkers and admin+checkers can approve purchase orders")
+            : approvedByMe
+              ? toast.info("You already approved — a second checker must sign off")
+              : reviewPO.mutate({ id: p.id, decision: "approved" }),
+        onReject: () =>
+          isChecker
+            ? setPoRejectFor({ id: p.id, number: p.po_number })
+            : toast.error("Only checkers and admin+checkers can reject purchase orders"),
+        approveLabel: approvedByMe ? "You approved (1 of 2)" : "Approve",
         rejectLabel: "Reject",
         approvePending: reviewPO.isPending,
       });
@@ -653,7 +710,7 @@ function CheckerPage() {
         createdBy: creatorFor(null, n.client_id),
         value: Number(n.amount) || 0,
         submittedOn: n.created_at,
-        summary: `${n.kind === "credit" ? "Credit" : "Debit"} note${n.reason ? ` · ${n.reason}` : ""}`,
+        summary: `${n.kind === "credit" ? "Credit" : "Debit"} note${n.purchase_return_number ? ` · return ${n.purchase_return_number}` : ""}${n.reason ? ` · ${n.reason}` : ""}`,
         ageDays: ageDaysSince(n.created_at),
         selfCreated: n.client_id === user?.id && !isAdmin,
         // Notes have no dedicated detail modal — reuse the existing linked
@@ -661,8 +718,18 @@ function CheckerPage() {
         onReview: linkedRaw
           ? () => setViewInv({ kind: n.invoice ? "sale" : "purchase", raw: linkedRaw })
           : null,
-        onApprove: () => reviewNote.mutate({ id: n.id, decision: "approved" }),
-        onReject: () => reviewNote.mutate({ id: n.id, decision: "rejected" }),
+        onApprove: () =>
+          reviewNote.mutate({
+            id: n.id,
+            decision: "approved",
+            purchaseReturnId: n.purchase_return_id ?? null,
+          }),
+        onReject: () =>
+          reviewNote.mutate({
+            id: n.id,
+            decision: "rejected",
+            purchaseReturnId: n.purchase_return_id ?? null,
+          }),
         approveLabel: "Approve",
         rejectLabel: "Reject",
         approvePending: reviewNote.isPending,
@@ -683,6 +750,7 @@ function CheckerPage() {
     partyMap,
     userMap,
     isAdmin,
+    isChecker,
     user?.id,
     invoiceRows,
   ]);
@@ -1365,6 +1433,20 @@ function CheckerPage() {
             }}
           />
         )}
+
+        {poRejectFor && (
+          <RejectPurchaseOrderModal
+            poNumber={poRejectFor.number}
+            pending={reviewPO.isPending}
+            onClose={() => setPoRejectFor(null)}
+            onSubmit={(comments) => {
+              reviewPO.mutate(
+                { id: poRejectFor.id, decision: "draft", comments },
+                { onSuccess: () => setPoRejectFor(null) },
+              );
+            }}
+          />
+        )}
       </div>
     </div>
   );
@@ -1432,6 +1514,76 @@ function RejectProformaModal({
               className="rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
             >
               Reject proforma
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ── Reject-with-reason dialog for purchase orders ──
+ * Rejection sends the PO back to draft with the checker's reason recorded on
+ * the timeline, so the maker knows what to fix before re-submitting. */
+function RejectPurchaseOrderModal({
+  poNumber,
+  pending,
+  onClose,
+  onSubmit,
+}: {
+  poNumber: string;
+  pending: boolean;
+  onClose: () => void;
+  onSubmit: (comments: string) => void;
+}) {
+  const [comments, setComments] = useState("");
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-md rounded-xl border border-border bg-card shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-border px-5 py-3">
+          <h3 className="font-display text-base">Reject purchase order · {poNumber}</h3>
+        </div>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            onSubmit(comments);
+          }}
+          className="space-y-4 p-5"
+        >
+          <div>
+            <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+              Reason (required — sent to the maker)
+            </label>
+            <textarea
+              autoFocus
+              required
+              rows={3}
+              className="w-full rounded-[10px] border border-border bg-input px-3 py-2 text-sm text-foreground shadow-xs outline-none transition-all placeholder:text-muted-foreground/60 focus:border-primary/60 focus:ring-[3px] focus:ring-primary/15"
+              value={comments}
+              onChange={(e) => setComments(e.target.value)}
+              placeholder="What should the maker fix before re-submitting?"
+            />
+          </div>
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={pending}
+              className="rounded-md bg-destructive px-4 py-2 text-sm font-semibold text-white shadow-sm disabled:opacity-50"
+            >
+              Reject purchase order
             </button>
           </div>
         </form>

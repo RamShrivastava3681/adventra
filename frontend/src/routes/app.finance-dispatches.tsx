@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api-client";
 import { Card, fmtMoney, fmtDate, StatusPill } from "@/components/ledger-ui";
@@ -13,7 +13,9 @@ import { toast } from "sonner";
  * Transporter/upload details saved on the Awaiting Pickup handoff and the
  * E-Way Bill recorded from the IRN invoice flow are both visible here.
  */
-export function FinanceDispatchOrdersPanel() {
+export function FinanceDispatchOrdersPanel(
+  { openDispatch, onOpenHandled }: { openDispatch?: string; onOpenHandled?: () => void } = {},
+) {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -68,6 +70,18 @@ export function FinanceDispatchOrdersPanel() {
         ),
       );
   }, [dispatchesQ.data, invoiceById, q, statusFilter]);
+
+  // Deep link: finance workbench task → open that dispatch's E-Way Bill modal.
+  useEffect(() => {
+    if (!openDispatch) return;
+    const found = ((dispatchesQ.data ?? []) as any[]).find((d) => d.id === openDispatch);
+    if (!found) return; // list still loading — retries when data arrives
+    // The E-Way Bill form is the only action this register offers; skip it
+    // for dispatches that already have one or don't need it.
+    if (!found.eway_bill_number && !found.ewb_not_required) setEwbFor(found);
+    onOpenHandled?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openDispatch, dispatchesQ.data]);
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["finance-dispatch-orders"] });

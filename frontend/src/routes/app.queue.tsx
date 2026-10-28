@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Fragment, useState } from "react";
 import api from "@/lib/api-client";
@@ -66,7 +66,6 @@ type Row = {
 };
 
 export function QueuePage() {
-  const navigate = useNavigate();
   const { isAdmin, isTreasury: isTreasuryRole, user } = useAuth();
   const isTreasury = isTreasuryRole || isAdmin;
   const qc = useQueryClient();
@@ -557,10 +556,20 @@ export function QueuePage() {
                             <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                               <span className="font-mono text-xs">{r.invoice_number}</span>
                               <button
-                                onClick={() => {
-                                  if (r.kind === "sale") navigate({ to: "/app/invoices", search: { view: r.id } });
-                                  else navigate({ to: "/app/purchases", search: { openInvoice: r.id } });
-                                }}
+                                onClick={() =>
+                                  setViewInv({
+                                    kind: r.kind,
+                                    // List payloads don't nest the party — reuse the
+                                    // counterparty the queue already resolved.
+                                    raw:
+                                      r.kind === "sale"
+                                        ? { ...r.raw, debtor: r.raw.debtor ?? { name: r.party } }
+                                        : {
+                                            ...r.raw,
+                                            supplier_name: r.raw.supplier_name ?? r.party,
+                                          },
+                                  })
+                                }
                                 className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] font-sans text-muted-foreground hover:border-primary hover:text-primary"
                                 title="View invoice details"
                               >

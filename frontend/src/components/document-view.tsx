@@ -6,6 +6,7 @@ import { DocumentStatusStripCompact } from "@/components/document-status-strip";
 import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
 import api from "@/lib/api-client";
 import { toast } from "sonner";
+import { exGstPrice } from "@/lib/gst";
 
 /**
  * Read-only detail modals used by the checker desk and funding queue so
@@ -362,6 +363,7 @@ export function InvoiceDetailModal({
                 ]),
             { key: "qty", label: isSale ? "Qty" : "Billed", right: true },
             { key: "unit_price", label: "Unit price", right: true },
+            { key: "unit_price_ex", label: "Ex-GST", right: true },
             ...(isSale ? [{ key: "discount", label: "Discount", right: true }] : []),
             { key: "gst_rate", label: "GST %", right: true },
             { key: "line_total", label: "Line total", right: true },
@@ -379,12 +381,13 @@ export function InvoiceDetailModal({
             grn_qty: l.grn_qty ? l.grn_qty.toLocaleString() : "—",
             qty: l.qty.toLocaleString(),
             unit_price: fmtMoney(l.unit_price),
+            unit_price_ex: fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate)),
             discount: l.discount ?? "—",
             gst_rate: l.gst_rate,
             line_total: fmtMoney(l.line_total),
           }))}
           totals={[
-            ["Subtotal", fmtMoney(Number(i.subtotal_goods ?? i.subtotal ?? 0))],
+            ["Subtotal (ex-GST)", fmtMoney(Number(i.subtotal_goods ?? i.subtotal ?? 0))],
             ...(Number(i.total_discount ?? 0) > 0
               ? [["Discount", `− ${fmtMoney(i.total_discount)}`] as [string, string]]
               : []),
@@ -531,6 +534,7 @@ export function ProformaDetailModal({ pf, onClose }: { pf: any; onClose: () => v
             { key: "name", label: "Product" },
             { key: "qty", label: "Qty", right: true },
             { key: "unit_price", label: "Unit price", right: true },
+            { key: "unit_price_ex", label: "Ex-GST", right: true },
             { key: "gst_rate", label: "GST %", right: true },
             { key: "line_total", label: "Line total", right: true },
           ]}
@@ -545,11 +549,12 @@ export function ProformaDetailModal({ pf, onClose }: { pf: any; onClose: () => v
             ),
             qty: (Number(l.quantity) || 0).toLocaleString(),
             unit_price: fmtMoney(l.unit_price),
+            unit_price_ex: fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate)),
             gst_rate: l.gst_rate != null ? `${l.gst_rate}%` : "—",
             line_total: fmtMoney(l.line_total),
           }))}
           totals={[
-            ["Subtotal", fmtMoney(p.subtotal ?? 0)],
+            ["Subtotal (ex-GST)", fmtMoney(p.subtotal ?? 0)],
             ["GST total", fmtMoney(p.gst_total ?? 0)],
             ["Freight", fmtMoney(p.freight ?? 0)],
             ["Grand total", fmtMoney(p.grand_total ?? 0)],
@@ -679,6 +684,7 @@ export function PurchaseOrderDetailModal({ po, onClose }: { po: any; onClose: ()
             { key: "ordered_qty", label: "Ordered", right: true },
             { key: "received_qty", label: "Received", right: true },
             { key: "unit_price", label: "Unit price", right: true },
+            { key: "unit_price_ex", label: "Ex-GST", right: true },
             { key: "gst_rate", label: "GST %", right: true },
             { key: "line_total", label: "Line total", right: true },
           ]}
@@ -694,12 +700,13 @@ export function PurchaseOrderDetailModal({ po, onClose }: { po: any; onClose: ()
             ordered_qty: (Number(l.ordered_qty) || 0).toLocaleString(),
             received_qty: (Number(l.received_qty) || 0).toLocaleString(),
             unit_price: fmtMoney(l.unit_price),
+            unit_price_ex: fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate)),
             gst_rate: l.gst_rate != null ? `${l.gst_rate}%` : "—",
             line_total: fmtMoney(l.line_total),
           }))}
           totals={[
             ["Total quantity", (p.total_qty ?? 0).toLocaleString()],
-            ["Subtotal", fmtMoney(p.subtotal ?? 0)],
+            ["Subtotal (ex-GST)", fmtMoney(p.subtotal ?? 0)],
             ["GST total", fmtMoney(p.gst_total ?? 0)],
             ...(Number(p.freight ?? 0) > 0
               ? [["Freight", fmtMoney(p.freight)] as [string, string]]
@@ -800,6 +807,7 @@ export function SalesOrderDetailModal({ so, onClose }: { so: any; onClose: () =>
             { key: "ordered_qty", label: "Ordered", right: true },
             { key: "dispatched_qty", label: "Dispatched", right: true },
             { key: "unit_price", label: "Unit price", right: true },
+            { key: "unit_price_ex", label: "Ex-GST", right: true },
             { key: "discount", label: "Disc %", right: true },
             { key: "gst_rate", label: "GST %", right: true },
             { key: "line_total", label: "Line total", right: true },
@@ -816,13 +824,14 @@ export function SalesOrderDetailModal({ so, onClose }: { so: any; onClose: () =>
             ordered_qty: (Number(l.ordered_qty) || 0).toLocaleString(),
             dispatched_qty: (Number(l.dispatched_qty) || 0).toLocaleString(),
             unit_price: fmtMoney(l.unit_price),
+            unit_price_ex: fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate)),
             discount: l.discount_pct != null ? `${l.discount_pct}%` : "—",
             gst_rate: l.gst_rate != null ? `${l.gst_rate}%` : "—",
             line_total: fmtMoney(l.line_total),
           }))}
           totals={[
             ["Total quantity", (s.total_qty ?? 0).toLocaleString()],
-            ["Subtotal", fmtMoney(s.subtotal ?? 0)],
+            ["Subtotal (ex-GST)", fmtMoney(s.subtotal ?? 0)],
             ...(Number(s.total_discount ?? 0) > 0
               ? [["Total discount", `− ${fmtMoney(s.total_discount)}`] as [string, string]]
               : []),

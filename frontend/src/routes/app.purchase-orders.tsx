@@ -1,7 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import api from "@/lib/api-client";
+import { inclusiveTotals, exGstPrice } from "@/lib/gst";
 import { useAuth } from "@/lib/auth-context";
 import { DocumentStatusStripCompact } from "@/components/document-status-strip";
 import { statusLabel, ownerLabel, inventoryImpact, cashImpact } from "@/lib/doc-impact";
@@ -67,8 +68,17 @@ import { TableSkeleton } from "@/components/skeletons";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
 
 export const Route = createFileRoute("/app/purchase-orders")({
-  component: PurchaseOrdersPage,
+  component: PurchaseOrdersPageRoute,
+  // Queue / workbench deep link: open one purchase order's modal directly.
+  validateSearch: (search: Record<string, unknown>): { poId?: string } => ({
+    poId: typeof search.poId === "string" ? search.poId : undefined,
+  }),
 });
+
+function PurchaseOrdersPageRoute() {
+  const search = Route.useSearch();
+  return <PurchaseOrdersPage openPo={search.poId} />;
+}
 
 // ─── Types (snake_case — the API transform middleware shapes responses) ───
 type POLine = {
@@ -109,6 +119,12 @@ type PO = {
   notes: string | null;
   documents: DocMeta[];
   status: string;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  first_checker_id: string | null;
+  first_checker_name: string | null;
+  second_checker_id: string | null;
+  second_checker_name: string | null;
   supplier_approval_status: "pending" | "approved" | "rejected" | null;
   supplier_approval_sent_at: string | null;
   supplier_approval_responded_at: string | null;
@@ -242,10 +258,13 @@ function supplierContactLineOf(s: any): string {
   return [s.contactPhone, s.contactEmail].filter(Boolean).join(" · ") || "";
 }
 
-export function PurchaseOrdersPage() {
+export function PurchaseOrdersPage(
+  { openPo, onOpenHandled }: { openPo?: string; onOpenHandled?: () => void } = {},
+) {
   const { user, isSalesRep, isAdmin, isChecker } = useAuth();
   const canWrite = !isSalesRep && !!user;
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<PO | null>(null);
   const [receiving, setReceiving] = useState<PO | null>(null);
@@ -274,6 +293,25 @@ export function PurchaseOrdersPage() {
     queryKey: ["goods-receipts"],
     queryFn: async () => api.goodsReceipts.list(),
   });
+
+  // Deep link: queue / workbench task → open that purchase order's modal
+  // (checker approval, supplier follow-up, draft completion).
+  useEffect(() => {
+    if (!openPo) return;
+    const found = (posQ.data ?? []).find((p) => p.id === openPo);
+    if (!found) return; // list still loading — retries when data arrives
+    setEditing(found);
+    setOpen(true);
+    onOpenHandled?.();
+    try {
+      if (window.location.pathname.startsWith("/app/purchase-orders")) {
+        navigate({ to: "/app/purchase-orders", search: {}, replace: true });
+      }
+    } catch {
+      // embedded / no router context — nothing to clear
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openPo, posQ.data]);
 
   // Catalogue + suppliers (suppliers and legacy vendors merged, like Purchases).
   const productsQ = useQuery({
@@ -444,6 +482,7 @@ export function PurchaseOrdersPage() {
                         <th className="px-5 py-2 text-right font-normal">Grand total</th>
                         <th className="px-5 py-2 text-left font-normal">Received</th>
                         <th className="px-5 py-2 text-left font-normal">Status</th>
+                        <th className="px-5 py-2 text-left font-normal">Checker</th>
                         <th className="px-5 py-2 text-right font-normal">Actions</th>
                       </tr>
                     </thead>
@@ -513,6 +552,33 @@ export function PurchaseOrdersPage() {
                                 </div>
                               )}
                             </td>
+                            <td className="px-5 py-3 text-xs">
+                              {p.first_checker_id || p.second_checker_id ? (
+                                <div className="space-y-0.5">
+                                  {p.first_checker_id && (
+                                    <div className="flex items-center gap-1 text-sem-success">
+                                      <CheckCircle2 className="h-3 w-3 shrink-0" />
+                                      <span>{p.first_checker_name ?? "Checker 1"}</span>
+                                    </div>
+                                  )}
+                                  {p.second_checker_id && (
+                                    <div className="flex items-center gap-1 text-sem-success">
+                                      <CheckCircle2 className="h-3 w-3 shrink-0" />
+                                      <span>{p.second_checker_name ?? "Checker 2"}</span>
+                                    </div>
+                                  )}
+                                  {!p.second_checker_id && p.status === "pending_review" && (
+                                    <div className="text-[10px] text-muted-foreground">
+                                      1 of 2 approved
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-muted-foreground">
+                                  {p.status === "pending_review" ? "0 of 2 approved" : "—"}
+                                </span>
+                              )}
+                            </td>
                             <td className="px-5 py-3 text-right">
                               <div className="flex justify-end gap-1">
                                 <button
@@ -576,7 +642,7 @@ export function PurchaseOrdersPage() {
           products={productsQ.data ?? []}
           suppliers={suppliersQ.data ?? []}
           canWrite={canWrite}
-          canApprove={isAdmin || isChecker}
+          canApprove={isChecker}
           onClose={() => setOpen(false)}
           onSaved={() => {
             qc.invalidateQueries({ queryKey: ["goods-pos"] });
@@ -692,6 +758,9 @@ function POModal({
   // Lines can only be edited while the PO is still a draft or approved (before
   // any goods have been received / sent to the supplier).
   const editable = !isEdit || status === "draft" || status === "approved";
+  // Checker rejection collects a reason before sending the PO back to draft.
+  const [rejecting, setRejecting] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
 
   const [f, setF] = useState({
     po_date: (po?.po_date ?? new Date().toISOString().slice(0, 10)).slice(0, 10),
@@ -1020,20 +1089,21 @@ function POModal({
   };
 
   const totals = useMemo(() => {
-    const subtotal = round2(
-      lines.reduce((s, l) => s + (Number(l.ordered_qty) || 0) * (Number(l.unit_price) || 0), 0),
+    // Supplier prices are GST-inclusive: the PO total is the sum of the line
+    // amounts as entered, with GST shown as the part inside them.
+    const billed = inclusiveTotals(
+      lines.map((l) => ({
+        amount: (Number(l.ordered_qty) || 0) * (Number(l.unit_price) || 0),
+        gstRate: l.gst_rate,
+      })),
+      Number(f.freight) || 0,
     );
-    const gstTotal = round2(
-      lines.reduce(
-        (s, l) =>
-          s +
-          ((Number(l.ordered_qty) || 0) * (Number(l.unit_price) || 0) * (Number(l.gst_rate) || 0)) /
-            100,
-        0,
-      ),
-    );
-    const freight = Number(f.freight) || 0;
-    return { subtotal, gstTotal, freight, grandTotal: round2(subtotal + gstTotal + freight) };
+    return {
+      subtotal: billed.subtotal,
+      gstTotal: billed.gstTotal,
+      freight: billed.freight,
+      grandTotal: billed.grandTotal,
+    };
   }, [lines, f.freight]);
 
   // Advance to be paid on the proforma = proforma total × advance %.
@@ -1062,22 +1132,19 @@ function POModal({
 
   // Invoice totals (billed qty × price from the supplier invoice + freight).
   const piTotals = useMemo(() => {
-    let subtotal = 0;
-    let gst = 0;
-    for (const l of piLines) {
-      const qty = Number(l.invoice_qty) || 0;
-      const price = Number(l.unit_price) || 0;
-      const rate = Number(l.gst_rate) || 0;
-      const lt = round2(qty * price);
-      subtotal += lt;
-      gst += round2((lt * rate) / 100);
-    }
-    const freight = Number(piForm.freight) || 0;
+    // GST-inclusive supplier prices: billed qty × price is the amount payable.
+    const billed = inclusiveTotals(
+      piLines.map((l) => ({
+        amount: (Number(l.invoice_qty) || 0) * (Number(l.unit_price) || 0),
+        gstRate: l.gst_rate,
+      })),
+      Number(piForm.freight) || 0,
+    );
     return {
-      subtotal: round2(subtotal),
-      gst: round2(gst),
-      freight: round2(freight),
-      grandTotal: round2(subtotal + gst + freight),
+      subtotal: billed.subtotal,
+      gst: billed.gstTotal,
+      freight: billed.freight,
+      grandTotal: billed.grandTotal,
     };
   }, [piLines, piForm.freight]);
 
@@ -1347,9 +1414,34 @@ function POModal({
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
+  const submitReject = async () => {
+    if (!po || !rejectReason.trim()) return;
+    try {
+      await api.goodsPurchaseOrders.checkerApprove(po.id, "reject", rejectReason.trim());
+      onSaved();
+      toast.success("Purchase order rejected");
+      onClose();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed");
+    }
+  };
+
   const changeStatus = async (next: string) => {
     if (!po) return;
     try {
+      // "approved" always goes through the two-checker endpoint — a plain
+      // status update is rejected by the API so no admin can bypass checkers.
+      if (next === "approved") {
+        const result = await api.goodsPurchaseOrders.checkerApprove(po.id, "approve");
+        onSaved();
+        toast.success(
+          ["approved", "sent"].includes(result?.status)
+            ? "Second checker approved — purchase order sent to the next workflow"
+            : "Approval recorded — a second checker must still approve",
+        );
+        onClose();
+        return;
+      }
       await api.goodsPurchaseOrders.update(po.id, { status: next });
       onSaved();
       const msg: Record<string, string> = {
@@ -1386,6 +1478,22 @@ function POModal({
                 />
               </div>
             )}
+            {isEdit && po && (po.first_checker_id || po.second_checker_id) ? (
+              <div className="mt-1 text-[11px] text-muted-foreground">
+                {po.first_checker_id && (
+                  <span>Approved by {po.first_checker_name ?? "checker 1"}</span>
+                )}
+                {po.second_checker_id && (
+                  <span>
+                    {po.first_checker_id ? " · " : ""}
+                    {po.second_checker_name ?? "checker 2"}
+                  </span>
+                )}
+                {!po.second_checker_id && (
+                  <span> — awaiting second checker</span>
+                )}
+              </div>
+            ) : null}
           </div>
           <button onClick={onClose}>
             <X className="h-4 w-4" />
@@ -1864,6 +1972,11 @@ function POModal({
                             onChange={(e) => setLine(i, { unit_price: e.target.value })}
                             disabled={!editable}
                           />
+                          {(Number(l.unit_price) || 0) > 0 && (
+                            <div className="mt-1 text-right text-[10px] text-muted-foreground">
+                              ex-GST {fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate))}
+                            </div>
+                          )}
                         </div>
                         <div>
                           <MiniLabel always>GST %</MiniLabel>
@@ -1898,7 +2011,7 @@ function POModal({
               label="Total quantity"
               value={lines.reduce((s, l) => s + (Number(l.ordered_qty) || 0), 0).toLocaleString()}
             />
-            <Row label="Subtotal" value={fmtMoney(totals.subtotal)} />
+            <Row label="Subtotal (ex-GST)" value={fmtMoney(totals.subtotal)} />
             <Row label="GST total" value={fmtMoney(totals.gstTotal)} />
             <div className="flex items-center justify-between gap-3">
               <span className="text-xs uppercase tracking-widest text-muted-foreground">
@@ -2258,6 +2371,11 @@ function POModal({
                                   }
                                   disabled={!editable}
                                 />
+                                {(Number(l.unit_price) || 0) > 0 && (
+                                  <div className="mt-1 text-right text-[10px] text-muted-foreground">
+                                    ex-GST {fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate))}
+                                  </div>
+                                )}
                               </L>
                             </div>
                             <div className="md:col-span-1">
@@ -2284,7 +2402,7 @@ function POModal({
                 </div>
 
                 <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
-                  <Row label="Subtotal" value={fmtMoney(piTotals.subtotal)} />
+                  <Row label="Subtotal (ex-GST)" value={fmtMoney(piTotals.subtotal)} />
                   <Row label="GST total" value={fmtMoney(piTotals.gst)} />
                   <Row label="Freight / charges" value={fmtMoney(piTotals.freight)} />
                   <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
@@ -2317,10 +2435,10 @@ function POModal({
                {isEdit && canWrite && status === "draft" && (
                  <button
                    type="button"
-                   onClick={() => changeStatus("approved")}
+                   onClick={() => changeStatus("pending_review")}
                    className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
                  >
-                   <Send className="h-3.5 w-3.5" /> Approve & send to supplier
+                   <Send className="h-3.5 w-3.5" /> Submit for checker approval
                  </button>
                )}
               {isEdit && status === "pending_review" && canApprove && (
@@ -2330,16 +2448,52 @@ function POModal({
                     onClick={() => changeStatus("approved")}
                     className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10"
                   >
-                    <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Approve (1 of 2)
                   </button>
                   <button
                     type="button"
-                    onClick={() => changeStatus("draft")}
+                    onClick={() => setRejecting(true)}
                     className="inline-flex items-center gap-1.5 rounded-md border border-destructive/50 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/10"
                   >
                     <X className="h-3.5 w-3.5" /> Reject
                   </button>
                 </>
+              )}
+              {rejecting && (
+                <div className="w-full rounded-md border border-destructive/30 bg-destructive/5 p-3">
+                  <label className="mb-1.5 block text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                    Reason (required — sent to the maker)
+                  </label>
+                  <textarea
+                    autoFocus
+                    required
+                    rows={2}
+                    className="w-full rounded-[10px] border border-border bg-input px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-foreground/60 focus:border-primary/60 focus:ring-[3px] focus:ring-primary/15"
+                    value={rejectReason}
+                    onChange={(e) => setRejectReason(e.target.value)}
+                    placeholder="What should the maker fix before re-submitting?"
+                  />
+                  <div className="mt-2 flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRejecting(false);
+                        setRejectReason("");
+                      }}
+                      className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!rejectReason.trim()}
+                      onClick={submitReject}
+                      className="rounded-md bg-destructive px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                    >
+                      Confirm reject
+                    </button>
+                  </div>
+                </div>
               )}
               {isEdit && status === "approved" && (
                 <button
