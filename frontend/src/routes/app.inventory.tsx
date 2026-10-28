@@ -129,7 +129,7 @@ function DirBadge({ direction }: { direction: "in" | "out" }) {
   );
 }
 
-function InventoryPage() {
+export function InventoryPage() {
   const { user, isAdmin, isClient, isChecker, isTreasury } = useAuth();
   const canWrite = isAdmin || (isClient && !isChecker && !isTreasury);
   const qc = useQueryClient();

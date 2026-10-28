@@ -5,6 +5,7 @@ import {
   Warehouse,
   PackageCheck,
   Truck,
+  Boxes,
   ClipboardList,
   FileText,
   ChevronLeft,
@@ -156,7 +157,9 @@ type WarehouseSection =
   | "dispatch"
   | "stock"
   | "samples"
-  | "tasks";
+  | "tasks"
+  | "inventory"
+  | "transporter";
 
 const WarehousePanel = lazy(() =>
   import("@/routes/app.warehouse").then((m) => ({ default: m.WarehousePage })),
@@ -178,6 +181,9 @@ const SamplesPanel = lazy(() =>
 );
 const WarehouseTasksPanel = lazy(() =>
   import("@/routes/app.tasks").then((m) => ({ default: m.TasksPage })),
+);
+const InventoryPanel = lazy(() =>
+  import("@/routes/app.inventory").then((m) => ({ default: m.InventoryPage })),
 );
 
 function SectionFallback() {
@@ -392,6 +398,16 @@ function WarehouseWorkbenchPage() {
               label="Activity History"
               active={section === "tasks"}
               onClick={() => setSection("tasks")}
+            />
+            <NavTab
+              label="Inventory"
+              active={section === "inventory"}
+              onClick={() => setSection("inventory")}
+            />
+            <NavTab
+              label="Transporter"
+              active={section === "transporter"}
+              onClick={() => setSection("transporter")}
             />
           </nav>
         </div>
@@ -707,6 +723,8 @@ function WarehouseWorkbenchPage() {
           {section === "stock" && <StockPanel />}
           {section === "samples" && <SamplesPanel />}
           {section === "tasks" && <WarehouseTasksPanel />}
+          {section === "inventory" && <InventoryPanel />}
+          {section === "transporter" && <TransporterPanel />}
         </Suspense>
       )}
     </div>
@@ -733,6 +751,32 @@ function NavTab({
     >
       {label}
     </button>
+  );
+}
+
+/* ── Transporter panel — transporter details for dispatches ── */
+function TransporterPanel() {
+  return (
+    <div className="mx-auto w-full max-w-[1440px] px-4 py-6 md:px-8 md:py-8">
+      <Card title="Transporter Details">
+        <p className="text-xs text-muted-foreground">
+          Transporter information for dispatches
+        </p>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs uppercase text-muted-foreground">Transporter Name</p>
+            <p className="font-medium">—</p>
+          </div>
+          <div>
+            <p className="text-xs uppercase text-muted-foreground">Vehicle Number</p>
+            <p className="font-medium">—</p>
+          </div>
+        </div>
+        <p className="mt-4 text-xs text-muted-foreground">
+          Select a transporter when creating a dispatch. Details are sent to Finance for E-Way Bill generation.
+        </p>
+      </Card>
+    </div>
   );
 }
 

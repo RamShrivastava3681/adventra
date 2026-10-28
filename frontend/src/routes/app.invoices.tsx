@@ -30,6 +30,7 @@ import {
   AlertCircle,
   ArrowRight,
   Check,
+  RotateCcw,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { useFormDraft, DraftResumeBanner } from "@/lib/form-draft";
@@ -47,6 +48,7 @@ import {
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductVariantPicker } from "@/components/product-variant-picker";
 import { TransactionFilters, type TxFiltersConfig } from "@/components/transaction-filters";
+import { SalesReturnModal } from "@/components/sales-return-modal";
 import {
   Dialog,
   DialogWithStickyFooter,
@@ -65,7 +67,9 @@ export const Route = createFileRoute("/app/invoices")({
   component: InvoicesPageWrapper,
   // Deep links from the workflow queue: open creation pre-filled from a sales
   // order, or jump straight to the UTR / IRN modal of a specific invoice.
-  validateSearch: (search: Record<string, unknown>): { createFromSo?: string; utrFor?: string; irnFor?: string; view?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { createFromSo?: string; utrFor?: string; irnFor?: string; view?: string } => ({
     createFromSo: typeof search.createFromSo === "string" ? search.createFromSo : undefined,
     utrFor: typeof search.utrFor === "string" ? search.utrFor : undefined,
     irnFor: typeof search.irnFor === "string" ? search.irnFor : undefined,
@@ -237,6 +241,7 @@ function InvoicesPageContent({
   const [utrFor, setUtrFor] = useState<Inv | null>(null);
   const [irnFor, setIrnFor] = useState<Inv | null>(null);
   const [reconcileOpen, setReconcileOpen] = useState(false);
+  const [returning, setReturning] = useState<Inv | null>(null);
 
   const invoicesQ = useQuery({
     queryKey: ["invoices", "list"],
@@ -280,7 +285,9 @@ function InvoicesPageContent({
   // Deep link: queue payment/IRN tasks → open the matching modal directly.
   useEffect(() => {
     if (!utrForId && !irnForId && !viewId) return;
-    const inv = (invoicesQ.data ?? []).find((i) => i.id === utrForId || i.id === irnForId || i.id === viewId);
+    const inv = (invoicesQ.data ?? []).find(
+      (i) => i.id === utrForId || i.id === irnForId || i.id === viewId,
+    );
     if (!inv) return; // list not loaded yet — retries when data arrives
     if (utrForId && canUploadUtr) setUtrFor(inv);
     if (irnForId && canRecordIrn) setIrnFor(inv);
@@ -348,7 +355,12 @@ function InvoicesPageContent({
   });
 
   const recordIrn = useMutation({
-    mutationFn: async (vals: { id: string; irn: string; ackNo?: string | null; ackDate?: string | null }) => {
+    mutationFn: async (vals: {
+      id: string;
+      irn: string;
+      ackNo?: string | null;
+      ackDate?: string | null;
+    }) => {
       await api.invoices.recordIrn(vals.id, {
         irn: vals.irn,
         ackNo: vals.ackNo || null,
@@ -528,11 +540,15 @@ function InvoicesPageContent({
                               {i.expected_dispatch_date ? (
                                 <div className="flex flex-col">
                                   <div className="text-xs">{fmtDate(i.expected_dispatch_date)}</div>
-                                  {i.status !== "paid" && i.status !== "cancelled" && i.status !== "rejected" && i.expected_dispatch_date >= new Date().toISOString().slice(0, 10) && (
-                                    <div className="text-[10px] text-muted-foreground">
-                                      {daysBetween(i.expected_dispatch_date)} days remaining
-                                    </div>
-                                  )}
+                                  {i.status !== "paid" &&
+                                    i.status !== "cancelled" &&
+                                    i.status !== "rejected" &&
+                                    i.expected_dispatch_date >=
+                                      new Date().toISOString().slice(0, 10) && (
+                                      <div className="text-[10px] text-muted-foreground">
+                                        {daysBetween(i.expected_dispatch_date)} days remaining
+                                      </div>
+                                    )}
                                 </div>
                               ) : (
                                 <span className="text-muted-foreground">—</span>
@@ -636,15 +652,30 @@ function InvoicesPageContent({
                                       <Mail className="h-3 w-3" /> NOA
                                     </button>
                                   )}
-                                {canRecordIrn && !i.irn && ["approved", "pending", "funded", "advanced"].includes(i.status) && (
-                                  <button
-                                    onClick={() => setIrnFor(i)}
-                                    className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10"
-                                    title="Record the IRN from Tally (locks the invoice)"
-                                  >
-                                    <FileCheck className="h-3 w-3" /> IRN
-                                  </button>
-                                )}
+                                {canRecordIrn &&
+                                  !i.irn &&
+                                  ["approved", "pending", "funded", "advanced"].includes(
+                                    i.status,
+                                  ) && (
+                                    <button
+                                      onClick={() => setIrnFor(i)}
+                                      className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] text-primary hover:bg-primary/10"
+                                      title="Record the IRN from Tally (locks the invoice)"
+                                    >
+                                      <FileCheck className="h-3 w-3" /> IRN
+                                    </button>
+                                  )}
+                                {canCreate &&
+                                  !["draft", "cancelled", "rejected"].includes(i.status) &&
+                                  (i.lines ?? []).length > 0 && (
+                                    <button
+                                      onClick={() => setReturning(i)}
+                                      className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-sem-attention hover:text-sem-attention"
+                                      title="Return goods and raise a customer credit note"
+                                    >
+                                      <RotateCcw className="h-3 w-3" /> Return
+                                    </button>
+                                  )}
                               </div>
                             </td>
                           </tr>
@@ -678,14 +709,20 @@ function InvoicesPageContent({
           userId={user!.id}
         />
       )}
-      {viewing && <InvoiceDetailModal invoice={viewing} onClose={() => setViewing(null)} hideIrn={viewOnly} />}
+      {viewing && (
+        <InvoiceDetailModal invoice={viewing} onClose={() => setViewing(null)} hideIrn={viewOnly} />
+      )}
       {utrFor && (
         <UtrModal
           invoice={utrFor}
           onClose={() => setUtrFor(null)}
           onSubmit={(vals) => {
             addUtr.mutate(
-              { id: utrFor.id, utr_reference: vals.utr_reference, payment_amount: vals.payment_amount },
+              {
+                id: utrFor.id,
+                utr_reference: vals.utr_reference,
+                payment_amount: vals.payment_amount,
+              },
               { onSuccess: () => setUtrFor(null) },
             );
           }}
@@ -701,6 +738,13 @@ function InvoicesPageContent({
               { onSuccess: () => setIrnFor(null) },
             );
           }}
+        />
+      )}
+      {returning && (
+        <SalesReturnModal
+          invoice={returning}
+          onClose={() => setReturning(null)}
+          onCreated={() => setReturning(null)}
         />
       )}
       {reconcileOpen && (
@@ -845,8 +889,7 @@ function NewInvoiceModal({
   // linked order visible when editing an invoice tied to a draft/cancelled one.
   const soOptions = useMemo(() => {
     const open = (sosQ.data ?? []).filter(
-      (s: any) =>
-        !["draft", "cancelled"].includes(s.status) && !invoicedSoIds.has(s.id),
+      (s: any) => !["draft", "cancelled"].includes(s.status) && !invoicedSoIds.has(s.id),
     );
     if (soSource && !open.some((s: any) => s.id === soSource)) {
       const cur = (sosQ.data ?? []).find((s: any) => s.id === soSource);
@@ -1058,9 +1101,7 @@ function NewInvoiceModal({
   const effectiveTerms = {
     paymentTermsType: effectiveTermsType as any,
     paymentTermsDays:
-      daysRaw === undefined || daysRaw === null || daysRaw === ""
-        ? null
-        : Number(daysRaw),
+      daysRaw === undefined || daysRaw === null || daysRaw === "" ? null : Number(daysRaw),
   };
   const termsDays = balanceDaysFor(effectiveTerms);
   // Timezone-safe: pure calendar math, so 0 days === invoice date exactly.
@@ -1081,78 +1122,82 @@ function NewInvoiceModal({
   // Payload builder shared by manual save and auto-save drafts: throws while
   // the form is not yet submittable (auto-save treats that as "browser only").
   const buildInvoicePayload = () => {
-      if (!form.debtor_id) throw new Error("Please add a customer first.");
-      if (lines.length === 0) throw new Error("Add at least one product line");
-      const payloadLines = lines.map((l) => ({
-        product_id: l.product_id,
-        sku: l.sku,
-        name: l.name,
-        hsn_code: l.hsn_code.trim() || null,
-        unit: l.unit || "piece",
-        quantity: Number(l.quantity) || 0,
-        unit_price: Number(l.unit_price) || 0,
-        discount_pct: l.discount_pct ? Number(l.discount_pct) : null,
-        gst_rate: l.gst_rate ? Number(l.gst_rate) : null,
-      }));
-      for (const l of payloadLines) {
-        if (!l.product_id) throw new Error("Every line must select a product from the catalogue");
-        if (!(l.quantity > 0)) throw new Error("Quantity must be greater than zero");
-        if (l.unit_price < 0)
-          throw new Error("Unit selling price must be greater than or equal to zero");
-        if (l.discount_pct != null && (l.discount_pct < 0 || l.discount_pct > 100))
-          throw new Error("Discount must be between 0 and 100%");
-      }
+    if (!form.debtor_id) throw new Error("Please add a customer first.");
+    if (lines.length === 0) throw new Error("Add at least one product line");
+    const payloadLines = lines.map((l) => ({
+      product_id: l.product_id,
+      sku: l.sku,
+      name: l.name,
+      hsn_code: l.hsn_code.trim() || null,
+      unit: l.unit || "piece",
+      quantity: Number(l.quantity) || 0,
+      unit_price: Number(l.unit_price) || 0,
+      discount_pct: l.discount_pct ? Number(l.discount_pct) : null,
+      gst_rate: l.gst_rate ? Number(l.gst_rate) : null,
+    }));
+    for (const l of payloadLines) {
+      if (!l.product_id) throw new Error("Every line must select a product from the catalogue");
+      if (!(l.quantity > 0)) throw new Error("Quantity must be greater than zero");
+      if (l.unit_price < 0)
+        throw new Error("Unit selling price must be greater than or equal to zero");
+      if (l.discount_pct != null && (l.discount_pct < 0 || l.discount_pct > 100))
+        throw new Error("Discount must be between 0 and 100%");
+    }
 
-      // The sales order link is mandatory and the invoice must match it.
-      const soId = soSource || form.goods_sales_order_id;
-      if (!soId) throw new Error("Select a sales order — every invoice must be linked to one");
-      const linkedSo = (sosQ.data ?? []).find((x: any) => x.id === soId);
-      if (!linkedSo) throw new Error("Linked sales order not found");
-      if (["draft", "cancelled"].includes(linkedSo.status)) {
-        throw new Error("Confirm the sales order before invoicing");
-      }
-      // One sales order → one invoice (the picker hides invoiced orders;
-      // this is the backstop for stale data).
-      if (!isEdit && invoicedSoIds.has(soId)) {
+    // The sales order link is mandatory and the invoice must match it.
+    const soId = soSource || form.goods_sales_order_id;
+    if (!soId) throw new Error("Select a sales order — every invoice must be linked to one");
+    const linkedSo = (sosQ.data ?? []).find((x: any) => x.id === soId);
+    if (!linkedSo) throw new Error("Linked sales order not found");
+    if (["draft", "cancelled"].includes(linkedSo.status)) {
+      throw new Error("Confirm the sales order before invoicing");
+    }
+    // One sales order → one invoice (the picker hides invoiced orders;
+    // this is the backstop for stale data).
+    if (!isEdit && invoicedSoIds.has(soId)) {
+      throw new Error(
+        `Sales order ${linkedSo.so_number ?? ""} already has an invoice — one sales order can create only one invoice`,
+      );
+    }
+    if (form.debtor_id && linkedSo.customer_id && form.debtor_id !== linkedSo.customer_id) {
+      throw new Error("The invoice customer must match the linked sales order's customer");
+    }
+    for (const l of payloadLines) {
+      const soLine = (linkedSo.lines ?? []).find((x: any) => x.product_id === l.product_id);
+      if (!soLine) throw new Error(`"${l.name}" is not on the linked sales order`);
+      if (l.quantity > Number(soLine.ordered_qty)) {
         throw new Error(
-          `Sales order ${linkedSo.so_number ?? ""} already has an invoice — one sales order can create only one invoice`,
+          `Quantity ${l.quantity} for ${soLine.name} exceeds the ordered quantity (${Number(soLine.ordered_qty)}) on the sales order`,
         );
       }
-      if (form.debtor_id && linkedSo.customer_id && form.debtor_id !== linkedSo.customer_id) {
-        throw new Error("The invoice customer must match the linked sales order's customer");
-      }
-      for (const l of payloadLines) {
-        const soLine = (linkedSo.lines ?? []).find((x: any) => x.product_id === l.product_id);
-        if (!soLine) throw new Error(`"${l.name}" is not on the linked sales order`);
-        if (l.quantity > Number(soLine.ordered_qty)) {
-          throw new Error(
-            `Quantity ${l.quantity} for ${soLine.name} exceeds the ordered quantity (${Number(soLine.ordered_qty)}) on the sales order`,
-          );
-        }
-      }
+    }
 
-      const payload: Record<string, unknown> = {
-        debtor_id: form.debtor_id,
-        invoice_number: form.invoice_number.trim() || undefined,
-        issue_date: form.issue_date,
-        due_date: effectiveDue,
-        source: "goods",
-        customer_contact: form.customer_contact.trim() || null,
-        billing_address: form.billing_address.trim() || null,
-        delivery_address: form.delivery_address.trim() || null,
-        goods_sales_order_id: soId,
-        ...toTermsPayload(form),
-        payment_terms: formatPaymentTerms({ paymentTermsType: form.payment_terms_type as any, advancePct: Number(form.payment_terms_advance_pct) || null, paymentTermsDays: Number(form.payment_terms_days) || null }),
-        po_number: form.po_number || null,
-        po_date: form.po_date || null,
-        po_amount: form.po_amount ? Number(form.po_amount) : null,
-        linked_customer_proforma_id: form.linked_customer_proforma_id || null,
-        linked_customer_proforma_number: form.linked_customer_proforma_number || null,
-        freight: Number(form.freight) || 0,
-        notes: form.notes.trim() || null,
-        documents: docs,
-        lines: payloadLines,
-      };
+    const payload: Record<string, unknown> = {
+      debtor_id: form.debtor_id,
+      invoice_number: form.invoice_number.trim() || undefined,
+      issue_date: form.issue_date,
+      due_date: effectiveDue,
+      source: "goods",
+      customer_contact: form.customer_contact.trim() || null,
+      billing_address: form.billing_address.trim() || null,
+      delivery_address: form.delivery_address.trim() || null,
+      goods_sales_order_id: soId,
+      ...toTermsPayload(form),
+      payment_terms: formatPaymentTerms({
+        paymentTermsType: form.payment_terms_type as any,
+        advancePct: Number(form.payment_terms_advance_pct) || null,
+        paymentTermsDays: Number(form.payment_terms_days) || null,
+      }),
+      po_number: form.po_number || null,
+      po_date: form.po_date || null,
+      po_amount: form.po_amount ? Number(form.po_amount) : null,
+      linked_customer_proforma_id: form.linked_customer_proforma_id || null,
+      linked_customer_proforma_number: form.linked_customer_proforma_number || null,
+      freight: Number(form.freight) || 0,
+      notes: form.notes.trim() || null,
+      documents: docs,
+      lines: payloadLines,
+    };
 
     return payload;
   };
@@ -1299,7 +1344,6 @@ function NewInvoiceModal({
       wide
       footer={footer}
     >
-      
       {isEdit && invoice && (
         <DocumentStatusStripCompact
           docType="Sales invoice"
@@ -1330,392 +1374,404 @@ function NewInvoiceModal({
         }}
         className="space-y-5"
       >
-          {debtors.length === 0 && (
-            <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
-              No customers exist yet. Ask your factor admin to add one in the Customers tab.
+        {debtors.length === 0 && (
+          <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
+            No customers exist yet. Ask your factor admin to add one in the Customers tab.
+          </div>
+        )}
+
+        {/* Create from Sales Order */}
+        <fieldset className="rounded-lg border border-border/60 p-4">
+          <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Create from Sales Order
+          </legend>
+          <L label="Linked sales order * (mandatory — auto-fills lines, customer, terms)">
+            <SearchableSelect
+              value={soSource}
+              onChange={pickSo}
+              placeholder="Select a confirmed sales order…"
+              options={[
+                { value: "", label: "Select a confirmed sales order…" },
+                ...soOptions.map((so: any) => ({
+                  value: so.id,
+                  label: so.so_number,
+                  hint: `${so.customer_name ?? "—"} · ${so.status}`,
+                })),
+              ]}
+            />
+          </L>
+          <p className="mt-1 text-[10px] text-muted-foreground">
+            Every invoice must be linked to a confirmed sales order — its customer and lines are
+            checked against it. An invoice never reduces stock; only a dispatch moved to Dispatched
+            debits inventory.
+          </p>
+        </fieldset>
+
+        {/* Header */}
+        <fieldset className="rounded-lg border border-border/60 p-4">
+          <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Invoice header
+          </legend>
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+            <Field label="Invoice number (auto if blank)">
+              <input
+                className={inputBase}
+                value={form.invoice_number}
+                onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
+                placeholder="ADV-26/27-SI-001"
+              />
+            </Field>
+            <Field label="Invoice date">
+              <input
+                required
+                type="date"
+                className={inputBase}
+                value={form.issue_date}
+                onChange={(e) => setForm({ ...form, issue_date: e.target.value })}
+              />
+            </Field>
+            <Field label="Customer *">
+              <SearchableSelect
+                disabled={linesLocked}
+                value={form.debtor_id}
+                onChange={(v) => {
+                  setForm({ ...form, debtor_id: v });
+                  const d = debtors.find((x: any) => x.id === v);
+                  if (d) setForm((prev) => ({ ...prev, ...toTermsFormFields(d) }));
+                }}
+                placeholder="Select customer"
+                options={debtors.map((d: any) => ({ value: d.id, label: d.name }))}
+                className={inputBase}
+              />
+            </Field>
+            <Field label="Customer contact">
+              <input
+                disabled={linesLocked}
+                className={inputBase}
+                value={form.customer_contact}
+                onChange={(e) => setForm({ ...form, customer_contact: e.target.value })}
+                placeholder="Name · email · phone"
+              />
+            </Field>
+            <Field label="Billing address">
+              <textarea
+                disabled={linesLocked}
+                rows={2}
+                className={textareaBase}
+                value={form.billing_address}
+                onChange={(e) => setForm({ ...form, billing_address: e.target.value })}
+              />
+            </Field>
+            <Field label="Delivery / shipping address">
+              <textarea
+                disabled={linesLocked}
+                rows={2}
+                className={textareaBase}
+                value={form.delivery_address}
+                onChange={(e) => setForm({ ...form, delivery_address: e.target.value })}
+              />
+            </Field>
+            <Field label="Payment terms">
+              <PaymentTermsFields
+                type={form.payment_terms_type}
+                advancePct={form.payment_terms_advance_pct}
+                paymentTermsDays={form.payment_terms_days}
+                daysLabel="Net days"
+                onChange={(patch) => setForm({ ...form, ...patch })}
+              />
+            </Field>
+            <Field
+              label={`Due date${selectedDebtor ? ` (auto: ${effectiveTermsType === "advance_full" ? "due before dispatch" : termsDays > 0 ? `+${termsDays}d` : "due on invoice"})` : ""}`}
+            >
+              <input
+                type="date"
+                className={inputBase}
+                value={effectiveDue}
+                onChange={(e) => setForm({ ...form, due_date: e.target.value })}
+              />
+            </Field>
+          </div>
+          <div className="mt-3">
+            <Field label="Notes (shown on the printed invoice)">
+              <textarea
+                rows={2}
+                className={textareaBase}
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              />
+            </Field>
+          </div>
+          <div className="mt-3">
+            <DocumentUploader
+              userId={userId}
+              scope="invoices"
+              docs={docs}
+              onChange={setDocs}
+              hint="Attach the final invoice PDF and any supporting paperwork."
+            />
+          </div>
+        </fieldset>
+
+        {/* Lines */}
+        <fieldset disabled={linesLocked} className="rounded-lg border border-border/60 p-4">
+          <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Product lines
+          </legend>
+          <div className="space-y-2">
+            {lines.map((l, i) => {
+              const lineTotal = round2(
+                (Number(l.quantity) || 0) *
+                  (Number(l.unit_price) || 0) *
+                  (1 - (Number(l.discount_pct) || 0) / 100),
+              );
+              const selectedProduct = (productsQ.data ?? []).find(
+                (x: any) => x.id === l.product_id,
+              ) as any;
+              const productMeta = [
+                (l as any).sku || selectedProduct?.sku
+                  ? `SKU ${(l as any).sku || selectedProduct.sku}`
+                  : null,
+                (l as any).hsn_code || selectedProduct?.hsn_code || selectedProduct?.hsnCode
+                  ? `HSN ${(l as any).hsn_code || selectedProduct?.hsn_code || selectedProduct?.hsnCode}`
+                  : null,
+              ].filter(Boolean);
+              return (
+                <div
+                  key={i}
+                  className="space-y-4 rounded-lg border border-border/60 bg-card/30 p-4 sm:p-5"
+                >
+                  <div className="min-w-0">
+                    <Field label="Product">
+                      <ProductVariantPicker
+                        products={productsQ.data ?? []}
+                        value={l.product_id}
+                        onChange={(v) => pickProduct(i, v)}
+                        layout="inline"
+                      />
+                    </Field>
+                    {productMeta.length > 0 && (
+                      <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+                        {productMeta.join(" · ")}
+                      </div>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 lg:grid-cols-4">
+                    <Field label="Unit">
+                      <input
+                        className={inputBase}
+                        value={l.unit}
+                        onChange={(e) => setLine(i, { unit: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Qty">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.001"
+                        className={inputBase}
+                        value={l.quantity}
+                        onChange={(e) => setLine(i, { quantity: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Unit price">
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className={inputBase}
+                        value={l.unit_price}
+                        onChange={(e) => setLine(i, { unit_price: e.target.value })}
+                      />
+                      {(Number(l.unit_price) || 0) > 0 && (
+                        <div className="mt-1 text-right text-[10px] text-muted-foreground">
+                          ex-GST {fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate))}
+                        </div>
+                      )}
+                    </Field>
+                    <Field label="Disc %">
+                      <input
+                        list="inv-disc-rates"
+                        type="number"
+                        min="0"
+                        max="100"
+                        step="0.01"
+                        className={inputBase}
+                        value={l.discount_pct}
+                        onChange={(e) => setLine(i, { discount_pct: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="GST %">
+                      <input
+                        list="pf-gst-rates"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        className={inputBase}
+                        value={l.gst_rate}
+                        onChange={(e) => setLine(i, { gst_rate: e.target.value })}
+                      />
+                    </Field>
+                    <Field label="Line total">
+                      <div className="inp text-right font-mono tabular-nums">
+                        {fmtMoney(lineTotal)}
+                      </div>
+                    </Field>
+                    <button
+                      type="button"
+                      onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}
+                      className="self-end justify-self-end rounded p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
+                      aria-label={`Remove invoice line ${i + 1}`}
+                      title="Remove line"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+            <AddLineButton onClick={addLine} />
+          </div>
+        </fieldset>
+        {/* Totals */}
+        <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">
+              Subtotal (ex-GST)
+            </span>
+            <span className="num">{fmtMoney(totals.subtotal)}</span>
+          </div>
+          {totals.totalDiscount > 0 && (
+            <div className="flex items-center justify-between">
+              <span className="text-xs uppercase tracking-widest text-muted-foreground">
+                Total discount
+              </span>
+              <span className="num text-destructive">−{fmtMoney(totals.totalDiscount)}</span>
             </div>
           )}
+          <div className="flex items-center justify-between">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">GST</span>
+            <span className="num">{fmtMoney(totals.gstTotal)}</span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">
+              Freight / charges
+            </span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              className="inp !w-40 !py-1 text-right"
+              value={form.freight}
+              onChange={(e) => setForm({ ...form, freight: e.target.value })}
+            />
+          </div>
+          <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
+            <span className="text-xs uppercase tracking-widest text-muted-foreground">
+              Grand total
+            </span>
+            <span className="num text-base">{fmtMoney(totals.grandTotal)}</span>
+          </div>
+        </div>
 
-          {/* Create from Sales Order */}
-          <fieldset className="rounded-lg border border-border/60 p-4">
-            <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              Create from Sales Order
-            </legend>
-            <L label="Linked sales order * (mandatory — auto-fills lines, customer, terms)">
+        {/* Advance deduction */}
+        <fieldset className="rounded-lg border border-border/60 p-4">
+          <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
+            Advance deduction
+          </legend>
+          <div className="space-y-3">
+            <L label="Linked customer proforma (optional — deducts received advances)">
               <SearchableSelect
-                value={soSource}
-                onChange={pickSo}
-                placeholder="Select a confirmed sales order…"
+                value={form.linked_customer_proforma_id}
+                onChange={pickProforma}
+                placeholder="None — manual PO entry"
                 options={[
-                  { value: "", label: "Select a confirmed sales order…" },
-                  ...soOptions.map((so: any) => ({
-                    value: so.id,
-                    label: so.so_number,
-                    hint: `${so.customer_name ?? "—"} · ${so.status}`,
+                  { value: "", label: "None — manual PO entry" },
+                  ...(proformasQ.data ?? []).map((p: any) => ({
+                    value: p.id,
+                    label: p.proforma_number ?? p.po_number ?? p.id,
+                    hint: p.debtor?.name ?? undefined,
                   })),
                 ]}
               />
             </L>
-            <p className="mt-1 text-[10px] text-muted-foreground">
-              Every invoice must be linked to a confirmed sales order — its customer and lines are
-              checked against it. An invoice never reduces stock; only a dispatch moved to Dispatched debits
-              inventory.
-            </p>
-          </fieldset>
-
-          {/* Header */}
-          <fieldset className="rounded-lg border border-border/60 p-4">
-            <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              Invoice header
-            </legend>
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              <Field label="Invoice number (auto if blank)">
+            <div className="grid grid-cols-3 gap-3">
+              <L label="PO / proforma number">
                 <input
                   className={inputBase}
-                  value={form.invoice_number}
-                  onChange={(e) => setForm({ ...form, invoice_number: e.target.value })}
-                  placeholder="ADV-26/27-SI-001"
-                />
-              </Field>
-              <Field label="Invoice date">
-                <input
-                  required
-                  type="date"
-                  className={inputBase}
-                  value={form.issue_date}
-                  onChange={(e) => setForm({ ...form, issue_date: e.target.value })}
-                />
-              </Field>
-                  <Field label="Customer *">
-                    <SearchableSelect
-                      disabled={linesLocked}
-                      value={form.debtor_id}
-                      onChange={(v) => {
-                        setForm({ ...form, debtor_id: v });
-                        const d = debtors.find((x: any) => x.id === v);
-                        if (d) setForm((prev) => ({ ...prev, ...toTermsFormFields(d) }));
-                      }}
-                      placeholder="Select customer"
-                      options={debtors.map((d: any) => ({ value: d.id, label: d.name }))}
-                      className={inputBase}
-                    />
-              </Field>
-                  <Field label="Customer contact">
-                    <input
-                      disabled={linesLocked}
-                      className={inputBase}
-                      value={form.customer_contact}
-                      onChange={(e) => setForm({ ...form, customer_contact: e.target.value })}
-                      placeholder="Name · email · phone"
-                    />
-              </Field>
-               <Field label="Billing address">
-                 <textarea
-                   disabled={linesLocked}
-                   rows={2}
-                   className={textareaBase}
-                   value={form.billing_address}
-                   onChange={(e) => setForm({ ...form, billing_address: e.target.value })}
-                 />
-              </Field>
-               <Field label="Delivery / shipping address">
-                 <textarea
-                   disabled={linesLocked}
-                   rows={2}
-                  className={textareaBase}
-                  value={form.delivery_address}
-                  onChange={(e) => setForm({ ...form, delivery_address: e.target.value })}
-                />
-              </Field>
-              <Field label="Payment terms">
-                <PaymentTermsFields
-                  type={form.payment_terms_type}
-                  advancePct={form.payment_terms_advance_pct}
-                  paymentTermsDays={form.payment_terms_days}
-                  daysLabel="Net days"
-                  onChange={(patch) => setForm({ ...form, ...patch })}
-                />
-              </Field>
-              <Field label={`Due date${selectedDebtor ? ` (auto: ${effectiveTermsType === "advance_full" ? "due before dispatch" : termsDays > 0 ? `+${termsDays}d` : "due on invoice"})` : ""}`}>
-                <input
-                  type="date"
-                  className={inputBase}
-                  value={effectiveDue}
-                  onChange={(e) => setForm({ ...form, due_date: e.target.value })}
-                />
-              </Field>
-            </div>
-            <div className="mt-3">
-              <Field label="Notes (shown on the printed invoice)">
-                <textarea
-                  rows={2}
-                  className={textareaBase}
-                  value={form.notes}
-                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                />
-              </Field>
-            </div>
-            <div className="mt-3">
-              <DocumentUploader
-                userId={userId}
-                scope="invoices"
-                docs={docs}
-                onChange={setDocs}
-                hint="Attach the final invoice PDF and any supporting paperwork."
-              />
-            </div>
-          </fieldset>
-
-          {/* Lines */}
-          <fieldset disabled={linesLocked} className="rounded-lg border border-border/60 p-4">
-            <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              Product lines
-            </legend>
-            <div className="space-y-2">
-              {lines.map((l, i) => {
-                const lineTotal = round2(
-                  (Number(l.quantity) || 0) *
-                    (Number(l.unit_price) || 0) *
-                    (1 - (Number(l.discount_pct) || 0) / 100),
-                );
-                const selectedProduct = (productsQ.data ?? []).find(
-                  (x: any) => x.id === l.product_id,
-                ) as any;
-                const productMeta = [
-                  (l as any).sku || selectedProduct?.sku
-                    ? `SKU ${(l as any).sku || selectedProduct.sku}`
-                    : null,
-                  (l as any).hsn_code || selectedProduct?.hsn_code || selectedProduct?.hsnCode
-                    ? `HSN ${(l as any).hsn_code || selectedProduct?.hsn_code || selectedProduct?.hsnCode}`
-                    : null,
-                ].filter(Boolean);
-                return (
-                  <div key={i} className="space-y-4 rounded-lg border border-border/60 bg-card/30 p-4 sm:p-5">
-                    <div className="min-w-0">
-                      <Field label="Product">
-                        <ProductVariantPicker
-                          products={productsQ.data ?? []}
-                          value={l.product_id}
-                          onChange={(v) => pickProduct(i, v)}
-                          layout="inline"
-                        />
-                      </Field>
-                      {productMeta.length > 0 && (
-                        <div className="mt-1 font-mono text-[10px] text-muted-foreground">
-                          {productMeta.join(" · ")}
-                        </div>
-                      )}
-                    </div>
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 lg:grid-cols-4">
-                      <Field label="Unit">
-                        <input
-                          className={inputBase}
-                          value={l.unit}
-                          onChange={(e) => setLine(i, { unit: e.target.value })}
-                        />
-                      </Field>
-                      <Field label="Qty">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.001"
-                          className={inputBase}
-                          value={l.quantity}
-                          onChange={(e) => setLine(i, { quantity: e.target.value })}
-                        />
-                      </Field>
-                      <Field label="Unit price">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className={inputBase}
-                          value={l.unit_price}
-                          onChange={(e) => setLine(i, { unit_price: e.target.value })}
-                        />
-                        {(Number(l.unit_price) || 0) > 0 && (
-                          <div className="mt-1 text-right text-[10px] text-muted-foreground">
-                            ex-GST {fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate))}
-                          </div>
-                        )}
-                      </Field>
-                      <Field label="Disc %">
-                        <input
-                          list="inv-disc-rates"
-                          type="number"
-                          min="0"
-                          max="100"
-                          step="0.01"
-                          className={inputBase}
-                          value={l.discount_pct}
-                          onChange={(e) => setLine(i, { discount_pct: e.target.value })}
-                        />
-                      </Field>
-                      <Field label="GST %">
-                        <input
-                          list="pf-gst-rates"
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className={inputBase}
-                          value={l.gst_rate}
-                          onChange={(e) => setLine(i, { gst_rate: e.target.value })}
-                        />
-                      </Field>
-                      <Field label="Line total">
-                        <div className="inp text-right font-mono tabular-nums">
-                          {fmtMoney(lineTotal)}
-                        </div>
-                      </Field>
-                      <button
-                        type="button"
-                        onClick={() => setLines((ls) => ls.filter((_, idx) => idx !== i))}
-                        className="self-end justify-self-end rounded p-1 text-muted-foreground hover:bg-muted hover:text-destructive"
-                        aria-label={`Remove invoice line ${i + 1}`}
-                        title="Remove line"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-              <AddLineButton onClick={addLine} />
-            </div>
-          </fieldset>
-          {/* Totals */}
-          <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                Subtotal (ex-GST)
-              </span>
-              <span className="num">{fmtMoney(totals.subtotal)}</span>
-            </div>
-            {totals.totalDiscount > 0 && (
-              <div className="flex items-center justify-between">
-                <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                  Total discount
-                </span>
-                <span className="num text-destructive">−{fmtMoney(totals.totalDiscount)}</span>
-              </div>
-            )}
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">GST</span>
-              <span className="num">{fmtMoney(totals.gstTotal)}</span>
-            </div>
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                Freight / charges
-              </span>
-              <input
-                type="number"
-                min="0"
-                step="0.01"
-                className="inp !w-40 !py-1 text-right"
-                value={form.freight}
-                onChange={(e) => setForm({ ...form, freight: e.target.value })}
-              />
-            </div>
-            <div className="flex items-center justify-between border-t border-border pt-1.5 font-medium">
-              <span className="text-xs uppercase tracking-widest text-muted-foreground">
-                Grand total
-              </span>
-              <span className="num text-base">{fmtMoney(totals.grandTotal)}</span>
-            </div>
-          </div>
-
-          {/* Advance deduction */}
-          <fieldset className="rounded-lg border border-border/60 p-4">
-            <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-              Advance deduction
-            </legend>
-            <div className="space-y-3">
-              <L label="Linked customer proforma (optional — deducts received advances)">
-                <SearchableSelect
-                  value={form.linked_customer_proforma_id}
-                  onChange={pickProforma}
-                  placeholder="None — manual PO entry"
-                  options={[
-                    { value: "", label: "None — manual PO entry" },
-                    ...(proformasQ.data ?? []).map((p: any) => ({
-                      value: p.id,
-                      label: p.proforma_number ?? p.po_number ?? p.id,
-                      hint: p.debtor?.name ?? undefined,
-                    })),
-                  ]}
+                  value={form.po_number}
+                  onChange={(e) => setForm({ ...form, po_number: e.target.value })}
+                  placeholder="PO-2026-001"
                 />
               </L>
-              <div className="grid grid-cols-3 gap-3">
-                <L label="PO / proforma number">
-                  <input
-                    className={inputBase}
-                    value={form.po_number}
-                    onChange={(e) => setForm({ ...form, po_number: e.target.value })}
-                    placeholder="PO-2026-001"
-                  />
-                </L>
-                <L label="PO date">
-                  <input
-                    type="date"
-                    className={inputBase}
-                    value={form.po_date}
-                    onChange={(e) => setForm({ ...form, po_date: e.target.value })}
-                  />
-                </L>
-                <L label="PO amount">
-                  <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    className={inputBase}
-                    value={form.po_amount}
-                    onChange={(e) => setForm({ ...form, po_amount: e.target.value })}
-                  />
-                </L>
-              </div>
-              <p className="text-[10px] text-muted-foreground">
-                Advances received against the linked proforma are deducted from the invoice total —
-                the net amount is what the customer owes. If no proforma, the full amount applies.
-              </p>
-              {form.po_number.trim() && (
-                <div className="mt-3 rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
-                  <div className="mb-1 uppercase tracking-widest text-primary">
-                    Advances received against {form.po_number}
-                  </div>
-                  {poLookupQ.isFetching ? (
-                    <div className="text-muted-foreground">Looking up…</div>
-                  ) : (poLookupQ.data?.advances ?? []).length === 0 ? (
-                    <div className="text-muted-foreground">
-                      No advances recorded for this PO number on the sales side — full amount
-                      applies.
-                    </div>
-                  ) : (
-                    <ul className="space-y-0.5">
-                      {((poLookupQ.data?.advances ?? []) as any[]).map((a) => (
-                        <li key={a.id} className="flex justify-between">
-                          <span className="text-muted-foreground">
-                            {fmtDate(a.advance_date)} {a.reference ? `· ${a.reference}` : ""}
-                          </span>
-                          <span className="num text-primary">{fmtMoney(a.amount)}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                  <div className="mt-2 flex justify-between border-t border-border pt-2 font-medium">
-                    <span>Balance outstanding</span>
-                    <span className="num">{fmtMoney(totals.balanceDue)}</span>
-                  </div>
-                </div>
-              )}
+              <L label="PO date">
+                <input
+                  type="date"
+                  className={inputBase}
+                  value={form.po_date}
+                  onChange={(e) => setForm({ ...form, po_date: e.target.value })}
+                />
+              </L>
+              <L label="PO amount">
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  className={inputBase}
+                  value={form.po_amount}
+                  onChange={(e) => setForm({ ...form, po_amount: e.target.value })}
+                />
+              </L>
             </div>
-          </fieldset>
-        </form>
-      </DialogWithStickyFooter>
+            <p className="text-[10px] text-muted-foreground">
+              Advances received against the linked proforma are deducted from the invoice total —
+              the net amount is what the customer owes. If no proforma, the full amount applies.
+            </p>
+            {form.po_number.trim() && (
+              <div className="mt-3 rounded-md border border-primary/30 bg-primary/5 p-3 text-xs">
+                <div className="mb-1 uppercase tracking-widest text-primary">
+                  Advances received against {form.po_number}
+                </div>
+                {poLookupQ.isFetching ? (
+                  <div className="text-muted-foreground">Looking up…</div>
+                ) : (poLookupQ.data?.advances ?? []).length === 0 ? (
+                  <div className="text-muted-foreground">
+                    No advances recorded for this PO number on the sales side — full amount applies.
+                  </div>
+                ) : (
+                  <ul className="space-y-0.5">
+                    {((poLookupQ.data?.advances ?? []) as any[]).map((a) => (
+                      <li key={a.id} className="flex justify-between">
+                        <span className="text-muted-foreground">
+                          {fmtDate(a.advance_date)} {a.reference ? `· ${a.reference}` : ""}
+                        </span>
+                        <span className="num text-primary">{fmtMoney(a.amount)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <div className="mt-2 flex justify-between border-t border-border pt-2 font-medium">
+                  <span>Balance outstanding</span>
+                  <span className="num">{fmtMoney(totals.balanceDue)}</span>
+                </div>
+              </div>
+            )}
+          </div>
+        </fieldset>
+      </form>
+    </DialogWithStickyFooter>
   );
 }
 
 // ─── Detail modal ────────────────────────────────────────────────────────
-function InvoiceDetailModal({ invoice, onClose, hideIrn = false }: { invoice: Inv; onClose: () => void; hideIrn?: boolean }) {
+function InvoiceDetailModal({
+  invoice,
+  onClose,
+  hideIrn = false,
+}: {
+  invoice: Inv;
+  onClose: () => void;
+  hideIrn?: boolean;
+}) {
   const qc = useQueryClient();
   const sendNoa = useMutation({
     mutationFn: async () => api.invoices.sendNoa(invoice.id),
@@ -1839,32 +1895,34 @@ function InvoiceDetailModal({ invoice, onClose, hideIrn = false }: { invoice: In
               (invoice.irn ? (
                 <>
                   <div className="col-span-2 md:col-span-3">
-                    <D label="IRN" value={<span className="break-all font-mono text-xs">{invoice.irn}</span>} />
+                    <D
+                      label="IRN"
+                      value={<span className="break-all font-mono text-xs">{invoice.irn}</span>}
+                    />
                   </div>
                   {invoice.ack_no && <D label="Ack No." value={invoice.ack_no} />}
                   {invoice.ack_date && <D label="Ack Date" value={fmtDate(invoice.ack_date)} />}
                   {invoice.irn_source && <D label="IRN source" value={invoice.irn_source} />}
                 </>
               ) : (
-                <D label="IRN" value={<span className="text-muted-foreground">Not recorded</span>} />
+                <D
+                  label="IRN"
+                  value={<span className="text-muted-foreground">Not recorded</span>}
+                />
               ))}
-            {(invoice.ewb_number || invoice.ewb_valid_until || invoice.transporter || invoice.vehicle_number || invoice.lr_ref) && (
+            {(invoice.ewb_number ||
+              invoice.ewb_valid_until ||
+              invoice.transporter ||
+              invoice.vehicle_number ||
+              invoice.lr_ref) && (
               <>
-                {invoice.ewb_number && (
-                  <D label="e-Way Bill No." value={invoice.ewb_number} />
-                )}
+                {invoice.ewb_number && <D label="e-Way Bill No." value={invoice.ewb_number} />}
                 {invoice.ewb_valid_until && (
                   <D label="EWB valid until" value={fmtDate(invoice.ewb_valid_until)} />
                 )}
-                {invoice.transporter && (
-                  <D label="Transporter" value={invoice.transporter} />
-                )}
-                {invoice.vehicle_number && (
-                  <D label="Vehicle No." value={invoice.vehicle_number} />
-                )}
-                {invoice.lr_ref && (
-                  <D label="LR / Doc ref" value={invoice.lr_ref} />
-                )}
+                {invoice.transporter && <D label="Transporter" value={invoice.transporter} />}
+                {invoice.vehicle_number && <D label="Vehicle No." value={invoice.vehicle_number} />}
+                {invoice.lr_ref && <D label="LR / Doc ref" value={invoice.lr_ref} />}
               </>
             )}
             {invoice.po_amount != null && invoice.po_amount > 0 && (
@@ -1873,13 +1931,13 @@ function InvoiceDetailModal({ invoice, onClose, hideIrn = false }: { invoice: In
                 value={<span className="num">{fmtMoney(invoice.po_amount)}</span>}
               />
             )}
-            {invoice.utr_reference && (
-              <D label="UTR / ref" value={invoice.utr_reference} />
-            )}
+            {invoice.utr_reference && <D label="UTR / ref" value={invoice.utr_reference} />}
             {invoice.payment_amount != null && (
               <D
                 label="Payment at approval"
-                value={<span className="num text-sem-success">{fmtMoney(invoice.payment_amount)}</span>}
+                value={
+                  <span className="num text-sem-success">{fmtMoney(invoice.payment_amount)}</span>
+                }
               />
             )}
             <D label="NOA" value={<NoaBadge status={invoice.noa_status} />} />
@@ -2075,7 +2133,8 @@ function D({ label, value }: { label: string; value: React.ReactNode }) {
   );
 }
 
-function UtrModal({  invoice,
+function UtrModal({
+  invoice,
   onClose,
   onSubmit,
 }: {
@@ -2096,14 +2155,21 @@ function UtrModal({  invoice,
         className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-vault"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="mb-4 font-display text-lg">
-          Add UTR · {invoice.invoice_number}
-        </h3>
+        <h3 className="mb-4 font-display text-lg">Add UTR · {invoice.invoice_number}</h3>
         <div className="space-y-3 text-sm">
           <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground space-y-1">
-            <div>Customer: <span className="text-foreground">{invoice.debtor?.name ?? "—"}</span></div>
-            <div>Grand total: <span className="num text-foreground">{fmtMoney(invoice.grand_total ?? invoice.amount)}</span></div>
-            <div>Status: <span className="text-foreground">{DOC_LABELS[invoice.status]}</span></div>
+            <div>
+              Customer: <span className="text-foreground">{invoice.debtor?.name ?? "—"}</span>
+            </div>
+            <div>
+              Grand total:{" "}
+              <span className="num text-foreground">
+                {fmtMoney(invoice.grand_total ?? invoice.amount)}
+              </span>
+            </div>
+            <div>
+              Status: <span className="text-foreground">{DOC_LABELS[invoice.status]}</span>
+            </div>
           </div>
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
@@ -2191,14 +2257,22 @@ function IrnModal({
         className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-xl border border-border bg-card p-5 shadow-vault"
         onClick={(e) => e.stopPropagation()}
       >
-        <h3 className="mb-4 font-display text-lg">
-          Record IRN · {invoice.invoice_number}
-        </h3>
+        <h3 className="mb-4 font-display text-lg">Record IRN · {invoice.invoice_number}</h3>
         <div className="space-y-3 text-sm">
           <div className="rounded-md border border-border bg-background/40 p-3 text-xs text-muted-foreground space-y-1">
-            <div>Customer: <span className="text-foreground">{invoice.debtor?.name ?? "—"}</span></div>
-            <div>Grand total: <span className="num text-foreground">{fmtMoney(invoice.grand_total ?? invoice.amount)}</span></div>
-            <div className="text-sem-attention">Recording the IRN locks this invoice — further edits need a cancellation or credit note.</div>
+            <div>
+              Customer: <span className="text-foreground">{invoice.debtor?.name ?? "—"}</span>
+            </div>
+            <div>
+              Grand total:{" "}
+              <span className="num text-foreground">
+                {fmtMoney(invoice.grand_total ?? invoice.amount)}
+              </span>
+            </div>
+            <div className="text-sem-attention">
+              Recording the IRN locks this invoice — further edits need a cancellation or credit
+              note.
+            </div>
           </div>
           <label className="block">
             <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
@@ -2319,7 +2393,9 @@ function parseCsvFields(line: string): string[] {
 
 /** "₹1,28,500.00" / "(45,000)" / "-32000" → number (sign kept). */
 function parseStatementAmount(raw: string): number {
-  const s = String(raw || "").replace(/₹|INR|Rs\.?/gi, "").replace(/[,\s]/g, "");
+  const s = String(raw || "")
+    .replace(/₹|INR|Rs\.?/gi, "")
+    .replace(/[,\s]/g, "");
   const negative = /^\(.*\)$/.test(s) || s.startsWith("-");
   const n = parseFloat(s.replace(/[()]/g, "").replace(/^-/, ""));
   return Number.isFinite(n) ? (negative ? -n : n) : 0;
@@ -2331,7 +2407,8 @@ function normalizeStatementDate(raw: string): string {
   let m = s.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
   if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
   m = s.match(/^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})$/);
-  if (m) return `${m[3].length === 2 ? `20${m[3]}` : m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  if (m)
+    return `${m[3].length === 2 ? `20${m[3]}` : m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
   m = s.match(/^(\d{1,2})[-/\s]([A-Za-z]{3})[A-Za-z]*[-/\s]+(\d{2}|\d{4})$/); // 14-Oct-2026 / 14 Oct 26
   const mon = m ? "janfebmaraprmayjunjulaugsepoctnovdec".indexOf(m[2].toLowerCase()) : -1;
   if (m && mon >= 0 && mon % 3 === 0) {
@@ -2356,15 +2433,20 @@ function parseStatementLine(line: string, idx: number) {
   else if (line.includes('"')) f = parseCsvFields(line);
   else {
     const m = line.match(UNQUOTED_STATEMENT_LINE);
-    f = m ? [m[1] ?? "", m[2] ?? "", m[3] ?? "", m[4] ?? "", m[5] ?? ""] : line.split(",").map((s) => s.trim());
+    f = m
+      ? [m[1] ?? "", m[2] ?? "", m[3] ?? "", m[4] ?? "", m[5] ?? ""]
+      : line.split(",").map((s) => s.trim());
   }
   // Narration-only / "Narration, Amount" / rows that omit the date column.
   if (f.length === 1) f = ["", f[0]];
   else if (f.length === 2) f = ["", f[0], f[1]];
-  else if (f[0] && !normalizeStatementDate(f[0]) && parseStatementAmount(f[1]) !== 0) f = ["", ...f];
+  else if (f[0] && !normalizeStatementDate(f[0]) && parseStatementAmount(f[1]) !== 0)
+    f = ["", ...f];
 
   const amount = parseStatementAmount(f[2] ?? "");
-  const t = String(f[3] ?? "").trim().toLowerCase();
+  const t = String(f[3] ?? "")
+    .trim()
+    .toLowerCase();
   const type: "credit" | "debit" =
     /^(dr|debit|withdrawal|out)$/.test(t) || t.includes("deb")
       ? "debit"
@@ -2474,11 +2556,17 @@ function BankReconciliationModal({
           (failed.length > 3 ? "…" : ""),
       );
       // Keep the modal open; mark the applied rows so they can't be re-sent.
-      const appliedIds = new Set(res.results.filter((r) => r.status === "applied" && r.entryId).map((r) => r.entryId as string));
+      const appliedIds = new Set(
+        res.results
+          .filter((r) => r.status === "applied" && r.entryId)
+          .map((r) => r.entryId as string),
+      );
       setResults({
         ...results,
         matches: results.matches.map((m) =>
-          appliedIds.has(m.entryId) ? { ...m, applied: true, notes: "Payment recorded in this session." } : m,
+          appliedIds.has(m.entryId)
+            ? { ...m, applied: true, notes: "Payment recorded in this session." }
+            : m,
         ),
       });
       setSelectedMatches(new Set([...selectedMatches].filter((id) => !appliedIds.has(id))));
@@ -2545,7 +2633,8 @@ function BankReconciliationModal({
             <div>
               <h3 className="font-display text-lg">Bank Statement Reconciliation</h3>
               <p className="text-xs text-muted-foreground">
-                Match bank statement entries to invoices automatically using UTR number & narration parsing
+                Match bank statement entries to invoices automatically using UTR number & narration
+                parsing
               </p>
             </div>
           </div>
@@ -2580,7 +2669,10 @@ function BankReconciliationModal({
                 : "border border-border text-muted-foreground hover:border-primary hover:text-primary"
             } ${!results ? "opacity-50 cursor-not-allowed" : ""}`}
           >
-            2. Match Results {results ? `(${results.matchedCount + results.partialCount}/${results.totalEntries})` : ""}
+            2. Match Results{" "}
+            {results
+              ? `(${results.matchedCount + results.partialCount}/${results.totalEntries})`
+              : ""}
           </button>
         </div>
 
@@ -2588,17 +2680,19 @@ function BankReconciliationModal({
           <div className="mt-4 space-y-4 text-sm">
             <div className="rounded-lg border border-border/60 bg-muted/20 p-3.5 text-xs text-muted-foreground">
               <p className="font-medium text-foreground">
-                One entry per line — paste straight from Excel / the bank statement (tab separated) or CSV:
+                One entry per line — paste straight from Excel / the bank statement (tab separated)
+                or CSV:
               </p>
               <code className="mt-1 block font-mono text-[11px] text-primary">
                 Date, Narration, Amount, Type (credit/debit)[, Reference / UTR]
               </code>
               <p className="mt-1 text-[11px]">
-                Amounts may use Indian grouping or ₹ (e.g. 1,28,500). Narrations containing commas are fine; wrap
-                fields in "double quotes" if in doubt. A reference column needs the Type column before it. Credits
-                are matched to open sales invoices, debits to open purchase invoices — by UTR, invoice number in the
-                narration, or party name + exact outstanding amount. Only lines with a UTR can be applied, and a
-                UTR already recorded on an invoice is never applied twice.
+                Amounts may use Indian grouping or ₹ (e.g. 1,28,500). Narrations containing commas
+                are fine; wrap fields in "double quotes" if in doubt. A reference column needs the
+                Type column before it. Credits are matched to open sales invoices, debits to open
+                purchase invoices — by UTR, invoice number in the narration, or party name + exact
+                outstanding amount. Only lines with a UTR can be applied, and a UTR already recorded
+                on an invoice is never applied twice.
               </p>
             </div>
 
@@ -2662,25 +2756,40 @@ function BankReconciliationModal({
             {/* Summary statistics */}
             <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
               <div className="rounded-lg border border-border/60 bg-card p-3">
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Total Entries</div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Total Entries
+                </div>
                 <div className="mt-1 font-mono text-lg font-semibold">{results.totalEntries}</div>
               </div>
               <div className="rounded-lg border border-sem-success/40 bg-sem-success/10 p-3">
-                <div className="text-[10px] uppercase tracking-widest text-sem-success">Matched</div>
-                <div className="mt-1 font-mono text-lg font-semibold text-sem-success">{results.matchedCount}</div>
+                <div className="text-[10px] uppercase tracking-widest text-sem-success">
+                  Matched
+                </div>
+                <div className="mt-1 font-mono text-lg font-semibold text-sem-success">
+                  {results.matchedCount}
+                </div>
               </div>
               <div className="rounded-lg border border-sem-attention/40 bg-sem-attention/10 p-3">
-                <div className="text-[10px] uppercase tracking-widest text-sem-attention">Potential Matches</div>
-                <div className="mt-1 font-mono text-lg font-semibold text-sem-attention">{results.partialCount}</div>
+                <div className="text-[10px] uppercase tracking-widest text-sem-attention">
+                  Potential Matches
+                </div>
+                <div className="mt-1 font-mono text-lg font-semibold text-sem-attention">
+                  {results.partialCount}
+                </div>
               </div>
               <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
-                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Unmatched</div>
-                <div className="mt-1 font-mono text-lg font-semibold text-muted-foreground">{results.unmatchedCount}</div>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                  Unmatched
+                </div>
+                <div className="mt-1 font-mono text-lg font-semibold text-muted-foreground">
+                  {results.unmatchedCount}
+                </div>
               </div>
             </div>
             {results.alreadyAppliedCount > 0 && (
               <p className="text-[11px] text-muted-foreground">
-                {results.alreadyAppliedCount} line(s) carry a UTR that is already recorded on an invoice and are skipped.
+                {results.alreadyAppliedCount} line(s) carry a UTR that is already recorded on an
+                invoice and are skipped.
               </p>
             )}
 
@@ -2732,7 +2841,9 @@ function BankReconciliationModal({
                           />
                         </td>
                         <td className="px-3 py-2.5 max-w-xs">
-                          <div className="text-[10px] text-muted-foreground">{fmtDate(m.entryDate)}</div>
+                          <div className="text-[10px] text-muted-foreground">
+                            {fmtDate(m.entryDate)}
+                          </div>
                           <div className="font-mono text-[11px] truncate" title={m.narration}>
                             {m.narration}
                           </div>
@@ -2754,14 +2865,18 @@ function BankReconciliationModal({
                               </div>
                               <div className="text-[10px] text-muted-foreground">
                                 {m.matchedInvoiceType === "purchase" ? "Purchase · " : "Sales · "}
-                                {m.partyName || (m.matchedInvoiceType === "purchase" ? "Supplier" : "Customer")}
+                                {m.partyName ||
+                                  (m.matchedInvoiceType === "purchase" ? "Supplier" : "Customer")}
                               </div>
                             </div>
                           ) : (
                             <span className="text-muted-foreground">No invoice linked</span>
                           )}
                           {m.notes && (
-                            <div className="mt-0.5 max-w-xs text-[10px] text-muted-foreground" title={m.notes}>
+                            <div
+                              className="mt-0.5 max-w-xs text-[10px] text-muted-foreground"
+                              title={m.notes}
+                            >
                               {m.notes}
                             </div>
                           )}
