@@ -6579,6 +6579,9 @@ router.get("/goods-purchase-orders/:id/pdf", authMiddleware, async (req, res) =>
     if (!po || (po.clientId !== req.user!.userId && !isStaffAccount(req.user?.roles))) {
       return res.status(404).json({ error: "Purchase order not found" });
     }
+    if (po.status !== "approved") {
+      return res.status(403).json({ error: "PO can only be downloaded after checker approval" });
+    }
     const { pdf, number } = await buildGoodsPOTallyBuffer(po, po.clientId);
     const filename = `${(number || "purchase-order").replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`;
     res.setHeader("Content-Type", "application/pdf");
@@ -10357,9 +10360,44 @@ router.post("/credit-debit-notes", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-router.put("/credit-debit-notes/:id", authMiddleware, async (req, res) => {
+router.put("/credit-debit-notes/:id", authMiddleware, requireRole("checker"), async (req, res) => {
   try {
-    res.json(await CDNote.update(req.params.id, req.body));
+    const note = await CDNote.get(req.params.id);
+    if (!note) return res.status(404).json({ error: "Credit/debit note not found" });
+    if (note.status !== "pending") {
+      return res.status(409).json({
+        error: "This credit/debit note is not pending approval",
+      });
+    }
+    const action = String(req.body?.action || "approve");
+    if (action === "reject") {
+      const reason = String(req.body?.notes ?? req.body?.reason ?? "").trim();
+      const updated = await CDNote.update(req.params.id, {
+        status: "rejected",
+        rejectedBy: req.user!.userId,
+        rejectedAt: db.nowISO(),
+        rejectionReason: reason,
+      });
+      timelineStatus(req, { clientId: note.clientId, docType: "credit_debit_note", docId: note.id, docNumber: note.noteNumber },
+        note.status, "rejected", `Credit/debit note rejected${reason ? `: ${reason}` : ""}`);
+      return res.json(updated);
+    }
+    if (action !== "approve") {
+      return res.status(400).json({ error: "action must be approve or reject" });
+    }
+    // Approve the note
+    const userId = req.user!.userId;
+    const actor: any = await db.getItem(`USER#${userId}`);
+    const userName = actor?.contactName || req.user!.email;
+    const updated = await CDNote.update(req.params.id, {
+      status: "approved",
+      approvedBy: userId,
+      approvedAt: db.nowISO(),
+      approvedByName: userName,
+    });
+    timelineStatus(req, { clientId: note.clientId, docType: "credit_debit_note", docId: note.id, docNumber: note.noteNumber },
+      note.status, "approved", `Approved by ${userName}`);
+    res.json(updated);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
   }

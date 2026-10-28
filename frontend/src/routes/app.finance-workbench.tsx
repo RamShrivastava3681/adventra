@@ -12,6 +12,7 @@ import {
   MoreHorizontal,
   ExternalLink,
   TriangleAlert,
+  Shield,
 } from "lucide-react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
@@ -156,6 +157,7 @@ const FILTERS: Array<{ key: FilterKey; label: string }> = [
   { key: "proforma", label: "Proforma" },
   { key: "payments", label: "Payments" },
   { key: "dispatch", label: "Dispatch Orders" },
+  { key: "credit-debit-notes", label: "Credit/Debit Notes" },
 ];
 
 const PAGE_SIZE = 15;
@@ -173,7 +175,8 @@ type FinanceSection =
   | "purchase-invoices"
   | "dispatch-orders"
   | "expenses"
-  | "tasks";
+  | "tasks"
+  | "credit-debit-notes";
 
 const CashPanel = lazy(() =>
   import("@/routes/app.cash-flow").then((m) => ({ default: m.CashFlowPage })),
@@ -206,6 +209,11 @@ const DispatchOrdersPanel = lazy(() =>
 );
 const ExpensesPanel = lazy(() =>
   import("@/routes/app.expenses").then((m) => ({ default: m.ExpensesPage })),
+);
+const CreditDebitNotesPanel = lazy(() =>
+  import("@/routes/app.credit-debit-notes-workbench").then((m) => ({
+    default: m.CreditDebitNotesWorkbenchPage,
+  })),
 );
 const FinanceTasksPanel = lazy(() =>
   import("@/routes/app.tasks").then((m) => ({ default: m.TasksPage })),
@@ -321,6 +329,7 @@ function FinanceWorkbenchPage() {
     else if (filter === "proforma") list = list.filter((t) => t.workflow_type === "proforma");
     else if (filter === "payments") list = list.filter((t) => t.workflow_type === "payment");
     else if (filter === "dispatch") list = list.filter((t) => t.workflow_type === "dispatch");
+    else if (filter === "credit-debit-notes") list = list.filter((t) => t.workflow_type === "credit_debit_note");
     const q = query.trim().toLowerCase();
     if (q) {
       list = list.filter((t) =>
@@ -450,6 +459,11 @@ function FinanceWorkbenchPage() {
               label="Expenses"
               active={section === "expenses"}
               onClick={() => setSection("expenses")}
+            />
+            <NavTab
+              label="Credit/Debit Notes"
+              active={section === "credit-debit-notes"}
+              onClick={() => setSection("credit-debit-notes")}
             />
             <NavTab
               label="Dispatch Orders"
@@ -851,6 +865,16 @@ function FinanceWorkbenchPage() {
             />
           )}
           {section === "expenses" && <ExpensesPanel />}
+          {section === "credit-debit-notes" && (
+            <CreditDebitNotesPanel
+              cdns={
+                pendingDoc?.docType === "credit_debit_note"
+                  ? pendingDoc.docId
+                  : undefined
+              }
+              onCdnHandled={clearPendingDoc}
+            />
+          )}
           {section === "dispatch-orders" && (
             <DispatchOrdersPanel
               openDispatch={pendingDoc?.docType === "dispatch" ? pendingDoc.docId : undefined}

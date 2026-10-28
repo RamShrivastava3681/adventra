@@ -272,6 +272,10 @@ export function PurchaseOrdersPage(
   const [pdfId, setPdfId] = useState<string | null>(null);
 
   const downloadRowPdf = async (p: PO) => {
+    if (p.status !== "approved") {
+      toast.error("PO can only be downloaded after checker approval");
+      return;
+    }
     setPdfId(p.id);
     try {
       await api.goodsPurchaseOrders.downloadPdf(p.id, p.po_number);
@@ -2537,6 +2541,7 @@ function POModal({
                     }
                   }}
                   className="inline-flex items-center gap-2 rounded-md border border-border px-4 py-2 text-sm"
+                  disabled={po.status !== "approved"}
                 >
                   <Download className="h-4 w-4" /> PDF
                 </button>

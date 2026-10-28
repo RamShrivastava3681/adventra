@@ -154,7 +154,7 @@ type Movement = {
   destination_location_id: string | null;
 };
 
-type Tab = "overview" | "orders" | "open" | "ready" | "dispatches" | "movements" | "manual";
+type Tab = "overview" | "orders" | "open" | "ready" | "dispatches" | "movements" | "inventory" | "manual" | "transporter";
 
 type OpenSort = "date_desc" | "date_asc" | "customer_asc" | "customer_desc";
 
@@ -198,6 +198,11 @@ export function WarehousePage() {
   const movementsQ = useQuery({
     queryKey: ["wh_movements"],
     queryFn: () => api.stockMovements.list(),
+  });
+  const productsQ = useQuery({
+    queryKey: ["wh-inventory-products"],
+    queryFn: () => api.products.list(),
+    enabled: tab === "inventory",
   });
 
   // ── Manual stock entry tab ──
@@ -322,6 +327,28 @@ export function WarehousePage() {
     }
     return map;
   }, [movements]);
+
+  // ── Inventory on hand per product (confirmed movements + catalogue) ──
+  const inventoryRows = useMemo(() => {
+    const products = (productsQ.data ?? []) as any[];
+    return products
+      .map((p) => {
+        const stockOnHand = stockByProduct.get(p.id) ?? 0;
+        return {
+          id: p.id,
+          sku: p.sku ?? null,
+          name: p.name ?? "",
+          unit: p.unitOfMeasure ?? p.unit_of_measure ?? "unit",
+          stockOnHand,
+          unitCost: Number(p.unitCost ?? p.unit_cost ?? 0),
+        };
+      })
+      .sort(
+        (a, b) =>
+          String(a.sku ?? "").localeCompare(String(b.sku ?? "")) ||
+          String(a.name ?? "").localeCompare(String(b.name ?? "")),
+      );
+  }, [productsQ.data, stockByProduct]);
 
   // ── Order sign-off queue (hard gate: only approved SOs can be dispatched) ──
   const signoffOrders = orders
@@ -547,6 +574,8 @@ export function WarehousePage() {
     { id: "ready", label: "Ready to dispatch", icon: PackageCheck, count: readyOrders.length + readyInvoices.length },
     { id: "dispatches", label: "Dispatches", icon: Truck, count: openDispatches.length },
     { id: "movements", label: "Inventory movements", icon: Boxes, count: movements.length },
+    { id: "inventory", label: "Inventory", icon: Boxes, count: inventoryRows.length },
+    { id: "transporter", label: "Transporter", icon: Truck, count: 0 },
     ...(canWrite
       ? [{ id: "manual", label: "Manual movement", icon: PackagePlus } as const]
       : []),
@@ -1022,7 +1051,7 @@ export function WarehousePage() {
           />
         )}
 
-        {tab === "movements" && (
+{tab === "movements" && (
           <Card title="Inventory movements">
             {movementsQ.isLoading ? (
               <TableSkeleton rows={5} />
@@ -1071,6 +1100,68 @@ export function WarehousePage() {
             )}
             <p className="mt-4 text-xs text-muted-foreground">
               Showing latest 100 movements. Full history lives under Inventory.
+            </p>
+          </Card>
+        )}
+
+        {tab === "inventory" && (
+          <Card title="Inventory on hand">
+            {productsQ.isLoading ? (
+              <TableSkeleton rows={5} />
+            ) : inventoryRows.length === 0 ? (
+              <EmptyState
+                icon={<Boxes className="h-5 w-5" />}
+                title="No products yet"
+                description="Add products in the catalogue to track inventory on hand."
+              />
+            ) : (
+              <Table head={["Product", "SKU", "Unit", "On hand", "Unit cost", "Value"]}>
+                {inventoryRows.map((p) => {
+                  const value = p.stockOnHand * p.unitCost;
+                  return (
+                    <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                      <td className="px-5 py-3 font-medium">{p.name}</td>
+                      <td className="px-5 py-3 text-xs text-muted-foreground font-mono">
+                        {p.sku ?? "—"}
+                      </td>
+                      <td className="px-5 py-3 text-muted-foreground">{p.unit}</td>
+                      <td className="num px-5 py-3 text-right">
+                        {p.stockOnHand.toLocaleString()}
+                      </td>
+                      <td className="num px-5 py-3 text-right text-muted-foreground">
+                        {fmtMoney(p.unitCost)}
+                      </td>
+                      <td className="num px-5 py-3 text-right font-medium">
+                        {fmtMoney(value)}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </Table>
+            )}
+            <p className="mt-4 text-xs text-muted-foreground">
+              On-hand quantity is the net of confirmed stock movements. Value = on hand × unit cost.
+            </p>
+          </Card>
+        )}
+
+        {tab === "transporter" && (
+          <Card title="Transporter Details">
+            <p className="text-xs text-muted-foreground">
+              Transporter information for dispatches
+            </p>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">Transporter Name</p>
+                <p className="font-medium">—</p>
+              </div>
+              <div>
+                <p className="text-xs uppercase text-muted-foreground">Vehicle Number</p>
+                <p className="font-medium">—</p>
+              </div>
+            </div>
+            <p className="mt-4 text-xs text-muted-foreground">
+              Select a transporter when creating a dispatch. Details are sent to Finance for E-Way Bill generation.
             </p>
           </Card>
         )}
