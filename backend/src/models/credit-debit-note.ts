@@ -26,6 +26,8 @@ export interface CreditDebitNote {
   notes: string | null; documents: any[];
   source: string;
   createdAt: string; updatedAt: string;
+  rejectedBy: string | null; rejectedAt: string | null; rejectionReason: string | null;
+  approvedBy: string | null; approvedAt: string | null; approvedByName: string | null;
 }
 
 export async function list(clientId?: string) {
@@ -60,6 +62,8 @@ export async function create(data: Partial<CreditDebitNote> & { clientId: string
     taxRate: data.taxRate || 0, taxAmount: data.taxAmount || 0,
     notes: data.notes || null, documents: data.documents || [],
     source: data.source || "manual",
+    rejectedBy: null, rejectedAt: null, rejectionReason: null,
+    approvedBy: null, approvedAt: null, approvedByName: null,
     createdAt: now, updatedAt: now,
   };
   await db.putItem(item);
@@ -68,7 +72,7 @@ export async function create(data: Partial<CreditDebitNote> & { clientId: string
 
 export async function update(id: string, updates: Partial<CreditDebitNote>) {
   const patch: Record<string, any> = { updatedAt: db.nowISO() };
-  const allowed = ["kind","noteNumber","noteDate","amount","reason","status","invoiceId","purchaseInvoiceId","counterparty","lineItems","subtotal","taxRate","taxAmount","notes","documents","supplierId","purchaseReturnId","purchaseReturnNumber","appliedAmount","appliedInvoiceId","appliedInvoiceNumber","appliedAt"];
+  const allowed = ["kind","noteNumber","noteDate","amount","reason","status","invoiceId","purchaseInvoiceId","counterparty","lineItems","subtotal","taxRate","taxAmount","notes","documents","supplierId","purchaseReturnId","purchaseReturnNumber","appliedAmount","appliedInvoiceId","appliedInvoiceNumber","appliedAt","rejectedBy","rejectedAt","rejectionReason","approvedBy","approvedAt","approvedByName"];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   return db.updateItem(`CD_NOTE#${id}`, `CD_NOTE#${id}`, patch);
 }
