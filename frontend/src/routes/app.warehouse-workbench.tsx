@@ -1,5 +1,5 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import {
   Warehouse,
@@ -13,9 +13,14 @@ import {
   MoreHorizontal,
   ExternalLink,
   TrendingUp,
+  Plus,
+  Edit,
+  Trash2,
+  Loader2,
 } from "lucide-react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
+import { toast } from "sonner";
 import {
   PageHeader,
   Card,
@@ -31,6 +36,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Dialog, inputBase } from "@/components/dialog";
 
 export const Route = createFileRoute("/app/warehouse-workbench")({
   component: WarehouseWorkbenchPage,
@@ -415,294 +421,294 @@ function WarehouseWorkbenchPage() {
 
       {section === "workbench" ? (
         <div className="mx-auto w-full max-w-[1440px] space-y-6 px-4 py-6 md:px-8 md:py-8">
-        {/* ── KPI cards ── */}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {loading ? (
-            <>
-              <StatSkeleton />
-              <StatSkeleton />
-              <StatSkeleton />
-              <StatSkeleton />
-            </>
-          ) : (
-            <>
-              <KpiCard
-                label="SOs Awaiting Warehouse"
-                value={kpis.sosAwaiting}
-                sub="Needs sign-off or hold review"
-                icon={<ClipboardList className="h-[18px] w-[18px]" />}
-                tone="amber"
-                onClick={() => setSection("warehouse")}
-              />
-              <KpiCard
-                label="GRNs Pending"
-                value={kpis.grnsPending}
-                sub="Awaiting goods receipt"
-                icon={<PackageCheck className="h-[18px] w-[18px]" />}
-                tone="amber"
-                onClick={() => setFilter("grns")}
-              />
-              <KpiCard
-                label="Dispatches In Pipeline"
-                value={kpis.dispatchesActive}
-                sub="Picking through in-transit"
-                icon={<Truck className="h-[18px] w-[18px]" />}
-                tone="blue"
-                onClick={() => setFilter("dispatches")}
-              />
-              <KpiCard
-                label="Open Work Items"
-                value={kpis.openTasks}
-                sub="GRN + dispatch tasks"
-                icon={<FileText className="h-[18px] w-[18px]" />}
-                tone="neutral"
-                onClick={() => setFilter("all")}
-              />
-            </>
-          )}
-        </div>
-
-        {/* ── Workbench filter tabs + compact search ── */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {FILTERS.map((f) => (
-            <button
-              key={f.key}
-              onClick={() => setFilter(f.key)}
-              className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors ${
-                filter === f.key
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {f.label}
-            </button>
-          ))}
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <input
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search document, customer…"
-              aria-label="Search warehouse work items"
-              className="h-9 w-72 max-w-full rounded-md border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
-            />
-          </div>
-        </div>
-
-        {/* ── Main content: work items + sign-off queue ── */}
-        <div className="grid gap-6 lg:grid-cols-4">
-          {/* LEFT — Warehouse work items */}
-          <Card
-            className="lg:col-span-3"
-            title="Warehouse work items"
-            action={
-              <button
-                onClick={() => setSection("tasks")}
-                className="text-xs font-medium text-primary hover:underline"
-              >
-                View all
-              </button>
-            }
-          >
+          {/* ── KPI cards ── */}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
             {loading ? (
-              <TableSkeleton rows={6} cols={7} />
-            ) : filtered.length === 0 ? (
-              <EmptyState
-                icon={<Warehouse className="h-6 w-6" />}
-                title="You're all caught up"
-                description="No warehouse work currently requires your attention."
-              />
+              <>
+                <StatSkeleton />
+                <StatSkeleton />
+                <StatSkeleton />
+                <StatSkeleton />
+              </>
             ) : (
               <>
-                <p className="mb-3 text-xs text-muted-foreground">
-                  GRNs and dispatches that need action before the next step.
-                </p>
-                <div className="-mx-5 overflow-x-auto table-wrap">
-                  <table className="table-premium w-full text-sm">
-                    <thead className="text-[11px] uppercase tracking-wider text-muted-foreground">
-                      <tr className="border-b border-border bg-muted/40">
-                        <th className="px-4 py-2 text-left font-medium">Document</th>
-                        <th className="px-4 py-2 text-left font-medium">Counterparty</th>
-                        <th className="px-4 py-2 text-right font-medium">Value</th>
-                        <th className="px-4 py-2 text-left font-medium">Current Status</th>
-                        <th className="px-4 py-2 text-left font-medium">Next Step</th>
-                        <th className="px-4 py-2 text-left font-medium">Owner</th>
-                        <th className="px-4 py-2 text-right font-medium">Action</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pageItems.map((t) => (
-                        <tr
-                          key={t.id}
-                          className="border-b border-border/60 transition-colors hover:bg-muted/30"
-                        >
-                          {/* Document */}
-                          <td className="px-4 py-2.5">
-                            <button
-                              onClick={() => openDoc(t)}
-                              className="text-left font-mono text-[13px] font-semibold tracking-tight text-foreground hover:text-primary"
-                              title={`Open ${WF_TYPE_LABEL[t.workflow_type] ?? t.workflow_type}`}
-                            >
-                              {t.doc_number ?? "—"}
-                            </button>
-                            <div className="mt-0.5 flex items-center gap-2">
-                              <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
-                                {WF_TYPE_LABEL[t.workflow_type] ?? t.workflow_type}
-                              </span>
-                              {t.overdue && (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-destructive">
-                                  <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
-                                  Overdue
-                                </span>
-                              )}
-                            </div>
-                          </td>
-
-                          {/* Counterparty */}
-                          <td className="px-4 py-2.5 text-[13px]">{t.counterparty ?? "—"}</td>
-
-                          {/* Value */}
-                          <td className="px-4 py-2.5 text-right">
-                            <span className="num text-[13px] font-medium">
-                              {t.amount != null ? fmtMoney(t.amount) : "—"}
-                            </span>
-                          </td>
-
-                          {/* Current Status */}
-                          <td className="px-4 py-2.5">
-                            {t.doc_status ? (
-                              <StatusPill status={t.doc_status} />
-                            ) : (
-                              <span className="text-xs text-muted-foreground">—</span>
-                            )}
-                          </td>
-
-                          {/* Next Step — the engine's own required action */}
-                          <td
-                            className="max-w-[220px] truncate px-4 py-2.5 text-[13px] text-muted-foreground"
-                            title={t.required_action}
-                          >
-                            {t.required_action}
-                          </td>
-
-                          {/* Owner */}
-                          <td className="px-4 py-2.5 text-[13px] text-muted-foreground">
-                            {OWNER_LABEL[t.owner_role] ?? t.owner_role}
-                          </td>
-
-                          {/* Action */}
-                          <td className="whitespace-nowrap px-4 py-2.5 text-right">
-                            <div className="inline-flex items-center gap-1.5">
-                              <button
-                                onClick={() => openDoc(t)}
-                                className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
-                              >
-                                {actionLabel(t)}
-                              </button>
-                              <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                  <button
-                                    className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
-                                    aria-label="More actions"
-                                  >
-                                    <MoreHorizontal className="h-4 w-4" />
-                                  </button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end" className="w-48">
-                                  <DropdownMenuItem onClick={() => openDoc(t)}>
-                                    <ExternalLink className="h-3.5 w-3.5" /> Open document
-                                  </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => setSection("tasks")}>
-                                    View in My Queue
-                                  </DropdownMenuItem>
-                                </DropdownMenuContent>
-                              </DropdownMenu>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                {totalPages > 1 && (
-                  <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
-                    <span>
-                      Showing {(safePage - 1) * PAGE_SIZE + 1}–
-                      {Math.min(safePage * PAGE_SIZE, filtered.length)} of {filtered.length}
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        onClick={() => setPage((p) => Math.max(1, p - 1))}
-                        disabled={safePage <= 1}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-40"
-                        aria-label="Previous page"
-                      >
-                        <ChevronLeft className="h-3.5 w-3.5" />
-                      </button>
-                      <span className="min-w-16 text-center">
-                        {safePage} / {totalPages}
-                      </span>
-                      <button
-                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                        disabled={safePage >= totalPages}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-40"
-                        aria-label="Next page"
-                      >
-                        <ChevronRight className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                )}
+                <KpiCard
+                  label="SOs Awaiting Warehouse"
+                  value={kpis.sosAwaiting}
+                  sub="Needs sign-off or hold review"
+                  icon={<ClipboardList className="h-[18px] w-[18px]" />}
+                  tone="amber"
+                  onClick={() => setSection("warehouse")}
+                />
+                <KpiCard
+                  label="GRNs Pending"
+                  value={kpis.grnsPending}
+                  sub="Awaiting goods receipt"
+                  icon={<PackageCheck className="h-[18px] w-[18px]" />}
+                  tone="amber"
+                  onClick={() => setFilter("grns")}
+                />
+                <KpiCard
+                  label="Dispatches In Pipeline"
+                  value={kpis.dispatchesActive}
+                  sub="Picking through in-transit"
+                  icon={<Truck className="h-[18px] w-[18px]" />}
+                  tone="blue"
+                  onClick={() => setFilter("dispatches")}
+                />
+                <KpiCard
+                  label="Open Work Items"
+                  value={kpis.openTasks}
+                  sub="GRN + dispatch tasks"
+                  icon={<FileText className="h-[18px] w-[18px]" />}
+                  tone="neutral"
+                  onClick={() => setFilter("all")}
+                />
               </>
             )}
-          </Card>
+          </div>
 
-          {/* RIGHT — Sign-off queue */}
-          <div className="space-y-6">
+          {/* ── Workbench filter tabs + compact search ── */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            {FILTERS.map((f) => (
+              <button
+                key={f.key}
+                onClick={() => setFilter(f.key)}
+                className={`rounded-full border px-3.5 py-1.5 text-xs font-medium transition-colors ${
+                  filter === f.key
+                    ? "border-primary bg-primary/10 text-primary"
+                    : "border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search document, customer…"
+                aria-label="Search warehouse work items"
+                className="h-9 w-72 max-w-full rounded-md border border-border bg-card px-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary focus:outline-none"
+              />
+            </div>
+          </div>
+
+          {/* ── Main content: work items + sign-off queue ── */}
+          <div className="grid gap-6 lg:grid-cols-4">
+            {/* LEFT — Warehouse work items */}
             <Card
-              title="Needs warehouse sign-off"
+              className="lg:col-span-3"
+              title="Warehouse work items"
               action={
                 <button
-                  onClick={() => setSection("warehouse")}
+                  onClick={() => setSection("tasks")}
                   className="text-xs font-medium text-primary hover:underline"
                 >
-                  Review
+                  View all
                 </button>
               }
             >
-              {sosQ.isLoading ? (
-                <TableSkeleton rows={4} cols={3} />
-              ) : signoffQueue.length === 0 ? (
+              {loading ? (
+                <TableSkeleton rows={6} cols={7} />
+              ) : filtered.length === 0 ? (
                 <EmptyState
-                  icon={<TrendingUp className="h-6 w-6" />}
-                  title="No pending sign-offs"
-                  description="No sales orders are currently waiting on the warehouse."
+                  icon={<Warehouse className="h-6 w-6" />}
+                  title="You're all caught up"
+                  description="No warehouse work currently requires your attention."
                 />
               ) : (
-                <div className="divide-y divide-border/70">
-                  {signoffQueue.map((s) => (
-                    <div key={s.id} className="flex items-center justify-between gap-3 py-2.5">
-                      <div className="min-w-0">
-                        <div className="truncate text-[13px] font-medium text-foreground">
-                          {s.customer}
-                        </div>
-                        <div className="font-mono text-xs text-muted-foreground">
-                          {s.soNumber}
-                          {s.expected ? ` · ${fmtDate(s.expected)}` : ""}
-                        </div>
-                      </div>
-                      {s.overdueDays > 0 && (
-                        <span className="shrink-0 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
-                          {s.overdueDays}d overdue
+                <>
+                  <p className="mb-3 text-xs text-muted-foreground">
+                    GRNs and dispatches that need action before the next step.
+                  </p>
+                  <div className="-mx-5 overflow-x-auto table-wrap">
+                    <table className="table-premium w-full text-sm">
+                      <thead className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                        <tr className="border-b border-border bg-muted/40">
+                          <th className="px-4 py-2 text-left font-medium">Document</th>
+                          <th className="px-4 py-2 text-left font-medium">Counterparty</th>
+                          <th className="px-4 py-2 text-right font-medium">Value</th>
+                          <th className="px-4 py-2 text-left font-medium">Current Status</th>
+                          <th className="px-4 py-2 text-left font-medium">Next Step</th>
+                          <th className="px-4 py-2 text-left font-medium">Owner</th>
+                          <th className="px-4 py-2 text-right font-medium">Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {pageItems.map((t) => (
+                          <tr
+                            key={t.id}
+                            className="border-b border-border/60 transition-colors hover:bg-muted/30"
+                          >
+                            {/* Document */}
+                            <td className="px-4 py-2.5">
+                              <button
+                                onClick={() => openDoc(t)}
+                                className="text-left font-mono text-[13px] font-semibold tracking-tight text-foreground hover:text-primary"
+                                title={`Open ${WF_TYPE_LABEL[t.workflow_type] ?? t.workflow_type}`}
+                              >
+                                {t.doc_number ?? "—"}
+                              </button>
+                              <div className="mt-0.5 flex items-center gap-2">
+                                <span className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                                  {WF_TYPE_LABEL[t.workflow_type] ?? t.workflow_type}
+                                </span>
+                                {t.overdue && (
+                                  <span className="inline-flex items-center gap-1 text-[10px] font-medium text-destructive">
+                                    <span className="h-1.5 w-1.5 rounded-full bg-destructive" />
+                                    Overdue
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+
+                            {/* Counterparty */}
+                            <td className="px-4 py-2.5 text-[13px]">{t.counterparty ?? "—"}</td>
+
+                            {/* Value */}
+                            <td className="px-4 py-2.5 text-right">
+                              <span className="num text-[13px] font-medium">
+                                {t.amount != null ? fmtMoney(t.amount) : "—"}
+                              </span>
+                            </td>
+
+                            {/* Current Status */}
+                            <td className="px-4 py-2.5">
+                              {t.doc_status ? (
+                                <StatusPill status={t.doc_status} />
+                              ) : (
+                                <span className="text-xs text-muted-foreground">—</span>
+                              )}
+                            </td>
+
+                            {/* Next Step — the engine's own required action */}
+                            <td
+                              className="max-w-[220px] truncate px-4 py-2.5 text-[13px] text-muted-foreground"
+                              title={t.required_action}
+                            >
+                              {t.required_action}
+                            </td>
+
+                            {/* Owner */}
+                            <td className="px-4 py-2.5 text-[13px] text-muted-foreground">
+                              {OWNER_LABEL[t.owner_role] ?? t.owner_role}
+                            </td>
+
+                            {/* Action */}
+                            <td className="whitespace-nowrap px-4 py-2.5 text-right">
+                              <div className="inline-flex items-center gap-1.5">
+                                <button
+                                  onClick={() => openDoc(t)}
+                                  className="inline-flex h-8 items-center rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md"
+                                >
+                                  {actionLabel(t)}
+                                </button>
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <button
+                                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                                      aria-label="More actions"
+                                    >
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-48">
+                                    <DropdownMenuItem onClick={() => openDoc(t)}>
+                                      <ExternalLink className="h-3.5 w-3.5" /> Open document
+                                    </DropdownMenuItem>
+                                    <DropdownMenuItem onClick={() => setSection("tasks")}>
+                                      View in My Queue
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+
+                  {totalPages > 1 && (
+                    <div className="mt-4 flex items-center justify-between text-xs text-muted-foreground">
+                      <span>
+                        Showing {(safePage - 1) * PAGE_SIZE + 1}–
+                        {Math.min(safePage * PAGE_SIZE, filtered.length)} of {filtered.length}
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => setPage((p) => Math.max(1, p - 1))}
+                          disabled={safePage <= 1}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-40"
+                          aria-label="Previous page"
+                        >
+                          <ChevronLeft className="h-3.5 w-3.5" />
+                        </button>
+                        <span className="min-w-16 text-center">
+                          {safePage} / {totalPages}
                         </span>
-                      )}
+                        <button
+                          onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                          disabled={safePage >= totalPages}
+                          className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-40"
+                          aria-label="Next page"
+                        >
+                          <ChevronRight className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               )}
             </Card>
+
+            {/* RIGHT — Sign-off queue */}
+            <div className="space-y-6">
+              <Card
+                title="Needs warehouse sign-off"
+                action={
+                  <button
+                    onClick={() => setSection("warehouse")}
+                    className="text-xs font-medium text-primary hover:underline"
+                  >
+                    Review
+                  </button>
+                }
+              >
+                {sosQ.isLoading ? (
+                  <TableSkeleton rows={4} cols={3} />
+                ) : signoffQueue.length === 0 ? (
+                  <EmptyState
+                    icon={<TrendingUp className="h-6 w-6" />}
+                    title="No pending sign-offs"
+                    description="No sales orders are currently waiting on the warehouse."
+                  />
+                ) : (
+                  <div className="divide-y divide-border/70">
+                    {signoffQueue.map((s) => (
+                      <div key={s.id} className="flex items-center justify-between gap-3 py-2.5">
+                        <div className="min-w-0">
+                          <div className="truncate text-[13px] font-medium text-foreground">
+                            {s.customer}
+                          </div>
+                          <div className="font-mono text-xs text-muted-foreground">
+                            {s.soNumber}
+                            {s.expected ? ` · ${fmtDate(s.expected)}` : ""}
+                          </div>
+                        </div>
+                        {s.overdueDays > 0 && (
+                          <span className="shrink-0 rounded-md border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[11px] font-medium text-destructive">
+                            {s.overdueDays}d overdue
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+            </div>
           </div>
-        </div>
         </div>
       ) : (
         <Suspense fallback={<SectionFallback />}>
@@ -746,7 +752,9 @@ function NavTab({
       onClick={onClick}
       aria-current={active ? "page" : undefined}
       className={`whitespace-nowrap border-b-2 px-3.5 py-2.5 text-[13px] font-medium transition-colors ${
-        active ? "border-primary text-primary" : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
+        active
+          ? "border-primary text-primary"
+          : "border-transparent text-muted-foreground hover:border-border hover:text-foreground"
       }`}
     >
       {label}
@@ -756,26 +764,352 @@ function NavTab({
 
 /* ── Transporter panel — transporter details for dispatches ── */
 function TransporterPanel() {
+  const { isAdmin, isOperations } = useAuth();
+  const canWrite = isAdmin || isOperations;
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState<any | null>(null);
+
+  const transportersQ = useQuery({
+    queryKey: ["transporters"],
+    queryFn: () => api.transporters.list(),
+  });
+
+  const createMut = useMutation({
+    mutationFn: async (data: any) => api.transporters.create(data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transporters"] });
+      setOpen(false);
+      setEditing(null);
+      toast.success("Transporter saved");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const updateMut = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: any }) =>
+      api.transporters.update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transporters"] });
+      setEditing(null);
+      toast.success("Transporter updated");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: async (id: string) => api.transporters.delete(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["transporters"] });
+      toast.success("Transporter deleted");
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+  });
+
+  const transporters = transportersQ.data ?? [];
+
   return (
     <div className="mx-auto w-full max-w-[1440px] px-4 py-6 md:px-8 md:py-8">
-      <Card title="Transporter Details">
-        <p className="text-xs text-muted-foreground">
-          Transporter information for dispatches
-        </p>
-        <div className="grid grid-cols-2 gap-4">
-          <div>
-            <p className="text-xs uppercase text-muted-foreground">Transporter Name</p>
-            <p className="font-medium">—</p>
-          </div>
-          <div>
-            <p className="text-xs uppercase text-muted-foreground">Vehicle Number</p>
-            <p className="font-medium">—</p>
-          </div>
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 className="font-display text-lg font-medium">Transporters</h2>
+          <p className="text-[10px] text-muted-foreground">
+            Transporters used for dispatches and E-Way Bill generation.
+          </p>
         </div>
-        <p className="mt-4 text-xs text-muted-foreground">
-          Select a transporter when creating a dispatch. Details are sent to Finance for E-Way Bill generation.
-        </p>
+        {canWrite && (
+          <button
+            onClick={() => {
+              setEditing(null);
+              setOpen(true);
+            }}
+            className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:bg-primary/90"
+          >
+            <Plus className="h-4 w-4" /> Add new transporter
+          </button>
+        )}
+      </div>
+
+      <Card>
+        {transportersQ.isLoading ? (
+          <TableSkeleton rows={5} cols={6} />
+        ) : transporters.length === 0 ? (
+          <EmptyState
+            icon={<Truck className="h-6 w-6" />}
+            title="No transporters yet"
+            description="Add a transporter to assign one when creating dispatches."
+            action={
+              canWrite ? (
+                <button
+                  onClick={() => {
+                    setEditing(null);
+                    setOpen(true);
+                  }}
+                  className="rounded-md border border-border px-4 py-2 text-sm font-medium transition hover:bg-muted/40"
+                >
+                  Add transporter
+                </button>
+              ) : null
+            }
+          />
+        ) : (
+          <div className="-mx-5 overflow-x-auto table-wrap">
+            <table className="table-premium w-full text-sm">
+              <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                <tr className="border-b border-border">
+                  <th className="px-5 py-2 text-left font-normal">Name</th>
+                  <th className="px-5 py-2 text-left font-normal">Code</th>
+                  <th className="px-5 py-2 text-left font-normal">Contact</th>
+                  <th className="px-5 py-2 text-left font-normal">Phone</th>
+                  <th className="px-5 py-2 text-left font-normal">GSTIN</th>
+                  <th className="px-5 py-2 text-left font-normal">Vehicle</th>
+                  {canWrite ? <th className="px-5 py-2 text-right font-normal">Actions</th> : null}
+                </tr>
+              </thead>
+              <tbody>
+                {transporters.map((t: any) => (
+                  <tr key={t.id} className="border-b border-border/60 hover:bg-muted/30">
+                    <td className="px-5 py-3 font-medium">{t.name}</td>
+                    <td className="px-5 py-3 text-muted-foreground font-mono text-xs">
+                      {t.transporterCode}
+                    </td>
+                    <td className="px-5 py-3">{t.contactName ?? "—"}</td>
+                    <td className="px-5 py-3">{t.phone ?? "—"}</td>
+                    <td className="px-5 py-3">{t.gstin ?? "—"}</td>
+                    <td className="px-5 py-3">{t.vehicleNumber ?? "—"}</td>
+                    {canWrite && (
+                      <td className="px-5 py-3 text-right">
+                        <div className="flex justify-end gap-1">
+                          <button
+                            onClick={() => {
+                              setEditing(t);
+                              setOpen(true);
+                            }}
+                            className="rounded-md p-1.5 text-muted-foreground transition hover:bg-primary/10 hover:text-primary"
+                            title="Edit"
+                          >
+                            <Edit className="h-3.5 w-3.5" />
+                          </button>
+                          <button
+                            onClick={() => deleteMut.mutate(t.id)}
+                            className="rounded-md p-1.5 text-muted-foreground transition hover:bg-destructive/10 hover:text-destructive"
+                            title="Delete"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
+
+      {open && (
+        <Dialog
+          open={open}
+          onClose={() => setOpen(false)}
+          title={editing ? "Edit transporter" : "Add new transporter"}
+          wide
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              const form = e.target as HTMLFormElement;
+              const data: any = {
+                name: (form.elements.namedItem("name") as HTMLInputElement).value,
+                contactName:
+                  (form.elements.namedItem("contactName") as HTMLInputElement).value || null,
+                contactPhone:
+                  (form.elements.namedItem("contactPhone") as HTMLInputElement).value || null,
+                contactEmail:
+                  (form.elements.namedItem("contactEmail") as HTMLInputElement).value || null,
+                phone: (form.elements.namedItem("phone") as HTMLInputElement).value || null,
+                website: (form.elements.namedItem("website") as HTMLInputElement).value || null,
+                addressLine:
+                  (form.elements.namedItem("addressLine") as HTMLInputElement).value || null,
+                city: (form.elements.namedItem("city") as HTMLInputElement).value || null,
+                state: (form.elements.namedItem("state") as HTMLInputElement).value || null,
+                postalCode:
+                  (form.elements.namedItem("postalCode") as HTMLInputElement).value || null,
+                gstin: (form.elements.namedItem("gstin") as HTMLInputElement).value || null,
+                vehicleNumber:
+                  (form.elements.namedItem("vehicleNumber") as HTMLInputElement).value || null,
+                notes: (form.elements.namedItem("notes") as HTMLTextAreaElement).value || null,
+              };
+              if (editing) {
+                updateMut.mutate({ id: editing.id, data });
+              } else {
+                createMut.mutate(data);
+              }
+            }}
+            className="space-y-4 p-5"
+          >
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="block mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  Transporter name *
+                </label>
+                <input
+                  name="name"
+                  required
+                  defaultValue={editing?.name ?? ""}
+                  className={inputBase}
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  Contact person
+                </label>
+                <input
+                  name="contactName"
+                  defaultValue={editing?.contactName ?? ""}
+                  className={inputBase}
+                  placeholder="Optional"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  Contact phone
+                </label>
+                <input
+                  name="contactPhone"
+                  defaultValue={editing?.contactPhone ?? ""}
+                  className={inputBase}
+                  placeholder="Optional"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  Contact email
+                </label>
+                <input
+                  name="contactEmail"
+                  type="email"
+                  defaultValue={editing?.contactEmail ?? ""}
+                  className={inputBase}
+                  placeholder="Optional"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  Phone
+                </label>
+                <input
+                  name="phone"
+                  defaultValue={editing?.phone ?? ""}
+                  className={inputBase}
+                  placeholder="Optional"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  Website
+                </label>
+                <input
+                  name="website"
+                  defaultValue={editing?.website ?? ""}
+                  className={inputBase}
+                  placeholder="Optional"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  Address
+                </label>
+                <input
+                  name="addressLine"
+                  defaultValue={editing?.addressLine ?? ""}
+                  className={inputBase}
+                  placeholder="Optional"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  City / State / Postal code
+                </label>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <input
+                    name="city"
+                    defaultValue={editing?.city ?? ""}
+                    className={inputBase}
+                    placeholder="City"
+                  />
+                  <input
+                    name="state"
+                    defaultValue={editing?.state ?? ""}
+                    className={inputBase}
+                    placeholder="State"
+                  />
+                  <input
+                    name="postalCode"
+                    defaultValue={editing?.postalCode ?? ""}
+                    className={inputBase}
+                    placeholder="PIN"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  GSTIN
+                </label>
+                <input
+                  name="gstin"
+                  defaultValue={editing?.gstin ?? ""}
+                  className={inputBase}
+                  placeholder="Optional"
+                />
+              </div>
+              <div>
+                <label className="block mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  Vehicle number
+                </label>
+                <input
+                  name="vehicleNumber"
+                  defaultValue={editing?.vehicleNumber ?? ""}
+                  className={inputBase}
+                  placeholder="Optional"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block mb-1 text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  Notes
+                </label>
+                <textarea
+                  name="notes"
+                  defaultValue={editing?.notes ?? ""}
+                  rows={3}
+                  className={`${inputBase} resize-y`}
+                  placeholder="Optional"
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 border-t border-border pt-3 mt-4">
+              <button
+                type="button"
+                onClick={() => setOpen(false)}
+                className="rounded-md border border-border px-4 py-2 text-sm transition hover:bg-muted/40"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={createMut.isPending || updateMut.isPending}
+                className="inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+              >
+                {createMut.isPending || updateMut.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : null}
+                {editing ? "Update transporter" : "Create transporter"}
+              </button>
+            </div>
+          </form>
+        </Dialog>
+      )}
     </div>
   );
 }
