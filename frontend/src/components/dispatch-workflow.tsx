@@ -95,7 +95,7 @@ export function DispatchPackingModal({
     transportMode: dispatch.transport_mode ?? "Road",
     transporterName: dispatch.transporter_name ?? "",
     transporterId: dispatch.transporter_id ?? "",
-    distanceKm: dispatch.distance_km ?? "",
+    distanceKm: "",
     vehicleNumber: dispatch.vehicle_number ?? "",
     vehicleType: dispatch.vehicle_type ?? "",
     transportDocType: dispatch.transport_doc_type ?? "",
@@ -109,8 +109,6 @@ export function DispatchPackingModal({
   const save = useMutation({
     mutationFn: async (submit: boolean) => {
       const payload: any = { ...f };
-      if (payload.distanceKm !== "" && payload.distanceKm != null)
-        payload.distanceKm = Number(payload.distanceKm);
       if (payload.cartonCount !== "" && payload.cartonCount != null)
         payload.cartonCount = Number(payload.cartonCount);
       if (payload.grossWeight !== "" && payload.grossWeight != null)
@@ -187,9 +185,6 @@ export function DispatchPackingModal({
           <Field label="Transporter ID (if available)">
             <input className={inputCls} value={f.transporterId} onChange={(e) => set("transporterId", e.target.value)} placeholder="GSTIN / transporter ID" />
           </Field>
-          <Field label="Approximate distance (km)">
-            <input type="number" min="0" className={inputCls} value={f.distanceKm} onChange={(e) => set("distanceKm", e.target.value)} />
-          </Field>
           <Field label="Vehicle number">
             <input className={inputCls} value={f.vehicleNumber} onChange={(e) => set("vehicleNumber", e.target.value)} placeholder="Or transport document below" />
           </Field>
@@ -265,9 +260,6 @@ export function RecordEwbModal({
   const [recipientGstin, setRecipientGstin] = useState(
     invoice?.buyer_gstin ?? invoice?.buyerGstin ?? "",
   );
-  const [distance, setDistance] = useState(
-    dispatch.distance_km != null ? String(dispatch.distance_km) : "",
-  );
   const [vehicleNumber, setVehicleNumber] = useState(dispatch.vehicle_number ?? "");
   const [transporterName, setTransporterName] = useState(dispatch.transporter_name ?? "");
   const [transporterGstin, setTransporterGstin] = useState(dispatch.transporter_id ?? "");
@@ -316,7 +308,7 @@ export function RecordEwbModal({
         dispatchId: dispatch.id,
         supplierGstin: supplierGstin.trim(),
         recipientGstin: recipientGstin.trim(),
-        distance: distance ? Number(distance) : undefined,
+        distance: undefined,
         transportMode: String(dispatch.transport_mode || "road").toLowerCase(),
         vehicleNumber: vehicleNumber.trim() || undefined,
         transporterGstin: transporterGstin.trim() || undefined,
@@ -361,8 +353,8 @@ export function RecordEwbModal({
           {dispatch.transporter_name ?? "—"}
         </div>
         <div>
-          <span className="text-muted-foreground">Mode / distance:</span>{" "}
-          {dispatch.transport_mode ?? "—"} · {dispatch.distance_km ?? "—"} km
+          <span className="text-muted-foreground">Mode:</span>{" "}
+          {dispatch.transport_mode ?? "—"}
         </div>
         <div>
           <span className="text-muted-foreground">Vehicle / doc:</span>{" "}
@@ -420,9 +412,6 @@ export function RecordEwbModal({
           </Field>
           <Field label="Recipient GSTIN *">
             <input className={inputCls} value={recipientGstin} onChange={(e) => setRecipientGstin(e.target.value)} placeholder="Buyer 15-digit GSTIN" maxLength={15} />
-          </Field>
-          <Field label="Distance (km)">
-            <input type="number" min="1" className={inputCls} value={distance} onChange={(e) => setDistance(e.target.value)} placeholder={String(dispatch.distance_km ?? 100)} />
           </Field>
           <Field label="Vehicle number">
             <input className={inputCls} value={vehicleNumber} onChange={(e) => setVehicleNumber(e.target.value)} placeholder="KA01AB1234" />
@@ -590,7 +579,7 @@ export function AwaitingPickupTransportModal({
     transporterName: dispatch.transporter_name ?? "",
     transporterId: dispatch.transporter_id ?? "",
     transportMode: dispatch.transport_mode ?? "Road",
-    distanceKm: dispatch.distance_km ?? "",
+    distanceKm: "",
     vehicleNumber: dispatch.vehicle_number ?? "",
     vehicleType: dispatch.vehicle_type ?? "",
     transportDocType: dispatch.transport_doc_type ?? "",
@@ -607,14 +596,12 @@ export function AwaitingPickupTransportModal({
     mutationFn: async () => {
       if (!String(f.transporterName).trim()) throw new Error("Transporter name is required");
       if (!String(f.transportMode).trim()) throw new Error("Transport mode is required");
-      if (!(Number(f.distanceKm) > 0)) throw new Error("Approximate distance (km) is required");
       if (!String(f.vehicleNumber).trim() && !String(f.transportDocNumber).trim())
         throw new Error("Vehicle number or transport document number is required");
       return api.goodsDispatches.shippingStatus(dispatch.id, "awaiting_pick", {
         transporterName: f.transporterName.trim(),
         transporterId: f.transporterId.trim() || null,
         transportMode: f.transportMode,
-        distanceKm: Number(f.distanceKm),
         vehicleNumber: f.vehicleNumber.trim() || null,
         vehicleType: f.vehicleType.trim() || null,
         transportDocType: f.transportDocType || null,
@@ -654,9 +641,6 @@ export function AwaitingPickupTransportModal({
               <option key={m} value={m}>{m}</option>
             ))}
           </select>
-        </Field>
-        <Field label="Approximate distance (km) *">
-          <input type="number" min="0" className={inputCls} value={f.distanceKm} onChange={(e) => set("distanceKm", e.target.value)} />
         </Field>
         <Field label="Vehicle number">
           <input className={inputCls} value={f.vehicleNumber} onChange={(e) => set("vehicleNumber", e.target.value)} placeholder="Or transport document below" />

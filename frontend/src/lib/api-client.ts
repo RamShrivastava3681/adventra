@@ -476,8 +476,8 @@ const api = {
       }),
     salesReview: (id: string, action: "submit" | "approve" | "reject" | "push", notes?: string) =>
       api.post<any>(`/goods-sales-orders/${id}/sales-review`, { action, notes }),
-    checkerApprove: (id: string, action: "approve" | "reject") =>
-      api.post<any>(`/goods-sales-orders/${id}/checker-approve`, { action }),
+    checkerApprove: (id: string, action: "approve" | "reject", notes?: string) =>
+      api.post<any>(`/goods-sales-orders/${id}/checker-approve`, { action, notes }),
     checkStock: (id: string, locationId?: string) =>
       api
         .get<any>(
@@ -508,8 +508,9 @@ const api = {
         ),
   },
 
-  // Customer document approvals (public, token-authenticated — no login)
-  approvals: {
+  // Goods Dispatches (dispatch notes — DEBIT inventory when the warehouse
+  // moves the status to Dispatched; confirming only releases for picking)
+  goodsDispatches: {
     get: (token: string) => api.get<any>(`/approvals/${token}`),
     respond: (token: string, decision: "approved" | "rejected", comments?: string) =>
       api.post<any>(`/approvals/${token}/respond`, { decision, comments }),
@@ -533,6 +534,16 @@ const api = {
     // Dispatched debits inventory. Moving to Awaiting Pickup opens the
     // transporter form and sends the details to Finance. Sending the current
     // status again saves carrier/tracking/notes without moving.
+    checkerApprove: (id: string, action: "approve" | "reject", notes?: string) =>
+      api.post<any>(`/goods-dispatches/${id}/checker-approve`, { action, notes }),
+
+    // Dispatch review batches approval/rejection driven by the document-view action bar.
+    // NOTE: current backend does not expose a standalone dispatch checker-review
+    // endpoint; this helper is a frontend placeholder for the document-view action bar
+    // and mirrors the existing goods-dispatch.checkerApprove contract until a dedicated
+    // route is added.
+    review: (id: string, action: "approve" | "reject", payload?: { notes?: string }) =>
+      api.post<any>(`/goods-dispatches/${id}/checker-approve`, { action, ...payload }),
     shippingStatus: (
       id: string,
       status: "picking" | "packed" | "awaiting_pick" | "dispatched" | "in_transit" | "delivered",

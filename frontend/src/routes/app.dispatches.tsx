@@ -916,6 +916,42 @@ function DispatchCreateModal({
     );
   }, [allInvoices, soId, createFromInvoice]);
 
+  // Auto-link the associated sales invoice or proforma when an SO is selected.
+  useEffect(() => {
+    if (!soId || createFromInvoice) return;
+    const invoices = allInvoices.filter(
+      (inv) =>
+        String(inv.goods_sales_order_id ?? "") === soId &&
+        !["cancelled", "rejected"].includes(String((inv as any).status ?? ""))
+    );
+    const proformas = (proformasQ.data ?? []).filter(
+      (pf: any) =>
+        pf.side === "sales" &&
+        String(pf.linked_goods_so_id ?? "") === soId
+    );
+    // Prefer an invoice if one exists and is not already linked.
+    if (invoices.length > 0) {
+      const alreadyLinked = dispatchedInvoiceIds.has(invoices[0].id) ||
+        (invoiceId && invoiceId !== invoices[0].id && dispatchedSoIds.has(soId));
+      if (!alreadyLinked) {
+        setInvoiceId(invoices[0].id);
+        setCreateFromInvoice(true);
+        setF((prev) => ({
+          ...prev,
+          linked_sales_invoice_id: invoices[0].id,
+        }));
+      }
+    } else if (proformas.length > 0 && !invoiceId) {
+      // Link the first matching proforma if no invoice is linked yet.
+      const pf = proformas[0];
+      setF((prev) => ({
+        ...prev,
+        linked_customer_proforma_id: pf.id,
+        linked_sales_invoice_id: "",
+      }));
+    }
+  }, [soId, createFromInvoice, allInvoices, proformasQ]);
+
   // When the SO is picked, preload lines with pending quantity, customer
   // context and delivery address so the form is never empty.
   const pickSo = (id: string) => {
@@ -1617,14 +1653,6 @@ function DispatchCreateModal({
                   placeholder="Optional"
                 />
               </L>
-              <L label="Tracking / AWB number">
-                <input
-                  className="inp"
-                  value={f.tracking_number}
-                  onChange={(e) => setF({ ...f, tracking_number: e.target.value })}
-                  placeholder="Optional"
-                />
-              </L>
               <L label="Delivery challan number">
                 <input
                   className="inp"
@@ -2056,7 +2084,6 @@ function DispatchDetailModal({
               <D label="Transporter" value={d.transporter_name ?? "—"} />
               <D label="Transporter ID" value={(d as any).transporter_id ?? "—"} />
               <D label="Transport mode" value={(d as any).transport_mode ?? "—"} />
-              <D label="Distance" value={(d as any).distance_km != null ? `${(d as any).distance_km} km` : "—"} />
               <D label="Vehicle" value={(d as any).vehicle_number ?? "—"} />
               <D label="Transport doc" value={(d as any).transport_doc_number ?? d.tracking_number ?? "—"} />
               <D label="E-Way Bill" value={(d as any).eway_bill_number ?? "—"} />

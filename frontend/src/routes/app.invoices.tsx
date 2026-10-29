@@ -524,7 +524,12 @@ function InvoicesPageContent({
                               )}
                             </td>
                             <td className="px-5 py-3">
-                              {i.debtor?.name ?? debtorName(i.debtor_id) ?? "—"}
+                              <div className="font-medium text-base">{i.debtor?.name ?? debtorName(i.debtor_id) ?? "—"}</div>
+                              {i.debtor?.billing_address && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  {i.debtor.billing_address}
+                                </div>
+                              )}
                             </td>
                             <td className="px-5 py-3 text-right num">{fmtMoney(grandTotal)}</td>
                             <td className="px-5 py-3 text-right num text-sem-success">

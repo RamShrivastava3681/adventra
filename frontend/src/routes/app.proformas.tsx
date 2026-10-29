@@ -385,7 +385,7 @@ function ProformasPageContent({
     statusLabel: {
       draft: "Draft",
       pending_review: "Pending review",
-      approved: "Funding queue",
+      approved: "Approved for funding",
       funded: "Funded",
       rejected: "Rejected",
     },
@@ -411,15 +411,16 @@ function ProformasPageContent({
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  // Maker action: submit a draft proforma straight to the approved (treasury
-  // funding) stage — checker approval is no longer required.
+  // Maker action: submit a draft proforma into the checker's queue for review.
+  // Reaching `pending_review` is explicit — the maker must submit it; the
+  // funding workflow is maker → submit → checker approval → treasury funding.
   const submitForReview = useMutation({
     mutationFn: async (id: string) => {
-      await api.purchaseOrders.update(id, { proforma_status: "approved" });
+      await api.purchaseOrders.update(id, { proforma_status: "pending_review" });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["proformas"] });
-      toast.success("Approved — sent to treasury funding");
+      toast.success("Submitted for checker review");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });

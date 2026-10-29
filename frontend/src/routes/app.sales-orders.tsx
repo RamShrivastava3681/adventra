@@ -1946,24 +1946,6 @@ function SOModal({
                   </div>
                 )}
               </L>
-              <L label="Expected dispatch date">
-                <input
-                  type="date"
-                  className={inputBase}
-                  value={f.expected_dispatch_date}
-                  onChange={(e) => setF({ ...f, expected_dispatch_date: e.target.value })}
-                  disabled={!editable}
-                />
-              </L>
-              <L label="Expected delivery date">
-                <input
-                  type="date"
-                  className={inputBase}
-                  value={f.expected_delivery_date}
-                  onChange={(e) => setF({ ...f, expected_delivery_date: e.target.value })}
-                  disabled={!editable}
-                />
-              </L>
             </div>
             <div className="mt-3">
               <L label="Notes">

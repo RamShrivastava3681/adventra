@@ -6,7 +6,6 @@ import {
   Plus,
   X,
   Check,
-  Wand2,
   AlertTriangle,
   Trash2,
   Layers,
@@ -850,7 +849,6 @@ export function MultiSizeLineCard({
                   <th className="py-2.5 px-2">SKU</th>
                   <th className="py-2.5 px-2 w-24 text-right">Qty</th>
                   <th className="py-2.5 px-2 w-28 text-right">Unit Price (₹)</th>
-                  {mode === "sales" && <th className="py-2.5 px-2 w-20 text-right">Disc %</th>}
                   <th className="py-2.5 px-2 w-20 text-right">GST %</th>
                   <th className="py-2.5 px-2 w-20 text-right">Stock</th>
                   <th className="py-2.5 px-3 w-28 text-right">Line Total (₹)</th>
@@ -890,32 +888,10 @@ export function MultiSizeLineCard({
                         )}
                       </td>
                       <td className="py-2 px-2 text-right">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          className="h-8 w-full rounded-md border border-border bg-input px-2 text-right text-xs text-foreground font-mono tabular-nums focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-60"
-                          value={r.unitPrice}
-                          onChange={(e) => setSizeField(r.id, "unitPrice", e.target.value)}
-                          disabled={disabled}
-                          placeholder="0.00"
-                        />
+                        <span className="font-mono text-xs tabular-nums text-foreground">
+                          {r.unitPrice ? `₹${Number(r.unitPrice).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "—"}
+                        </span>
                       </td>
-                      {mode === "sales" && (
-                        <td className="py-2 px-2 text-right">
-                          <input
-                            type="number"
-                            min="0"
-                            max="100"
-                            step="0.01"
-                            className="h-8 w-full rounded-md border border-border bg-input px-2 text-right text-xs text-foreground font-mono tabular-nums focus:outline-none focus:border-primary focus:ring-1 focus:ring-primary disabled:opacity-60"
-                            value={r.discountPct}
-                            onChange={(e) => setSizeField(r.id, "discountPct", e.target.value)}
-                            disabled={disabled}
-                            placeholder="0"
-                          />
-                        </td>
-                      )}
                       <td className="py-2 px-2 text-right">
                         <input
                           type="number"
@@ -964,34 +940,8 @@ export function MultiSizeLineCard({
             </table>
           </div>
 
-          {/* Table Footer with Bulk Actions & Group Totals */}
-          <div className="flex flex-wrap items-center justify-between gap-4 border-t border-border/60 bg-muted/20 px-4 py-3">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const v = window.prompt("Enter unit price to apply to all sizes:");
-                  if (v !== null && v.trim() !== "") bulkEdit("unitPrice", v.trim());
-                }}
-                disabled={disabled || sizes.length === 0}
-                className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-background px-2.5 py-1 text-xs font-medium text-primary shadow-xs transition-colors hover:bg-primary/5 disabled:opacity-40"
-              >
-                <Wand2 className="h-3 w-3" /> Set price all
-              </button>
-              {mode === "sales" && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    const v = window.prompt("Enter discount % to apply to all sizes:");
-                    if (v !== null && v.trim() !== "") bulkEdit("discountPct", v.trim());
-                  }}
-                  disabled={disabled || sizes.length === 0}
-                  className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2.5 py-1 text-xs font-medium text-foreground shadow-xs transition-colors hover:border-primary hover:text-primary disabled:opacity-40"
-                >
-                  <Wand2 className="h-3 w-3" /> Set disc all
-                </button>
-              )}
-            </div>
+          {/* Table Footer with Group Totals */}
+          <div className="flex flex-wrap items-center justify-end gap-4 border-t border-border/60 bg-muted/20 px-4 py-3">
 
             <div className="flex items-center gap-6 text-right">
               <div>
