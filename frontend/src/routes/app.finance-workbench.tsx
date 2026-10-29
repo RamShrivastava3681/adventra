@@ -75,21 +75,17 @@ type Task = {
   overdue?: boolean;
 };
 
-/** Finance family only — receivables, payables, treasury handoffs + dispatch EWB tasks. */
+/** Finance workbench items are limited to invoice and payment operations. */
 const FINANCE_WF_TYPES = new Set([
   "sales_invoice",
   "purchase_invoice",
-  "proforma",
   "payment",
-  "dispatch",
 ]);
 
 const WF_TYPE_LABEL: Record<string, string> = {
   sales_invoice: "Sales Invoice",
   purchase_invoice: "Purchase Invoice",
-  proforma: "Proforma Invoice",
   payment: "Payment",
-  dispatch: "Dispatch Order",
 };
 
 /** owner_role → the team currently responsible for the next step. */
@@ -111,12 +107,8 @@ function docAppPath(t: Task): string {
       return "/app/invoices";
     case "purchase_invoice":
       return "/app/purchases";
-    case "proforma":
-      return "/app/proformas";
     case "payment":
       return "/app/queue";
-    case "dispatch":
-      return "/app/dispatches";
     default:
       return "/app/tasks";
   }
@@ -134,6 +126,11 @@ function actionLabel(t: Task): string {
   return "Open";
 }
 
+function isTreasuryAction(t: Pick<Task, "stage" | "required_action">): boolean {
+  const stage = `${t.stage ?? ""} ${t.required_action ?? ""}`.toLowerCase();
+  return stage.includes("treasury") || stage.includes("payment") || stage.includes("fund");
+}
+
 function todayYMD(): string {
   return new Date().toISOString().slice(0, 10);
 }
@@ -148,16 +145,13 @@ function daysOverdue(due: string | null | undefined): number {
 
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
 
-type FilterKey = "all" | "sales_invoices" | "purchase_invoices" | "proforma" | "payments" | "dispatch" | "credit-debit-notes";
+type FilterKey = "all" | "sales_invoices" | "purchase_invoices" | "payments";
 
 const FILTERS: Array<{ key: FilterKey; label: string }> = [
   { key: "all", label: "All" },
   { key: "sales_invoices", label: "Sales Invoices" },
   { key: "purchase_invoices", label: "Purchase Invoices" },
-  { key: "proforma", label: "Proforma" },
   { key: "payments", label: "Payments" },
-  { key: "dispatch", label: "Dispatch Orders" },
-  { key: "credit-debit-notes", label: "Credit/Debit Notes" },
 ];
 
 const PAGE_SIZE = 15;
@@ -168,15 +162,10 @@ type FinanceSection =
   | "cash"
   | "treasury"
   | "bulk"
-  | "sales-orders"
   | "sales-invoices"
-  | "proformas"
-  | "advances"
   | "purchase-invoices"
-  | "dispatch-orders"
   | "expenses"
-  | "tasks"
-  | "credit-debit-notes";
+  ;
 
 const CashPanel = lazy(() =>
   import("@/routes/app.cash-flow").then((m) => ({ default: m.CashFlowPage })),
@@ -187,38 +176,15 @@ const TreasuryPanel = lazy(() =>
 const BulkPanel = lazy(() =>
   import("@/routes/app.bulk-payments").then((m) => ({ default: m.BulkPaymentsPage })),
 );
-const SalesOrdersPanel = lazy(() =>
-  import("@/routes/app.sales-orders").then((m) => ({ default: m.SalesOrdersPage })),
-);
 const SalesInvoicesPanel = lazy(() =>
   import("@/routes/app.invoices").then((m) => ({ default: m.InvoicesPage })),
-);
-const ProformasPanel = lazy(() =>
-  import("@/routes/app.proformas").then((m) => ({ default: m.ProformasPage })),
-);
-const AdvancesPanel = lazy(() =>
-  import("@/routes/app.advances").then((m) => ({ default: m.AdvancesPage })),
 );
 const PurchaseInvoicesPanel = lazy(() =>
   import("@/routes/app.purchases").then((m) => ({ default: m.PurchasesPage })),
 );
-const DispatchOrdersPanel = lazy(() =>
-  import("@/routes/app.finance-dispatches").then((m) => ({
-    default: m.FinanceDispatchOrdersPanel,
-  })),
-);
 const ExpensesPanel = lazy(() =>
   import("@/routes/app.expenses").then((m) => ({ default: m.ExpensesPage })),
 );
-const CreditDebitNotesPanel = lazy(() =>
-  import("@/routes/app.credit-debit-notes-workbench").then((m) => ({
-    default: m.CreditDebitNotesWorkbenchPage,
-  })),
-);
-const FinanceTasksPanel = lazy(() =>
-  import("@/routes/app.tasks").then((m) => ({ default: m.TasksPage })),
-);
-
 function SectionFallback() {
   return (
     <div className="mx-auto w-full max-w-[1440px] px-4 py-6 md:px-8 md:py-8">
@@ -247,26 +213,18 @@ function FinanceWorkbenchPage() {
   const clearPendingDoc = () => setPendingDoc(null);
 
   /* Row-level open: switch to the doc's tab AND open that very document. */
-  function openDoc(t: { doc_type: string; doc_id: string }) {
+  function openDoc(t: Task) {
     switch (t.doc_type) {
       case "sales_invoice":
         setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
-        setSection("sales-invoices");
+        setSection(isTreasuryAction(t) ? "treasury" : "sales-invoices");
         return;
       case "purchase_invoice":
         setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
-        setSection("purchase-invoices");
-        return;
-      case "proforma":
-        setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
-        setSection("proformas");
+        setSection(isTreasuryAction(t) ? "treasury" : "purchase-invoices");
         return;
       case "payment":
         setSection("treasury");
-        return;
-      case "dispatch":
-        setPendingDoc({ docType: t.doc_type, docId: t.doc_id });
-        setSection("dispatch-orders");
         return;
       default:
         navigate({ to: docAppPath(t as any) as any });
@@ -326,10 +284,7 @@ function FinanceWorkbenchPage() {
       list = list.filter((t) => t.workflow_type === "sales_invoice");
     else if (filter === "purchase_invoices")
       list = list.filter((t) => t.workflow_type === "purchase_invoice");
-    else if (filter === "proforma") list = list.filter((t) => t.workflow_type === "proforma");
     else if (filter === "payments") list = list.filter((t) => t.workflow_type === "payment");
-    else if (filter === "dispatch") list = list.filter((t) => t.workflow_type === "dispatch");
-    else if (filter === "credit-debit-notes") list = list.filter((t) => t.workflow_type === "credit_debit_note");
     const q = query.trim().toLowerCase();
     if (q) {
       list = list.filter((t) =>
@@ -431,24 +386,9 @@ function FinanceWorkbenchPage() {
               onClick={() => setSection("bulk")}
             />
             <NavTab
-              label="Sales Orders"
-              active={section === "sales-orders"}
-              onClick={() => setSection("sales-orders")}
-            />
-            <NavTab
               label="Sales Invoices"
               active={section === "sales-invoices"}
               onClick={() => setSection("sales-invoices")}
-            />
-            <NavTab
-              label="Proforma Invoices"
-              active={section === "proformas"}
-              onClick={() => setSection("proformas")}
-            />
-            <NavTab
-              label="Advances"
-              active={section === "advances"}
-              onClick={() => setSection("advances")}
             />
             <NavTab
               label="Purchase Invoices"
@@ -459,21 +399,6 @@ function FinanceWorkbenchPage() {
               label="Expenses"
               active={section === "expenses"}
               onClick={() => setSection("expenses")}
-            />
-            <NavTab
-              label="Credit/Debit Notes"
-              active={section === "credit-debit-notes"}
-              onClick={() => setSection("credit-debit-notes")}
-            />
-            <NavTab
-              label="Dispatch Orders"
-              active={section === "dispatch-orders"}
-              onClick={() => setSection("dispatch-orders")}
-            />
-            <NavTab
-              label="Activity History"
-              active={section === "tasks"}
-              onClick={() => setSection("tasks")}
             />
           </nav>
         </div>
@@ -575,7 +500,7 @@ function FinanceWorkbenchPage() {
             title="Finance work items"
             action={
               <button
-                onClick={() => setSection("tasks")}
+                onClick={() => setFilter("all")}
                 className="text-xs font-medium text-primary hover:underline"
               >
                 View all
@@ -690,8 +615,8 @@ function FinanceWorkbenchPage() {
                                   <DropdownMenuItem onClick={() => openDoc(t)}>
                                     <ExternalLink className="h-3.5 w-3.5" /> Open document
                                   </DropdownMenuItem>
-                                  <DropdownMenuItem onClick={() => setSection("tasks")}>
-                                    View in My Queue
+                                  <DropdownMenuItem onClick={() => setSection("treasury")}>
+                                    Open Treasury
                                   </DropdownMenuItem>
                                 </DropdownMenuContent>
                               </DropdownMenu>
@@ -839,23 +764,30 @@ function FinanceWorkbenchPage() {
       ) : (
         <Suspense fallback={<SectionFallback />}>
           {section === "cash" && <CashPanel />}
-          {section === "treasury" && <TreasuryPanel />}
+          {section === "treasury" && (
+            <TreasuryPanel
+              openInvoice={
+                pendingDoc?.docType === "sales_invoice" || pendingDoc?.docType === "purchase_invoice"
+                  ? pendingDoc.docId
+                  : undefined
+              }
+              openInvoiceKind={
+                pendingDoc?.docType === "sales_invoice"
+                  ? "sale"
+                  : pendingDoc?.docType === "purchase_invoice"
+                    ? "purchase"
+                    : undefined
+              }
+              onOpenInvoiceHandled={clearPendingDoc}
+            />
+          )}
           {section === "bulk" && <BulkPanel />}
-          {section === "sales-orders" && <SalesOrdersPanel />}
           {section === "sales-invoices" && (
             <SalesInvoicesPanel
               viewId={pendingDoc?.docType === "sales_invoice" ? pendingDoc.docId : undefined}
               onViewHandled={clearPendingDoc}
             />
           )}
-          {section === "proformas" && (
-            <ProformasPanel
-              pfId={pendingDoc?.docType === "proforma" ? pendingDoc.docId : undefined}
-              onPfHandled={clearPendingDoc}
-            />
-          )}
-          {/* Finance sees both proforma streams — no side lock. */}
-          {section === "advances" && <AdvancesPanel />}
           {section === "purchase-invoices" && (
             <PurchaseInvoicesPanel
               openInvoice={
@@ -865,23 +797,6 @@ function FinanceWorkbenchPage() {
             />
           )}
           {section === "expenses" && <ExpensesPanel />}
-          {section === "credit-debit-notes" && (
-            <CreditDebitNotesPanel
-              cdns={
-                pendingDoc?.docType === "credit_debit_note"
-                  ? pendingDoc.docId
-                  : undefined
-              }
-              onCdnHandled={clearPendingDoc}
-            />
-          )}
-          {section === "dispatch-orders" && (
-            <DispatchOrdersPanel
-              openDispatch={pendingDoc?.docType === "dispatch" ? pendingDoc.docId : undefined}
-              onOpenHandled={clearPendingDoc}
-            />
-          )}
-          {section === "tasks" && <FinanceTasksPanel />}
         </Suspense>
       )}
     </div>

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import api from "@/lib/api-client";
 import { useAuth } from "@/lib/auth-context";
 import {
@@ -64,11 +64,20 @@ type Row = {
   raw: any;
 };
 
-export function QueuePage() {
+export function QueuePage({
+  openInvoice,
+  openInvoiceKind,
+  onOpenInvoiceHandled,
+}: {
+  openInvoice?: string;
+  openInvoiceKind?: "sale" | "purchase";
+  onOpenInvoiceHandled?: () => void;
+} = {}) {
   const { isAdmin, isTreasury: isTreasuryRole, user } = useAuth();
   const isTreasury = isTreasuryRole || isAdmin;
   const qc = useQueryClient();
   const [side, setSide] = useState<"all" | "sale" | "purchase">("all");
+  const [viewInv, setViewInv] = useState<{ kind: "sale" | "purchase"; raw: any } | null>(null);
 
   const salesQ = useQuery({
     queryKey: ["queue-sales"],
@@ -102,6 +111,21 @@ export function QueuePage() {
         );
     },
   });
+
+  useEffect(() => {
+    if (!openInvoice || !openInvoiceKind) return;
+    const source = openInvoiceKind === "sale" ? salesQ.data : purchasesQ.data;
+    const invoice = (source ?? []).find((item: any) => item.id === openInvoice);
+    if (!invoice) return;
+    setViewInv({
+      kind: openInvoiceKind,
+      raw:
+        openInvoiceKind === "sale"
+          ? { ...invoice, debtor: invoice.debtor ?? { name: invoice.counterparty ?? "—" } }
+          : { ...invoice, supplier_name: invoice.supplier_name ?? invoice.counterparty ?? "—" },
+    });
+    onOpenInvoiceHandled?.();
+  }, [openInvoice, openInvoiceKind, salesQ.data, purchasesQ.data, onOpenInvoiceHandled]);
 
   // Live advance lookup by PO number — DB is source of truth
   const salePos = Array.from(
@@ -381,7 +405,6 @@ export function QueuePage() {
 
   const [closeFor, setCloseFor] = useState<Row | null>(null);
   const [payFor, setPayFor] = useState<Row | null>(null);
-  const [viewInv, setViewInv] = useState<{ kind: "sale" | "purchase"; raw: any } | null>(null);
   const [viewPf, setViewPf] = useState<any | null>(null);
 
   const rows: Row[] = [
