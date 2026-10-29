@@ -184,10 +184,16 @@ export function InvoiceDetailModal({
   invoice,
   kind,
   onClose,
+  actions,
 }: {
   invoice: any;
   kind: "sale" | "purchase";
   onClose: () => void;
+  actions?: {
+    approve?: { label?: string; onClick: () => void; disabled?: boolean };
+    reject?: { label?: string; onClick: () => void; disabled?: boolean };
+    fund?: { label?: string; onClick: () => void; disabled?: boolean };
+  };
 }) {
   const i = invoice ?? {};
   const isSale = kind === "sale";
@@ -399,7 +405,34 @@ export function InvoiceDetailModal({
           ]}
         />
 
-        <div className="flex justify-end border-t border-border pt-3">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+          {actions?.approve && (
+            <button
+              onClick={actions.approve.onClick}
+              disabled={actions.approve.disabled}
+              className="rounded-md bg-sem-success px-4 py-2 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+            >
+              {actions.approve.label ?? "Approve"}
+            </button>
+          )}
+          {actions?.reject && (
+            <button
+              onClick={actions.reject.onClick}
+              disabled={actions.reject.disabled}
+              className="rounded-md border border-destructive/50 px-4 py-2 text-sm text-destructive hover:bg-destructive/10 disabled:opacity-50"
+            >
+              {actions.reject.label ?? "Reject"}
+            </button>
+          )}
+          {actions?.fund && (
+            <button
+              onClick={actions.fund.onClick}
+              disabled={actions.fund.disabled}
+              className="rounded-md border border-sem-attention/50 px-4 py-2 text-sm text-sem-attention hover:bg-sem-attention/10 disabled:opacity-50"
+            >
+              {actions.fund.label ?? "Fund"}
+            </button>
+          )}
           <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
             Close
           </button>

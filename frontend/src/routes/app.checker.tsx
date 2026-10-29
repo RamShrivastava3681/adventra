@@ -14,7 +14,6 @@ import { statusLabel } from "@/lib/doc-impact";
 import {
   ClipboardCheck,
   Check,
-  X,
   Lock,
   FileMinus,
   FilePlus,
@@ -24,7 +23,6 @@ import {
   Package,
   FileText,
   Info,
-  MoreHorizontal,
   ChevronLeft,
   ChevronRight,
   CalendarDays,
@@ -38,13 +36,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import {
   InvoiceDetailModal,
   ProformaDetailModal,
@@ -1228,42 +1219,12 @@ function CheckerPage() {
                             ) : (
                               <div className="inline-flex items-center gap-1.5">
                                 <button
-                                  onClick={it.onReview ?? it.onApprove}
+                                  onClick={it.onReview ?? undefined}
                                   className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground shadow-sm transition-all hover:-translate-y-px hover:shadow-md disabled:opacity-60"
-                                  title={
-                                    it.onReview
-                                      ? "View document details"
-                                      : "No detail view exists for this document — approve directly"
-                                  }
+                                  title="View document details and available actions"
                                 >
-                                  View
+                                  <Eye className="h-3.5 w-3.5" /> View
                                 </button>
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <button
-                                      className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
-                                      aria-label="More actions"
-                                    >
-                                      <MoreHorizontal className="h-4 w-4" />
-                                    </button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end" className="w-52">
-                                    {it.onReview && (
-                                      <DropdownMenuItem onClick={it.onReview}>
-                                        <Eye className="h-3.5 w-3.5" /> Open details
-                                      </DropdownMenuItem>
-                                    )}
-                                    {it.onReview && <DropdownMenuSeparator />}
-                                    <DropdownMenuItem onClick={it.onApprove} disabled={it.approvePending}>
-                                      <Check className="h-3.5 w-3.5 text-sem-success" />
-                                      {it.approveLabel}
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onClick={it.onReject} disabled={it.approvePending}>
-                                      <X className="h-3.5 w-3.5 text-destructive" />
-                                      {it.rejectLabel}
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
                               </div>
                             )}
                           </td>
@@ -1396,6 +1357,54 @@ function CheckerPage() {
             invoice={viewInv.raw}
             kind={viewInv.kind}
             onClose={() => setViewInv(null)}
+            actions={
+              viewInv.kind === "sale"
+                ? {
+                    approve: {
+                      label: "Approve",
+                      onClick: () => {
+                        const row = invoiceRows.find((r) => r.id === viewInv.raw?.id);
+                        if (row) {
+                          setViewInv(null);
+                          setApproveFor({ row, utr: "", amount: String(row.amount) });
+                        }
+                      },
+                      disabled: reviewSale.isPending,
+                    },
+                    reject: {
+                      label: "Reject",
+                      onClick: () => {
+                        reviewSale.mutate(
+                          { id: viewInv.raw.id, decision: "rejected" },
+                          { onSuccess: () => setViewInv(null) },
+                        );
+                      },
+                      disabled: reviewSale.isPending,
+                    },
+                  }
+                : {
+                    approve: {
+                      label: "Approve",
+                      onClick: () => {
+                        reviewPurchase.mutate(
+                          { id: viewInv.raw.id, decision: "approved" },
+                          { onSuccess: () => setViewInv(null) },
+                        );
+                      },
+                      disabled: reviewPurchase.isPending,
+                    },
+                    reject: {
+                      label: "Dispute",
+                      onClick: () => {
+                        reviewPurchase.mutate(
+                          { id: viewInv.raw.id, decision: "disputed" },
+                          { onSuccess: () => setViewInv(null) },
+                        );
+                      },
+                      disabled: reviewPurchase.isPending,
+                    },
+                  }
+            }
           />
         )}
         {viewPf && <ProformaDetailModal pf={viewPf} onClose={() => setViewPf(null)} />}

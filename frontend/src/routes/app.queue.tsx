@@ -14,7 +14,6 @@ import {
 import {
   Banknote,
   Lock,
-  ArrowDownToLine,
   ArrowUpFromLine,
   FileMinus,
   FilePlus,
@@ -530,14 +529,6 @@ export function QueuePage() {
                   {rows.map((r) => {
                     const dpd = r.due_date && r.status !== "paid" ? daysBetween(r.due_date) : 0;
                     const lateDays = Math.max(0, dpd);
-                    const action = (
-                      <QueueAction
-                        row={r}
-                        isTreasury={isTreasury}
-                        onCloseSale={setCloseFor}
-                        onPayPurchase={setPayFor}
-                      />
-                    );
                     return (
                       <Fragment key={`${r.kind}-${r.id}`}>
                         <tr className="border-b border-border/60 hover:bg-muted/30">
@@ -623,12 +614,20 @@ export function QueuePage() {
                             )}
                           </td>
                           <td className="sticky right-0 hidden bg-card px-5 py-3 text-right md:table-cell">
-                            {action}
-                          </td>
-                        </tr>
-                        <tr className="border-b border-border/60 md:hidden">
-                          <td colSpan={10} className="px-5 pb-4 pt-0 text-left">
-                            <div className="flex justify-start">{action}</div>
+                            <button
+                              onClick={() =>
+                                setViewInv({
+                                  kind: r.kind,
+                                  raw:
+                                    r.kind === "sale"
+                                      ? { ...r.raw, debtor: r.raw.debtor ?? { name: r.party } }
+                                      : { ...r.raw, supplier_name: r.raw.supplier_name ?? r.party },
+                                })
+                              }
+                              className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+                            >
+                              <Eye className="h-3 w-3" /> View
+                            </button>
                           </td>
                         </tr>
                       </Fragment>
@@ -741,6 +740,19 @@ export function QueuePage() {
             invoice={viewInv.raw}
             kind={viewInv.kind}
             onClose={() => setViewInv(null)}
+            actions={{
+              fund: {
+                label: viewInv.kind === "sale" ? "Fund" : "Mark paid",
+                onClick: () => {
+                  const row = rows.find((r) => r.id === viewInv.raw?.id && r.kind === viewInv.kind);
+                  if (!row) return;
+                  setViewInv(null);
+                  if (row.kind === "sale") setCloseFor(row);
+                  else setPayFor(row);
+                },
+                disabled: !isTreasury,
+              },
+            }}
           />
         )}
         {viewPf && <ProformaDetailModal pf={viewPf} onClose={() => setViewPf(null)} />}
@@ -912,46 +924,6 @@ export function QueuePage() {
         />
       )}
     </div>
-  );
-}
-
-function QueueAction({
-  row,
-  isTreasury,
-  onCloseSale,
-  onPayPurchase,
-}: {
-  row: Row;
-  isTreasury: boolean;
-  onCloseSale: (row: Row) => void;
-  onPayPurchase: (row: Row) => void;
-}) {
-  if (!isTreasury) {
-    return (
-      <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest text-muted-foreground">
-        <Lock className="h-3 w-3" /> Treasury only
-      </span>
-    );
-  }
-
-  if (row.kind === "sale") {
-    return (
-      <button
-        onClick={() => onCloseSale(row)}
-        className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-sem-success/50 px-2.5 py-1 text-xs text-sem-success hover:bg-sem-success/10"
-      >
-        <ArrowDownToLine className="h-3 w-3" /> Record receipt
-      </button>
-    );
-  }
-
-  return (
-    <button
-      onClick={() => onPayPurchase(row)}
-      className="inline-flex items-center gap-1 whitespace-nowrap rounded-md border border-sem-attention/50 px-2.5 py-1 text-xs text-sem-attention hover:bg-sem-attention/10"
-    >
-      <ArrowUpFromLine className="h-3 w-3" /> Record payment
-    </button>
   );
 }
 
