@@ -41,7 +41,6 @@ export type SizeDraft = {
 };
 
 export type MultiSizeLineDraft = {
-export type LineDraft = MultiSizeLineDraft;
   product_id: string;
   sku: string | null;
   name: string;
@@ -57,6 +56,8 @@ export type LineDraft = MultiSizeLineDraft;
   notes: string;
   fabric?: string;
 };
+
+export type LineDraft = MultiSizeLineDraft;
 
 export type CatalogueProduct = {
   id: string;
