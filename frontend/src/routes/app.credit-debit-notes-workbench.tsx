@@ -53,7 +53,10 @@ export const Route = createFileRoute("/app/credit-debit-notes-workbench")({
   component: CreditDebitNotesWorkbenchPage,
 });
 
-function CreditDebitNotesWorkbenchPage() {
+export function CreditDebitNotesWorkbenchPage({
+  cdns: openCdn,
+  onCdnHandled,
+}: { cdns?: string; onCdnHandled?: () => void } = {}) {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [tab, setTab] = useState("list");
@@ -61,10 +64,10 @@ function CreditDebitNotesWorkbenchPage() {
   const [query, setQuery] = useState("");
   const [cdnStatus, setCdnStatus] = useState("all");
 
-  const [cdnsQ, setCdnsQ] = useQuery({
+  const cdnsQ = useQuery({
     queryKey: ["credit-debit-notes-list"],
     queryFn: async () => {
-      const data = await api.creditDebitNotes.list(user?.id);
+      const data = await api.creditDebitNotes.list();
       return data.sort(
         (a: any, b: any) => new Date(b.note_date).getTime() - new Date(a.note_date).getTime(),
       );

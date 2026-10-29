@@ -50,6 +50,14 @@ import { resolveStandardState, stateForCity } from "@/lib/india-city-state";
 import { ClauseCombobox } from "@/components/clause-select";
 import { ProductVariantPicker, fullItemName } from "@/components/product-variant-picker";
 import {
+  MultiSizeLineCard,
+  type MultiSizeLineDraft,
+  type SizeDraft,
+  type LineDraft,
+  emptyMultiSizeLineDraft,
+  groupLinesToMultiSizeDrafts,
+} from "@/components/multi-size-line-card";
+import {
   QuickAddVariantModal,
   QuickCreateProductModal,
   type QuickCreatedProduct,
@@ -687,20 +695,7 @@ export function PurchaseOrdersPage(
 }
 
 // ─── PO create/edit modal ────────────────────────────────────────────────
-type LineDraft = {
-  product_id: string;
-  sku: string | null;
-  name: string;
-  color: string;
-  size: string;
-  fabric: string;
-  hsn_code: string;
-  unit: string;
-  ordered_qty: string;
-  unit_price: string;
-  gst_rate: string;
-  received_qty: number;
-};
+
 
 type PiLineDraft = {
   product_id: string;
@@ -808,21 +803,8 @@ function POModal({
     delivery_terms_line: (po as any)?.delivery_terms_line ?? (po as any)?.deliveryTermsLine ?? "",
     place_of_supply: (po as any)?.place_of_supply ?? (po as any)?.placeOfSupply ?? "",
   });
-  const [lines, setLines] = useState<LineDraft[]>(
-    (po?.lines ?? []).map((l: any) => ({
-      product_id: l.product_id,
-      sku: l.sku,
-      name: l.name,
-      color: l.color ?? l.colour ?? "",
-      size: l.size != null ? String(l.size) : "",
-      fabric: l.fabric ?? "",
-      hsn_code: String(l.hsn_code ?? l.hsnCode ?? ""),
-      unit: l.unit,
-      ordered_qty: String(l.ordered_qty),
-      unit_price: String(l.unit_price),
-      gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
-      received_qty: l.received_qty ?? 0,
-    })),
+  const [lines, setLines] = useState<MultiSizeLineDraft[]>(() =>
+    groupLinesToMultiSizeDrafts(po?.lines ?? [], products)
   );
   const [docs, setDocs] = useState<DocMeta[]>(po?.documents ?? []);
 
@@ -1027,65 +1009,53 @@ function POModal({
     > & { color?: string | null; size?: string | null; hsn_code?: string | null; hsnCode?: string | null; subcategory?: string | null; brand?: string | null; gender?: string | null; model?: string | null },
   ) => {
     const pa = p as any;
+    const sizeName = typeof pa.size === "string" && pa.size.trim() ? pa.size.trim() : "One Size";
+    const colorName = typeof pa.color === "string" ? pa.color.trim() : "";
+    const cost = p.unit_cost != null ? String(p.unit_cost) : "";
+    const gst = p.gst_rate != null ? String(p.gst_rate) : "";
+    const unit = p.unit_of_measure || "piece";
+    const hsn = typeof pa.hsn_code === "string" ? pa.hsn_code.trim() : typeof pa.hsnCode === "string" ? pa.hsnCode.trim() : "";
+
     setLine(i, {
       product_id: p.id,
       name: fullItemName(pa),
       sku: p.sku ?? null,
-      color: pa.color ?? "",
-      size: pa.size != null ? String(pa.size) : "",
-      fabric: "",
-      hsn_code: String(pa.hsn_code ?? pa.hsnCode ?? ""),
-      unit: p.unit_of_measure || "piece",
-      // Unit price always comes from the SKU's cost in the catalogue.
-      unit_price: p.unit_cost != null ? String(p.unit_cost) : "",
-      gst_rate: p.gst_rate != null ? String(p.gst_rate) : "",
+      color: colorName,
+      unit: unit,
+      hsn_code: hsn,
+      sizes: [
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+          childProductId: p.id,
+          childSku: p.sku ?? null,
+          childName: fullItemName(pa),
+          size: sizeName,
+          color: colorName,
+          quantity: "1",
+          unitPrice: cost,
+          discountPct: "",
+          gstRate: gst,
+          unit: unit,
+          hsnCode: hsn,
+          mrp: "",
+        },
+      ],
     });
   };
 
-  const pickProduct = (i: number, id: string) => {
-    const p = products.find((x) => x.id === id);
-    if (!p) {
-      setLine(i, { product_id: id });
-      return;
-    }
-    applyProductToLine(i, p);
-  };
+  const emptyLine = (): LineDraft => emptyMultiSizeLineDraft();
 
-  // The top-level product a line's "Add variant" action targets — the selected
-  // SKU itself when it is a parent, otherwise its parent (variants are one
-  // level deep, so a variant line adds siblings under its parent).
-  const variantTargetFor = (i: number) => {
-    const p = products.find((x) => x.id === lines[i]?.product_id);
-    if (!p) return null;
-    return p.parent_id ? (products.find((x) => x.id === p.parent_id) ?? null) : p;
-  };
-
-  const emptyLine = (): LineDraft => ({
-    product_id: "",
-    sku: null,
-    name: "",
-    color: "",
-    size: "",
-    fabric: "",
-    hsn_code: "",
-    unit: "piece",
-    ordered_qty: "",
-    unit_price: "",
-    gst_rate: "",
-    received_qty: 0,
-  });
-
-  const addLine = () => setLines((ls) => [...ls, emptyLine()]);
+  const addLine = () => setLines((ls) => [...ls, emptyMultiSizeLineDraft()]);
 
   /** Add a line AND immediately open the product-creation dialog for it. */
   const addLineWithNewItem = () => {
     setQuickCreateIdx(lines.length);
-    setLines((ls) => [...ls, emptyLine()]);
+    setLines((ls) => [...ls, emptyMultiSizeLineDraft()]);
   };
 
   const removeLine = (i: number) => {
     const l = lines[i];
-    if (l && l.received_qty > 0) {
+    if (l && l.received_qty && l.received_qty > 0) {
       toast.error("Cannot remove a line that already has received quantities");
       return;
     }
@@ -1096,10 +1066,12 @@ function POModal({
     // Supplier prices are GST-inclusive: the PO total is the sum of the line
     // amounts as entered, with GST shown as the part inside them.
     const billed = inclusiveTotals(
-      lines.map((l) => ({
-        amount: (Number(l.ordered_qty) || 0) * (Number(l.unit_price) || 0),
-        gstRate: l.gst_rate,
-      })),
+      lines.flatMap((l) =>
+        l.sizes.map((s) => ({
+          amount: (Number(s.quantity) || 0) * (Number(s.unitPrice) || 0),
+          gstRate: s.gstRate,
+        })),
+      ),
       Number(f.freight) || 0,
     );
     return {
@@ -1117,21 +1089,22 @@ function POModal({
   // Purchase-invoice lines follow the PO lines until the user edits them.
   useEffect(() => {
     if (docChoice !== "purchase_invoice") return;
-    const poIds = lines.map((l) => l.product_id);
+    const flatPoItems = lines.flatMap((l) =>
+      l.sizes.map((s) => ({
+        product_id: s.childProductId || l.product_id,
+        name: s.childName || l.name,
+        sku: s.childSku ?? l.sku,
+        ordered_qty: Number(s.quantity) || 0,
+        invoice_qty: String(Number(s.quantity) || 0),
+        unit_price: String(Number(s.unitPrice) || 0),
+        gst_rate: s.gstRate != null ? String(s.gstRate) : "",
+      })),
+    );
+    const poIds = flatPoItems.map((l) => l.product_id);
     const needsSync =
       poIds.length !== piLines.length || poIds.some((pid, i) => piLines[i]?.product_id !== pid);
     if (!needsSync) return;
-    setPiLines(
-      lines.map((l) => ({
-        product_id: l.product_id,
-        name: l.name,
-        sku: l.sku,
-        ordered_qty: Number(l.ordered_qty) || 0,
-        invoice_qty: String(Number(l.ordered_qty) || 0),
-        unit_price: String(Number(l.unit_price) || 0),
-        gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
-      })),
-    );
+    setPiLines(flatPoItems);
   }, [docChoice, lines, piLines]);
 
   // Invoice totals (billed qty × price from the supplier invoice + freight).
@@ -1157,19 +1130,24 @@ function POModal({
   // Linked proforma / purchase-invoice creation stays manual-only.
   const buildPoPayload = () => {
       if (lines.length === 0) throw new Error("Add at least one product line");
-      const payloadLines = lines.map((l) => ({
-        product_id: l.product_id,
-        sku: l.sku,
-        name: l.name,
-        color: l.color.trim() || null,
-        size: l.size.trim() || null,
-        fabric: l.fabric.trim() || null,
-        hsn_code: l.hsn_code.trim() || null,
-        unit: l.unit || "piece",
-        ordered_qty: Number(l.ordered_qty) || 0,
-        unit_price: Number(l.unit_price) || 0,
-        gst_rate: l.gst_rate ? Number(l.gst_rate) : null,
-      }));
+      const totalSizes = lines.reduce((acc, l) => acc + (l.sizes?.length ?? 0), 0);
+      if (totalSizes === 0) throw new Error("Add at least one size item with quantity");
+
+      const payloadLines = lines.flatMap((l) =>
+        l.sizes.map((s) => ({
+          product_id: s.childProductId || l.product_id,
+          sku: s.childSku ?? l.sku,
+          name: s.childName || l.name,
+          color: s.color.trim() || l.color.trim() || null,
+          size: s.size.trim() || null,
+          fabric: (l.fabric ?? "").trim() || null,
+          hsn_code: s.hsnCode || l.hsn_code || null,
+          unit: s.unit || l.unit || "piece",
+          ordered_qty: Number(s.quantity) || 0,
+          unit_price: Number(s.unitPrice) || 0,
+          gst_rate: s.gstRate ? Number(s.gstRate) : null,
+        })),
+      );
       for (const l of payloadLines) {
         if (!l.product_id) throw new Error("Every line must select a product from the catalogue");
         if (!(l.ordered_qty > 0)) throw new Error("Ordered quantity must be greater than zero");
@@ -1863,148 +1841,27 @@ function POModal({
                 )}
               </div>
             ) : (
-              <div>
-                {lines.map((l, i) => {
-                    const lineTotal = round2(
-                      (Number(l.ordered_qty) || 0) * (Number(l.unit_price) || 0),
-                    );
-                    const overReceived =
-                      editable && l.received_qty > 0 && Number(l.ordered_qty) < l.received_qty;
-                    return (
-                      <div
-                        key={i}
-                        className="space-y-4 border-b border-border/60 py-4 last:border-b-0"
-                      >
-                        <div className="min-w-0">
-                          <ProductVariantPicker
-                            products={products}
-                            value={l.product_id}
-                            onChange={(v) => pickProduct(i, v)}
-                            disabled={!editable}
-                            placeholder="Select item…"
-                            childPlaceholder="Select colour / size…"
-                            categoryPlaceholder="Select category…"
-                            layout="inline"
-                          />
-                          {(() => {
-                            const cat = (products ?? []).find((x: any) => x.id === l.product_id) as any;
-                            const bits = [
-                              l.color || cat?.color || null,
-                              l.size ? `Size ${l.size}` : cat?.size ? `Size ${cat.size}` : null,
-                              l.hsn_code || cat?.hsn_code || cat?.hsnCode
-                                ? `HSN ${l.hsn_code || cat?.hsn_code || cat?.hsnCode}`
-                                : null,
-                            ].filter(Boolean);
-                            return bits.length ? (
-                              <div className="mt-0.5 break-words font-mono text-[10px] leading-snug text-muted-foreground">
-                                {bits.join(" · ")}
-                              </div>
-                            ) : null;
-                          })()}
-                          {editable && variantTargetFor(i) && (
-                            <button
-                              type="button"
-                              onClick={() => setVariantLine(i)}
-                              className="mt-1 inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
-                              title="Pick a colour, then select or create sizes for this product"
-                            >
-                              <Layers className="h-3 w-3" /> Colour / size
-                            </button>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 lg:grid-cols-4">
-                          <div>
-                          <MiniLabel always>Fabric / Specification</MiniLabel>
-                          <input
-                            aria-label="Fabric / Specification"
-                            className={lineInputCls}
-                            value={l.fabric}
-                            onChange={(e) => setLine(i, { fabric: e.target.value })}
-                            placeholder="e.g. Rib Stop"
-                            disabled={!editable}
-                          />
-                        </div>
-                        <div>
-                          <MiniLabel always>Unit</MiniLabel>
-                          <input
-                            aria-label="Unit"
-                            className={`${lineInputCls} text-center`}
-                            value={l.unit}
-                            onChange={(e) => setLine(i, { unit: e.target.value })}
-                            disabled={!editable}
-                          />
-                        </div>
-                        <div>
-                          <MiniLabel always>Ordered qty</MiniLabel>
-                          <input
-                            type="number"
-                            min="1"
-                            step="0.001"
-                            aria-label="Ordered qty"
-                            placeholder="0"
-                            className={`${lineInputCls} text-right ${overReceived ? "!border-sem-attention" : ""}`}
-                            value={l.ordered_qty}
-                            onChange={(e) => setLine(i, { ordered_qty: e.target.value })}
-                            disabled={!editable}
-                          />
-                          {overReceived && (
-                            <div className="mt-1 text-[10px] text-sem-attention">
-                              Cannot go below received ({l.received_qty})
-                            </div>
-                          )}
-                          {l.received_qty > 0 && (
-                            <div className="mt-1 flex flex-wrap gap-1">
-                              <span className="rounded bg-sem-success/10 px-1.5 py-0.5 text-[9px] text-sem-success">
-                                recv {l.received_qty}
-                              </span>
-                              <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
-                                pending {Math.max(0, (Number(l.ordered_qty) || 0) - l.received_qty)}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                        <div>
-                          <MiniLabel always>Unit price</MiniLabel>
-                          <input
-                            type="number"
-                            min="0"
-                            step="0.01"
-                            aria-label="Unit price"
-                            placeholder="0.00"
-                            className={`${lineInputCls} text-right`}
-                            value={l.unit_price}
-                            onChange={(e) => setLine(i, { unit_price: e.target.value })}
-                            disabled={!editable}
-                          />
-                          {(Number(l.unit_price) || 0) > 0 && (
-                            <div className="mt-1 text-right text-[10px] text-muted-foreground">
-                              ex-GST {fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate))}
-                            </div>
-                          )}
-                        </div>
-                        <div>
-                          <MiniLabel always>GST %</MiniLabel>
-                          <PctInput
-                            aria-label="GST %"
-                            list="po-gst-rates"
-                            min="0"
-                            step="0.01"
-                            value={l.gst_rate}
-                            onChange={(e) => setLine(i, { gst_rate: e.target.value })}
-                            disabled={!editable}
-                          />
-                        </div>
-                        <div>
-                          <MiniLabel always>Line total</MiniLabel>
-                          <LineTotal>{fmtMoney(lineTotal)}</LineTotal>
-                        </div>
-                        <div className="flex items-end justify-end">
-                          {editable && <RemoveLineButton onClick={() => removeLine(i)} />}
-                        </div>
-                      </div>
-                      </div>
-                    );
-                  })}
+              <div className="space-y-4">
+                {lines.map((l, i) => (
+                  <MultiSizeLineCard
+                    key={i}
+                    products={products}
+                    value={l}
+                    onChange={(next) => setLine(i, next)}
+                    onRemove={() => removeLine(i)}
+                    disabled={!editable}
+                    mode="purchase"
+                  />
+                ))}
+                {editable && (
+                  <button
+                    type="button"
+                    onClick={addLine}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add product line
+                  </button>
+                )}
               </div>
             )}
           </LineItemsSection>
@@ -2013,7 +1870,7 @@ function POModal({
           <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
             <Row
               label="Total quantity"
-              value={lines.reduce((s, l) => s + (Number(l.ordered_qty) || 0), 0).toLocaleString()}
+              value={lines.reduce((s, l) => s + l.sizes.reduce((sz, size) => sz + (Number(size.quantity) || 0), 0), 0).toLocaleString()}
             />
             <Row label="Subtotal (ex-GST)" value={fmtMoney(totals.subtotal)} />
             <Row label="GST total" value={fmtMoney(totals.gstTotal)} />
@@ -2566,23 +2423,6 @@ function POModal({
           <option value="18" />
           <option value="28" />
         </datalist>
-
-        {/* Inline variant popup — stopPropagation keeps clicks inside it
-            from closing the PO modal behind it. New products cannot be
-            created here — only colour/size variants. */}
-        {variantLine !== null && variantTargetFor(variantLine) !== null && (
-          <div onClick={(e) => e.stopPropagation()}>
-            <QuickAddVariantModal
-              parent={variantTargetFor(variantLine)!}
-              initialColor={lines[variantLine]?.color ?? ""}
-              onClose={() => setVariantLine(null)}
-              onCreated={(created) => {
-                if (variantLine !== null) applyProductToLine(variantLine, created);
-                setVariantLine(null);
-              }}
-            />
-          </div>
-        )}
 
         {/* Inline catalogue-item creation — "or create one here" on an empty
             catalogue snapshot; fills the new line once created. */}

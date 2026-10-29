@@ -20,6 +20,7 @@ import { Route as AppBalanceSheetRouteImport } from './app.balance-sheet'
 import { Route as AppBulkPaymentsRouteImport } from './app.bulk-payments'
 import { Route as AppCashFlowRouteImport } from './app.cash-flow'
 import { Route as AppCheckerRouteImport } from './app.checker'
+import { Route as AppCreditDebitNotesWorkbenchRouteImport } from './app.credit-debit-notes-workbench'
 import { Route as AppCrmRouteImport } from './app.crm'
 import { Route as AppDashboardRouteImport } from './app.dashboard'
 import { Route as AppDebtorsRouteImport } from './app.debtors'
@@ -122,6 +123,12 @@ const AppCheckerRoute = AppCheckerRouteImport.update({
   path: '/checker',
   getParentRoute: () => AppRoute,
 } as any)
+const AppCreditDebitNotesWorkbenchRoute =
+  AppCreditDebitNotesWorkbenchRouteImport.update({
+    id: '/credit-debit-notes-workbench',
+    path: '/credit-debit-notes-workbench',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppCrmRoute = AppCrmRouteImport.update({
   id: '/crm',
   path: '/crm',
@@ -365,6 +372,7 @@ export interface FileRoutesByFullPath {
   '/app/bulk-payments': typeof AppBulkPaymentsRoute
   '/app/cash-flow': typeof AppCashFlowRoute
   '/app/checker': typeof AppCheckerRoute
+  '/app/credit-debit-notes-workbench': typeof AppCreditDebitNotesWorkbenchRoute
   '/app/crm': typeof AppCrmRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/debtors': typeof AppDebtorsRoute
@@ -424,6 +432,7 @@ export interface FileRoutesByTo {
   '/app/bulk-payments': typeof AppBulkPaymentsRoute
   '/app/cash-flow': typeof AppCashFlowRoute
   '/app/checker': typeof AppCheckerRoute
+  '/app/credit-debit-notes-workbench': typeof AppCreditDebitNotesWorkbenchRoute
   '/app/crm': typeof AppCrmRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/debtors': typeof AppDebtorsRoute
@@ -483,6 +492,7 @@ export interface FileRoutesById {
   '/app/bulk-payments': typeof AppBulkPaymentsRoute
   '/app/cash-flow': typeof AppCashFlowRoute
   '/app/checker': typeof AppCheckerRoute
+  '/app/credit-debit-notes-workbench': typeof AppCreditDebitNotesWorkbenchRoute
   '/app/crm': typeof AppCrmRoute
   '/app/dashboard': typeof AppDashboardRoute
   '/app/debtors': typeof AppDebtorsRoute
@@ -544,6 +554,7 @@ export interface FileRouteTypes {
     | '/app/bulk-payments'
     | '/app/cash-flow'
     | '/app/checker'
+    | '/app/credit-debit-notes-workbench'
     | '/app/crm'
     | '/app/dashboard'
     | '/app/debtors'
@@ -603,6 +614,7 @@ export interface FileRouteTypes {
     | '/app/bulk-payments'
     | '/app/cash-flow'
     | '/app/checker'
+    | '/app/credit-debit-notes-workbench'
     | '/app/crm'
     | '/app/dashboard'
     | '/app/debtors'
@@ -661,6 +673,7 @@ export interface FileRouteTypes {
     | '/app/bulk-payments'
     | '/app/cash-flow'
     | '/app/checker'
+    | '/app/credit-debit-notes-workbench'
     | '/app/crm'
     | '/app/dashboard'
     | '/app/debtors'
@@ -794,6 +807,13 @@ declare module '@tanstack/react-router' {
       path: '/checker'
       fullPath: '/app/checker'
       preLoaderRoute: typeof AppCheckerRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/credit-debit-notes-workbench': {
+      id: '/app/credit-debit-notes-workbench'
+      path: '/credit-debit-notes-workbench'
+      fullPath: '/app/credit-debit-notes-workbench'
+      preLoaderRoute: typeof AppCreditDebitNotesWorkbenchRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/crm': {
@@ -1144,6 +1164,7 @@ interface AppRouteChildren {
   AppBulkPaymentsRoute: typeof AppBulkPaymentsRoute
   AppCashFlowRoute: typeof AppCashFlowRoute
   AppCheckerRoute: typeof AppCheckerRoute
+  AppCreditDebitNotesWorkbenchRoute: typeof AppCreditDebitNotesWorkbenchRoute
   AppCrmRoute: typeof AppCrmRoute
   AppDashboardRoute: typeof AppDashboardRoute
   AppDebtorsRoute: typeof AppDebtorsRoute
@@ -1197,6 +1218,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppBulkPaymentsRoute: AppBulkPaymentsRoute,
   AppCashFlowRoute: AppCashFlowRoute,
   AppCheckerRoute: AppCheckerRoute,
+  AppCreditDebitNotesWorkbenchRoute: AppCreditDebitNotesWorkbenchRoute,
   AppCrmRoute: AppCrmRoute,
   AppDashboardRoute: AppDashboardRoute,
   AppDebtorsRoute: AppDebtorsRoute,

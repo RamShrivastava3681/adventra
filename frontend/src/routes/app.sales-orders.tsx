@@ -41,6 +41,13 @@ import { resolveStandardState, stateForCity } from "@/lib/india-city-state";
 import { ProductVariantPicker, fullItemName } from "@/components/product-variant-picker";
 import { QuickAddVariantModal } from "@/components/product-quick-create";
 import {
+  MultiSizeLineCard,
+  type MultiSizeLineDraft,
+  type SizeDraft,
+  emptyMultiSizeLineDraft,
+  groupLinesToMultiSizeDrafts,
+} from "@/components/multi-size-line-card";
+import {
   LineItemsSection,
   lineInputCls,
 } from "@/components/doc-lines";
@@ -832,24 +839,8 @@ export function SalesOrdersPage(
 }
 
 // ─── SO create/edit modal ────────────────────────────────────────────────
-type LineDraft = {
-  product_id: string;
-  sku: string | null;
-  name: string;
-  unit: string;
-  color: string;
-  size: string;
-  product_code: string;
-  hsn_code: string;
-  mrp: string;
-  ordered_qty: string;
-  unit_price: string;
-  discount_pct: string;
-  gst_rate: string;
-  notes: string;
-  dispatched_qty: number;
-  price_tier: string;
-};
+
+const emptyLine = emptyMultiSizeLineDraft;
 
 // Per-customer buyer order sequence: a customer's first order is "001", then
 // "002", … Existing trailing-digit formats are honoured (prefix + width of
@@ -964,25 +955,8 @@ function SOModal({
   // and is filled when the billing customer is picked (see
   // pickBillingCustomer). It stays editable afterwards, and the server
   // auto-assigns one on save when left blank.
-  const [lines, setLines] = useState<LineDraft[]>(
-    (so?.lines ?? []).map((l) => ({
-      product_id: l.product_id,
-      sku: l.sku,
-      name: l.name,
-      unit: l.unit,
-      color: (l as any).color ?? "",
-      size: (l as any).size != null ? String((l as any).size) : "",
-      product_code: (l as any).product_code ?? "",
-      hsn_code: String((l as any).hsn_code ?? (l as any).hsnCode ?? ""),
-      mrp: (l as any).mrp != null ? String((l as any).mrp) : "",
-      ordered_qty: String(l.ordered_qty),
-      unit_price: String(l.unit_price),
-      discount_pct: l.discount_pct != null ? String(l.discount_pct) : "",
-      gst_rate: l.gst_rate != null ? String(l.gst_rate) : "",
-      notes: l.notes ?? "",
-      dispatched_qty: l.dispatched_qty ?? 0,
-      price_tier: "",
-    })),
+  const [lines, setLines] = useState<MultiSizeLineDraft[]>(() =>
+    groupLinesToMultiSizeDrafts(so?.lines ?? [], products)
   );
   const [docs, setDocs] = useState<DocMeta[]>(so?.documents ?? []);
   const [pdfBusy, setPdfBusy] = useState(false);
@@ -1032,16 +1006,17 @@ function SOModal({
     }
   };
 
-  const setLine = (i: number, patch: Partial<LineDraft>) =>
+  const setLine = (i: number, patch: Partial<MultiSizeLineDraft>) =>
     setLines((ls) => ls.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
 
   const changePriceTier = (i: number, tier: string) => {
     const line = lines[i];
     const p = products.find((x) => x.id === line.product_id);
     const tierPrice = resolveTierPrice(p, tier);
+    const resolved = tierPrice ?? (tier === "" ? (p?.unit_price != null ? String(p.unit_price) : "") : "");
     setLine(i, {
       price_tier: tier,
-      unit_price: tierPrice ?? (tier === "" ? (p?.unit_price != null ? String(p.unit_price) : line.unit_price) : line.unit_price),
+      sizes: line.sizes.map((s) => ({ ...s, unitPrice: resolved || s.unitPrice })),
     });
   };
 
@@ -1057,9 +1032,12 @@ function SOModal({
         const tierPrice = resolvePriceForCustomerType(p, newType);
         return {
           ...l,
-          price_tier: tier,
-          unit_price: tierPrice || l.unit_price,
-          gst_rate: isDef ? "0" : (p?.gst_rate != null ? String(p.gst_rate) : l.gst_rate),
+          price_tier: tier || l.price_tier,
+          sizes: l.sizes.map((s) => ({
+            ...s,
+            unitPrice: tierPrice || s.unitPrice,
+            gstRate: isDef ? "0" : (p?.gst_rate != null ? String(p.gst_rate) : s.gstRate),
+          })),
         };
       }),
     );
@@ -1137,7 +1115,7 @@ function SOModal({
           : { payment_terms_type: "credit" as const, payment_terms_advance_pct: "", payment_terms_days: "30" }),
       };
     });
-    if (id) {
+      if (id) {
       const isDef = custType?.toLowerCase() === "defence";
       const tier = getTierForCustomerType(custType);
       setLines((prev) =>
@@ -1148,8 +1126,11 @@ function SOModal({
           return {
             ...l,
             price_tier: tier || l.price_tier,
-            unit_price: tierPrice || l.unit_price,
-            gst_rate: isDef ? "0" : (p?.gst_rate != null ? String(p.gst_rate) : l.gst_rate),
+            sizes: l.sizes.map((s) => ({
+              ...s,
+              unitPrice: tierPrice || s.unitPrice,
+              gstRate: isDef ? "0" : (p?.gst_rate != null ? String(p.gst_rate) : s.gstRate),
+            })),
           };
         }),
       );
@@ -1315,70 +1296,6 @@ function SOModal({
     }));
   };
 
-  const pickProduct = (i: number, id: string) => {
-    const p = products.find((x) => x.id === id) as any;
-    const currentCust = customers.find((x) => x.id === f.customer_id);
-    const activeType = f.customer_type || currentCust?.customerType || (so as any)?.customerType || "";
-    const isDefence = activeType?.toLowerCase() === "defence";
-    const tier = getTierForCustomerType(activeType);
-    const resolvedPrice = resolvePriceForCustomerType(p, activeType);
-    setLine(i, {
-      product_id: id,
-      name: p ? fullItemName(p) : "",
-      sku: p?.sku ?? null,
-      unit: p?.unit_of_measure ?? "piece",
-      color: p?.color ?? "",
-      size: p?.size != null ? String(p.size) : "",
-      product_code: p?.model || p?.sku || "",
-      hsn_code: String(p?.hsn_code ?? p?.hsnCode ?? ""),
-      mrp: p?.mrp != null ? String(p.mrp) : "",
-      unit_price: resolvedPrice,
-      gst_rate: isDefence ? "0" : (p?.gst_rate != null ? String(p.gst_rate) : ""),
-      price_tier: tier,
-    });
-  };
-
-  // Inline variant creation from the line editor (mirrors purchase orders):
-  // "Variant" opens the colour/size popup and snapshots the created SKU into
-  // the originating line, so sizes can be selected or created per line.
-  const [variantLine, setVariantLine] = useState<number | null>(null);
-
-  // The top-level product a line's "Variant" action targets — the selected
-  // SKU itself when it is a parent, otherwise its parent (variants are one
-  // level deep, so a variant line adds siblings under its parent).
-  const variantTargetFor = (i: number) => {
-    const p = products.find((x) => x.id === lines[i]?.product_id);
-    if (!p) return null;
-    return (p as any).parent_id
-      ? (products.find((x) => x.id === (p as any).parent_id) ?? null)
-      : p;
-  };
-
-  const applyVariantToLine = (i: number, v: any) => {
-    const currentCust = customers.find((x) => x.id === f.customer_id);
-    const activeType = f.customer_type || currentCust?.customerType || (so as any)?.customerType || "";
-    const isDefence = activeType?.toLowerCase() === "defence";
-    const tier = getTierForCustomerType(activeType);
-    const resolvedPrice = resolvePriceForCustomerType(v, activeType);
-    setLine(i, {
-      product_id: v.id,
-      name: fullItemName(v),
-      sku: v.sku ?? null,
-      unit: v.unit_of_measure ?? lines[i]?.unit ?? "piece",
-      color: v.color ?? "",
-      size: v.size != null ? String(v.size) : "",
-      product_code: v.model || v.sku || "",
-      hsn_code: String(v.hsn_code ?? v.hsnCode ?? ""),
-      mrp: v.mrp != null ? String(v.mrp) : "",
-      unit_price: resolvedPrice || lines[i]?.unit_price || "",
-      gst_rate: isDefence ? "0" : (v.gst_rate != null ? String(v.gst_rate) : lines[i]?.gst_rate ?? ""),
-      price_tier: tier,
-    });
-  };
-
-  // Expandable per-line notes (secondary detail row, not a main column).
-  const [notesOpen, setNotesOpen] = useState<Record<number, boolean>>({});
-
   const addLine = () => {
     const currentCust = customers.find((x) => x.id === f.customer_id);
     const activeType = f.customer_type || currentCust?.customerType || (so as any)?.customerType || "";
@@ -1386,21 +1303,7 @@ function SOModal({
     setLines((ls) => [
       ...ls,
       {
-        product_id: "",
-        sku: null,
-        name: "",
-        unit: "piece",
-        color: "",
-        size: "",
-        product_code: "",
-        hsn_code: "",
-        mrp: "",
-        ordered_qty: "",
-        unit_price: "",
-        discount_pct: "",
-        gst_rate: "",
-        notes: "",
-        dispatched_qty: 0,
+        ...emptyLine(),
         price_tier: tier,
       },
     ]);
@@ -1408,7 +1311,7 @@ function SOModal({
 
   const removeLine = (i: number) => {
     const l = lines[i];
-    if (l && l.dispatched_qty > 0) {
+    if (l && l.dispatched_qty && l.dispatched_qty > 0) {
       toast.error("Cannot remove a line that already has dispatched quantities");
       return;
     }
@@ -1422,20 +1325,27 @@ function SOModal({
       lines.reduce(
         (s, l) =>
           s +
-          (Number(l.ordered_qty) || 0) *
-            (Number(l.unit_price) || 0) *
-            ((Number(l.discount_pct) || 0) / 100),
+          l.sizes.reduce(
+            (sz, size) =>
+              sz +
+              (Number(size.quantity) || 0) *
+                (Number(size.unitPrice) || 0) *
+                ((Number(size.discountPct) || 0) / 100),
+            0,
+          ),
         0,
       ),
     );
     const billed = inclusiveTotals(
-      lines.map((l) => ({
-        amount:
-          (Number(l.ordered_qty) || 0) *
-          (Number(l.unit_price) || 0) *
-          (1 - (Number(l.discount_pct) || 0) / 100),
-        gstRate: l.gst_rate,
-      })),
+      lines.flatMap((l) =>
+        l.sizes.map((size) => ({
+          amount:
+            (Number(size.quantity) || 0) *
+            (Number(size.unitPrice) || 0) *
+            (1 - (Number(size.discountPct) || 0) / 100),
+          gstRate: size.gstRate,
+        })),
+      ),
       Number(f.freight) || 0,
     );
     return {
@@ -1451,22 +1361,62 @@ function SOModal({
   // the form is not yet submittable (auto-save treats that as "browser only").
   const buildPayload = () => {
       if (lines.length === 0) throw new Error("Add at least one product line");
-      const payloadLines = lines.map((l) => ({
-        product_id: l.product_id,
-        sku: l.sku,
-        name: l.name,
-        unit: l.unit || "piece",
-        color: l.color.trim() || null,
-        size: l.size.trim() || null,
-        product_code: l.product_code.trim() || null,
-        hsn_code: l.hsn_code.trim() || null,
-        mrp: l.mrp ? Number(l.mrp) : null,
-        ordered_qty: Number(l.ordered_qty) || 0,
-        unit_price: Number(l.unit_price) || 0,
-        discount_pct: l.discount_pct ? Number(l.discount_pct) : null,
-        gst_rate: l.gst_rate ? Number(l.gst_rate) : null,
-        notes: l.notes.trim() || null,
-      }));
+      const payloadLines: Array<{
+        product_id: string;
+        sku: string | null;
+        name: string;
+        unit: string;
+        color: string | null;
+        size: string | null;
+        product_code: string | null;
+        hsn_code: string | null;
+        mrp: number | null;
+        ordered_qty: number;
+        unit_price: number;
+        discount_pct: number | null;
+        gst_rate: number | null;
+        notes: string | null;
+      }> = [];
+      for (const l of lines) {
+        if (!l.sizes || l.sizes.length === 0) {
+          // Empty line (no sizes) — still validated below.
+          payloadLines.push({
+            product_id: l.product_id,
+            sku: l.sku,
+            name: l.name,
+            unit: l.unit || "piece",
+            color: l.color.trim() || null,
+            size: null,
+            product_code: l.product_code.trim() || null,
+            hsn_code: l.hsn_code.trim() || null,
+            mrp: l.mrp ? Number(l.mrp) : null,
+            ordered_qty: 0,
+            unit_price: 0,
+            discount_pct: null,
+            gst_rate: null,
+            notes: l.notes.trim() || null,
+          });
+          continue;
+        }
+        for (const s of l.sizes) {
+          payloadLines.push({
+            product_id: s.childProductId,
+            sku: s.childSku,
+            name: s.childName || l.name,
+            unit: s.unit || l.unit || "piece",
+            color: l.color.trim() || null,
+            size: s.size.trim() || null,
+            product_code: l.product_code.trim() || null,
+            hsn_code: s.hsnCode || l.hsn_code,
+            mrp: s.mrp ? Number(s.mrp) : null,
+            ordered_qty: Number(s.quantity) || 0,
+            unit_price: Number(s.unitPrice) || 0,
+            discount_pct: s.discountPct ? Number(s.discountPct) : null,
+            gst_rate: s.gstRate ? Number(s.gstRate) : null,
+            notes: l.notes.trim() || null,
+          });
+        }
+      }
       for (const l of payloadLines) {
         if (!l.product_id) throw new Error("Every line must select a product from the catalogue");
         if (!(l.ordered_qty > 0)) throw new Error("Ordered quantity must be greater than zero");
@@ -2128,308 +2078,30 @@ function SOModal({
             </legend>
             {products.length === 0 ? (
               <div className="rounded-md border border-sem-attention/40 bg-sem-attention/10 p-3 text-xs text-sem-attention">
-                No active products in the catalogue yet — add products in the Product catalogue tab
-                first.
+                No active products in the catalogue yet — add products in the Product catalogue tab first.
               </div>
             ) : (
               <div className="space-y-4">
-                {lines.map((l, i) => {
-                  const gross = (Number(l.ordered_qty) || 0) * (Number(l.unit_price) || 0);
-                  const lineTotal = round2(gross * (1 - (Number(l.discount_pct) || 0) / 100));
-                  const offerUnit = round2((Number(l.unit_price) || 0) * (1 - (Number(l.discount_pct) || 0) / 100));
-                  // Print snapshots: line values first, catalogue fallback for old lines.
-                  const prod = products.find((x) => x.id === l.product_id) as any;
-                  const snapColor = l.color || prod?.color || "";
-                  const snapSize = l.size || (prod?.size != null ? String(prod.size) : "");
-                  const snapCode = l.product_code || prod?.model || l.sku || "";
-                  const snapHsn =
-                    l.hsn_code || prod?.hsn_code || prod?.hsnCode || "";
-                  const snapMrp = l.mrp || (prod?.mrp != null ? String(prod.mrp) : "");
-                  const overDispatched =
-                    editable && l.dispatched_qty > 0 && Number(l.ordered_qty) < l.dispatched_qty;
-                  // Size selection box: every size SKU in the line's product family.
-                  // Catalogue hierarchies can be parent → variant (2 levels) or
-                  // parent → colour → size SKU (3 levels), so descendants are
-                  // gathered two levels deep — direct children alone miss the
-                  // size SKUs that hang under colour nodes. Picking a size swaps
-                  // the line to the matching size SKU (same colour kept when
-                  // possible), so a size is always selectable per line.
-                  const upOf = (node: any): any =>
-                    node?.parent_id
-                      ? (products.find((x) => x.id === node.parent_id) ?? null)
-                      : null;
-                  let familyRoot: any = prod ?? null;
-                  {
-                    const up1 = upOf(familyRoot);
-                    if (up1) {
-                      familyRoot = up1;
-                      const up2 = upOf(familyRoot);
-                      if (up2) familyRoot = up2;
-                    }
-                  }
-                  const childrenOf = (id: string): any[] =>
-                    products.filter((x) => (x as any).parent_id === id) as any[];
-                  let descendants: any[] = [];
-                  if (familyRoot) {
-                    const level1 = childrenOf(familyRoot.id);
-                    descendants = [...level1];
-                    for (const c of level1) descendants.push(...childrenOf((c as any).id));
-                  }
-                  const sizedDescendants = descendants.filter(
-                    (k: any) => String(k?.size ?? "").trim() !== "",
-                  );
-                  const sizePool =
-                    sizedDescendants.length > 0
-                      ? sizedDescendants
-                      : prod?.size != null && String(prod.size).trim()
-                        ? [prod]
-                        : [];
-                  const sizeOrder = (a: string, b: string) =>
-                    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
-                  const lineSizeOptions = Array.from(
-                    new Set(
-                      sizePool
-                        .map((k: any) => String(k?.size ?? "").trim())
-                        .filter((s: string) => s !== ""),
-                    ),
-                  ).sort(sizeOrder);
-                  const lineSizeValue =
-                    (l.size ?? "").trim() ||
-                    (lineSizeOptions.includes(snapSize) ? snapSize : "");
-                  const sizeSelectOptions =
-                    lineSizeValue && !lineSizeOptions.includes(lineSizeValue)
-                      ? [lineSizeValue, ...lineSizeOptions]
-                      : lineSizeOptions;
-                  const changeLineSize = (next: string) => {
-                    const size = next.trim();
-                    if (!size) {
-                      setLine(i, { size: "" });
-                      return;
-                    }
-                    const poolMatch =
-                      sizePool.find(
-                        (k: any) =>
-                          String(k?.size ?? "").trim() === size &&
-                          (!l.color.trim() ||
-                            String(k?.color ?? "").trim().toLowerCase() ===
-                              l.color.trim().toLowerCase()),
-                      ) ??
-                      sizePool.find((k: any) => String(k?.size ?? "").trim() === size);
-                    if (poolMatch && poolMatch.id !== l.product_id) pickProduct(i, poolMatch.id);
-                    else setLine(i, { size });
-                  };
-                  return (
-                    <div key={i} className="space-y-4 rounded-lg border border-border/60 bg-card/30 p-4 sm:p-5">
-                      <div className="min-w-0">
-                          <ProductVariantPicker
-                              products={products}
-                              value={l.product_id}
-                              onChange={(v) => pickProduct(i, v)}
-                              disabled={!editable}
-                              placeholder="Select item…"
-                              childPlaceholder="Select colour / size…"
-                              categoryPlaceholder="Select category…"
-                              categoryCompact
-                              layout="stacked"
-                            />
-                          {(snapColor || snapSize || snapCode || snapHsn || snapMrp) && (
-                            <div className="mt-0.5 break-words text-[10px] leading-snug text-muted-foreground">
-                              {[
-                                snapColor || null,
-                                snapSize ? `Size ${snapSize}` : null,
-                                snapCode ? `Code ${snapCode}` : null,
-                                snapHsn ? `HSN ${snapHsn}` : null,
-                                snapMrp ? `MRP ₹${snapMrp}` : null,
-                                `Offer ₹${offerUnit.toLocaleString("en-IN")}`,
-                              ]
-                                .filter(Boolean)
-                                .join(" · ")}
-                            </div>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-2 gap-x-4 gap-y-4 sm:grid-cols-3 lg:grid-cols-4">
-                        <div>
-                          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
-                            Unit
-                          </span>
-                          <input
-                              className={inputBase}
-                              value={l.unit}
-                              onChange={(e) => setLine(i, { unit: e.target.value })}
-                              disabled={!editable}
-                            />
-                        </div>
-<div>
-                            <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
-                              Ordered qty
-                            </span>
-                            <input
-                              type="number"
-                              min="1"
-                              step="0.001"
-                              className={overDispatched ? `${inputBase} !border-sem-attention` : inputBase}
-                              value={l.ordered_qty}
-                              onChange={(e) => setLine(i, { ordered_qty: e.target.value })}
-                              disabled={!editable}
-                            />
-                          {overDispatched && (
-                            <div className="mt-0.5 text-[9px] text-sem-attention">
-                              Cannot go below dispatched ({l.dispatched_qty})
-                            </div>
-                          )}
-                        </div>
-                        <div>
-                          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
-                            Size
-                          </span>
-                          <select
-                            className={selectBase}
-                            value={lineSizeValue}
-                            onChange={(e) => changeLineSize(e.target.value)}
-                            disabled={!editable || sizeSelectOptions.length === 0}
-                          >
-                            <option value="">
-                              {!l.product_id
-                                ? "Select item first…"
-                                : sizeSelectOptions.length === 0
-                                  ? "No sizes"
-                                  : "Select size…"}
-                            </option>
-                            {sizeSelectOptions.map((s) => (
-                              <option key={s} value={s}>
-                                {s}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        <div>
-                          {l.product_id && !f.customer_id ? (
-                            <>
-                              <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
-                                Price tier
-                              </span>
-                              <select
-                                className={inputBase}
-                                value={l.price_tier ?? ""}
-                                onChange={(e) => changePriceTier(i, e.target.value)}
-                                disabled={!editable}
-                              >
-                                {PRICE_TIERS.map((t) => (
-                                  <option key={t.value} value={t.value}>
-                                    {t.label}
-                                  </option>
-                                ))}
-                              </select>
-                            </>
-                          ) : null}
-                        </div>
-                        <div>
-                          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
-                            Unit price
-                          </span>
-                          <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              className={inputBase}
-                              value={l.unit_price}
-                              onChange={(e) => setLine(i, { unit_price: e.target.value })}
-                              disabled={!editable}
-                              placeholder="Selling price"
-                            />
-                          {(Number(l.unit_price) || 0) > 0 && (
-                            <div className="mt-1 text-right text-[10px] text-muted-foreground">
-                              ex-GST {fmtMoney(exGstPrice(Number(l.unit_price) || 0, l.gst_rate))}
-                            </div>
-                          )}
-                        </div>
-                        <div>
-                          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
-                            Disc %
-                          </span>
-                          <input
-                              type="number"
-                              min="0"
-                              max="100"
-                              step="0.01"
-                              className={inputBase}
-                              value={l.discount_pct}
-                              onChange={(e) => setLine(i, { discount_pct: e.target.value })}
-                              disabled={!editable}
-                              placeholder="0"
-                            />
-                        </div>
-                        <div>
-                          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
-                            GST %
-                          </span>
-                          <input
-                              list="so-gst-rates"
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              className={inputBase}
-                              value={l.gst_rate}
-                              onChange={(e) => setLine(i, { gst_rate: e.target.value })}
-                              disabled={!editable}
-                            />
-                        </div>
-                        <div className="text-right">
-                          <span className="mb-1.5 block text-xs font-medium uppercase tracking-[0.06em] text-muted-foreground">
-                            Line total
-                          </span>
-                          <div className={`${inputBase} bg-muted/40 text-right font-mono tabular-nums`}>
-                              {fmtMoney(lineTotal)}
-                            </div>
-                        </div>
-                        <div className="flex items-end justify-end gap-1 pb-1">
-                          {l.dispatched_qty > 0 && (
-                            <>
-                              <span className="rounded bg-sem-success/10 px-1.5 py-0.5 text-[9px] text-sem-success">
-                                dispatched {l.dispatched_qty}
-                              </span>
-                              <span className="rounded bg-muted px-1.5 py-0.5 text-[9px] text-muted-foreground">
-                                pending{" "}
-                                {Math.max(0, (Number(l.ordered_qty) || 0) - l.dispatched_qty)}
-                              </span>
-                            </>
-                          )}
-                          {editable && (
-                            <button
-                              type="button"
-                              onClick={() => removeLine(i)}
-                              className="rounded p-1 text-muted-foreground hover:text-destructive"
-                              aria-label={`Remove sales order line ${i + 1}`}
-                              title="Remove line"
-                            >
-                              <X className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </div>
-                      </div>
-                      {editable && (
-                        <L label="Line notes">
-                          <input
-                            className={`${inputBase} !py-1.5 text-xs`}
-                            value={l.notes}
-                            onChange={(e) => setLine(i, { notes: e.target.value })}
-                            placeholder="Optional line note…"
-                          />
-                        </L>
-                      )}
-                      {!editable && l.notes ? (
-                        <div className="text-[10px] text-muted-foreground">Note: {l.notes}</div>
-                      ) : null}
-                    </div>
-                  );
-                })}
+                {lines.map((l, i) => (
+                  <MultiSizeLineCard
+                    key={i}
+                    products={products}
+                    value={l}
+                    onChange={(next) => setLine(i, next)}
+                    onRemove={() => removeLine(i)}
+                    disabled={!editable}
+                    mode="sales"
+                    stockBalance={stockBalance}
+                    customerType={f.customer_type}
+                  />
+                ))}
                 {editable && (
                   <button
                     type="button"
                     onClick={addLine}
                     className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-border px-3 py-1.5 text-xs text-muted-foreground hover:border-primary hover:text-primary"
                   >
-                    <Plus className="h-3.5 w-3.5" /> Add line
+                    <Plus className="h-3.5 w-3.5" /> Add product line
                   </button>
                 )}
               </div>
@@ -2440,7 +2112,7 @@ function SOModal({
           <div className="ml-auto max-w-sm space-y-1 rounded-lg border border-border/60 bg-muted/20 p-4 text-sm">
             <Row
               label="Total quantity"
-              value={lines.reduce((s, l) => s + (Number(l.ordered_qty) || 0), 0).toLocaleString()}
+              value={lines.reduce((s, l) => s + l.sizes.reduce((sz, size) => sz + (Number(size.quantity) || 0), 0), 0).toLocaleString()}
             />
             <Row label="Subtotal (ex-GST)" value={fmtMoney(totals.subtotal)} />
             <Row label="Total discount" value={fmtMoney(totals.totalDiscount)} />
@@ -2467,19 +2139,7 @@ function SOModal({
             </div>
           </div>
         </form>
-        {/* Inline variant popup — new colour/size variants for the line's
-            product. Snapshots the created SKU into the originating line. */}
-        {variantLine !== null && variantTargetFor(variantLine) !== null && (
-          <QuickAddVariantModal
-            parent={variantTargetFor(variantLine)!}
-            initialColor={lines[variantLine]?.color ?? ""}
-            onClose={() => setVariantLine(null)}
-            onCreated={(created) => {
-              if (variantLine !== null) applyVariantToLine(variantLine, created);
-              setVariantLine(null);
-            }}
-          />
-        )}
+        
         <datalist id="so-gst-rates">
           <option value="0" />
           <option value="5" />

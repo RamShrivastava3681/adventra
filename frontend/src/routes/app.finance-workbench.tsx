@@ -148,7 +148,7 @@ function daysOverdue(due: string | null | undefined): number {
 
 const PRIORITY_RANK: Record<string, number> = { urgent: 0, high: 1, normal: 2, low: 3 };
 
-type FilterKey = "all" | "sales_invoices" | "purchase_invoices" | "proforma" | "payments" | "dispatch";
+type FilterKey = "all" | "sales_invoices" | "purchase_invoices" | "proforma" | "payments" | "dispatch" | "credit-debit-notes";
 
 const FILTERS: Array<{ key: FilterKey; label: string }> = [
   { key: "all", label: "All" },
