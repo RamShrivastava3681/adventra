@@ -99,6 +99,8 @@ export function ProductVariantPicker({
   categoryPlaceholder = "Select category…",
   layout = "stacked",
   categoryCompact = false,
+  showCategory = true,
+  itemDisplay = "name",
 }: {
   products: ProductVariantOption[];
   /** The line's current product id (a variant's id, a childless parent's id, or ""). */
@@ -123,6 +125,10 @@ export function ProductVariantPicker({
    * height as the other boxes. Opt-in — other pages keep the current look.
    */
   categoryCompact?: boolean;
+  /** Hide the category step when the parent form already renders it. */
+  showCategory?: boolean;
+  /** Choose whether item options are headed by the full name or parent SKU. */
+  itemDisplay?: "name" | "sku";
 }) {
   // The parent the user is drilling into. Kept locally while they pick a
   // variant, because the document line doesn't change until the child lands.
@@ -298,7 +304,7 @@ export function ProductVariantPicker({
     <div className={cn(layoutClass, className)}>
       {/* Step 1 — Category: always visible when the catalogue has categories so
           every line starts by narrowing to one family. */}
-      {categories.length > 0 && (
+      {showCategory && categories.length > 0 && (
         <div className="w-full min-w-0">
           {showLabels && <span className={labelCls}>Category</span>}
           <SearchableSelect
@@ -345,16 +351,20 @@ export function ProductVariantPicker({
             const sub = clean((p as ProductVariantOption).subcategory);
             return {
               value: p.id,
-              // Complete name first so typing any word of it matches.
-              label: fullItemName(p),
-              hint: [
-                p.sku ? `SKU ${p.sku}` : null,
-                cat || null,
-                sub && sub.toLowerCase() !== cat.toLowerCase() ? sub : null,
-                count > 0 ? `${count} variant${count > 1 ? "s" : ""} — pick colour/size below` : null,
-              ]
-                .filter(Boolean)
-                .join(" · ") || undefined,
+              // Keep the option headed by the parent SKU when the surrounding
+              // line editor already identifies the product separately.
+              label: itemDisplay === "sku" ? clean(p.sku) || fullItemName(p) : fullItemName(p),
+              hint:
+                itemDisplay === "sku"
+                  ? undefined
+                  : [
+                      p.sku ? `SKU ${p.sku}` : null,
+                      cat || null,
+                      sub && sub.toLowerCase() !== cat.toLowerCase() ? sub : null,
+                      count > 0 ? `${count} variant${count > 1 ? "s" : ""} — pick colour/size below` : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || undefined,
             };
           })}
         />

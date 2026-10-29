@@ -686,6 +686,8 @@ export function MultiSizeLineCard({
             categoryCompact
             layout="stacked"
             showLabels={false}
+            showCategory={false}
+            itemDisplay="sku"
           />
         </div>
 
