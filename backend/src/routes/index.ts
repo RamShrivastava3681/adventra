@@ -158,6 +158,7 @@ import { writeEvent } from "../models/domain-event.js";
 import * as PaymentReceipt from "../models/payment-receipt.js";
 import * as NotificationLog from "../models/notification-log.js";
 import * as WorkflowSettings from "../models/workflow-settings.js";
+import * as AmazonIntegration from "./amazon-integration.js";
 import * as db from "../dynamodb.js";
 import * as AuditLog from "../models/audit-log.js";
 
@@ -4332,10 +4333,8 @@ router.post("/purchase-orders", authMiddleware, async (req, res) => {
         .status(400)
         .json({ error: "Advance percentage must be between 0 and 100" });
     }
-    // A recorded proforma starts as a maker DRAFT. It only enters the
-    // checker's queue when the maker explicitly submits it for review
-    // (PUT with proformaStatus "pending_review") — the funding workflow is
-    // maker → submit → checker approval → treasury funding.
+    // A recorded proforma starts as a maker DRAFT and enters Treasury only
+    // when the maker explicitly approves it for funding.
     body.proformaStatus = "draft";
     const item = await PurchaseOrder.create({
       ...body,
@@ -4348,8 +4347,8 @@ router.post("/purchase-orders", authMiddleware, async (req, res) => {
       amount: item.poAmount ?? item.amount,
       status: item.proformaStatus,
     });
-    // A recorded proforma (sales or purchase) enters the unified queue: the
-    // maker owns it until it is submitted to the checker.
+    // A recorded proforma remains with the maker until it is approved for
+    // Treasury funding.
     advanceWorkflow(req, {
       workflowType: "proforma",
       stage: "maker_draft",
@@ -4374,8 +4373,8 @@ router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
     const current = await PurchaseOrder.get(req.params.id);
     if (!current) return res.status(404).json({ error: "Proforma not found" });
 
-    // ── Maker–checker–treasury funding workflow (enforced server-side) ──
-    // pending_review (maker) → approved/rejected (checker) → funded (treasury).
+    // ── Maker–treasury funding workflow (enforced server-side) ──
+    // draft (maker) → approved/rejected (maker/operations) → funded (treasury).
     if (body.proformaStatus !== undefined) {
      const roles: string[] = req.user!.roles || [];
      const isAdmin = roles.includes("factor_admin");
@@ -4412,13 +4411,13 @@ router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
               .json({ error: "Only treasury (or admin) can fund proformas" });
           }
           // Funding is the terminal step of the workflow — it requires the
-          // checker's approval first.
+          // maker/operations approval first.
           if (current.proformaStatus !== "approved") {
             return res
               .status(400)
               .json({
                 error:
-                  "Proforma must be approved by the checker before it can be funded",
+                  "Proforma must be approved before it can be funded",
               });
           }
           if (body.proformaFundedBy === undefined)
@@ -4428,9 +4427,8 @@ router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
           break;
         }
         case "pending_review": {
-          // Maker (re-)submits — allowed from draft or after a rejection.
-          // This is the ONLY way a proforma reaches the checker's queue:
-          // approval/funding stay checker/treasury decisions.
+          // Legacy clients used pending_review for submission. Promote that
+          // request directly to Treasury so proformas never enter Checker.
           if (["approved", "funded"].includes(current.proformaStatus)) {
             return res
               .status(400)
@@ -4438,9 +4436,12 @@ router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
           }
           if (current.clientId !== req.user!.userId && !isAdmin) {
             return res.status(403).json({
-              error: "Only the maker (or admin) can submit a proforma for review",
+              error: "Only the maker (or admin) can approve a proforma for funding",
             });
           }
+          body.proformaStatus = "approved";
+          body.proformaReviewedBy = req.user!.userId;
+          body.proformaReviewedAt = db.nowISO();
           break;
         }
         default:
@@ -4448,7 +4449,7 @@ router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
             .status(400)
             .json({
               error:
-                "proformaStatus must be pending_review, approved, rejected or funded",
+                "proformaStatus must be approved, rejected or funded",
             });
       }
     }
@@ -4550,34 +4551,30 @@ router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
           amount: current.poAmount ?? current.amount,
         });
       }
-      // Re-submitted → pending in checker; approved → pending in treasury:
-      // mail admin, treasury and checker users.
-      if (s === "pending_review" || s === "approved") {
+      // Approved proformas go directly to Treasury.
+      if (s === "approved") {
         notifyPendingQueue(req, {
-          stage: s === "pending_review" ? "checker" : "treasury",
+          stage: "treasury",
           kind: "proforma",
           number: (updated as any)?.proformaNumber ?? current.proformaNumber ?? current.poNumber,
           amount: Number((updated as any)?.poAmount ?? (updated as any)?.amount ?? current.poAmount ?? current.amount) || 0,
-          reviewPath: s === "pending_review" ? "/app/checker" : "/app/queue",
+          reviewPath: "/app/queue",
         });
       }
-      // Every proforma transition opens the next workflow task so the
-      // document shows up in My Queue (maker → checker → treasury).
-      if (["pending_review", "approved", "rejected", "funded"].includes(s)) {
+      // Every proforma transition opens the next workflow task. Checker is
+      // not part of the proforma funding flow.
+      if (["approved", "rejected", "funded"].includes(s)) {
         const stageByStatus: Record<string, string> = {
-          pending_review: "checker_approval",
           approved: "treasury_funding",
           rejected: "maker_draft",
           funded: "apply_advance",
         };
         const actionByStatus: Record<string, string> = {
-          pending_review: "Approve or reject proforma",
           approved: "Fund the proforma advance",
           rejected: "Fix the proforma and resubmit",
           funded: "Apply the advance to the final invoice",
         };
         const ownerByStatus: Record<string, string> = {
-          pending_review: "checker",
           approved: "treasury",
           rejected: "procurement",
           funded: "treasury",
@@ -4593,10 +4590,10 @@ router.put("/purchase-orders/:id", authMiddleware, async (req, res) => {
           docStatus: s,
           ownerRole: ownerByStatus[s],
           requiredAction: actionByStatus[s],
-          nextAction: s === "pending_review" ? "Checker decision" : s === "approved" ? "Treasury funding" : s === "funded" ? "Invoice adjustment" : "Resubmit",
+          nextAction: s === "approved" ? "Treasury funding" : s === "funded" ? "Invoice adjustment" : "Resubmit",
           amount: Number((updated as any)?.poAmount ?? (updated as any)?.amount ?? current.poAmount ?? current.amount) || 0,
           paymentStatus: s === "funded" ? "paid" : null,
-        }, { timelineKind: "system", docType: "proforma", appPath: s === "pending_review" ? "/app/checker" : "/app/proformas" });
+        }, { timelineKind: "system", docType: "proforma", appPath: s === "approved" ? "/app/queue" : "/app/proformas" });
       }
     }
     res.json(updated);
@@ -11206,6 +11203,9 @@ router.get("/user-progress", authMiddleware, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ===================== AMAZON INTEGRATION =====================
+router.use("/amazon", AmazonIntegration);
 
 // ===================== CASH FLOW & TREASURY =====================
 import cashFlowRoutes from "./cash-flow.js";

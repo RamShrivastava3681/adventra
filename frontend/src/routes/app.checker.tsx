@@ -247,55 +247,6 @@ function CheckerPage() {
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  // Proforma advances awaiting checker approval
-  const proformasQ = useQuery({
-    queryKey: ["checker-proformas"],
-    queryFn: async () => {
-      const data = await api.purchaseOrders.list();
-      // Only explicitly SUBMITTED proformas await review here. Drafts stay on
-      // the maker's desk until they submit — procurement/finance can never
-      // approve, and the checker must never see un-submitted drafts.
-      return data.filter(
-        (p: any) =>
-          !["cancelled", "expired", "converted_to_po"].includes(p.status) &&
-          p.proforma_status === "pending_review",
-      );
-    },
-  });
-
-  const reviewProforma = useMutation({
-    mutationFn: async ({
-      id,
-      decision,
-      comments,
-    }: {
-      id: string;
-      decision: "approved" | "rejected";
-      comments?: string | null;
-    }) => {
-      // Rejection requires a reason — it travels back to the maker so they
-      // know what to fix before re-submitting.
-      if (decision === "rejected" && !comments?.trim()) {
-        throw new Error("A reason is required to reject the proforma");
-      }
-      await api.purchaseOrders.update(id, {
-        proforma_status: decision,
-        proforma_reviewed_by: user!.id,
-        proforma_reviewed_at: new Date().toISOString(),
-        proforma_review_comments: comments?.trim() || null,
-      });
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["checker-proformas"] });
-      qc.invalidateQueries({ queryKey: ["proformas"] });
-      qc.invalidateQueries({ queryKey: ["queue-proformas"] });
-      toast.success("Proforma decision recorded");
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  // Reject-with-reason prompt state for proformas (approval is one click).
-  const [pfRejectFor, setPfRejectFor] = useState<{ id: string; number: string } | null>(null);
   // Reject-with-reason prompt state for purchase orders.
   const [poRejectFor, setPoRejectFor] = useState<{ id: string; number: string } | null>(null);
 
@@ -668,28 +619,6 @@ function CheckerPage() {
       });
     }
 
-    // Proforma advances
-    for (const p of (proformasQ.data ?? []) as any[]) {
-      out.push({
-        key: `pf-${p.id}`,
-        type: "proforma",
-        docNumber: p.proforma_number ?? "—",
-        statusCode: p.proforma_status ?? p.status,
-        createdBy: creatorFor(null, p.client_id),
-        value: Number(p.amount) || 0,
-        submittedOn: p.created_at,
-        summary: `${p.side === "sales" ? "Sales" : "Purchase"} proforma advance · ${pfParty(p)}`,
-        ageDays: ageDaysSince(p.created_at),
-        selfCreated: p.client_id === user?.id && !isAdmin,
-        onReview: () => setViewPf(p),
-        onApprove: () => reviewProforma.mutate({ id: p.id, decision: "approved" }),
-        onReject: () => setPfRejectFor({ id: p.id, number: p.proforma_number ?? p.po_number ?? "" }),
-        approveLabel: "Approve",
-        rejectLabel: "Reject",
-        approvePending: reviewProforma.isPending,
-      });
-    }
-
     // Credit / debit notes
     for (const n of (notesQ.data ?? []) as any[]) {
       const linkedRaw = n.invoice ?? n.purchase ?? null;
@@ -736,7 +665,6 @@ function CheckerPage() {
     posQ.data,
     purchasesQ.data,
     salesQ.data,
-    proformasQ.data,
     notesQ.data,
     partyMap,
     userMap,
@@ -861,7 +789,7 @@ function CheckerPage() {
   const countPO = (posQ.data ?? []).length;
   const countInv = (salesQ.data ?? []).length + (purchasesQ.data ?? []).length;
   const countTotal =
-    countSO + countPO + countInv + (proformasQ.data ?? []).length + (notesQ.data ?? []).length;
+    countSO + countPO + countInv + (notesQ.data ?? []).length;
 
   const isHistoryTab = tab === "approved" || tab === "returned" || tab === "history";
 
@@ -908,7 +836,6 @@ function CheckerPage() {
   const queueLoading =
     salesQ.isLoading ||
     purchasesQ.isLoading ||
-    proformasQ.isLoading ||
     posQ.isLoading ||
     sosQ.isLoading ||
     notesQ.isLoading;
@@ -1424,20 +1351,6 @@ function CheckerPage() {
                   payment_amount: vals.payment_amount,
                 },
                 { onSuccess: () => setApproveFor(null) },
-              );
-            }}
-          />
-        )}
-
-        {pfRejectFor && (
-          <RejectProformaModal
-            pfNumber={pfRejectFor.number}
-            pending={reviewProforma.isPending}
-            onClose={() => setPfRejectFor(null)}
-            onSubmit={(comments) => {
-              reviewProforma.mutate(
-                { id: pfRejectFor.id, decision: "rejected", comments },
-                { onSuccess: () => setPfRejectFor(null) },
               );
             }}
           />

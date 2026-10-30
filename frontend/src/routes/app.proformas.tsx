@@ -411,16 +411,15 @@ function ProformasPageContent({
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
 
-  // Maker action: submit a draft proforma into the checker's queue for review.
-  // Reaching `pending_review` is explicit — the maker must submit it; the
-  // funding workflow is maker → submit → checker approval → treasury funding.
+  // Maker action: approve the proforma directly into Treasury's funding queue.
   const submitForReview = useMutation({
     mutationFn: async (id: string) => {
-      await api.purchaseOrders.update(id, { proforma_status: "pending_review" });
+      await api.purchaseOrders.update(id, { proforma_status: "approved" });
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["proformas"] });
-      toast.success("Submitted for checker review");
+      qc.invalidateQueries({ queryKey: ["queue-proformas"] });
+      toast.success("Approved and sent to Treasury");
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
@@ -526,8 +525,8 @@ function ProformasPageContent({
                           p.side === "purchase"
                             ? p.status === "reviewed"
                             : ["reviewed", "proforma"].includes(p.status);
-                        // Once submitted for review (or approved) the maker can no
-                        // longer change the proforma — the checker/treasury own it.
+                        // Once approved, the maker can no longer change the
+                        // proforma — Treasury owns the funding step.
                         const underReview = ["pending_review", "approved"].includes(
                           p.proforma_status,
                         );
@@ -651,10 +650,6 @@ function ProformasPageContent({
                                        Approve & send to treasury
                                      </button>
                                   )}
-                                {/* No approve/reject here: approval is a
-                                  checker-only decision made on the Checker
-                                  workbench — never from procurement, sales
-                                  or finance views. */}
                                 {canCreate &&
                                   p.status !== "invoiced" &&
                                   p.status !== "cancelled" &&
@@ -692,8 +687,8 @@ function ProformasPageContent({
               <li>
                 <span className="font-medium text-foreground">Sales proforma</span> — record the
                 customer's proforma invoice (catalogue lines, totals, attachment) as Received,
-                review it, and convert it to a Sales order (a draft SO is auto-created, never
-                stock). An optional advance request flows through the checker/treasury pipeline and
+                approve it, and convert it to a Sales order (a draft SO is auto-created, never
+                stock). An optional advance request flows directly to Treasury and
                 is applied to the final invoice with the same PO number.
               </li>
             )}
@@ -1031,7 +1026,7 @@ function SalesProformaModal({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["proformas"] });
       toast.success(
-        isEdit ? "Proforma updated" : "Proforma saved as draft — submit it to the checker when ready",
+        isEdit ? "Proforma updated" : "Proforma saved as draft — approve it to send to Treasury",
       );
       onClose();
     },
@@ -1332,7 +1327,7 @@ function SalesProformaModal({
           </div>
         </div>
 
-        {/* Advance & funding (checker/treasury flow) */}
+        {/* Advance & funding (maker/treasury flow) */}
         <fieldset className="rounded-lg border border-border/60 p-4">
           <legend className="px-1 text-xs font-medium uppercase tracking-widest text-muted-foreground">
             Advance & funding
@@ -1360,7 +1355,7 @@ function SalesProformaModal({
           </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
             A proforma never creates inventory — stock only reduces after a confirmed dispatch. It
-            is saved as a draft: submit it to the checker from the list for approval, and any
+            is saved as a draft: approve it from the list to send it directly to Treasury, and any
             advance is then received by treasury. Convert the proforma to a Sales order from the
             list to hand it to the sales workflow.
           </p>
@@ -1766,7 +1761,7 @@ function PurchaseProformaModal({
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["proformas"] });
       toast.success(
-        isEdit ? "Proforma updated" : "Proforma saved as draft — submit it to the checker when ready",
+        isEdit ? "Proforma updated" : "Proforma saved as draft — approve it to send to Treasury",
       );
       onClose();
     },
@@ -2131,7 +2126,7 @@ function PurchaseProformaModal({
             </L>
           </div>
           <p className="mt-2 text-[11px] text-muted-foreground">
-            If an advance is requested it is submitted for checker review, then paid by treasury —
+            If an advance is requested it is approved and sent directly to Treasury for payment —
             the recorded advance is later applied to the invoice using this PO number. Convert the
             proforma to a Purchase order from the list once the quotation is accepted.
           </p>
