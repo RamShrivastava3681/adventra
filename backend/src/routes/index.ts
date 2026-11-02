@@ -158,7 +158,7 @@ import { writeEvent } from "../models/domain-event.js";
 import * as PaymentReceipt from "../models/payment-receipt.js";
 import * as NotificationLog from "../models/notification-log.js";
 import * as WorkflowSettings from "../models/workflow-settings.js";
-import * as AmazonIntegration from "./amazon-integration.js";
+import AmazonIntegration from "./amazon-integration.js";
 import * as db from "../dynamodb.js";
 import * as AuditLog from "../models/audit-log.js";
 
@@ -11205,7 +11205,7 @@ router.get("/user-progress", authMiddleware, async (req, res) => {
 });
 
 // ===================== AMAZON INTEGRATION =====================
-router.use("/amazon", AmazonIntegration as any);
+router.use("/amazon", AmazonIntegration);
 
 // ===================== CASH FLOW & TREASURY =====================
 import cashFlowRoutes from "./cash-flow.js";
