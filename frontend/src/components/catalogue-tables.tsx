@@ -484,6 +484,9 @@ export function ProductsTable({
     );
   }
 
+  const [editingSku, setEditingSku] = useState<string | null>(null);
+  const [newSku, setNewSku] = useState("");
+
   return (
     <>
       <div className="-mx-5 overflow-x-auto table-wrap">
@@ -505,6 +508,7 @@ export function ProductsTable({
             {pageItems.map((r) => {
               const m = r.master;
               const isOpen = expanded.has(m.id);
+              const isEditing = editingSku === m.id;
               return (
                 <Fragment key={m.id}>
                   <tr
@@ -539,7 +543,41 @@ export function ProductsTable({
                       </div>
                     </td>
                     <td className="px-4 py-2.5">
-                      <SkuCode code={m.sku} />
+                      {isEditing ? (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="text"
+                            value={newSku || m.sku}
+                            onChange={(e) => setNewSku(e.target.value)}
+                            onBlur={() => setEditingSku(null)}
+                            className="border rounded w-full px-2.5 py-1 text-[11px] font-mono text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                            maxLength={20}
+                          />
+                          <button
+                            onClick={() => setEditingSku(null)}
+                            className="rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted"
+                            title="Cancel"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={() => {
+                              api.products.update(m.id, { sku: newSku });
+                              setEditingSku(null);
+                              setNewSku("");
+                              qc.invalidateQueries({ queryKey: ["products"] });
+                              qc.invalidateQueries({ queryKey: ["products-forecast"] });
+                              qc.invalidateQueries({ queryKey: ["products-inventory"] });
+                            }}
+                            className="rounded-md px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/10"
+                            title="Save"
+                          >
+                            Save
+                          </button>
+                        </div>
+                      ) : (
+                        <SkuCode code={m.sku} />
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-[13px] text-muted-foreground">
                       {m.category ?? "—"}

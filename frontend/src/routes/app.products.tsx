@@ -161,6 +161,8 @@ function ProductsPage() {
   // Price-only edit — the only edit allowed on SKUs (master + variants).
   const [priceFor, setPriceFor] = useState<Product | null>(null);
   const [detailFor, setDetailFor] = useState<Product | null>(null);
+  const [editingSku, setEditingSku] = useState<string | null>(null);
+  const [newSku, setNewSku] = useState("");
   // Staged child-SKU creation from the Master SKU drawer: "color" adds a
   // colour-coded SKU under a master, "size" a size-coded SKU under a colour.
   const [stageFor, setStageFor] = useState<{ parent: Product; level: "color" | "size" } | null>(
@@ -885,18 +887,50 @@ function ProductDetailDrawer({
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground">
                 Master SKU
               </p>
-              <p className="mt-0.5 flex items-center justify-between font-mono text-sm font-semibold text-primary">
-                {product.sku}
-                <button
-                  onClick={() => {
-                    navigator.clipboard.writeText(product.sku);
-                    toast.success("Master SKU copied");
-                  }}
-                  className="rounded p-1 hover:bg-primary/10"
-                >
-                  <Copy className="h-3.5 w-3.5" />
-                </button>
-              </p>
+              {editingSku ? (
+                <div className="mt-2 flex items-center justify-between">
+                  <input
+                    type="text"
+                    value={newSku ?? product.sku}
+                    onChange={(e) => setNewSku(e.target.value)}
+                    onBlur={() => setEditingSku(null)}
+                    className="border rounded w-full px-2.5 py-1 text-[11px] font-mono text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                    maxLength={20}
+                  />
+                  <button
+                    onClick={() => setEditingSku(null)}
+                    className="rounded-md px-2 py-1 text-[11px] text-muted-foreground hover:bg-muted"
+                    title="Cancel"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => {
+                      api.products.update(product.id, { sku: newSku });
+                      setEditingSku(null);
+                      setNewSku("");
+                      toast.success(`SKU updated to ${newSku}`);
+                    }}
+                    className="rounded-md px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/10"
+                    title="Save"
+                  >
+                    Save
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-0.5 flex items-center justify-between font-mono text-sm font-semibold text-primary">
+                  {product.sku}
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(product.sku);
+                      toast.success("Master SKU copied");
+                    }}
+                    className="rounded p-1 hover:bg-primary/10"
+                  >
+                    <Copy className="h-3.5 w-3.5" />
+                  </button>
+                </p>
+              )}
             </div>
             <div className="mt-3 space-y-3">
               {colourNodes.length === 0 && (
