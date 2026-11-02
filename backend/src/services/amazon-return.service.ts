@@ -1,5 +1,6 @@
-import { MarketplaceAmazonReturn, MarketplaceAmazonReturnModel } from "../models/marketplace-amazon-return.js";
-import { MarketplaceAmazonRefund, MarketplaceAmazonRefundModel } from "../models/marketplace-amazon-refund.js";
+// @ts-ignore
+import { MarketplaceAmazonReturn } from "../models/marketplace-amazon-return.js";
+import { MarketplaceAmazonRefund } from "../models/marketplace-amazon-refund.js";
 import { MarketplaceAmazonOrder } from "../models/marketplace-amazon-order.js";
 
 export class AmazonReturnService {

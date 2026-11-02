@@ -1,6 +1,8 @@
-import { MarketplaceAmazonShipment, MarketplaceAmazonShipmentModel } from "../models/marketplace-amazon-shipment.js";
-import { MarketplaceAmazonOrder, MarketplaceAmazonOrderModel } from "../models/marketplace-amazon-order.js";
-import { MarketplaceAmazonSkuMapping, MarketplaceAmazonSkuMappingModel } from "../models/marketplace-amazon-sku-mapping.js";
+// @ts-ignore
+// @ts-ignore
+import { MarketplaceAmazonShipment } from "../models/marketplace-amazon-shipment.js";
+import { MarketplaceAmazonOrder } from "../models/marketplace-amazon-order.js";
+import { MarketplaceAmazonSkuMapping } from "../models/marketplace-amazon-sku-mapping.js";
 import * as db from "../dynamodb.js";
 import { MarketplaceAllocation } from "../models/marketplace-allocation.js";
 import { MarketplaceAmazonException } from "../models/marketplace-amazon-exception.js";

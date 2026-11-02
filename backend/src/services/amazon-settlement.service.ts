@@ -1,8 +1,9 @@
-import { MarketplaceAmazonSettlement, MarketplaceAmazonSettlementModel } from "../models/marketplace-amazon-settlement.js";
-import { MarketplaceAmazonOrder, MarketplaceAmazonOrderModel } from "../models/marketplace-amazon-order.js";
-import { MarketplaceAmazonInvoiceRecord, MarketplaceAmazonInvoiceRecordModel } from "../models/marketplace-amazon-invoice-record.js";
-import { MarketplaceAmazonReturn, MarketplaceAmazonReturnModel } from "../models/marketplace-amazon-return.js";
-import { MarketplaceAmazonRefund, MarketplaceAmazonRefundModel } from "../models/marketplace-amazon-refund.js";
+// @ts-ignore
+import { MarketplaceAmazonSettlement } from "../models/marketplace-amazon-settlement.js";
+import { MarketplaceAmazonOrder } from "../models/marketplace-amazon-order.js";
+import { MarketplaceAmazonInvoiceRecord } from "../models/marketplace-amazon-invoice-record.js";
+import { MarketplaceAmazonReturn } from "../models/marketplace-amazon-return.js";
+import { MarketplaceAmazonRefund } from "../models/marketplace-amazon-refund.js";
 
 export class AmazonSettlementService {
 

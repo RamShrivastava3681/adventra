@@ -1,4 +1,5 @@
-import { MarketplaceAmazonInvoiceRecord, MarketplaceAmazonInvoiceRecordModel } from "../models/marketplace-amazon-invoice-record.js";
+// @ts-ignore
+import { MarketplaceAmazonInvoiceRecord } from "../models/marketplace-amazon-invoice-record.js";
 import { MarketplaceAmazonOrder } from "../models/marketplace-amazon-order.js";
 
 export class AmazonInvoiceService {

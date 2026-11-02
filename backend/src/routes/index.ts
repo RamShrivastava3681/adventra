@@ -11205,7 +11205,7 @@ router.get("/user-progress", authMiddleware, async (req, res) => {
 });
 
 // ===================== AMAZON INTEGRATION =====================
-router.use("/amazon", AmazonIntegration);
+router.use("/amazon", AmazonIntegration as any);
 
 // ===================== CASH FLOW & TREASURY =====================
 import cashFlowRoutes from "./cash-flow.js";

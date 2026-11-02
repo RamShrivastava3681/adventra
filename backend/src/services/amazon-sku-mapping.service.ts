@@ -1,4 +1,4 @@
-import { MarketplaceAmazonSkuMapping, MarketplaceAmazonSkuMappingModel } from "../models/marketplace-amazon-sku-mapping.js";
+import { MarketplaceAmazonSkuMapping } from "../models/marketplace-amazon-sku-mapping.js";
 import { MarketplaceAmazonOrder } from "../models/marketplace-amazon-order.js";
 import * as db from "../dynamodb.js";
 
