@@ -85,7 +85,16 @@ export interface EcommerceOrder {
   debitMovementNumber: string; // e.g. "MOV-DR-1001"
   ecommerceWarehouse: string; // e.g. "WH-AMAZON-FBA"
   salesOrderId?: string;
+  // Whizunik documents raised from the ecommerce dashboard for this order.
+  // Marketplace sales orders deliberately skip E-Way Bill / IRN collection.
+  salesOrderNumber?: string;
   invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  packingSlipNumber?: string | null;
+  documentsAttachedAt?: string;
+  dispatchId?: string;
+  dispatchNumber?: string | null;
+  dispatchStatus?: "none" | "ready" | "dispatched";
   status: "allocated_debited" | "reserved" | "picked_packed" | "dispatched" | "delivered" | "return_qc";
   trackingNumber?: string;
   carrier?: string;
@@ -233,6 +242,44 @@ export const BASELINE_CHANNELS: ChannelStats[] = [
     payoutPending: 7040,
   },
 ];
+
+// Fresh Amazon demo orders for the ecommerce dashboard. They arrive already
+// allocated and debited, so each one can be walked through the Whizunik
+// sales-order → invoice + packing slip → dispatch flow.
+export function buildAmazonDemoOrders(): EcommerceOrder[] {
+  const stamp = () => Math.floor(1000000 + Math.random() * 9000000);
+  const seed = (index: number) => {
+    const sku = ["AD-TS-BLK-M", "AD-TS-WHT-M", "AD-PO-NVY-M"][index % 3];
+    const mapping = BASELINE_MAPPINGS.find((m) => m.whizunikSku === sku);
+    const quantity = index === 1 ? 2 : 1;
+    const unitPrice = mapping?.sellingPrice ?? 1000;
+    const totalValue = quantity * unitPrice;
+    const externalOrderId = `171-${stamp()}-${stamp()}`;
+    return {
+      id: externalOrderId,
+      channel: "amazon" as const,
+      channelName: "Amazon India",
+      externalOrderId,
+      customerName: ["Divya Menon", "Arjun Patel", "Neha Kulkarni"][index % 3],
+      customerCity: ["Kochi, KL", "Ahmedabad, GJ", "Pune, MH"][index % 3],
+      sku,
+      productName: mapping?.productName ?? "Adventra Apparel",
+      variant: mapping?.variant ?? "Standard",
+      quantity,
+      unitPrice,
+      totalValue,
+      paymentMethod: "Prepaid" as const,
+      paymentStatus: "collected_by_marketplace" as const,
+      fulfillmentRef: `FUL-AMZ-${Math.floor(1000 + Math.random() * 9000)}`,
+      debitMovementNumber: `MOV-DR-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.floor(1000 + Math.random() * 9000)}`,
+      ecommerceWarehouse: "WH-AMAZON-FBA",
+      status: "allocated_debited" as const,
+      notes: "Amazon demo order — create the Whizunik sales order to continue.",
+      createdAt: "Just now",
+    };
+  };
+  return [0, 1, 2].map(seed);
+}
 
 export const BASELINE_ORDERS: EcommerceOrder[] = [
   {
@@ -491,6 +538,16 @@ export function loadDemoState(): DemoWorkflowState {
       if (parsed.demoInvoiceNumber === undefined) parsed.demoInvoiceNumber = null;
       if (parsed.paymentStatus === undefined) parsed.paymentStatus = "pending";
       if (!parsed.orders || parsed.orders.length === 0) parsed.orders = BASELINE_ORDERS;
+      // Backfill the Whizunik document fields for state saved before they existed.
+      parsed.orders = parsed.orders.map((o) => ({
+        ...o,
+        salesOrderNumber: o.salesOrderNumber ?? o.salesOrderId ?? undefined,
+        invoiceNumber: o.invoiceNumber ?? o.invoiceId ?? null,
+        packingSlipNumber: o.packingSlipNumber ?? null,
+        dispatchNumber: o.dispatchNumber ?? null,
+        dispatchStatus:
+          o.dispatchStatus ?? (o.status === "dispatched" ? "dispatched" : "none"),
+      }));
       if (!parsed.activeOrderId) parsed.activeOrderId = "902-1845936-5435065";
       return parsed;
     }

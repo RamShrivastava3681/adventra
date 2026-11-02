@@ -4,6 +4,8 @@ import { ProductThumb } from "@/components/product-thumb";
 import { fmtMoney } from "@/components/ledger-ui";
 import { TableSkeleton } from "@/components/skeletons";
 import { copySku } from "@/components/sku-shared";
+import api from "@/lib/api-client";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -442,6 +444,7 @@ export function ProductsTable({
   onViewSellables?: (m: Product) => void;
   pager: React.ReactNode;
 }) {
+  const qc = useQueryClient();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openColours, setOpenColours] = useState<Set<string>>(new Set());
   const toggle = (set: Set<string>, id: string, apply: (n: Set<string>) => void) => {

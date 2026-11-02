@@ -17,11 +17,10 @@ import {
 import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductThumb } from "@/components/product-thumb";
-import { StockStatePill } from "@/components/StockStatePill";
 import { SearchSkeleton, TableSkeleton, SkeletonRow } from "@/components/skeletons";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
-import { Plus, X, Loader2, ArrowDownToLine, ArrowUpFromLine, Trash2, Check, Ban, Package, Pencil, Boxes, Upload, FileSpreadsheet, AlertTriangle, RefreshCw, Settings, Search, SortAlphaDown, SortAlphaUp, GridView, ListView, Moving, Filter } from "lucide-react";
+import { Plus, X, Loader2, ArrowDownToLine, ArrowUpFromLine, Trash2, Check, Ban, Package, Pencil, Boxes, Upload, FileSpreadsheet, AlertTriangle, RefreshCw, Settings, Search, ArrowDownAZ, ArrowUpAZ, LayoutGrid, List, ArrowRightLeft, Filter } from "lucide-react";
 
 export const Route = createFileRoute("/app/inventory")({
   component: InventoryPage,
@@ -322,7 +321,7 @@ function useInventoryData() {
             size: size.size || "",
             color: colour.color || "",
             stock,
-            stockState: stock <= 0 ? "out" : qty => qty <= 5 ? "low" : "ok",
+            stockState: stock <= 0 ? "out" : stock <= 5 ? "low" : "in",
           };
         });
 
@@ -512,7 +511,7 @@ export function InventoryPage() {
       title="Total Stock Units"
       value={totalStockUnits.toLocaleString()}
       subtitle="Sum of all confirmed available stock"
-      Icon={Moving}
+      Icon={ArrowRightLeft}
       className="col-span-1"
     />,
     <KpiCard
@@ -667,8 +666,10 @@ export function InventoryPage() {
                 </td>
                 <td className="px-3 py-2 font-mono text-[10px] text-muted-foreground">{product.sku ?? "—"}</td>
                 <td className="px-3 py-2 text-right font-medium text-primary">
-                  {product.totalVariants > 0 ? product.colours.reduce((sum: number, c: any) => sum + c.colourStock, 0) : 0}
-                    .toLocaleString()}
+                  {(product.totalVariants > 0
+                    ? product.colours.reduce((sum: number, c: any) => sum + c.colourStock, 0)
+                    : 0
+                  ).toLocaleString()}
                 </td>
                 <td className="px-3 py-2 text-[10px] font-medium text-muted-foreground">
                   {product.totalVariants}
@@ -829,10 +830,10 @@ export function InventoryPage() {
                       >
                         <Pencil className="h-3 w-3" />
                       </button>
-                      <StatusStatePill state={variant.stock <= 0 ? "out" : variant.stock <= 5 ? "low" : "in"} />
+                      <StockStatePill state={variant.stock <= 0 ? "out" : variant.stock <= 5 ? "low" : "in"} />
                     </div>
                   ) : (
-                    <StatusStatePill state={variant.stock <= 0 ? "out" : variant.stock <= 5 ? "low" : "in"} />
+                    <StockStatePill state={variant.stock <= 0 ? "out" : variant.stock <= 5 ? "low" : "in"} />
                   )}
                 </td>
               </tr>
@@ -932,7 +933,7 @@ export function InventoryPage() {
           <div>
             <select
               value={stockFilter}
-              onChange={(e) => setStockFilter(e.target.value)}
+              onChange={(e) => setStockFilter(e.target.value as any)}
               className="select select-bordered w-full"
             >
               <option value="all">— Stock —</option>
@@ -946,7 +947,7 @@ export function InventoryPage() {
           <div className="col-span-2">
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
+              onChange={(e) => setSortBy(e.target.value as any)}
               className="select select-bordered w-full"
             >
               <option value="name">Name</option>
@@ -957,7 +958,7 @@ export function InventoryPage() {
           <div>
             <select
               value={sortDir}
-              onChange={(e) => setSortDir(e.target.value)}
+              onChange={(e) => setSortDir(e.target.value as any)}
               className="select select-bordered w-full"
             >
               <option value="asc">Ascending</option>
@@ -1001,7 +1002,7 @@ export function InventoryPage() {
   }
 
   function deleteMovement(id: string) {
-    actMut.mutate("delete", id);
+    actMut.mutate({ kind: "delete", id });
   }
 
   function confirmMovement(id: string) {
@@ -1031,9 +1032,9 @@ export function InventoryPage() {
             )}
           </div>
         </div>
-        {openMovement && <MovementModal userId={user.id} onClose={() => setOpenMovement(false)} />}
+        {openMovement && <MovementModal userId={user!.id} onClose={() => setOpenMovement(false)} />}
         {editingMovement && (
-          <MovementModal userId={user.id} movement={editingMovement} onClose={() => setOpenMovement(false)} />
+          <MovementModal userId={user!.id} movement={editingMovement} onClose={() => setOpenMovement(false)} />
         )}
       </Card>
     );
@@ -1044,7 +1045,7 @@ export function InventoryPage() {
     return (
       <Card className="p-4">
         <h3 className="font-display text-sm font-medium mb-3">Bulk Import</h3>
-        {bulkOpen && <BulkImportModal userId={user.id} onClose={() => setBulkOpen(false)} />}
+        {bulkOpen && <BulkImportModal userId={user!.id} onClose={() => setBulkOpen(false)} />}
         <button
           onClick={() => setBulkOpen(true)}
           className="inline-flex items-center gap-1 rounded-md border border-primary px-3 py-1.5 text-[10px] font-medium text-primary-foreground hover:bg-primary/90 transition"
@@ -1084,7 +1085,6 @@ export function InventoryPage() {
               Read-only
             </span>
           )}
-        }
       />
     );
   }
@@ -1106,6 +1106,178 @@ export function InventoryPage() {
     <div>
       {renderHeader()}
       {renderMainContent()}
+    </div>
+  );
+}// ── Stock Movement Modal ────────────────────────────────────────────────
+function MovementModal({
+  userId,
+  movement,
+  onClose,
+}: {
+  userId: string;
+  movement?: Movement;
+  onClose: () => void;
+}) {
+  const qc = useQueryClient();
+  const [productId, setProductId] = useState(movement?.product_id ?? "");
+  const [direction, setDirection] = useState<"in" | "out">(movement?.direction ?? "in");
+  const [quantity, setQuantity] = useState(String(movement?.quantity ?? 1));
+  const [reason, setReason] = useState("");
+
+  const save = useMutation({
+    mutationFn: async () =>
+      api.stockMovements.manual({
+        productId,
+        quantity: Number(quantity) || 0,
+        direction,
+        reason,
+        notes: "Recorded by " + userId,
+        status: "confirmed",
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["stock-movements"] });
+      qc.invalidateQueries({ queryKey: ["stock-summary"] });
+      toast.success(movement ? "Stock movement updated" : "Stock movement recorded");
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed to save movement"),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-md space-y-4 rounded-xl border border-border bg-card p-5 shadow-xl">
+        <div className="flex items-center justify-between border-b border-border pb-2">
+          <h3 className="text-sm font-semibold">
+            {movement ? "Edit stock movement" : "New stock movement"}
+          </h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground" aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <div className="space-y-3 text-xs">
+          <label className="block space-y-1">
+            <span className="text-muted-foreground">Product / SKU</span>
+            <input
+              value={productId}
+              onChange={(e) => setProductId(e.target.value)}
+              className={inputBase}
+            />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block space-y-1">
+              <span className="text-muted-foreground">Direction</span>
+              <select
+                value={direction}
+                onChange={(e) => setDirection(e.target.value as "in" | "out")}
+                className={selectBase}
+              >
+                <option value="in">Stock in</option>
+                <option value="out">Stock out</option>
+              </select>
+            </label>
+            <label className="block space-y-1">
+              <span className="text-muted-foreground">Quantity</span>
+              <input
+                type="number"
+                min="1"
+                value={quantity}
+                onChange={(e) => setQuantity(e.target.value)}
+                className={inputBase}
+              />
+            </label>
+          </div>
+          <label className="block space-y-1">
+            <span className="text-muted-foreground">Reason</span>
+            <textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              className={textareaBase}
+              rows={2}
+            />
+          </label>
+        </div>
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onClose} className="rounded-md border border-border px-3 py-1.5 text-xs">
+            Cancel
+          </button>
+          <button
+            onClick={() => save.mutate()}
+            disabled={save.isPending || !productId}
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+          >
+            {save.isPending ? "Saving…" : "Save movement"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Bulk Import Modal ───────────────────────────────────────────────────
+function BulkImportModal({ userId, onClose }: { userId: string; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [csv, setCsv] = useState("");
+
+  const run = useMutation({
+    mutationFn: async () => {
+      const rows = csv
+        .split(/\r?\n/)
+        .map((line) => line.split(/[,\t]/).map((part) => part.trim()))
+        .filter((parts) => parts.length >= 2 && parts[0]);
+      for (const row of rows) {
+        await api.stockMovements.manual({
+          productId: row[0],
+          quantity: Number(row[1]) || 0,
+          direction: "in",
+          reason: "Bulk import",
+          notes: "Bulk imported by " + userId,
+          status: "confirmed",
+        });
+      }
+      return rows.length;
+    },
+    onSuccess: (count: number) => {
+      qc.invalidateQueries({ queryKey: ["stock-movements"] });
+      qc.invalidateQueries({ queryKey: ["stock-summary"] });
+      toast.success(count + " stock movements imported");
+      onClose();
+    },
+    onError: (e) => toast.error(e instanceof Error ? e.message : "Bulk import failed"),
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+      <div className="w-full max-w-lg space-y-4 rounded-xl border border-border bg-card p-5 shadow-xl">
+        <div className="flex items-center justify-between border-b border-border pb-2">
+          <h3 className="text-sm font-semibold">Bulk import stock</h3>
+          <button onClick={onClose} className="text-muted-foreground hover:text-foreground" aria-label="Close">
+            ✕
+          </button>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Paste one row per line as <span className="font-mono">SKU,QUANTITY</span>. Each row is posted as a
+          confirmed stock-in movement.
+        </p>
+        <textarea
+          value={csv}
+          onChange={(e) => setCsv(e.target.value)}
+          rows={8}
+          placeholder={"AD-TS-BLK-M,10\nAD-TS-WHT-M,5"}
+          className={textareaBase}
+        />
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="rounded-md border border-border px-3 py-1.5 text-xs">
+            Cancel
+          </button>
+          <button
+            onClick={() => run.mutate()}
+            disabled={run.isPending || !csv.trim()}
+            className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
+          >
+            {run.isPending ? "Importing…" : "Import"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

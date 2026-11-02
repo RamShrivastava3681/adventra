@@ -1,11 +1,16 @@
-import { MarketplaceAmazonSkuMapping } from "../models/marketplace-amazon-sku-mapping.js";
-import { MarketplaceAmazonOrder } from "../models/marketplace-amazon-order.js";
-import * as db from "../dynamodb.js";
+import {
+  list as listMappings,
+  create as createMapping,
+  update as updateMapping,
+  findByChannelSku,
+  updateMappingStatus,
+  get as getMapping,
+} from "../models/marketplace-amazon-sku-mapping.js";
 
 export class AmazonSkuMappingService {
 
   static async getMappings(clientId: string) {
-    return await MarketplaceAmazonSkuMappingModel.list(clientId);
+    return await listMappings(clientId);
   }
 
   static async createMapping(data: {
@@ -26,9 +31,9 @@ export class AmazonSkuMappingService {
     safetyStock?: number;
   }) {
     // Check for duplicate mapping
-    const existing = await MarketplaceAmazonSkuMappingModel.findByChannelSku(data.clientId, data.channelSku);
+    const existing = await findByChannelSku(data.clientId, data.channelSku);
     if (existing) {
-      return await MarketplaceAmazonSkuMappingModel.update(existing.id, {
+      return await updateMapping(existing.id, {
         whizunikSku: data.whizunikSku,
         colour: data.colour,
         size: data.size,
@@ -44,7 +49,7 @@ export class AmazonSkuMappingService {
       });
     }
 
-    return await MarketplaceAmazonSkuMappingModel.create({
+    return await createMapping({
       clientId: data.clientId,
       channelSku: data.channelSku,
       listingId: data.listingId,
@@ -77,20 +82,24 @@ export class AmazonSkuMappingService {
     status: "Mapped" | "Pending" | "Error";
     safetyStock: number;
   }>) {
-    return await MarketplaceAmazonSkuMappingModel.update(id, updates);
+    return await updateMapping(id, updates);
   }
 
   static async deleteMapping(id: string) {
-    return await MarketplaceAmazonSkuMappingModel.remove(id);
+    const mapping = await getMapping(id);
+    if (mapping) {
+      return await updateMappingStatus(mapping.id, "Error");
+    }
+    return null;
   }
 
   static async validateSku(clientId: string, amazonSku: string): Promise<{
     isMapped: boolean;
     whizunikSku?: string;
-    mapping?: any;
+    mapping?: Awaited<ReturnType<typeof findByChannelSku>>;
     error?: string;
   }> {
-    const mapping = await MarketplaceAmazonSkuMappingModel.findByChannelSku(clientId, amazonSku);
+    const mapping = await findByChannelSku(clientId, amazonSku);
     if (mapping) {
       return { isMapped: true, whizunikSku: mapping.whizunikSku, mapping };
     }
@@ -106,11 +115,11 @@ export class AmazonSkuMappingService {
 
     for (const sku of amazonSkus) {
       const result = await this.validateSku(clientId, sku);
-      if (result.isMapped) {
+      if (result.isMapped && result.mapping) {
         mapped.push({
-          amazonSku: result.mapping!.channelSku,
-          whizunikSku: result.whizunikSku,
-          productName: result.mapping!.productName,
+          amazonSku: result.mapping.channelSku,
+          whizunikSku: result.mapping.whizunikSku,
+          productName: result.mapping.productName,
         });
       } else {
         unmapped.push(sku);

@@ -3,16 +3,23 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3,
+  BarChart2,
   ShoppingBag,
   Warehouse,
   DollarSign,
   TrendingUp,
   AlertTriangle,
+  AlertCircle,
   CheckCircle,
   XCircle,
   Calendar,
+  CalendarDays as Calendar2,
+  Clock,
   Filter,
+  Filter as Filter2,
   LayoutDashboard,
+  LayoutGrid as Layout,
+  Grid3x3 as Grid,
   Building2,
   Plus,
   RefreshCw,
@@ -23,48 +30,36 @@ import {
   Send,
   ChevronDown,
   ChevronUp,
-  Calendar2,
-  Filter2,
-  Layout,
-  Grid,
   List as ListIcon,
   Loader2,
   Activity,
-  ArrowDownTA,
-  ArrowUpTA,
+  ArrowDownToLine as ArrowDownTA,
+  ArrowUpFromLine as ArrowUpTA,
   MapPin,
   ShieldCheck,
   BookOpen,
   Tag,
-  CreditCard,
-  Send,
-  CalendarDays,
   Package,
   Users,
   ArrowRightLeft,
   Zap,
   Eye,
   FileCheck2,
-  BarChart2,
   PieChart,
   Scale,
-  StatusPill,
-  MetricCard,
-  KpiCard,
-  TablePremium,
-  StatusBadge,
-  SeverityBadge,
-  FilterChip,
+} from "lucide-react";
+import { toast } from "sonner";
+import {
   Table,
-  Tbody,
-  Thead,
-  Tr,
-  Th,
-  Td,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
   Pagination,
-  PaginationEllipsis,
-  PaginationItem,
   PaginationContent,
+  PaginationItem,
+  PaginationEllipsis,
   Skeleton,
   Button,
   Dialog,
@@ -73,10 +68,21 @@ import {
   DialogTitle,
   DialogDescription,
   DialogClose,
-  form,
-  useForm,
-  useFormStatus,
-  useFormTrigger,
+  DialogOverlay,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Input,
+  Label,
+  FormLabel,
+  FormControl,
+  Badge,
+  KpiCard,
+  StatusBadge,
+  StatusPill,
+  TableContainer,
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api-client";
@@ -147,7 +153,7 @@ interface ImportOrderForm {
 }
 
 export function AmazonOrderImportPage() {
-  const clientId = useQueryClient().getQueryData(["auth", "user"])?.[0] as string | undefined;
+  const clientId = (useQueryClient().getQueryData(["auth", "user"]) as any)?.[0] as string | undefined;
   const { data: existingMappings, isLoading: mappingsLoading } = useQuery({
     queryKey: ["amazon-sku-mappings", clientId],
     queryFn: async () => {
@@ -215,6 +221,7 @@ export function AmazonOrderImportPage() {
       // No mapping found - mark as unmapped
       setImportResult({
         success: false,
+        order: null,
         message: `Amazon SKU "${form.amazonSku}" is not mapped. Please map it first.`,
       });
       toast.error("SKU not mapped - manual mapping required");
@@ -275,6 +282,7 @@ export function AmazonOrderImportPage() {
     } catch (err: any) {
       setImportResult({
         success: false,
+        order: null,
         message: err.message || "Failed to import order",
       });
       toast.error(err.message || "Failed to import order");
@@ -303,7 +311,7 @@ export function AmazonOrderImportPage() {
         </div>
         <div className="flex items-center gap-3">
           <Button
-            variant="primary"
+            variant="default"
             size="sm"
             onClick={() => setShowImportModal(true)}
           >
@@ -314,11 +322,11 @@ export function AmazonOrderImportPage() {
 
       {/* Import Result */}
       {importResult && (
-        <div className="p-6 rounded-2xl mb-6 {importResult.success ? "bg-emerald-50 dark:bg-emerald-950" : "bg-rose-50 dark:bg-rose-950"} border border-{importResult.success ? "emerald-200" : "rose-200"} dark:border-{importResult.success ? "emerald-800" : "rose-800"}">
+        <div className={`p-6 rounded-2xl mb-6 ${importResult.success ? "bg-emerald-50 dark:bg-emerald-950" : "bg-rose-50 dark:bg-rose-950"} border border-${importResult.success ? "emerald-200" : "rose-200"} dark:border-${importResult.success ? "emerald-800" : "rose-800"}`}>
           <div className="flex items-start gap-3">
             {importResult.success ? (
               <CheckCircle className="w-5 h-5 text-emerald-600 shrink-0 mt-1" />
-            : (
+            ) : (
               <XCircle className="w-5 h-5 text-rose-600 shrink-0 mt-1" />
             )}
           </div>
@@ -664,7 +672,7 @@ export function AmazonOrderImportPage() {
               <Input
                 type="date"
                 id="expected-dispatch-date"
-                value={form.expectedDispatchDate}
+                value={form.expectedDispatchDate ?? ""}
                 onChange={(e) =>
                   setForm({ ...form, expectedDispatchDate: e.target.value })
                 }
@@ -682,7 +690,7 @@ export function AmazonOrderImportPage() {
               </Button>
               <Button
                 type="submit"
-                variant="primary"
+                variant="default"
                 size="sm"
               >
                 {importResult?.success ? "Order Imported" : "Import Order"}

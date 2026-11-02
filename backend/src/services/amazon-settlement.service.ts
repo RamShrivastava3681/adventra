@@ -1,9 +1,14 @@
-// @ts-ignore
-import { MarketplaceAmazonSettlement } from "../models/marketplace-amazon-settlement.js";
-import { MarketplaceAmazonOrder } from "../models/marketplace-amazon-order.js";
-import { MarketplaceAmazonInvoiceRecord } from "../models/marketplace-amazon-invoice-record.js";
-import { MarketplaceAmazonReturn } from "../models/marketplace-amazon-return.js";
-import { MarketplaceAmazonRefund } from "../models/marketplace-amazon-refund.js";
+import {
+  findByReference,
+  create as createSettlementRecord,
+  update as updateSettlementRecord,
+  get as getSettlement,
+  list as listSettlements,
+} from "../models/marketplace-amazon-settlement.js";
+import { list as listOrders } from "../models/marketplace-amazon-order.js";
+import { list as listInvoices } from "../models/marketplace-amazon-invoice-record.js";
+import { list as listRefunds } from "../models/marketplace-amazon-refund.js";
+import { list as listReturns } from "../models/marketplace-amazon-return.js";
 
 export class AmazonSettlementService {
 
@@ -19,12 +24,14 @@ export class AmazonSettlementService {
     settlementReference: string | null;
   }) {
     // Check for existing settlement with same reference
-    const existing = await MarketplaceAmazonSettlementModel.findByReference(data.clientId, data.settlementReference || "");
-    if (existing) {
-      return await MarketplaceAmazonSettlementModel.update(existing.id, data);
+    if (data.settlementReference) {
+      const existing = await findByReference(data.clientId, data.settlementReference);
+      if (existing) {
+        return await updateSettlementRecord(existing.id, data);
+      }
     }
 
-    const item = await MarketplaceAmazonSettlementModel.create({
+    const item = await createSettlementRecord({
       clientId: data.clientId,
       marketplaceName: data.marketplaceName,
       grossSales: data.grossSales,
@@ -41,20 +48,20 @@ export class AmazonSettlementService {
   }
 
   static async updateSettlementStatus(settlementId: string, status: string): Promise<any> {
-    return await MarketplaceAmazonSettlementModel.update(settlementId, {
-      status,
+    return await updateSettlementRecord(settlementId, {
+      status: status as any,
     });
   }
 
   static async reconcileSettlement(settlementId: string): Promise<any> {
-    const settlement = await MarketplaceAmazonSettlementModel.get(settlementId);
+    const settlement = await getSettlement(settlementId);
     if (!settlement) throw new Error("Settlement not found");
 
     // Get all associated records
-    const orders = await MarketplaceAmazonOrderModel.list(settlement.clientId);
-    const invoices = await MarketplaceAmazonInvoiceRecordModel.list(settlement.clientId);
-    const refunds = await MarketplaceAmazonRefundModel.list(settlement.clientId);
-    const returns = await MarketplaceAmazonReturnModel.list(settlement.clientId);
+    const orders = await listOrders(settlement.clientId);
+    const invoices = await listInvoices(settlement.clientId);
+    const refunds = await listRefunds(settlement.clientId);
+    const returns = await listReturns(settlement.clientId);
 
     // Calculate reconciliation totals
     // Gross sales from orders with invoice received
@@ -69,12 +76,14 @@ export class AmazonSettlementService {
 
     // Refunds and returns
     const totalRefunds = refunds.reduce((sum, r) => sum + r.amount, 0);
-    const totalReturns = returns.reduce((sum, r) => sum + r.quantityAccepted * (settlement.grossSales / orders.length || 0), 0);
+    const unitsSold = orderItems.reduce((sum, o) => sum + o.quantity, 0);
+    const averageUnitPrice = unitsSold > 0 ? grossSales / unitsSold : 0;
+    const totalReturns = returns.reduce((sum, r) => sum + r.quantityAccepted * averageUnitPrice, 0);
 
     const netSettlement = grossSales - marketplaceFees - deductions - totalRefunds - totalReturns;
 
     // Update settlement with reconciled values
-    return await MarketplaceAmazonSettlementModel.update(settlementId, {
+    return await updateSettlementRecord(settlementId, {
       grossSales,
       marketplaceFees,
       deductions,
@@ -86,11 +95,11 @@ export class AmazonSettlementService {
   }
 
   static async getSettlementSummary(clientId: string) {
-    const settlements = await MarketplaceAmazonSettlementModel.list(clientId);
-    const orders = await MarketplaceAmazonOrderModel.list(clientId);
-    const invoices = await MarketplaceAmazonInvoiceRecordModel.list(clientId);
-    const refunds = await MarketplaceAmazonRefundModel.list(clientId);
-    const returns = await MarketplaceAmazonReturnModel.list(clientId);
+    const settlements = await listSettlements(clientId);
+    const orders = await listOrders(clientId);
+    const invoices = await listInvoices(clientId);
+    const refunds = await listRefunds(clientId);
+    const returns = await listReturns(clientId);
 
     const totalGross = settlements.reduce((sum, s) => sum + s.grossSales, 0);
     const totalFees = settlements.reduce((sum, s) => sum + s.marketplaceFees, 0);

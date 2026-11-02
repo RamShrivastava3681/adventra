@@ -924,7 +924,7 @@ function DispatchCreateModal({
         String(inv.goods_sales_order_id ?? "") === soId &&
         !["cancelled", "rejected"].includes(String((inv as any).status ?? ""))
     );
-    const proformas = (proformasQ.data ?? []).filter(
+    const proformasList = (proformas ?? []).filter(
       (pf: any) =>
         pf.side === "sales" &&
         String(pf.linked_goods_so_id ?? "") === soId
@@ -941,16 +941,16 @@ function DispatchCreateModal({
           linked_sales_invoice_id: invoices[0].id,
         }));
       }
-    } else if (proformas.length > 0 && !invoiceId) {
+    } else if (proformasList.length > 0 && !invoiceId) {
       // Link the first matching proforma if no invoice is linked yet.
-      const pf = proformas[0];
+      const pf = proformasList[0];
       setF((prev) => ({
         ...prev,
         linked_customer_proforma_id: pf.id,
         linked_sales_invoice_id: "",
       }));
     }
-  }, [soId, createFromInvoice, allInvoices, proformasQ]);
+  }, [soId, createFromInvoice, allInvoices, proformas]);
 
   // When the SO is picked, preload lines with pending quantity, customer
   // context and delivery address so the form is never empty.

@@ -780,6 +780,8 @@ function ProductDetailDrawer({
   onAddChild: (parent: Product, level: "color" | "size") => void;
   onClose: () => void;
 }) {
+  const [editingSku, setEditingSku] = useState<string | null>(null);
+  const [newSku, setNewSku] = useState("");
   const byId = new Map(all.map((p) => [p.id, p]));
   // Hierarchy is Master SKU → Colour Variant → Sellable SKU (two levels).
   const colourNodes = (childrenByParent.get(product.id) ?? [])

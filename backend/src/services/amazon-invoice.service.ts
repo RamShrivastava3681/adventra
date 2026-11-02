@@ -1,6 +1,12 @@
-// @ts-ignore
-import { MarketplaceAmazonInvoiceRecord } from "../models/marketplace-amazon-invoice-record.js";
-import { MarketplaceAmazonOrder } from "../models/marketplace-amazon-order.js";
+import {
+  findByAmazonOrderId,
+  create as createInvoiceRecord,
+  update as updateInvoiceRecord,
+  list as listInvoiceRecords,
+  get as getInvoiceRecordById,
+  updateStatus as updateInvoiceRecordStatus,
+} from "../models/marketplace-amazon-invoice-record.js";
+import type { InvoiceRecordStatus } from "../models/marketplace-amazon-invoice-record.js";
 
 export class AmazonInvoiceService {
 
@@ -19,10 +25,10 @@ export class AmazonInvoiceService {
     currency: string;
   }) {
     // Check for existing invoice for this order
-    const existing = await MarketplaceAmazonInvoiceRecordModel.findByAmazonOrderId(data.clientId, data.amazonOrderId);
+    const existing = await findByAmazonOrderId(data.clientId, data.amazonOrderId);
     if (existing) {
       // Update existing invoice record
-      return await MarketplaceAmazonInvoiceRecordModel.update(existing.id, {
+      return await updateInvoiceRecord(existing.id, {
         invoiceNumber: data.invoiceNumber,
         invoiceIssueDate: data.invoiceIssueDate,
         issuer: data.issuer,
@@ -36,13 +42,14 @@ export class AmazonInvoiceService {
       });
     }
 
-    return await MarketplaceAmazonInvoiceRecordModel.create({
+    // Create new invoice record
+    return await createInvoiceRecord({
       clientId: data.clientId,
       amazonOrderId: data.amazonOrderId,
       whizunikSalesOrderId: data.whizunikSalesOrderId,
-      invoiceNumber: data.invoiceNumber,
-      invoiceIssueDate: data.invoiceIssueDate,
-      issuer: data.issuer,
+      invoiceNumber: data.invoiceNumber ?? null,
+      invoiceIssueDate: data.invoiceIssueDate ?? null,
+      issuer: data.issuer || "WhizUnik",
       amount: data.amount,
       grandTotal: data.grandTotal,
       taxableAmount: data.taxableAmount,
@@ -53,48 +60,28 @@ export class AmazonInvoiceService {
     });
   }
 
-  static async updateInvoiceStatus(amazonOrderId: string, status: string): Promise<any> {
-    // Find the invoice record by searching all invoices
-    const items = await MarketplaceAmazonInvoiceRecordModel.list("");
-    const invoice = items.find((i) => i.amazonOrderId === amazonOrderId);
-    if (invoice) {
-      return await MarketplaceAmazonInvoiceRecordModel.update(invoice.id, {
-        status,
-      });
-    }
-    return null;
+  static async updateInvoiceStatus(amazonOrderId: string, status: InvoiceRecordStatus) {
+    const invoice = await this.getInvoiceByOrder(amazonOrderId);
+    if (!invoice) return null;
+    return await updateInvoiceRecordStatus(invoice.id, status);
   }
 
-  static async markInvoiceReceived(amazonOrderId: string, invoiceNumber: string, invoiceIssueDate: string): Promise<any> {
-    const items = await MarketplaceAmazonInvoiceRecordModel.list("");
-    const invoice = items.find((i) => i.amazonOrderId === amazonOrderId);
-    if (invoice) {
-      return await MarketplaceAmazonInvoiceRecordModel.update(invoice.id, {
-        status: "InvoiceReceived",
-        invoiceNumber,
-        invoiceIssueDate,
-      });
-    }
-    // Create new invoice record if not exists
-    return await MarketplaceAmazonInvoiceRecordModel.create({
-      clientId: "",
-      amazonOrderId: amazonOrderId,
-      whizunikSalesOrderId: "",
+  static async markInvoiceReceived(amazonOrderId: string, invoiceNumber: string, invoiceIssueDate: string) {
+    const invoice = await this.getInvoiceByOrder(amazonOrderId);
+    if (!invoice) return null;
+    return await updateInvoiceRecord(invoice.id, {
+      status: "InvoiceReceived",
       invoiceNumber,
       invoiceIssueDate,
-      issuer: "Amazon",
-      amount: 0,
-      grandTotal: 0,
-      taxableAmount: 0,
-      taxAmount: 0,
-      taxRate: 0,
-      currency: "INR",
-      status: "InvoiceReceived",
     });
   }
 
-  static async getInvoiceByOrder(amazonOrderId: string): Promise<any | null> {
-    const items = await MarketplaceAmazonInvoiceRecordModel.list("");
+  static async getInvoiceByOrder(amazonOrderId: string) {
+    const items = await listInvoiceRecords();
     return items.find((i) => i.amazonOrderId === amazonOrderId) || null;
+  }
+
+  static async getInvoiceRecord(id: string) {
+    return await getInvoiceRecordById(id);
   }
 }

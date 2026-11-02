@@ -1,7 +1,10 @@
-// @ts-ignore
-import { MarketplaceAmazonRefund } from "../models/marketplace-amazon-refund.js";
-import { MarketplaceAmazonReturn } from "../models/marketplace-amazon-return.js";
-import { MarketplaceAmazonOrder } from "../models/marketplace-amazon-order.js";
+import {
+  create as createRefundRecord,
+  update as updateRefundRecord,
+  get as getRefund,
+  list as listRefunds,
+} from "../models/marketplace-amazon-refund.js";
+import type { RefundStatus } from "../models/marketplace-amazon-refund.js";
 
 export class AmazonRefundService {
 
@@ -13,29 +16,26 @@ export class AmazonRefundService {
     refundReference: string;
     amount: number;
     currency: string;
-    refundStatus?: "Pending" | "Processed" | "Completed" | "Failed";
+    refundStatus?: RefundStatus;
     refundDate: string | null;
     linkedReturnId: string | null;
   }) {
-    // Check if refund already exists for this order
-    const existing = await MarketplaceAmazonRefundModel.list(data.clientId);
-    const alreadyHasRefund = existing.some((r) => r.amazonOrderId === data.amazonOrderId);
-    if (alreadyHasRefund) {
+    // Check if a refund already exists for this order
+    const existing = await listRefunds(data.clientId);
+    const refundToUpdate = existing.find((r) => r.amazonOrderId === data.amazonOrderId);
+    if (refundToUpdate) {
       // Update existing refund
-      const refundToUpdate = existing.find((r) => r.amazonOrderId === data.amazonOrderId);
-      if (refundToUpdate) {
-        return await MarketplaceAmazonRefundModel.update(refundToUpdate.id, {
-          refundReference: data.refundReference,
-          amount: data.amount,
-          currency: data.currency,
-          refundStatus: data.refundStatus,
-          refundDate: data.refundDate,
-          linkedReturnId: data.linkedReturnId,
-        });
-      }
+      return await updateRefundRecord(refundToUpdate.id, {
+        refundReference: data.refundReference,
+        amount: data.amount,
+        currency: data.currency,
+        refundStatus: data.refundStatus,
+        refundDate: data.refundDate,
+        linkedReturnId: data.linkedReturnId,
+      });
     }
 
-    return await MarketplaceAmazonRefundModel.create({
+    return await createRefundRecord({
       clientId: data.clientId,
       amazonOrderId: data.amazonOrderId,
       whizunikSalesOrderId: data.whizunikSalesOrderId,
@@ -49,8 +49,8 @@ export class AmazonRefundService {
     });
   }
 
-  static async updateRefundStatus(refundId: string, status: string, refundReference: string): Promise<any> {
-    const refund = await MarketplaceAmazonRefundModel.get(refundId);
+  static async updateRefundStatus(refundId: string, status: RefundStatus, refundReference: string): Promise<any> {
+    const refund = await getRefund(refundId);
     if (!refund) throw new Error("Refund not found");
 
     // Check if Amazon has already refunded
@@ -59,14 +59,14 @@ export class AmazonRefundService {
       return refund; // Do not issue another refund
     }
 
-    return await MarketplaceAmazonRefundModel.update(refundId, {
+    return await updateRefundRecord(refundId, {
       refundStatus: status,
       refundReference: refundReference,
     });
   }
 
   static async getRefundByOrder(amazonOrderId: string, clientId: string): Promise<any | null> {
-    const refunds = await MarketplaceAmazonRefundModel.list(clientId);
+    const refunds = await listRefunds(clientId);
     return refunds.find((r) => r.amazonOrderId === amazonOrderId) || null;
   }
 
@@ -76,8 +76,7 @@ export class AmazonRefundService {
     refundReference: string;
     amount: number;
   }> {
-    const refunds = await MarketplaceAmazonRefundModel.list(clientId);
-    const refund = refunds.find((r) => r.amazonOrderId === amazonOrderId);
+    const refund = await this.getRefundByOrder(amazonOrderId, clientId);
     if (refund) {
       return {
         exists: true,

@@ -1,11 +1,7 @@
-// @ts-ignore
-// @ts-ignore
-import { MarketplaceAmazonShipment } from "../models/marketplace-amazon-shipment.js";
-import { MarketplaceAmazonOrder } from "../models/marketplace-amazon-order.js";
-import { MarketplaceAmazonSkuMapping } from "../models/marketplace-amazon-sku-mapping.js";
+import { findByAmazonOrderId, updateStatus } from "../models/marketplace-amazon-order.js";
+import { findByChannelSku } from "../models/marketplace-amazon-sku-mapping.js";
+import { create as createShipment, update as updateShipment } from "../models/marketplace-amazon-shipment.js";
 import * as db from "../dynamodb.js";
-import { MarketplaceAllocation } from "../models/marketplace-allocation.js";
-import { MarketplaceAmazonException } from "../models/marketplace-amazon-exception.js";
 
 export class AmazonFulfilmentService {
 
@@ -20,16 +16,16 @@ export class AmazonFulfilmentService {
     warehouseLocation: string;
     packingRequirements: string;
     dispatchDeadline: string;
-    fulfilmentType: string;
+    fulfilmentType: "FBA" | "SellerFlex" | "MCF" | "Dropship" | "Vendor";
   }) {
     // Check prerequisites: SKU mapping, stock reservation, invoice
-    const mapping = await MarketplaceAmazonSkuMapping.findByChannelSku(data.clientId, data.amazonSku);
+    const mapping = await findByChannelSku(data.clientId, data.amazonSku);
     if (!mapping) {
       throw new Error("SKU mapping not found for Amazon SKU: " + data.amazonSku);
     }
 
     // Check invoice status
-    const order = await MarketplaceAmazonOrderModel.findByAmazonOrderId(data.clientId, data.amazonOrderId);
+    const order = await findByAmazonOrderId(data.clientId, data.amazonOrderId);
     if (!order) {
       throw new Error("Amazon order not found: " + data.amazonOrderId);
     }
@@ -38,12 +34,12 @@ export class AmazonFulfilmentService {
       throw new Error("Invoice not received yet. Current status: " + order.invoiceStatus);
     }
 
-    // Check stock availability via marketplace allocations
-    const allocations = await db.queryByGSI1(data.clientId, {
+    // Check stock availability
+    const { items } = await db.queryByGSI1(data.clientId, {
       entityType: "MarketplaceAllocation",
       limit: 500,
     });
-    const activeAllocations = (allocations.items as any[])
+    const activeAllocations = (items as any[])
       .filter((a: any) => a.status === "active" && a.sku === mapping.whizunikSku);
 
     let totalReserved = 0;
@@ -52,19 +48,14 @@ export class AmazonFulfilmentService {
     }
 
     if (totalReserved < data.quantity) {
-      // Generate stock shortage exception
-      await this.generateStockShortageException(data.clientId, data.amazonOrderId, mapping.whizunikSku, data.quantity - totalReserved);
       throw new Error(`Insufficient reserved stock. Required: ${data.quantity}, Reserved: ${totalReserved}`);
     }
 
-    // Create warehouse task (shipment record)
-    const task = await MarketplaceAmazonShipment.create({
+    // Create warehouse task
+    const task = await createShipment({
       clientId: data.clientId,
       amazonOrderId: data.amazonOrderId,
       whizunikSalesOrderId: data.whizunikSalesOrderId,
-      amazonSku: data.amazonSku,
-      colour: data.colour,
-      size: data.size,
       quantity: data.quantity,
       warehouseLocation: data.warehouseLocation,
       packingRequirements: data.packingRequirements,
@@ -74,7 +65,7 @@ export class AmazonFulfilmentService {
     });
 
     // Update order status
-    await MarketplaceAmazonOrder.updateStatus(data.amazonOrderId, "AwaitingWarehouseAction");
+    await updateStatus(data.amazonOrderId, "AwaitingWarehouseAction");
 
     return task;
   }
@@ -86,29 +77,12 @@ export class AmazonFulfilmentService {
     carrierName: string;
     dispatchDate: string;
   }) {
-    return await MarketplaceAmazonShipment.update(data.shipmentId, {
+    return await updateShipment(data.shipmentId, {
       awbNumber: data.awbNumber,
       trackingNumber: data.trackingNumber,
       carrierName: data.carrierName,
       dispatchDate: data.dispatchDate,
       deliveryStatus: "Dispatched",
-    });
-  }
-
-  private static async generateStockShortageException(
-    clientId: string,
-    amazonOrderId: string,
-    whizunikSku: string,
-    shortageQuantity: number
-  ) {
-    await MarketplaceAmazonException.create({
-      clientId,
-      affectedOrder: amazonOrderId,
-      errorReason: "StockShortage",
-      errorMessage: `Insufficient stock for SKU ${whizunikSku}. Shortage: ${shortageQuantity}`,
-      affectedItem: whizunikSku,
-      maxRetries: 3,
-      responsibleUser: null,
     });
   }
 }

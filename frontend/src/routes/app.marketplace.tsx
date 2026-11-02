@@ -57,6 +57,7 @@ import {
   BASELINE_MAPPINGS,
   BASELINE_ORDERS,
   BASELINE_CHANNELS,
+  buildAmazonDemoOrders,
   WORKFLOW_STEPS,
   DemoWorkflowState,
   SkuMapping,
@@ -1009,6 +1010,157 @@ export default function MarketplaceHubPage() {
     });
   };
 
+  // ── Whizunik sales-order flow for ecommerce orders ────────────────────────
+  // Marketplace sales orders raised here deliberately skip E-Way Bill and IRN
+  // collection: create the sales order, attach the invoice + packing slip, then
+  // generate a dispatch and release it to the courier from this dashboard.
+  const nextDocNumber = (prefix: string) => {
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    return `${prefix}-${stamp}-${Math.floor(1000 + Math.random() * 9000)}`;
+  };
+
+  const patchOrder = (orderId: string, patch: Partial<EcommerceOrder>) => {
+    setState((prev) => ({
+      ...prev,
+      orders: (prev.orders || BASELINE_ORDERS).map((o) =>
+        o.id === orderId ? { ...o, ...patch } : o,
+      ),
+    }));
+    setSelectedOrderForModal((cur) =>
+      cur && cur.id === orderId ? { ...cur, ...patch } : cur,
+    );
+  };
+
+  const handleSeedAmazonDemoOrders = () => {
+    const fresh = buildAmazonDemoOrders();
+    setState((prev) => {
+      const existing = prev.orders || BASELINE_ORDERS;
+      const newOnes = fresh.filter((f) => !existing.some((o) => o.id === f.id));
+      return { ...prev, orders: [...newOnes, ...existing] };
+    });
+    toast.success(`${fresh.length} Amazon demo orders added`, {
+      description:
+        "Click Create Sales Order on any order to raise its Whizunik sales order, invoice and packing slip.",
+    });
+  };
+
+  const handleCreateSalesOrder = (order: EcommerceOrder) => {
+    if (order.salesOrderNumber || order.salesOrderId) {
+      toast.info(
+        `Whizunik sales order already exists (${order.salesOrderNumber ?? order.salesOrderId})`,
+      );
+      return;
+    }
+    const salesOrderNumber = nextDocNumber("SO-ADV");
+    patchOrder(order.id, { salesOrderId: salesOrderNumber, salesOrderNumber });
+    toast.success(`Whizunik sales order ${salesOrderNumber} created`, {
+      description: `Linked to ${order.channelName} order ${order.externalOrderId}. Next: attach the invoice and packing slip.`,
+    });
+  };
+
+  const handleAttachInvoiceAndPackingSlip = (order: EcommerceOrder) => {
+    if (!order.salesOrderNumber && !order.salesOrderId) {
+      toast.error("Create the Whizunik sales order first");
+      return;
+    }
+    if (order.invoiceNumber) {
+      toast.info(`Invoice ${order.invoiceNumber} is already attached`);
+      return;
+    }
+    const invoiceNumber = nextDocNumber("INV-ADV");
+    const packingSlipNumber = nextDocNumber("PS-ADV");
+    patchOrder(order.id, {
+      invoiceId: invoiceNumber,
+      invoiceNumber,
+      packingSlipNumber,
+      documentsAttachedAt: new Date().toISOString(),
+    });
+    toast.success("Invoice & packing slip attached", {
+      description: `${invoiceNumber} · ${packingSlipNumber} — no E-Way Bill or IRN is required for this sales order.`,
+    });
+  };
+
+  const handleGenerateDispatch = (order: EcommerceOrder) => {
+    if (!order.invoiceNumber) {
+      toast.error("Attach the invoice and packing slip before generating a dispatch");
+      return;
+    }
+    if (order.dispatchNumber) {
+      toast.info(`Dispatch ${order.dispatchNumber} already generated`);
+      return;
+    }
+    const dispatchNumber = nextDocNumber("DSP-ADV");
+    patchOrder(order.id, {
+      dispatchId: `dispatch-${order.id}`,
+      dispatchNumber,
+      dispatchStatus: "ready",
+    });
+    toast.success(`Dispatch ${dispatchNumber} generated`, {
+      description:
+        "Click Dispatch to hand the parcel over — it releases directly, without E-Way Bill or IRN.",
+    });
+  };
+
+  const handleDispatchGeneratedOrder = (order: EcommerceOrder) => {
+    if (!order.dispatchNumber) {
+      toast.error("Generate the dispatch first");
+      return;
+    }
+    const carrier = order.carrier || "BlueDart Express";
+    const trackingNumber =
+      order.trackingNumber || `TRK-BD-${Math.floor(10000000 + Math.random() * 90000000)}`;
+    setState((prev) => {
+      const orders = (prev.orders || BASELINE_ORDERS).map((o) =>
+        o.id === order.id
+          ? {
+              ...o,
+              status: "dispatched" as const,
+              dispatchStatus: "dispatched" as const,
+              carrier,
+              trackingNumber,
+              paymentStatus: "collected" as const,
+            }
+          : o,
+      );
+      const inventory = prev.inventory.map((inv) => {
+        if (inv.whizunikSku !== order.sku) return inv;
+        const onHand = Math.max(0, inv.onHand - order.quantity);
+        const reserved = Math.max(0, inv.reserved - order.quantity);
+        return {
+          ...inv,
+          onHand,
+          reserved,
+          available: Math.max(0, onHand - reserved - inv.qcHold),
+        };
+      });
+      return {
+        ...prev,
+        orders,
+        inventory,
+        demoInvoiceNumber: order.invoiceNumber ?? prev.demoInvoiceNumber,
+        demoSoNumber: order.salesOrderNumber ?? order.salesOrderId ?? prev.demoSoNumber,
+        trackingNumber,
+        carrier,
+        outboundSyncStatus: "Simulated Acknowledged",
+      };
+    });
+    setSelectedOrderForModal((cur) =>
+      cur && cur.id === order.id
+        ? {
+            ...cur,
+            status: "dispatched",
+            dispatchStatus: "dispatched",
+            carrier,
+            trackingNumber,
+            paymentStatus: "collected",
+          }
+        : cur,
+    );
+    toast.success(`Dispatch ${order.dispatchNumber} released to ${carrier}`, {
+      description: `Tracking ${trackingNumber}. Dispatched without E-Way Bill or IRN — valid for this marketplace sales order.`,
+    });
+  };
+
   const handleJumpToStep = (stepNumber: number) => {
     setState((prev) => ({
       ...prev,
@@ -1957,6 +2109,13 @@ export default function MarketplaceHubPage() {
                   <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
                   Add Manual Order
                 </button>
+                <button
+                  onClick={handleSeedAmazonDemoOrders}
+                  className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition shadow-xs cursor-pointer"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  Add Amazon Demo Orders
+                </button>
               </div>
             </div>
 
@@ -2062,6 +2221,32 @@ export default function MarketplaceHubPage() {
                               <span className="text-[10px] text-slate-400 block">
                                 {ord.createdAt}
                               </span>
+                              {(ord.salesOrderNumber ||
+                                ord.invoiceNumber ||
+                                ord.dispatchNumber) && (
+                                <div className="flex flex-wrap gap-1 pt-0.5 max-w-[240px]">
+                                  {ord.salesOrderNumber && (
+                                    <span className="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-300 text-[9px] font-mono font-bold">
+                                      SO {ord.salesOrderNumber}
+                                    </span>
+                                  )}
+                                  {ord.invoiceNumber && (
+                                    <span className="px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-950/60 text-sky-700 dark:text-sky-300 text-[9px] font-mono font-bold">
+                                      INV {ord.invoiceNumber}
+                                    </span>
+                                  )}
+                                  {ord.packingSlipNumber && (
+                                    <span className="px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-300 text-[9px] font-mono font-bold">
+                                      PS {ord.packingSlipNumber}
+                                    </span>
+                                  )}
+                                  {ord.dispatchNumber && (
+                                    <span className="px-1.5 py-0.5 rounded bg-violet-50 dark:bg-violet-950/60 text-violet-700 dark:text-violet-300 text-[9px] font-mono font-bold">
+                                      DSP {ord.dispatchNumber}
+                                    </span>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           </td>
 
@@ -2159,15 +2344,45 @@ export default function MarketplaceHubPage() {
                               >
                                 <Eye className="w-3.5 h-3.5" />
                               </button>
-                              {ord.status !== "dispatched" && ord.status !== "delivered" && (
+                              {!ord.salesOrderNumber && !ord.salesOrderId && (
                                 <button
-                                  onClick={() => handleQuickDispatchOrder(ord)}
-                                  className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-2xs cursor-pointer"
-                                  title="Quick Dispatch to Courier"
+                                  onClick={() => handleCreateSalesOrder(ord)}
+                                  className="p-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300 transition cursor-pointer"
+                                  title="Create Whizunik Sales Order"
                                 >
-                                  <Truck className="w-3.5 h-3.5" />
+                                  <FileText className="w-3.5 h-3.5" />
                                 </button>
                               )}
+                              {(ord.salesOrderNumber || ord.salesOrderId) && !ord.invoiceNumber && (
+                                <button
+                                  onClick={() => handleAttachInvoiceAndPackingSlip(ord)}
+                                  className="p-1.5 rounded-lg border border-sky-200 dark:border-sky-800 bg-sky-50 dark:bg-sky-950/60 hover:bg-sky-100 dark:hover:bg-sky-900/60 text-sky-700 dark:text-sky-300 transition cursor-pointer"
+                                  title="Attach Invoice & Packing Slip"
+                                >
+                                  <FileCheck2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              {ord.invoiceNumber && !ord.dispatchNumber && (
+                                <button
+                                  onClick={() => handleGenerateDispatch(ord)}
+                                  className="p-1.5 rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50 dark:bg-violet-950/60 hover:bg-violet-100 dark:hover:bg-violet-900/60 text-violet-700 dark:text-violet-300 transition cursor-pointer"
+                                  title="Generate Dispatch"
+                                >
+                                  <Package className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                              {ord.dispatchNumber &&
+                                ord.dispatchStatus !== "dispatched" &&
+                                ord.status !== "dispatched" &&
+                                ord.status !== "delivered" && (
+                                  <button
+                                    onClick={() => handleDispatchGeneratedOrder(ord)}
+                                    className="p-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition shadow-2xs cursor-pointer"
+                                    title="Dispatch now (no E-Way Bill / IRN required)"
+                                  >
+                                    <Truck className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
                             </div>
                           </td>
                         </tr>
@@ -3662,6 +3877,56 @@ export default function MarketplaceHubPage() {
               </div>
             </div>
 
+            {/* Whizunik sales order, invoice, packing slip & dispatch */}
+            <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-indigo-200 dark:border-indigo-900/60 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wide">
+                  Whizunik Sales Order Documents
+                </span>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 font-bold">
+                  No E-Way Bill / IRN required
+                </span>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">
+                    Sales Order
+                  </span>
+                  <span className="font-mono text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                    {selectedOrderForModal.salesOrderNumber ||
+                      selectedOrderForModal.salesOrderId ||
+                      "Not created"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">
+                    Invoice
+                  </span>
+                  <span className="font-mono text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                    {selectedOrderForModal.invoiceNumber || "Not attached"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">
+                    Packing Slip
+                  </span>
+                  <span className="font-mono text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                    {selectedOrderForModal.packingSlipNumber || "Not attached"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">
+                    Dispatch
+                  </span>
+                  <span className="font-mono text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                    {selectedOrderForModal.dispatchNumber
+                      ? `${selectedOrderForModal.dispatchNumber} (${selectedOrderForModal.dispatchStatus ?? "ready"})`
+                      : "Not generated"}
+                  </span>
+                </div>
+              </div>
+            </div>
+
             {/* Customer & Courier Information */}
             <div className="grid grid-cols-2 gap-3 text-xs">
               <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-850 border border-slate-200/80 dark:border-slate-800 space-y-1">
@@ -3750,17 +4015,50 @@ export default function MarketplaceHubPage() {
               </button>
 
               <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
-                {selectedOrderForModal.status !== "dispatched" &&
+                {!selectedOrderForModal.salesOrderNumber &&
+                  !selectedOrderForModal.salesOrderId && (
+                    <button
+                      onClick={() => handleCreateSalesOrder(selectedOrderForModal)}
+                      className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white transition flex items-center gap-1.5"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                      Create Sales Order
+                    </button>
+                  )}
+                {(selectedOrderForModal.salesOrderNumber ||
+                  selectedOrderForModal.salesOrderId) &&
+                  !selectedOrderForModal.invoiceNumber && (
+                    <button
+                      onClick={() => handleAttachInvoiceAndPackingSlip(selectedOrderForModal)}
+                      className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-sky-600 hover:bg-sky-700 text-white transition flex items-center gap-1.5"
+                    >
+                      <FileCheck2 className="w-3.5 h-3.5" />
+                      Attach Invoice & Slip
+                    </button>
+                  )}
+                {selectedOrderForModal.invoiceNumber &&
+                  !selectedOrderForModal.dispatchNumber && (
+                    <button
+                      onClick={() => handleGenerateDispatch(selectedOrderForModal)}
+                      className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-violet-600 hover:bg-violet-700 text-white transition flex items-center gap-1.5"
+                    >
+                      <Package className="w-3.5 h-3.5" />
+                      Generate Dispatch
+                    </button>
+                  )}
+                {selectedOrderForModal.dispatchNumber &&
+                  selectedOrderForModal.dispatchStatus !== "dispatched" &&
+                  selectedOrderForModal.status !== "dispatched" &&
                   selectedOrderForModal.status !== "delivered" && (
                     <button
                       onClick={() => {
-                        handleQuickDispatchOrder(selectedOrderForModal);
+                        handleDispatchGeneratedOrder(selectedOrderForModal);
                         setShowOrderDetailsModal(false);
                       }}
                       className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition flex items-center gap-1.5"
                     >
                       <Truck className="w-3.5 h-3.5" />
-                      Dispatch to Courier
+                      Dispatch
                     </button>
                   )}
                 <button

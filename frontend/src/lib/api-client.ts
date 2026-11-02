@@ -508,9 +508,8 @@ const api = {
         ),
   },
 
-  // Goods Dispatches (dispatch notes — DEBIT inventory when the warehouse
-  // moves the status to Dispatched; confirming only releases for picking)
-  goodsDispatches: {
+  // Public document approvals (tokenised links emailed to debtors/checkers)
+  approvals: {
     get: (token: string) => api.get<any>(`/approvals/${token}`),
     respond: (token: string, decision: "approved" | "rejected", comments?: string) =>
       api.post<any>(`/approvals/${token}/respond`, { decision, comments }),
@@ -586,6 +585,88 @@ const api = {
       a.remove();
       URL.revokeObjectURL(url);
     },
+  },
+
+  // Amazon marketplace integration (orders, SKU mappings, invoices,
+  // shipments, returns, refunds, settlements and exception handling)
+  amazonOrders: {
+    list: (clientId?: string) =>
+      api.get<any[]>(`/amazon/orders${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+    get: (amazonOrderId: string) => api.get<any>(`/amazon/orders/${amazonOrderId}`),
+    import: (data: any) => api.post<any>("/amazon/orders/import", data),
+    updateStatus: (amazonOrderId: string, data: any) =>
+      api.put<any>(`/amazon/orders/${amazonOrderId}/status`, data),
+  },
+  amazonSkuMappings: {
+    list: (clientId?: string) =>
+      api.get<any[]>(`/amazon/sku-mappings${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+    create: (data: any) => api.post<any>("/amazon/sku-mappings", data),
+    validate: (amazonSku: string) =>
+      api.get<any>(`/amazon/sku-mappings/validate/${encodeURIComponent(amazonSku)}`),
+    unmapped: (skus: string[]) =>
+      api.get<any>(`/amazon/sku-mappings/unmapped?skus=${encodeURIComponent(skus.join(","))}`),
+  },
+  amazonInvoices: {
+    list: (clientId?: string) =>
+      api.get<any[]>(`/amazon/invoices${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+    create: (data: any) => api.post<any>("/amazon/invoices", data),
+    updateStatus: (data: { amazonOrderId: string; status: string }) =>
+      api.put<any>("/amazon/invoices/status", data),
+    markReceived: (data: {
+      amazonOrderId: string;
+      invoiceNumber: string;
+      invoiceIssueDate: string;
+    }) => api.put<any>("/amazon/invoices/mark-received", data),
+  },
+  amazonShipments: {
+    list: (clientId?: string) =>
+      api.get<any[]>(`/amazon/shipments${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+    createTask: (data: any) => api.post<any>("/amazon/fulfilment/create-task", data),
+    dispatch: (data: any) => api.put<any>("/amazon/fulfilment/dispatch", data),
+  },
+  amazonReturns: {
+    list: (clientId?: string) =>
+      api.get<any[]>(`/amazon/returns${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+    create: (data: any) => api.post<any>("/amazon/returns", data),
+    updateStatus: (returnId: string, data: any) =>
+      api.put<any>(`/amazon/returns/${returnId}/status`, data),
+    finalize: (data: any) => api.put<any>("/amazon/returns/finalize", data),
+  },
+  amazonRefunds: {
+    list: (clientId?: string) =>
+      api.get<any[]>(`/amazon/refunds${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+    create: (data: any) => api.post<any>("/amazon/refunds", data),
+    updateStatus: (refundId: string, data: any) =>
+      api.put<any>(`/amazon/refunds/${refundId}/status`, data),
+    byOrder: (amazonOrderId: string) =>
+      api.get<any>(`/amazon/refunds/order/${amazonOrderId}`),
+    checkExistence: (amazonOrderId: string) =>
+      api.put<any>("/amazon/refunds/check-existence", { amazonOrderId }),
+  },
+  amazonSettlements: {
+    list: (clientId?: string) =>
+      api.get<any[]>(`/amazon/settlements${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+    create: (data: any) => api.post<any>("/amazon/settlements", data),
+    updateStatus: (settlementId: string, status: string) =>
+      api.put<any>(`/amazon/settlements/${settlementId}/status`, { status }),
+    reconcile: (settlementId: string) =>
+      api.put<any>(`/amazon/settlements/reconcile/${settlementId}`, {}),
+    summary: (clientId?: string) =>
+      api.get<any>(`/amazon/settlements/summary${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+  },
+  amazonExceptions: {
+    list: (clientId?: string) =>
+      api.get<any[]>(`/amazon/exceptions${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+    open: (clientId?: string) =>
+      api.get<any[]>(`/amazon/exceptions/open${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+    byReason: (reason: string, clientId?: string) =>
+      api.get<any[]>(
+        `/amazon/exceptions/reason/${encodeURIComponent(reason)}${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
+      ),
+    resolve: (exceptionId: string, data: { resolutionNotes: string; responsibleUser: string }) =>
+      api.put<any>(`/amazon/exceptions/${exceptionId}/resolve`, data),
+    retry: (exceptionId: string) =>
+      api.put<any>(`/amazon/exceptions/${exceptionId}/retry`, {}),
   },
 
   // Unified workflow queue (PDF-3) — tasks, per-doc timelines, settings

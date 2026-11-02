@@ -3,16 +3,23 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3,
+  BarChart2,
   ShoppingBag,
   Warehouse,
   DollarSign,
   TrendingUp,
   AlertTriangle,
+  AlertCircle,
   CheckCircle,
   XCircle,
   Calendar,
+  CalendarDays as Calendar2,
+  Clock,
   Filter,
+  Filter as Filter2,
   LayoutDashboard,
+  LayoutGrid as Layout,
+  Grid3x3 as Grid,
   Building2,
   Plus,
   RefreshCw,
@@ -23,48 +30,36 @@ import {
   Send,
   ChevronDown,
   ChevronUp,
-  Calendar2,
-  Filter2,
-  Layout,
-  Grid,
   List as ListIcon,
   Loader2,
   Activity,
-  ArrowDownTA,
-  ArrowUpTA,
+  ArrowDownToLine as ArrowDownTA,
+  ArrowUpFromLine as ArrowUpTA,
   MapPin,
   ShieldCheck,
   BookOpen,
   Tag,
-  CreditCard,
-  Send,
-  CalendarDays,
   Package,
   Users,
   ArrowRightLeft,
   Zap,
   Eye,
   FileCheck2,
-  BarChart2,
   PieChart,
   Scale,
-  StatusPill,
-  MetricCard,
-  KpiCard,
-  TablePremium,
-  StatusBadge,
-  SeverityBadge,
-  FilterChip,
+} from "lucide-react";
+import { toast } from "sonner";
+import {
   Table,
-  Tbody,
-  Thead,
-  Tr,
-  Th,
-  Td,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
   Pagination,
-  PaginationEllipsis,
-  PaginationItem,
   PaginationContent,
+  PaginationItem,
+  PaginationEllipsis,
   Skeleton,
   Button,
   Dialog,
@@ -73,10 +68,21 @@ import {
   DialogTitle,
   DialogDescription,
   DialogClose,
-  form,
-  useForm,
-  useFormStatus,
-  useFormTrigger,
+  DialogOverlay,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Input,
+  Label,
+  FormLabel,
+  FormControl,
+  Badge,
+  KpiCard,
+  StatusBadge,
+  StatusPill,
+  TableContainer,
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api-client";
@@ -139,9 +145,10 @@ interface ReconciliationDetails {
 }
 
 export function AmazonReturnsSettlementPage() {
-  const clientId = useQueryClient().getQueryData(["auth", "user"])?.[0] as string | undefined;
+  const clientId = (useQueryClient().getQueryData(["auth", "user"]) as any)?.[0] as string | undefined;
+  const qc = useQueryClient();
   const {
-    data: returns,
+    data: returns = [],
     isLoading: returnsLoading,
   } = useQuery({
     queryKey: ["amazon-returns", clientId],
@@ -165,7 +172,7 @@ export function AmazonReturnsSettlementPage() {
   });
 
   const {
-    data: settlements,
+    data: settlements = [],
     isLoading: settlementsLoading,
   } = useQuery({
     queryKey: ["amazon-settlements", clientId],
@@ -177,7 +184,7 @@ export function AmazonReturnsSettlementPage() {
   });
 
   const [showReturnModal, setShowReturnModal] = useState(false);
-  const [formMode, setFormMode] useState<"create" | "edit">("create");
+  const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [returnForm, setReturnForm] = useState<{
     amazonOrderId: string;
     whizunikSalesOrderId: string;
@@ -294,7 +301,7 @@ export function AmazonReturnsSettlementPage() {
         conditionDescription: "",
       });
       toast.success("Amazon return created successfully");
-      qc.invalidateQueries(["amazon-returns"]);
+      qc.invalidateQueries({ queryKey: ["amazon-returns"] });
     } catch (err: any) {
       toast.error(err.message || "Failed to create return");
     }
@@ -305,7 +312,7 @@ export function AmazonReturnsSettlementPage() {
     try {
       await api.put(`/amazon/settlements/reconcile/${settlementId}`, {});
       toast.success("Settlement reconciled successfully");
-      qc.invalidateQueries(["amazon-settlements"]);
+      qc.invalidateQueries({ queryKey: ["amazon-settlements"] });
     } catch (err: any) {
       toast.error(err.message || "Failed to reconcile settlement");
     }
@@ -323,7 +330,7 @@ export function AmazonReturnsSettlementPage() {
         checkerName: data.checkerName,
       });
       toast.success("Return finalized successfully");
-      qc.invalidateQueries(["amazon-returns"]);
+      qc.invalidateQueries({ queryKey: ["amazon-returns"] });
     } catch (err: any) {
       toast.error(err.message || "Failed to finalize return");
     }
@@ -355,7 +362,7 @@ export function AmazonReturnsSettlementPage() {
         </div>
         <div className="flex items-center gap-3">
           <Button
-            variant="primary"
+            variant="default"
             size="sm"
             onClick={() => setShowReturnModal(true)}
           >
@@ -555,7 +562,7 @@ export function AmazonReturnsSettlementPage() {
         </div>
 
         {/* Reconciliation Status */}
-        <div p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs>
+        <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
           <h2 className="font-bold text-slate-900 dark:text-slate-100 mb-4">
             Reconciliation Status
           </h2>
@@ -585,7 +592,7 @@ export function AmazonReturnsSettlementPage() {
 
       {/* Create Return Modal */}
       {showReturnModal && (
-        <Dialog open={true} onOpenChange={({ removed }: any) => setShowReturnModal(!removed)} className="max-w-2xl">
+        <Dialog open={true} onOpenChange={({ removed }: any) => setShowReturnModal(!removed)}>
           <DialogOverlay />
           <DialogContent className="p-6 sm:p-8">
             <DialogHeader>
@@ -626,7 +633,6 @@ export function AmazonReturnsSettlementPage() {
                 <div>
                   <Label htmlFor="return-status">Return Status</Label>
                   <Select
-                    id="return-status"
                     onValueChange={(value: string) =>
                       setReturnForm({ ...returnForm, returnStatus: value })
                     }
@@ -703,7 +709,7 @@ export function AmazonReturnsSettlementPage() {
                       id="return-reason"
                       type="text"
                       placeholder="e.g. Size issue, Wrong item, etc."
-                      value={returnForm.returnReason}
+                      value={returnForm.returnReason ?? ""}
                       onChange={(e) =>
                         setReturnForm({ ...returnForm, returnReason: e.target.value })
                       }
@@ -715,7 +721,7 @@ export function AmazonReturnsSettlementPage() {
                       id="condition-description"
                       type="text"
                       placeholder="e.g. Slight stain, minor tear, etc."
-                      value={returnForm.conditionDescription}
+                      value={returnForm.conditionDescription ?? ""}
                       onChange={(e) =>
                         setReturnForm({ ...returnForm, conditionDescription: e.target.value })
                       }
@@ -750,20 +756,20 @@ export function AmazonReturnsSettlementPage() {
                 </Button>
                 <Button
                   type="submit"
-                  variant="primary"
+                  variant="default"
                   size="sm"
                 >
                   {formMode === "create" ? "Create Return" : "Update Return"}
                 </Button>
               </div>
             </form>
-          </DialogClose>
+          </DialogContent>
         </Dialog>
       )}
 
       {/* Reconcile Settlement Modal */}
       {showReconcileModal && selectedSettlementId && (
-        <Dialog open={true} onOpenChange={({ removed }: any) => setShowReconcileModal(!removed)} className="max-w-sm">
+        <Dialog open={true} onOpenChange={({ removed }: any) => setShowReconcileModal(!removed)}>
           <DialogOverlay />
           <DialogContent className="p-6">
             <DialogHeader>
@@ -783,13 +789,13 @@ export function AmazonReturnsSettlementPage() {
             <form onSubmit={() => handleReconcileSettlement(selectedSettlementId!)}>
               <Button
                 type="submit"
-                variant="primary"
+                variant="default"
                 size="sm"
               >
                 Reconcile Settlement
               </Button>
             </form>
-          </DialogClose>
+          </DialogContent>
         </Dialog>
       )}
     </div>

@@ -38,6 +38,9 @@ export interface MarketplaceAmazonShipment {
     height: number | null;
     unit: string | null;
   } | null;
+  warehouseLocation: string | null;
+  packingRequirements: string | null;
+  dispatchDeadline: string | null;
   notes: string | null;
   createdAt: string;
   updatedAt: string;
@@ -69,19 +72,7 @@ export async function create(
     clientId: string;
     amazonOrderId: string;
     whizunikSalesOrderId: string;
-    amazonShipmentId: string | null;
-    awbNumber: string | null;
-    trackingNumber: string | null;
-    shippingMethod: string;
-    carrierName: string | null;
-    dispatchDate: string | null;
-    deliverByDate: string | null;
-    deliveryStatus: string | null;
-    deliveryLocation: any;
     quantity: number;
-    fulfilmentType: string;
-    packageWeight: number | null;
-    packageDimensions: any | null;
   }
 ) {
   const id = uuid();
@@ -98,7 +89,7 @@ export async function create(
     amazonShipmentId: data.amazonShipmentId ?? null,
     awbNumber: data.awbNumber ?? null,
     trackingNumber: data.trackingNumber ?? null,
-    shippingMethod: data.shippingMethod,
+    shippingMethod: data.shippingMethod ?? "Standard",
     carrierName: data.carrierName ?? null,
     dispatchDate: data.dispatchDate ?? null,
     deliverByDate: data.deliverByDate ?? null,
@@ -115,6 +106,9 @@ export async function create(
     fulfilmentType: data.fulfilmentType || "FBA",
     packageWeight: data.packageWeight ?? null,
     packageDimensions: data.packageDimensions ?? null,
+    warehouseLocation: data.warehouseLocation ?? null,
+    packingRequirements: data.packingRequirements ?? null,
+    dispatchDeadline: data.dispatchDeadline ?? null,
     notes: data.notes ?? null,
     createdAt: now,
     updatedAt: now,

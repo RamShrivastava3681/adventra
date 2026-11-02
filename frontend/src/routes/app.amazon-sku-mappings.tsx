@@ -3,16 +3,23 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3,
+  BarChart2,
   ShoppingBag,
   Warehouse,
   DollarSign,
   TrendingUp,
   AlertTriangle,
+  AlertCircle,
   CheckCircle,
   XCircle,
   Calendar,
+  CalendarDays as Calendar2,
+  Clock,
   Filter,
+  Filter as Filter2,
   LayoutDashboard,
+  LayoutGrid as Layout,
+  Grid3x3 as Grid,
   Building2,
   Plus,
   RefreshCw,
@@ -23,48 +30,36 @@ import {
   Send,
   ChevronDown,
   ChevronUp,
-  Calendar2,
-  Filter2,
-  Layout,
-  Grid,
   List as ListIcon,
   Loader2,
   Activity,
-  ArrowDownTA,
-  ArrowUpTA,
+  ArrowDownToLine as ArrowDownTA,
+  ArrowUpFromLine as ArrowUpTA,
   MapPin,
   ShieldCheck,
   BookOpen,
   Tag,
-  CreditCard,
-  Send,
-  CalendarDays,
   Package,
   Users,
   ArrowRightLeft,
   Zap,
   Eye,
   FileCheck2,
-  BarChart2,
   PieChart,
   Scale,
-  StatusPill,
-  MetricCard,
-  KpiCard,
-  TablePremium,
-  StatusBadge,
-  SeverityBadge,
-  FilterChip,
+} from "lucide-react";
+import { toast } from "sonner";
+import {
   Table,
-  Tbody,
-  Thead,
-  Tr,
-  Th,
-  Td,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
   Pagination,
-  PaginationEllipsis,
-  PaginationItem,
   PaginationContent,
+  PaginationItem,
+  PaginationEllipsis,
   Skeleton,
   Button,
   Dialog,
@@ -73,10 +68,20 @@ import {
   DialogTitle,
   DialogDescription,
   DialogClose,
-  form,
-  useForm,
-  useFormStatus,
-  useFormTrigger,
+  DialogOverlay,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Input,
+  Label,
+  FormLabel,
+  Badge,
+  KpiCard,
+  StatusBadge,
+  StatusPill,
+  TableContainer,
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api-client";
@@ -137,7 +142,8 @@ interface SkuMappingRow {
 }
 
 export function AmazonSkuMappingsPage() {
-  const clientId = useQueryClient().getQueryData(["auth", "user"])?.[0] as string | undefined;
+  const clientId = (useQueryClient().getQueryData(["auth", "user"]) as any)?.[0] as string | undefined;
+  const qc = useQueryClient();
   const { data: mappings, isLoading } = useQuery({
     queryKey: ["amazon-sku-mappings-list", clientId],
     queryFn: async () => {
@@ -148,7 +154,7 @@ export function AmazonSkuMappingsPage() {
   });
 
   const [showMapModal, setShowMapModal] = useState(false);
-  const [formMode, setFormMode] useState<"create" | "edit">("create");
+  const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [formValues, setFormValues] = useState<SkuMappingFormValues>({
     channelSku: "",
     listingId: "",
@@ -277,7 +283,7 @@ export function AmazonSkuMappingsPage() {
       safetyStock: 0,
     });
     toast.success("SKU mapping created successfully");
-    qc.invalidateQueries(["amazon-sku-mappings-list"]);
+    qc.invalidateQueries({ queryKey: ["amazon-sku-mappings-list"] });
   };
 
   const handleUpdateMapping = async (e: React.FormEvent) => {
@@ -324,7 +330,7 @@ export function AmazonSkuMappingsPage() {
       safetyStock: 0,
     });
     toast.success("SKU mapping updated successfully");
-    qc.invalidateQueries(["amazon-sku-mappings-list"]);
+    qc.invalidateQueries({ queryKey: ["amazon-sku-mappings-list"] });
   };
 
   if (isLoading) {
@@ -349,7 +355,7 @@ export function AmazonSkuMappingsPage() {
         </div>
         <div className="flex items-center gap-3">
           <Button
-            variant="primary"
+            variant="default"
             size="sm"
             onClick={() => {
               setFormMode("create");
@@ -440,7 +446,7 @@ export function AmazonSkuMappingsPage() {
 
         {/* Mapping Form Modal */}
         {showMapModal && (
-          <Dialog open={true} onOpenChange=(setShowMapModal) className="max-w-2xl">
+          <Dialog open={true} onOpenChange={setShowMapModal}>
             <DialogOverlay />
             <DialogContent className="p-6 sm:p-8">
               <DialogHeader>
@@ -455,7 +461,7 @@ export function AmazonSkuMappingsPage() {
               <form onSubmit={formMode === "create" ? handleCreateMapping : handleUpdateMapping} className="mt-4 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <FormLabel htmlFor="channel-sku">Amazon SKU / ASIN</FormLabel>
-                  <FormControl
+                  <Input
                     id="channel-sku"
                     type="text"
                     placeholder="e.g. AMZ-TS-BLK-M"
@@ -466,7 +472,7 @@ export function AmazonSkuMappingsPage() {
                     disabled={formMode === "edit"}
                   />
                   <FormLabel htmlFor="listing-id">Amazon Listing ID (ASIN)</FormLabel>
-                  <FormControl
+                  <Input
                     id="listing-id"
                     type="text"
                     placeholder="e.g. ASIN-B08123456"
@@ -476,7 +482,7 @@ export function AmazonSkuMappingsPage() {
                     }
                   />
                   <FormLabel htmlFor="whizunik-sku">WhizUnik Master SKU</FormLabel>
-                  <FormControl
+                  <Input
                     id="whizunik-sku"
                     type="text"
                     placeholder="e.g. AD-TS-BLK-M"
@@ -487,7 +493,7 @@ export function AmazonSkuMappingsPage() {
                     disabled={formMode === "create"}
                   />
                   <FormLabel htmlFor="product-name">Product Name</FormLabel>
-                  <FormControl
+                  <Input
                     id="product-name"
                     type="text"
                     placeholder="e.g. Adventra Classic Tee"
@@ -497,7 +503,7 @@ export function AmazonSkuMappingsPage() {
                     }
                   />
                   <FormLabel htmlFor="variant">Variant</FormLabel>
-                  <FormControl
+                  <Input
                     id="variant"
                     type="text"
                     placeholder="e.g. Black / M"
@@ -507,7 +513,7 @@ export function AmazonSkuMappingsPage() {
                     }
                   />
                   <FormLabel htmlFor="warehouse">Warehouse</FormLabel>
-                  <FormControl
+                  <Input
                     id="warehouse"
                     type="text"
                     value={formValues.warehouse}
@@ -516,7 +522,7 @@ export function AmazonSkuMappingsPage() {
                     }
                   />
                   <FormLabel htmlFor="mrp">MRP</FormLabel>
-                  <FormControl
+                  <Input
                     id="mrp"
                     type="number"
                     value={formValues.mrp}
@@ -525,7 +531,7 @@ export function AmazonSkuMappingsPage() {
                     }
                   />
                   <FormLabel htmlFor="selling-price">Selling Price</FormLabel>
-                  <FormControl
+                  <Input
                     id="selling-price"
                     type="number"
                     value={formValues.sellingPrice}
@@ -534,7 +540,7 @@ export function AmazonSkuMappingsPage() {
                     }
                   />
                   <FormLabel htmlFor="hsn">HSN Code</FormLabel>
-                  <FormControl
+                  <Input
                     id="hsn"
                     type="text"
                     value={formValues.hsn}
@@ -543,7 +549,7 @@ export function AmazonSkuMappingsPage() {
                     }
                   />
                   <FormLabel htmlFor="gst-rate">GST Rate %</FormLabel>
-                  <FormControl
+                  <Input
                     id="gst-rate"
                     type="number"
                     value={formValues.gstRate}
@@ -556,7 +562,6 @@ export function AmazonSkuMappingsPage() {
                 <div>
                   <FormLabel htmlFor="status">Status</FormLabel>
                   <Select
-                    id="status"
                     onValueChange={(value) =>
                       setFormValues({ ...formValues, status: value as any })
                     }
@@ -573,7 +578,7 @@ export function AmazonSkuMappingsPage() {
                   </Select>
 
                   <FormLabel htmlFor="safety-stock">Safety Stock</FormLabel>
-                  <FormControl
+                  <Input
                     id="safety-stock"
                     type="number"
                     value={formValues.safetyStock}
@@ -596,14 +601,14 @@ export function AmazonSkuMappingsPage() {
                   </Button>
                   <Button
                     type="submit"
-                    variant="primary"
+                    variant="default"
                     size="sm"
                   >
                     {formMode === "create" ? "Create Mapping" : "Update Mapping"}
                   </Button>
                 </div>
               </form>
-            </DialogClose>
+            </DialogContent>
           </Dialog>
         )}
       </div>

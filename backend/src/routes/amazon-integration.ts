@@ -55,6 +55,8 @@ router.post("/amazon/orders/import", authMiddleware, async (req: Request, res: R
     });
 
     // Track action
+    if (!order) return res.status(400).json({ error: "Amazon order could not be imported" });
+
     void AuditLog.writeWorkflowAction(
       { userId: req.user?.userId, email: req.user?.email, roles: req.user?.roles },
       "amazon.order_imported",

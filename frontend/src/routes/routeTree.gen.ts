@@ -16,6 +16,11 @@ import { Route as AppAccountingRouteImport } from './app.accounting'
 import { Route as AppAdminRouteImport } from './app.admin'
 import { Route as AppAdvancesRouteImport } from './app.advances'
 import { Route as AppAlertsRouteImport } from './app.alerts'
+import { Route as AppAmazonDashboardRouteImport } from './app.amazon-dashboard'
+import { Route as AppAmazonExceptionsRouteImport } from './app.amazon-exceptions'
+import { Route as AppAmazonOrderImportRouteImport } from './app.amazon-order-import'
+import { Route as AppAmazonReturnsSettlementRouteImport } from './app.amazon-returns-settlement'
+import { Route as AppAmazonSkuMappingsRouteImport } from './app.amazon-sku-mappings'
 import { Route as AppBalanceSheetRouteImport } from './app.balance-sheet'
 import { Route as AppBulkPaymentsRouteImport } from './app.bulk-payments'
 import { Route as AppCashFlowRouteImport } from './app.cash-flow'
@@ -101,6 +106,32 @@ const AppAdvancesRoute = AppAdvancesRouteImport.update({
 const AppAlertsRoute = AppAlertsRouteImport.update({
   id: '/alerts',
   path: '/alerts',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAmazonDashboardRoute = AppAmazonDashboardRouteImport.update({
+  id: '/amazon-dashboard',
+  path: '/amazon-dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAmazonExceptionsRoute = AppAmazonExceptionsRouteImport.update({
+  id: '/amazon-exceptions',
+  path: '/amazon-exceptions',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAmazonOrderImportRoute = AppAmazonOrderImportRouteImport.update({
+  id: '/amazon-order-import',
+  path: '/amazon-order-import',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAmazonReturnsSettlementRoute =
+  AppAmazonReturnsSettlementRouteImport.update({
+    id: '/amazon-returns-settlement',
+    path: '/amazon-returns-settlement',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppAmazonSkuMappingsRoute = AppAmazonSkuMappingsRouteImport.update({
+  id: '/amazon-sku-mappings',
+  path: '/amazon-sku-mappings',
   getParentRoute: () => AppRoute,
 } as any)
 const AppBalanceSheetRoute = AppBalanceSheetRouteImport.update({
@@ -368,6 +399,11 @@ export interface FileRoutesByFullPath {
   '/app/admin': typeof AppAdminRoute
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
+  '/app/amazon-dashboard': typeof AppAmazonDashboardRoute
+  '/app/amazon-exceptions': typeof AppAmazonExceptionsRoute
+  '/app/amazon-order-import': typeof AppAmazonOrderImportRoute
+  '/app/amazon-returns-settlement': typeof AppAmazonReturnsSettlementRoute
+  '/app/amazon-sku-mappings': typeof AppAmazonSkuMappingsRoute
   '/app/balance-sheet': typeof AppBalanceSheetRoute
   '/app/bulk-payments': typeof AppBulkPaymentsRoute
   '/app/cash-flow': typeof AppCashFlowRoute
@@ -428,6 +464,11 @@ export interface FileRoutesByTo {
   '/app/admin': typeof AppAdminRoute
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
+  '/app/amazon-dashboard': typeof AppAmazonDashboardRoute
+  '/app/amazon-exceptions': typeof AppAmazonExceptionsRoute
+  '/app/amazon-order-import': typeof AppAmazonOrderImportRoute
+  '/app/amazon-returns-settlement': typeof AppAmazonReturnsSettlementRoute
+  '/app/amazon-sku-mappings': typeof AppAmazonSkuMappingsRoute
   '/app/balance-sheet': typeof AppBalanceSheetRoute
   '/app/bulk-payments': typeof AppBulkPaymentsRoute
   '/app/cash-flow': typeof AppCashFlowRoute
@@ -488,6 +529,11 @@ export interface FileRoutesById {
   '/app/admin': typeof AppAdminRoute
   '/app/advances': typeof AppAdvancesRoute
   '/app/alerts': typeof AppAlertsRoute
+  '/app/amazon-dashboard': typeof AppAmazonDashboardRoute
+  '/app/amazon-exceptions': typeof AppAmazonExceptionsRoute
+  '/app/amazon-order-import': typeof AppAmazonOrderImportRoute
+  '/app/amazon-returns-settlement': typeof AppAmazonReturnsSettlementRoute
+  '/app/amazon-sku-mappings': typeof AppAmazonSkuMappingsRoute
   '/app/balance-sheet': typeof AppBalanceSheetRoute
   '/app/bulk-payments': typeof AppBulkPaymentsRoute
   '/app/cash-flow': typeof AppCashFlowRoute
@@ -550,6 +596,11 @@ export interface FileRouteTypes {
     | '/app/admin'
     | '/app/advances'
     | '/app/alerts'
+    | '/app/amazon-dashboard'
+    | '/app/amazon-exceptions'
+    | '/app/amazon-order-import'
+    | '/app/amazon-returns-settlement'
+    | '/app/amazon-sku-mappings'
     | '/app/balance-sheet'
     | '/app/bulk-payments'
     | '/app/cash-flow'
@@ -610,6 +661,11 @@ export interface FileRouteTypes {
     | '/app/admin'
     | '/app/advances'
     | '/app/alerts'
+    | '/app/amazon-dashboard'
+    | '/app/amazon-exceptions'
+    | '/app/amazon-order-import'
+    | '/app/amazon-returns-settlement'
+    | '/app/amazon-sku-mappings'
     | '/app/balance-sheet'
     | '/app/bulk-payments'
     | '/app/cash-flow'
@@ -669,6 +725,11 @@ export interface FileRouteTypes {
     | '/app/admin'
     | '/app/advances'
     | '/app/alerts'
+    | '/app/amazon-dashboard'
+    | '/app/amazon-exceptions'
+    | '/app/amazon-order-import'
+    | '/app/amazon-returns-settlement'
+    | '/app/amazon-sku-mappings'
     | '/app/balance-sheet'
     | '/app/bulk-payments'
     | '/app/cash-flow'
@@ -779,6 +840,41 @@ declare module '@tanstack/react-router' {
       path: '/alerts'
       fullPath: '/app/alerts'
       preLoaderRoute: typeof AppAlertsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/amazon-dashboard': {
+      id: '/app/amazon-dashboard'
+      path: '/amazon-dashboard'
+      fullPath: '/app/amazon-dashboard'
+      preLoaderRoute: typeof AppAmazonDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/amazon-exceptions': {
+      id: '/app/amazon-exceptions'
+      path: '/amazon-exceptions'
+      fullPath: '/app/amazon-exceptions'
+      preLoaderRoute: typeof AppAmazonExceptionsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/amazon-order-import': {
+      id: '/app/amazon-order-import'
+      path: '/amazon-order-import'
+      fullPath: '/app/amazon-order-import'
+      preLoaderRoute: typeof AppAmazonOrderImportRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/amazon-returns-settlement': {
+      id: '/app/amazon-returns-settlement'
+      path: '/amazon-returns-settlement'
+      fullPath: '/app/amazon-returns-settlement'
+      preLoaderRoute: typeof AppAmazonReturnsSettlementRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/amazon-sku-mappings': {
+      id: '/app/amazon-sku-mappings'
+      path: '/amazon-sku-mappings'
+      fullPath: '/app/amazon-sku-mappings'
+      preLoaderRoute: typeof AppAmazonSkuMappingsRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/balance-sheet': {
@@ -1160,6 +1256,11 @@ interface AppRouteChildren {
   AppAdminRoute: typeof AppAdminRoute
   AppAdvancesRoute: typeof AppAdvancesRoute
   AppAlertsRoute: typeof AppAlertsRoute
+  AppAmazonDashboardRoute: typeof AppAmazonDashboardRoute
+  AppAmazonExceptionsRoute: typeof AppAmazonExceptionsRoute
+  AppAmazonOrderImportRoute: typeof AppAmazonOrderImportRoute
+  AppAmazonReturnsSettlementRoute: typeof AppAmazonReturnsSettlementRoute
+  AppAmazonSkuMappingsRoute: typeof AppAmazonSkuMappingsRoute
   AppBalanceSheetRoute: typeof AppBalanceSheetRoute
   AppBulkPaymentsRoute: typeof AppBulkPaymentsRoute
   AppCashFlowRoute: typeof AppCashFlowRoute
@@ -1214,6 +1315,11 @@ const AppRouteChildren: AppRouteChildren = {
   AppAdminRoute: AppAdminRoute,
   AppAdvancesRoute: AppAdvancesRoute,
   AppAlertsRoute: AppAlertsRoute,
+  AppAmazonDashboardRoute: AppAmazonDashboardRoute,
+  AppAmazonExceptionsRoute: AppAmazonExceptionsRoute,
+  AppAmazonOrderImportRoute: AppAmazonOrderImportRoute,
+  AppAmazonReturnsSettlementRoute: AppAmazonReturnsSettlementRoute,
+  AppAmazonSkuMappingsRoute: AppAmazonSkuMappingsRoute,
   AppBalanceSheetRoute: AppBalanceSheetRoute,
   AppBulkPaymentsRoute: AppBulkPaymentsRoute,
   AppCashFlowRoute: AppCashFlowRoute,

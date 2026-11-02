@@ -3,16 +3,23 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3,
+  BarChart2,
   ShoppingBag,
   Warehouse,
   DollarSign,
   TrendingUp,
   AlertTriangle,
+  AlertCircle,
   CheckCircle,
   XCircle,
   Calendar,
+  CalendarDays as Calendar2,
+  Clock,
   Filter,
+  Filter as Filter2,
   LayoutDashboard,
+  LayoutGrid as Layout,
+  Grid3x3 as Grid,
   Building2,
   Plus,
   RefreshCw,
@@ -23,48 +30,36 @@ import {
   Send,
   ChevronDown,
   ChevronUp,
-  Calendar2,
-  Filter2,
-  Layout,
-  Grid,
   List as ListIcon,
   Loader2,
   Activity,
-  ArrowDownTA,
-  ArrowUpTA,
+  ArrowDownToLine as ArrowDownTA,
+  ArrowUpFromLine as ArrowUpTA,
   MapPin,
   ShieldCheck,
   BookOpen,
   Tag,
-  CreditCard,
-  Send,
-  CalendarDays,
   Package,
   Users,
   ArrowRightLeft,
   Zap,
   Eye,
   FileCheck2,
-  BarChart2,
   PieChart,
   Scale,
-  StatusPill,
-  MetricCard,
-  KpiCard,
-  TablePremium,
-  StatusBadge,
-  SeverityBadge,
-  FilterChip,
+} from "lucide-react";
+import { toast } from "sonner";
+import {
   Table,
-  Tbody,
-  Thead,
-  Tr,
-  Th,
-  Td,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
   Pagination,
-  PaginationEllipsis,
-  PaginationItem,
   PaginationContent,
+  PaginationItem,
+  PaginationEllipsis,
   Skeleton,
   Button,
   Dialog,
@@ -73,10 +68,21 @@ import {
   DialogTitle,
   DialogDescription,
   DialogClose,
-  form,
-  useForm,
-  useFormStatus,
-  useFormTrigger,
+  DialogOverlay,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Input,
+  Label,
+  FormLabel,
+  FormControl,
+  Badge,
+  KpiCard,
+  StatusBadge,
+  StatusPill,
+  TableContainer,
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api-client";
@@ -143,7 +149,7 @@ interface AwaitingStockOrder {
   createdAt: string;
 }
 
-function useAmazonKpis(clientId: string): AmazonDashboardKpis {
+function useAmazonKpis(clientId: string): { kpis: AmazonDashboardKpis; isLoading: boolean } {
   const { data, isLoading } = useQuery({
     queryKey: ["amazon-dashboard-kpis", clientId],
     queryFn: async () => {
@@ -231,10 +237,10 @@ function useAmazonKpis(clientId: string): AmazonDashboardKpis {
     enabled: !!clientId,
   });
 
-  return { kpis: data, isLoading };
+  return { kpis: data as AmazonDashboardKpis, isLoading };
 }
 
-function useOrderStatusDistribution(clientId: string): OrderStatusItem[] {
+function useOrderStatusDistribution(clientId: string): { orderStatusDistribution: OrderStatusItem[]; isLoading: boolean } {
   const { data, isLoading } = useQuery({
     queryKey: ["amazon-dashboard-order-status", clientId],
     queryFn: async () => {
@@ -301,7 +307,7 @@ function useOrderStatusDistribution(clientId: string): OrderStatusItem[] {
     enabled: !!clientId,
   });
 
-  return { orderStatusDistribution: data, isLoading };
+  return { orderStatusDistribution: (data ?? []) as OrderStatusItem[], isLoading };
 }
 
 function useRecentOrders(clientId: string) {
@@ -317,7 +323,7 @@ function useRecentOrders(clientId: string) {
     enabled: !!clientId,
   });
 
-  return { recentOrders: data, isLoading };
+  return { recentOrders: (data ?? []) as any[], isLoading };
 }
 
 function useExceptions(clientId: string) {
@@ -359,11 +365,11 @@ function useExceptions(clientId: string) {
     enabled: !!clientId,
   });
 
-  return { exceptions: data, isLoading };
+  return { exceptions: (data ?? []) as ExceptionSummary[], isLoading };
 }
 
 export function AmazonDashboardPage() {
-  const clientId = useQueryClient().getQueryData(["auth", "user"])?.[0] as string | undefined;
+  const clientId = (useQueryClient().getQueryData(["auth", "user"]) as any)?.[0] as string | undefined;
 
   const { kpis, isLoading: kpisLoading } = useAmazonKpis(clientId || "");
   const { orderStatusDistribution, isLoading: statusLoading } = useOrderStatusDistribution(clientId || "");
@@ -375,7 +381,7 @@ export function AmazonDashboardPage() {
   // Handle KPI card clicks
   const handleKpiClick = (kpiKey: keyof AmazonDashboardKpis) => {
     // Navigate to relevant filtered records
-    toast.info(`Navigating to ${kpis.kpis[kpiKey]} ${kpiKey.replace(/([A-Z])/g, " $1").trim()}...`);
+    toast.info(`Navigating to ${kpis[kpiKey]} ${kpiKey.replace(/([A-Z])/g, " $1").trim()}...`);
   };
 
   if (isLoading) {
@@ -556,7 +562,7 @@ export function AmazonDashboardPage() {
               <h2 className="font-bold text-slate-900 dark:text-slate-100">
                 Order Status Distribution
               </h2>
-              <Badge variant="secondary" size="sm">
+              <Badge variant="secondary">
                 {orderStatusDistribution.length} statuses
               </Badge>
             </div>
@@ -575,12 +581,18 @@ export function AmazonDashboardPage() {
                       {status.count}
                     </span>
                   </div>
-                  <BarChart3
-                    className="w-4 h-4 text-primary"
-                    data={status.count}
-                    min={0}
-                    max={Math.max(...orderStatusDistribution.map((s) => s.count)) || 1}
-                  />
+                  <div className="h-1.5 w-24 overflow-hidden rounded-full bg-slate-200 dark:bg-slate-700">
+                    <div
+                      className="h-full rounded-full bg-primary"
+                      style={{
+                        width: `${Math.round(
+                          (status.count /
+                            (Math.max(...orderStatusDistribution.map((s) => s.count)) || 1)) *
+                            100,
+                        )}%`,
+                      }}
+                    />
+                  </div>
                 </div>
               ))}
             </div>
@@ -789,7 +801,7 @@ export function AmazonDashboardPage() {
             Last sync: Just now
           </p>
           <Button
-            variant="primary"
+            variant="default"
             size="sm"
             onClick={() => {
               toast.promise(

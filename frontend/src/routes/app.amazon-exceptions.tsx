@@ -3,16 +3,23 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   BarChart3,
+  BarChart2,
   ShoppingBag,
   Warehouse,
   DollarSign,
   TrendingUp,
   AlertTriangle,
+  AlertCircle,
   CheckCircle,
   XCircle,
   Calendar,
+  CalendarDays as Calendar2,
+  Clock,
   Filter,
+  Filter as Filter2,
   LayoutDashboard,
+  LayoutGrid as Layout,
+  Grid3x3 as Grid,
   Building2,
   Plus,
   RefreshCw,
@@ -23,48 +30,36 @@ import {
   Send,
   ChevronDown,
   ChevronUp,
-  Calendar2,
-  Filter2,
-  Layout,
-  Grid,
   List as ListIcon,
   Loader2,
   Activity,
-  ArrowDownTA,
-  ArrowUpTA,
+  ArrowDownToLine as ArrowDownTA,
+  ArrowUpFromLine as ArrowUpTA,
   MapPin,
   ShieldCheck,
   BookOpen,
   Tag,
-  CreditCard,
-  Send,
-  CalendarDays,
   Package,
   Users,
   ArrowRightLeft,
   Zap,
   Eye,
   FileCheck2,
-  BarChart2,
   PieChart,
   Scale,
-  StatusPill,
-  MetricCard,
-  KpiCard,
-  TablePremium,
-  StatusBadge,
-  SeverityBadge,
-  FilterChip,
+} from "lucide-react";
+import { toast } from "sonner";
+import {
   Table,
-  Tbody,
-  Thead,
-  Tr,
-  Th,
-  Td,
+  TableHeader,
+  TableBody,
+  TableHead,
+  TableRow,
+  TableCell,
   Pagination,
-  PaginationEllipsis,
-  PaginationItem,
   PaginationContent,
+  PaginationItem,
+  PaginationEllipsis,
   Skeleton,
   Button,
   Dialog,
@@ -73,10 +68,21 @@ import {
   DialogTitle,
   DialogDescription,
   DialogClose,
-  form,
-  useForm,
-  useFormStatus,
-  useFormTrigger,
+  DialogOverlay,
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+  Input,
+  Label,
+  FormLabel,
+  FormControl,
+  Badge,
+  KpiCard,
+  StatusBadge,
+  StatusPill,
+  TableContainer,
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api-client";
@@ -107,7 +113,8 @@ interface ExceptionFilter {
 }
 
 export function AmazonExceptionsPage() {
-  const clientId = useQueryClient().getQueryData(["auth", "user"])?.[0] as string | undefined;
+  const clientId = (useQueryClient().getQueryData(["auth", "user"]) as any)?.[0] as string | undefined;
+  const qc = useQueryClient();
   const { data: exceptions, isLoading } = useQuery({
     queryKey: ["amazon-exceptions-list", clientId],
     queryFn: async () => {
@@ -153,8 +160,8 @@ export function AmazonExceptionsPage() {
       setShowResolveModal(false);
       setSelectedExceptionId(null);
       setResolutionNotes("");
-      toast.exception("Exception resolved successfully");
-      qc.invalidateQueries(["amazon-exceptions-list"]);
+      toast.success("Exception resolved successfully");
+      qc.invalidateQueries({ queryKey: ["amazon-exceptions-list"] });
     } catch (err: any) {
       toast.error(err.message || "Failed to resolve exception");
     }
@@ -167,7 +174,7 @@ export function AmazonExceptionsPage() {
       await api.put(`/amazon/exceptions/${selectedExceptionId}/retry`, {});
 
       toast.success("Retry incremented - will re-attempt failed operation");
-      qc.invalidateQueries(["amazon-exceptions-list"]);
+      qc.invalidateQueries({ queryKey: ["amazon-exceptions-list"] });
     } catch (err: any) {
       toast.error(err.message || "Failed to increment retry");
     }
@@ -204,21 +211,21 @@ export function AmazonExceptionsPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setFilter((f) => ({ ...f, status: "All }))}
+            onClick={() => setFilter((f) => ({ ...f, status: "All" }))}
           >
             All ({filteredExceptions.length})
           </Button>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setFilter((f) => ({ ...f, status: "Open }))}
+            onClick={() => setFilter((f) => ({ ...f, status: "Open" }))}
           >
             Open ({openCount})
           </Button>
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setFilter((f) => ({ ...f, status: "Resolved }))}
+            onClick={() => setFilter((f) => ({ ...f, status: "Resolved" }))}
           >
             Resolved ({resolvedCount})
           </Button>
@@ -368,7 +375,7 @@ export function AmazonExceptionsPage() {
 
       {/* Resolve Exception Modal */}
       {showResolveModal && (
-        <Dialog open={true} onOpenChange={({ removed }: any) => setShowResolveModal(!removed)} className="max-w-2xl">
+        <Dialog open={true} onOpenChange={({ removed }: any) => setShowResolveModal(!removed)}>
           <DialogOverlay />
           <DialogContent className="p-6 sm:p-8">
             <DialogHeader>
@@ -409,14 +416,14 @@ export function AmazonExceptionsPage() {
                 </Button>
                 <Button
                   type="submit"
-                  variant="primary"
+                  variant="default"
                   size="sm"
                 >
                   Resolve Exception
                 </Button>
               </div>
             </form>
-          </DialogClose>
+          </DialogContent>
         </Dialog>
       )}
     </div>

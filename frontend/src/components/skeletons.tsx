@@ -186,3 +186,19 @@ export function TablePageSkeleton({
     </div>
   );
 }
+
+export function SearchSkeleton({ className = "" }: { className?: string }) {
+  return <div className={`h-9 w-full animate-pulse rounded-md bg-muted/60 ${className}`} />;
+}
+
+export function SkeletonRow({ cols = 4 }: { cols?: number }) {
+  return (
+    <tr>
+      {Array.from({ length: cols }).map((_, i) => (
+        <td key={i} className="px-3 py-2">
+          <div className="h-4 w-full animate-pulse rounded bg-muted/60" />
+        </td>
+      ))}
+    </tr>
+  );
+}

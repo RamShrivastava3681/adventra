@@ -137,13 +137,25 @@ function modelMock(entityType: string, extra: Record<string, any> = {}) {
       return next;
     }),
     list: vi.fn(async (clientId?: string) => {
-      const { items } = queryByGSI1(clientId || "", { entityType, limit: 500 });
-      return items as any[];
+      if (clientId) {
+        const { items } = queryByGSI1(clientId, { entityType, limit: 500 });
+        return items as any[];
+      }
+      // Mirrors the real model: a list without a client scopes scans the table
+      return queryByType(entityType);
     }),
     get: vi.fn(async (id: string) => {
       const pk = `${pkPrefix}#${id}`;
       const sk = `${pkPrefix}#${id}`;
       return store.get(key(pk, sk)) ?? null;
+    }),
+    updateMappingStatus: vi.fn(async (id: string, status: string) => {
+      const pk = `${pkPrefix}#${id}`;
+      const sk = `${pkPrefix}#${id}`;
+      const current = store.get(key(pk, sk)) ?? { pk, sk };
+      const next = { ...current, status, updatedAt: NOW };
+      store.set(key(pk, sk), next);
+      return next;
     }),
     ...extra,
   };
@@ -160,50 +172,23 @@ function statusField(entityType: string): string {
   return "status";
 }
 
-vi.mock("../../models/marketplace-amazon-order.js", () => {
-  const m = modelMock("MarketplaceAmazonOrder");
-  return { MarketplaceAmazonOrder: m };
-});
+vi.mock("../../models/marketplace-amazon-order.js", () => ({ ...modelMock("MarketplaceAmazonOrder") }));
 
-vi.mock("../../models/marketplace-amazon-sku-mapping.js", () => {
-  const m = modelMock("MarketplaceAmazonSkuMapping");
-  return { MarketplaceAmazonSkuMapping: m };
-});
+vi.mock("../../models/marketplace-amazon-sku-mapping.js", () => ({ ...modelMock("MarketplaceAmazonSkuMapping") }));
 
-vi.mock("../../models/marketplace-amazon-invoice-record.js", () => {
-  const m = modelMock("MarketplaceAmazonInvoiceRecord");
-  return { MarketplaceAmazonInvoiceRecord: m };
-});
+vi.mock("../../models/marketplace-amazon-invoice-record.js", () => ({ ...modelMock("MarketplaceAmazonInvoiceRecord") }));
 
-vi.mock("../../models/marketplace-amazon-shipment.js", () => {
-  const m = modelMock("MarketplaceAmazonShipment");
-  return { MarketplaceAmazonShipment: m };
-});
+vi.mock("../../models/marketplace-amazon-shipment.js", () => ({ ...modelMock("MarketplaceAmazonShipment") }));
 
-vi.mock("../../models/marketplace-amazon-return.js", () => {
-  const m = modelMock("MarketplaceAmazonReturn");
-  return { MarketplaceAmazonReturn: m };
-});
+vi.mock("../../models/marketplace-amazon-return.js", () => ({ ...modelMock("MarketplaceAmazonReturn") }));
 
-vi.mock("../../models/marketplace-amazon-refund.js", () => {
-  const m = modelMock("MarketplaceAmazonRefund");
-  return { MarketplaceAmazonRefund: m };
-});
+vi.mock("../../models/marketplace-amazon-refund.js", () => ({ ...modelMock("MarketplaceAmazonRefund") }));
 
-vi.mock("../../models/marketplace-amazon-settlement.js", () => {
-  const m = modelMock("MarketplaceAmazonSettlement");
-  return { MarketplaceAmazonSettlement: m };
-});
+vi.mock("../../models/marketplace-amazon-settlement.js", () => ({ ...modelMock("MarketplaceAmazonSettlement") }));
 
-vi.mock("../../models/marketplace-amazon-exception.js", () => {
-  const m = modelMock("MarketplaceAmazonException");
-  return { MarketplaceAmazonException: m };
-});
+vi.mock("../../models/marketplace-amazon-exception.js", () => ({ ...modelMock("MarketplaceAmazonException") }));
 
-vi.mock("../../models/marketplace-allocation.js", () => {
-  const m = modelMock("MarketplaceAllocation");
-  return { MarketplaceAllocation: m };
-});
+vi.mock("../../models/marketplace-allocation.js", () => ({ ...modelMock("MarketplaceAllocation") }));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Service imports
@@ -219,6 +204,7 @@ import * as GoodsSO from "../../models/goods-sales-order.js";
 import * as InvoiceModel from "../../models/invoice.js";
 import * as GoodsDispatch from "../../models/goods-dispatch.js";
 import * as db from "../../dynamodb.js";
+import * as AmazonOrderModel from "../../models/marketplace-amazon-order.js";
 
 const CLIENT_ID = "client-whizunik-001";
 
@@ -344,6 +330,7 @@ describe("Amazon → Whizunik end-to-end workflow (5 dummy orders)", () => {
         status: "Mapped",
         safetyStock: 10,
       });
+      if (!m) throw new Error(`SKU mapping was not created for ${o.amazonSku}`);
       expect(m).toBeDefined();
       expect(m.whizunikSku).toBe(o.whizunikSku);
       mappings.push(m);
@@ -404,6 +391,7 @@ describe("Amazon → Whizunik end-to-end workflow (5 dummy orders)", () => {
         amazonOrderStatus: "Pending",
         invoiceStatus: "Pending",
       });
+      if (!order) throw new Error(`Amazon order ${o.amazonOrderId} was not imported`);
       expect(order).toBeDefined();
       expect(order.amazonOrderId).toBe(o.amazonOrderId);
       expect(order.invoiceStatus).toBe("Pending");
@@ -567,6 +555,7 @@ dispatchHold: false,
         taxRate: ao.taxInformation.taxRate,
         currency: "INR",
       });
+      if (!amazonInv) throw new Error(`Amazon invoice record was not created for ${ao.amazonOrderId}`);
       expect(amazonInv).toBeDefined();
       expect(amazonInv.status).toBe("Pending");
     }
@@ -583,11 +572,11 @@ dispatchHold: false,
         `ADV-26/27-SI-${String(i + 1).padStart(3, "0")}`,
         "2026-11-02"
       );
+      if (!updated) throw new Error(`Invoice record not found for ${ao.amazonOrderId}`);
       expect(updated).toBeDefined();
       expect(updated.status).toBe("InvoiceReceived");
       // Also update the Amazon order's invoiceStatus so warehouse fulfilment can proceed
-      // @ts-ignore
-      await updateStatus(ao.amazonOrderId, undefined, "InvoiceReceived");
+      await AmazonOrderModel.updateStatus(ao.amazonOrderId, undefined as any, "InvoiceReceived");
     }
     console.log("  ✓ All 5 Amazon invoices marked as InvoiceReceived");
   });
@@ -714,6 +703,7 @@ dispatchHold: false,
       returnReason: "Wrong size",
       conditionDescription: "Unworn, tags intact",
     });
+    if (!ret) throw new Error(`Return was not created for ${ao.amazonOrderId}`);
     expect(ret).toBeDefined();
     expect(ret.returnStatus).toBe("ReturnInitiated");
     expect(ret.quantityReturned).toBe(1);
@@ -737,6 +727,7 @@ dispatchHold: false,
       checkerId: "checker-001",
       checkerName: "Warehouse Checker",
     });
+    if (!finalized) throw new Error(`Return ${ret.id} was not finalized`);
     expect(finalized.returnStatus).toBe("Accepted");
     expect(finalized.quantityAccepted).toBe(1);
 
@@ -762,6 +753,7 @@ dispatchHold: false,
       returnReason: "Damaged in transit",
       conditionDescription: "Sole detached, packaging torn",
     });
+    if (!ret) throw new Error(`Return was not created for ${ao.amazonOrderId}`);
     createdReturnIds.push(ret.id);
 
     const updated = await AmazonReturnService.AmazonReturnService.updateReturnStatus(
@@ -780,6 +772,7 @@ dispatchHold: false,
       checkerId: "checker-002",
       checkerName: "Warehouse Checker 2",
     });
+    if (!finalized) throw new Error(`Return ${ret.id} was not finalized`);
     expect(finalized.returnStatus).toBe("PartiallyAccepted");
 
     console.log(
@@ -801,6 +794,7 @@ dispatchHold: false,
       refundDate: NOW,
       linkedReturnId: createdReturnIds[0],
     });
+    if (!refund2) throw new Error(`Refund was not created for ${ao2.amazonOrderId}`);
     expect(refund2).toBeDefined();
     expect(refund2.amount).toBe(749.5);
     expect(refund2.linkedReturnId).toBe(createdReturnIds[0]);
@@ -818,6 +812,7 @@ dispatchHold: false,
       refundDate: NOW,
       linkedReturnId: createdReturnIds[1],
     });
+    if (!refund5) throw new Error(`Refund was not created for ${ao5.amazonOrderId}`);
     expect(refund5).toBeDefined();
     expect(refund5.amount).toBe(0);
     expect(refund5.refundStatus).toBe("Failed");
@@ -841,6 +836,7 @@ dispatchHold: false,
       settlementPeriod: "Nov 2026",
       settlementReference: `SETT-AMZ-NOV-2026-${CLIENT_ID}`,
     });
+    if (!settlement) throw new Error("Settlement was not created");
     expect(settlement).toBeDefined();
     expect(settlement.status).toBe("EXPECTED");
 

@@ -1,7 +1,16 @@
-// @ts-ignore
-import { MarketplaceAmazonReturn } from "../models/marketplace-amazon-return.js";
-import { MarketplaceAmazonRefund } from "../models/marketplace-amazon-refund.js";
-import { MarketplaceAmazonOrder } from "../models/marketplace-amazon-order.js";
+import {
+  findByAmazonOrderId,
+  create as createReturnRecord,
+  update as updateReturnRecord,
+  get as getReturn,
+  list as listReturns,
+} from "../models/marketplace-amazon-return.js";
+import type { ReturnStatus } from "../models/marketplace-amazon-return.js";
+import {
+  create as createRefundRecord,
+  update as updateRefundRecord,
+  list as listRefunds,
+} from "../models/marketplace-amazon-refund.js";
 
 export class AmazonReturnService {
 
@@ -19,10 +28,10 @@ export class AmazonReturnService {
     conditionDescription: string | null;
   }) {
     // Check if return already exists for this order
-    const existing = await MarketplaceAmazonReturnModel.findByAmazonOrderId(data.clientId, data.amazonOrderId);
+    const existing = await findByAmazonOrderId(data.clientId, data.amazonOrderId);
     if (existing) {
-      return await MarketplaceAmazonReturnModel.update(existing.id, {
-        returnStatus: data.returnStatus,
+      return await updateReturnRecord(existing.id, {
+        returnStatus: (data.returnStatus ?? existing.returnStatus) as ReturnStatus,
         quantityReturned: data.quantityReturned,
         quantityAccepted: data.quantityAccepted,
         quantityDamaged: data.quantityDamaged,
@@ -32,12 +41,12 @@ export class AmazonReturnService {
       });
     }
 
-    return await MarketplaceAmazonReturnModel.create({
+    return await createReturnRecord({
       clientId: data.clientId,
       amazonOrderId: data.amazonOrderId,
       whizunikSalesOrderId: data.whizunikSalesOrderId,
       amazonReturnId: data.amazonReturnId,
-      returnStatus: data.returnStatus ?? "ReturnInitiated",
+      returnStatus: (data.returnStatus ?? "ReturnInitiated") as ReturnStatus,
       quantityReturned: data.quantityReturned,
       quantityAccepted: data.quantityAccepted,
       quantityDamaged: data.quantityDamaged,
@@ -47,27 +56,26 @@ export class AmazonReturnService {
     });
   }
 
-  static async updateReturnStatus(returnId: string, status: string, quantityAccepted: number, quantityDamaged: number): Promise<any> {
-    const ret = await MarketplaceAmazonReturnModel.get(returnId);
+  static async updateReturnStatus(returnId: string, status: ReturnStatus, quantityAccepted: number, quantityDamaged: number): Promise<any> {
+    const ret = await getReturn(returnId);
     if (!ret) throw new Error("Return not found");
 
     // Update return status
-    const updated = await MarketplaceAmazonReturnModel.update(returnId, {
+    const updated = await updateReturnRecord(returnId, {
       returnStatus: status,
       quantityAccepted,
       quantityDamaged,
-      updatedAt: new Date().toISOString(),
     });
 
     // If return is accepted and credit note should be created
     if (status === "Accepted" && quantityAccepted > 0) {
       // Check if credit note already exists
-      const alreadyHasCredit = (await MarketplaceAmazonRefundModel.list(ret.clientId)).some(
+      const alreadyHasCredit = (await listRefunds(ret.clientId)).some(
         (r) => r.linkedReturnId === returnId
       );
       if (!alreadyHasCredit) {
         // Create credit note (refund record)
-        const refund = await MarketplaceAmazonRefundModel.create({
+        const refund = await createRefundRecord({
           clientId: ret.clientId,
           amazonOrderId: ret.amazonOrderId,
           whizunikSalesOrderId: ret.whizunikSalesOrderId,
@@ -82,7 +90,7 @@ export class AmazonReturnService {
         });
 
         // Update return with credit note ID
-        await MarketplaceAmazonReturnModel.update(returnId, {
+        await updateReturnRecord(returnId, {
           creditNoteId: refund.id,
         });
 
@@ -100,11 +108,11 @@ export class AmazonReturnService {
     checkerId: string;
     checkerName: string;
   }) {
-    const ret = await MarketplaceAmazonReturnModel.get(returnId);
+    const ret = await getReturn(returnId);
     if (!ret) throw new Error("Return not found");
 
     // Update return with final quantities
-    const updated = await MarketplaceAmazonReturnModel.update(returnId, {
+    const updated = await updateReturnRecord(returnId, {
       quantityAccepted: data.quantityAccepted,
       quantityDamaged: data.quantityDamaged,
       returnStatus: data.quantityDamaged > 0 ? "PartiallyAccepted" : "Accepted",
@@ -116,10 +124,10 @@ export class AmazonReturnService {
     // If there are damaged goods, they should not enter available stock
     // Update refund status
     if (data.refundReference) {
-      const refunds = await MarketplaceAmazonRefundModel.list(ret.clientId);
+      const refunds = await listRefunds(ret.clientId);
       const associatedRefund = refunds.find((r) => r.linkedReturnId === returnId);
       if (associatedRefund) {
-        await MarketplaceAmazonRefundModel.update(associatedRefund.id, {
+        await updateRefundRecord(associatedRefund.id, {
           refundStatus: "Processed",
           refundReference: data.refundReference,
         });
