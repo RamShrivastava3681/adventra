@@ -4,13 +4,13 @@ import { requireRole, effectiveListScope } from "../middleware/roles.js";
 import * as db from "../dynamodb.js";
 import * as AuditLog from "../models/audit-log.js";
 
-import { AmazonOrderImportService } from "../services/amazon-order-import.service";
-import { AmazonSkuMappingService } from "../services/amazon-sku-mapping.service";
-import { AmazonInvoiceService } from "../services/amazon-invoice.service";
-import { AmazonFulfilmentService } from "../services/amazon-fulfilment.service";
-import { AmazonReturnService } from "../services/amazon-return.service";
-import { AmazonRefundService } from "../services/amazon-refund.service";
-import { AmazonSettlementService } from "../services/amazon-settlement.service";
+import { AmazonOrderImportService } from "../services/amazon-order-import.service.js";
+import { AmazonSkuMappingService } from "../services/amazon-sku-mapping.service.js";
+import { AmazonInvoiceService } from "../services/amazon-invoice.service.js";
+import { AmazonFulfilmentService } from "../services/amazon-fulfilment.service.js";
+import { AmazonReturnService } from "../services/amazon-return.service.js";
+import { AmazonRefundService } from "../services/amazon-refund.service.js";
+import { AmazonSettlementService } from "../services/amazon-settlement.service.js";
 import { list, findOpenExceptions, findByReason, resolveException, incrementRetry } from "../models/marketplace-amazon-exception.js";
 import { ExceptionReason } from "../models/marketplace-amazon-exception.js";
 
