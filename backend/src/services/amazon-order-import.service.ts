@@ -7,7 +7,7 @@ import { MarketplaceAmazonRefund, MarketplaceAmazonRefundModel } from "../models
 import { MarketplaceAmazonSettlement, MarketplaceAmazonSettlementModel } from "../models/marketplace-amazon-settlement.js";
 import { MarketplaceAmazonException, MarketplaceAmazonExceptionModel } from "../models/marketplace-amazon-exception.js";
 import * as db from "../dynamodb.js";
-import { MarketplaceAllocation } from "../models/marketplace-allocation.js";
+import { MarketplaceAllocation, MarketplaceAllocationModel } from "../models/marketplace-allocation.js";
 import { Product } from "../models/product.js";
 
 export class AmazonOrderImportService {
@@ -106,7 +106,7 @@ export class AmazonOrderImportService {
       limit: 500,
     });
 
-    const activeAllocations = (allocations as MarketplaceAllocation[])
+    const activeAllocations = (allocations.items as MarketplaceAllocation[])
       .filter((a) => a.status === "active" && a.sku === whizunikSku);
 
     let remaining = quantity;

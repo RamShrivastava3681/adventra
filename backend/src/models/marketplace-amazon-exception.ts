@@ -84,7 +84,7 @@ export async function create(
     affectedOrder: data.affectedOrder,
     errorReason: data.errorReason,
     errorMessage: data.errorMessage,
-    affectedItem: data.affectedItem ?? null,
+    affectedItem: data.affectedItem ?? "",
     lastAttempt: null,
     retryCount: 0,
     maxRetries: data.maxRetries || 3,

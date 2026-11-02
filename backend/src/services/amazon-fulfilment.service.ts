@@ -3,6 +3,7 @@ import { MarketplaceAmazonOrder, MarketplaceAmazonOrderModel } from "../models/m
 import { MarketplaceAmazonSkuMapping, MarketplaceAmazonSkuMappingModel } from "../models/marketplace-amazon-sku-mapping.js";
 import * as db from "../dynamodb.js";
 import { MarketplaceAllocation } from "../models/marketplace-allocation.js";
+import { MarketplaceAmazonException } from "../models/marketplace-amazon-exception.js";
 
 export class AmazonFulfilmentService {
 
@@ -20,7 +21,7 @@ export class AmazonFulfilmentService {
     fulfilmentType: string;
   }) {
     // Check prerequisites: SKU mapping, stock reservation, invoice
-    const mapping = await MarketplaceAmazonSkuMappingModel.findByChannelSku(data.clientId, data.amazonSku);
+    const mapping = await MarketplaceAmazonSkuMapping.findByChannelSku(data.clientId, data.amazonSku);
     if (!mapping) {
       throw new Error("SKU mapping not found for Amazon SKU: " + data.amazonSku);
     }
@@ -40,7 +41,7 @@ export class AmazonFulfilmentService {
       entityType: "MarketplaceAllocation",
       limit: 500,
     });
-    const activeAllocations = (allocations as any[])
+    const activeAllocations = (allocations.items as any[])
       .filter((a: any) => a.status === "active" && a.sku === mapping.whizunikSku);
 
     let totalReserved = 0;
@@ -55,7 +56,7 @@ export class AmazonFulfilmentService {
     }
 
     // Create warehouse task (shipment record)
-    const task = await MarketplaceAmazonShipmentModel.create({
+    const task = await MarketplaceAmazonShipment.create({
       clientId: data.clientId,
       amazonOrderId: data.amazonOrderId,
       whizunikSalesOrderId: data.whizunikSalesOrderId,
@@ -71,7 +72,7 @@ export class AmazonFulfilmentService {
     });
 
     // Update order status
-    await MarketplaceAmazonOrderModel.updateStatus(data.amazonOrderId, "AwaitingWarehouseAction");
+    await MarketplaceAmazonOrder.updateStatus(data.amazonOrderId, "AwaitingWarehouseAction");
 
     return task;
   }
@@ -83,7 +84,7 @@ export class AmazonFulfilmentService {
     carrierName: string;
     dispatchDate: string;
   }) {
-    return await MarketplaceAmazonShipmentModel.update(data.shipmentId, {
+    return await MarketplaceAmazonShipment.update(data.shipmentId, {
       awbNumber: data.awbNumber,
       trackingNumber: data.trackingNumber,
       carrierName: data.carrierName,
@@ -98,11 +99,11 @@ export class AmazonFulfilmentService {
     whizunikSku: string,
     shortageQuantity: number
   ) {
-    await MarketplaceAmazonExceptionModel.create({
+    await MarketplaceAmazonException.create({
       clientId,
       affectedOrder: amazonOrderId,
       errorReason: "StockShortage",
-      errorMessage: `Insufficient stock for SKU ${whizunikSku}. Required: ${data.quantity ?? 0}, Available: ${data.totalReserved ?? 0}, Shortage: ${shortageQuantity}`,
+      errorMessage: `Insufficient stock for SKU ${whizunikSku}. Shortage: ${shortageQuantity}`,
       affectedItem: whizunikSku,
       maxRetries: 3,
       responsibleUser: null,
