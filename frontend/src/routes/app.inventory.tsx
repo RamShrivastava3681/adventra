@@ -204,16 +204,16 @@ function useInventoryData() {
     queryKey: ["products-inventory"],
     queryFn: async () => {
       const data = await api.products.list();
-      return data.map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        sku: p.sku,
-        model: p.model,
+      return (Array.isArray(data) ? data : []).map((p: any) => ({
+        id: String(p.id ?? ""),
+        name: String(p.name ?? ""),
+        sku: String(p.sku ?? ""),
+        model: p.model ?? null,
         category: p.category,
         gender: p.gender,
         image_url: p.imageUrl ?? p.image_url ?? null,
         unit_of_measure: p.unit_of_measure ?? p.unitOfMeasure ?? "unit",
-        parent_id: p.parent_id,
+        parent_id: p.parent_id ?? p.parentId ?? null,
         // Colour variants have parent_id set to master; size variants have parent_id set to colour
         color: p.color,
         size: p.size,
@@ -226,7 +226,7 @@ function useInventoryData() {
     queryKey: ["stock_movements"],
     queryFn: async () => {
       const data = await api.stockMovements.list();
-      return data.reverse();
+      return (Array.isArray(data) ? data : []).slice().reverse();
     },
     refetchInterval: 5000,
   });

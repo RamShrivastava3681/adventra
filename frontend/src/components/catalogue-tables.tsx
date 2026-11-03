@@ -421,6 +421,7 @@ export function ProductsTable({
   onClearFilters,
   onCreate,
   onView,
+  onEdit,
   onAddColour,
   onAddSize,
   onEditPrices,
@@ -437,6 +438,7 @@ export function ProductsTable({
   onClearFilters: () => void;
   onCreate: () => void;
   onView: (m: Product) => void;
+  onEdit: (m: Product) => void;
   onAddColour: (m: Product) => void;
   onAddSize: (c: Product) => void;
   onEditPrices: (p: Product) => void;
@@ -619,6 +621,9 @@ export function ProductsTable({
                         </button>
                         {canWrite && (
                           <RowMenu>
+                            <DropdownMenuItem onClick={() => onEdit(m)}>
+                              <Pencil className="h-3.5 w-3.5" /> Edit Master SKU
+                            </DropdownMenuItem>
                             <DropdownMenuItem onClick={() => onEditPrices(m)}>
                               <Pencil className="h-3.5 w-3.5" /> Edit prices
                             </DropdownMenuItem>

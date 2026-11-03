@@ -668,6 +668,7 @@ function ProductsPage() {
               onClearFilters={clearFilters}
               onCreate={() => setSkuWizard(true)}
               onView={(m) => setDetailFor(m)}
+              onEdit={(m) => setEditing(m)}
               onAddColour={(m) => setStageFor({ parent: m, level: "color" })}
               onAddSize={(c) => setStageFor({ parent: c, level: "size" })}
               onEditPrices={(p) => setPriceFor(p)}
@@ -688,6 +689,15 @@ function ProductsPage() {
             qc.invalidateQueries({ queryKey: ["products-inventory"] });
             setPriceFor(null);
           }}
+        />
+      )}
+      {editing && user && (
+        <ProductModal
+          userId={user.id}
+          product={(productsQ.data ?? []).find((p) => p.id === editing.id) ?? editing}
+          defaultMargin={defaultMargin}
+          suppliers={(suppliersQ.data ?? []) as Array<{ id: string; company_name?: string; companyName?: string }>}
+          onClose={() => setEditing(null)}
         />
       )}
       {skuWizard && user && (
