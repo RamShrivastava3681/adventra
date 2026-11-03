@@ -46,6 +46,22 @@ export interface MarketplaceAmazonReturn {
   creditNoteId: string | null;
   refundReference: string | null;
   refundStatus: "Pending" | "Processed" | "Completed" | "Failed";
+  // ── Fulfilment pipeline links (optional) ──
+  returnNumber?: string | null;
+  salesOrderNumber?: string | null;
+  invoiceRecordId?: string | null;
+  invoiceNumber?: string | null;
+  dispatchId?: string | null;
+  productId?: string | null;
+  sku?: string | null;
+  creditNoteNumber?: string | null;
+  refundId?: string | null;
+  /** Outcome for damaged/rejected units: Returned | Recovered through claim | Written off with approval | Pending decision. */
+  damagedDisposition?: string | null;
+  damagedDispositionBy?: string | null;
+  damagedDispositionAt?: string | null;
+  damagedDispositionNotes?: string | null;
+  closedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -20,6 +20,7 @@ import { Route as AppAmazonDashboardRouteImport } from './app.amazon-dashboard'
 import { Route as AppAmazonExceptionsRouteImport } from './app.amazon-exceptions'
 import { Route as AppAmazonOrderImportRouteImport } from './app.amazon-order-import'
 import { Route as AppAmazonReturnsSettlementRouteImport } from './app.amazon-returns-settlement'
+import { Route as AppAmazonSimulatorRouteImport } from './app.amazon-simulator'
 import { Route as AppAmazonSkuMappingsRouteImport } from './app.amazon-sku-mappings'
 import { Route as AppBalanceSheetRouteImport } from './app.balance-sheet'
 import { Route as AppBulkPaymentsRouteImport } from './app.bulk-payments'
@@ -129,6 +130,11 @@ const AppAmazonReturnsSettlementRoute =
     path: '/amazon-returns-settlement',
     getParentRoute: () => AppRoute,
   } as any)
+const AppAmazonSimulatorRoute = AppAmazonSimulatorRouteImport.update({
+  id: '/amazon-simulator',
+  path: '/amazon-simulator',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppAmazonSkuMappingsRoute = AppAmazonSkuMappingsRouteImport.update({
   id: '/amazon-sku-mappings',
   path: '/amazon-sku-mappings',
@@ -403,6 +409,7 @@ export interface FileRoutesByFullPath {
   '/app/amazon-exceptions': typeof AppAmazonExceptionsRoute
   '/app/amazon-order-import': typeof AppAmazonOrderImportRoute
   '/app/amazon-returns-settlement': typeof AppAmazonReturnsSettlementRoute
+  '/app/amazon-simulator': typeof AppAmazonSimulatorRoute
   '/app/amazon-sku-mappings': typeof AppAmazonSkuMappingsRoute
   '/app/balance-sheet': typeof AppBalanceSheetRoute
   '/app/bulk-payments': typeof AppBulkPaymentsRoute
@@ -468,6 +475,7 @@ export interface FileRoutesByTo {
   '/app/amazon-exceptions': typeof AppAmazonExceptionsRoute
   '/app/amazon-order-import': typeof AppAmazonOrderImportRoute
   '/app/amazon-returns-settlement': typeof AppAmazonReturnsSettlementRoute
+  '/app/amazon-simulator': typeof AppAmazonSimulatorRoute
   '/app/amazon-sku-mappings': typeof AppAmazonSkuMappingsRoute
   '/app/balance-sheet': typeof AppBalanceSheetRoute
   '/app/bulk-payments': typeof AppBulkPaymentsRoute
@@ -533,6 +541,7 @@ export interface FileRoutesById {
   '/app/amazon-exceptions': typeof AppAmazonExceptionsRoute
   '/app/amazon-order-import': typeof AppAmazonOrderImportRoute
   '/app/amazon-returns-settlement': typeof AppAmazonReturnsSettlementRoute
+  '/app/amazon-simulator': typeof AppAmazonSimulatorRoute
   '/app/amazon-sku-mappings': typeof AppAmazonSkuMappingsRoute
   '/app/balance-sheet': typeof AppBalanceSheetRoute
   '/app/bulk-payments': typeof AppBulkPaymentsRoute
@@ -600,6 +609,7 @@ export interface FileRouteTypes {
     | '/app/amazon-exceptions'
     | '/app/amazon-order-import'
     | '/app/amazon-returns-settlement'
+    | '/app/amazon-simulator'
     | '/app/amazon-sku-mappings'
     | '/app/balance-sheet'
     | '/app/bulk-payments'
@@ -665,6 +675,7 @@ export interface FileRouteTypes {
     | '/app/amazon-exceptions'
     | '/app/amazon-order-import'
     | '/app/amazon-returns-settlement'
+    | '/app/amazon-simulator'
     | '/app/amazon-sku-mappings'
     | '/app/balance-sheet'
     | '/app/bulk-payments'
@@ -729,6 +740,7 @@ export interface FileRouteTypes {
     | '/app/amazon-exceptions'
     | '/app/amazon-order-import'
     | '/app/amazon-returns-settlement'
+    | '/app/amazon-simulator'
     | '/app/amazon-sku-mappings'
     | '/app/balance-sheet'
     | '/app/bulk-payments'
@@ -868,6 +880,13 @@ declare module '@tanstack/react-router' {
       path: '/amazon-returns-settlement'
       fullPath: '/app/amazon-returns-settlement'
       preLoaderRoute: typeof AppAmazonReturnsSettlementRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/amazon-simulator': {
+      id: '/app/amazon-simulator'
+      path: '/amazon-simulator'
+      fullPath: '/app/amazon-simulator'
+      preLoaderRoute: typeof AppAmazonSimulatorRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/amazon-sku-mappings': {
@@ -1260,6 +1279,7 @@ interface AppRouteChildren {
   AppAmazonExceptionsRoute: typeof AppAmazonExceptionsRoute
   AppAmazonOrderImportRoute: typeof AppAmazonOrderImportRoute
   AppAmazonReturnsSettlementRoute: typeof AppAmazonReturnsSettlementRoute
+  AppAmazonSimulatorRoute: typeof AppAmazonSimulatorRoute
   AppAmazonSkuMappingsRoute: typeof AppAmazonSkuMappingsRoute
   AppBalanceSheetRoute: typeof AppBalanceSheetRoute
   AppBulkPaymentsRoute: typeof AppBulkPaymentsRoute
@@ -1319,6 +1339,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAmazonExceptionsRoute: AppAmazonExceptionsRoute,
   AppAmazonOrderImportRoute: AppAmazonOrderImportRoute,
   AppAmazonReturnsSettlementRoute: AppAmazonReturnsSettlementRoute,
+  AppAmazonSimulatorRoute: AppAmazonSimulatorRoute,
   AppAmazonSkuMappingsRoute: AppAmazonSkuMappingsRoute,
   AppBalanceSheetRoute: AppBalanceSheetRoute,
   AppBulkPaymentsRoute: AppBulkPaymentsRoute,

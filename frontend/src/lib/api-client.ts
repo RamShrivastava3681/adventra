@@ -669,6 +669,54 @@ const api = {
       api.put<any>(`/amazon/exceptions/${exceptionId}/retry`, {}),
   },
 
+  // Amazon Demo Simulator (PDF Developer Note)
+  // Amazon Demo Simulator — demo tenant MARKETPLACE-DEMO, driven through the real
+  // Sales / Inventory / Warehouse / Finance workflows.
+  amazonSimulator: (() => {
+    const base = "/amazon/simulator";
+    const post = (path: string, body: any = {}) =>
+      api.post<any>(`${base}${path}`, body).then((r) => camelizeResponse(r));
+    const order = (orderNo: string) => `/orders/${encodeURIComponent(orderNo)}`;
+    return {
+      getState: () => api.get<any>(`${base}/state`).then((r) => camelizeResponse(r)),
+      resetBaseline: () => post("/reset"),
+      runFullJourney: () => post("/journey/run"),
+      createOrder: (data: any) => post("/orders", data),
+      addSkuMapping: (channelSku: string, whizunikSku: string) =>
+        post("/sku-mappings", { channelSku, whizunikSku }),
+      addStock: (sku: string, quantity: number) => post("/stock", { sku, quantity }),
+      receiveInvoice: (orderNo: string) => post(`${order(orderNo)}/invoice`),
+      markPacked: (orderNo: string) => post(`${order(orderNo)}/pack`),
+      confirmDispatch: (orderNo: string) => post(`${order(orderNo)}/dispatch`),
+      markDelivered: (orderNo: string) => post(`${order(orderNo)}/deliver`),
+      createReturn: (amazonOrderId?: string) => post("/returns", { amazonOrderId }),
+      createDamagedReturn: (amazonOrderId?: string) => post("/returns/damaged", { amazonOrderId }),
+      returnAction: (returnId: string, action: string, body: any = {}) =>
+        post(`/returns/${returnId}/${action}`, body),
+      simulateRefund: (returnId?: string) => post("/refunds", { returnId }),
+      simulateSettlement: (amazonOrderId?: string) => post("/settlements", { amazonOrderId }),
+      reconcileSettlement: (settlementId: string) => post(`/settlements/${settlementId}/reconcile`),
+      simulateError: (kind: string) => post("/errors", { kind }),
+      retryError: (exceptionId: string, options: { mapToSku?: string; addStock?: number } = {}) =>
+        post(`/errors/${exceptionId}/retry`, options),
+      openDocument: async (kind: "invoice" | "packing-slip" | "settlement", orderNo: string) => {
+        const res = await fetch(
+          `${API_URL}${base}/documents/${kind}/${encodeURIComponent(orderNo)}`,
+          {
+            credentials: "include",
+          },
+        );
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error((err as any).error || "Could not open the demo document");
+        }
+        const url = URL.createObjectURL(await res.blob());
+        window.open(url, "_blank", "noopener");
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      },
+    };
+  })(),
+
   // Unified workflow queue (PDF-3) — tasks, per-doc timelines, settings
   workflowTasks: {
     list: (opts?: { scope?: "all"; status?: "open" | "done" }) => {

@@ -32,10 +32,29 @@ export interface MarketplaceAmazonOrder {
     country: string;
   };
   shippingMethod: string;
-  fulfilmentType: "FBA" | "SellerFlex" | "MCF" | "Dropship" | "Vendor";
+  fulfilmentType: "FBA" | "SellerFlex" | "MCF" | "Dropship" | "Vendor" | "EasyShip" | "SelfShip";
   expectedDispatchDate: string | null;
   amazonOrderStatus: "Pending" | "PartiallyShipped" | "Shipped" | "Delivered" | "Cancelled" | "Returned" | "Refunded" | "PendingConfirmation";
   invoiceStatus: "Pending" | "AwaitingAmazonInvoice" | "InvoiceReceived" | "Fulfilled" | "Cancelled";
+  // ── Fulfilment pipeline links (optional; set as the order moves through the
+  // WhizUnik Sales Order → Inventory → Warehouse → Dispatch workflow). ──
+  /** WhizUnik order status (Pending, Confirmed, Awaiting Stock, SKU Mapping Required, …). */
+  whizunikStatus?: string | null;
+  internalSku?: string | null;
+  productId?: string | null;
+  salesOrderId?: string | null;
+  salesOrderNumber?: string | null;
+  invoiceRecordId?: string | null;
+  dispatchId?: string | null;
+  dispatchNumber?: string | null;
+  warehouseTaskId?: string | null;
+  courier?: string | null;
+  awbNumber?: string | null;
+  trackingStatus?: string | null;
+  shippedAt?: string | null;
+  deliveredAt?: string | null;
+  /** Demo simulator: the Amazon invoice is deliberately held back ("Awaiting Amazon Invoice"). */
+  invoiceDelayed?: boolean | null;
   createdAt: string;
   updatedAt: string;
 }
