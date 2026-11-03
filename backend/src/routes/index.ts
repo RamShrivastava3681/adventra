@@ -10888,6 +10888,8 @@ router.get("/user-progress", authMiddleware, async (req, res) => {
 router.use(AmazonIntegration);
 import amazonSimulatorRoutes from "./amazon-simulator.js";
 router.use(amazonSimulatorRoutes);
+import amazonLiveWorkflowRoutes from "./amazon-live-workflow.js";
+router.use(amazonLiveWorkflowRoutes);
 
 // ===================== CASH FLOW & TREASURY =====================
 import cashFlowRoutes from "./cash-flow.js";

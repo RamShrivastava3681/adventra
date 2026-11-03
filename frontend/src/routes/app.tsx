@@ -316,13 +316,6 @@ function AppLayout() {
   useEffect(() => {
     if (loading || !user) return;
 
-    // Hidden for now: Inventory Movements page is out of nav.
-    // Redirect old bookmarks / deep links to Warehouse until it returns.
-    if (pathname === "/app/inventory" || pathname.startsWith("/app/inventory/")) {
-      navigate({ to: "/app/warehouse", replace: true });
-      return;
-    }
-
     // In view-as mode the manager is browsing the team member's workspace —
     // the sidebar is already built from the team member's roles, so skip the wall.
     if (viewAsUserId) return;

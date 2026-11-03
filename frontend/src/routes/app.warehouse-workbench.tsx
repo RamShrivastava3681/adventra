@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { Component, lazy, Suspense, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from "react";
 import {
   Warehouse,
   PackageCheck,
@@ -191,6 +191,44 @@ const WarehouseTasksPanel = lazy(() =>
 const InventoryPanel = lazy(() =>
   import("@/routes/app.inventory").then((m) => ({ default: m.InventoryPage })),
 );
+
+class PanelErrorBoundary extends Component<
+  { children: ReactNode; label: string },
+  { error: Error | null }
+> {
+  state: { error: Error | null } = { error: null };
+
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error(`[Warehouse] ${this.props.label} panel failed`, error, info);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="mx-auto w-full max-w-[1440px] px-4 py-8 md:px-8">
+          <Card title={`${this.props.label} is unavailable`}>
+            <p className="text-sm text-destructive">
+              The panel could not be loaded. Refresh the page and try again.
+            </p>
+            <p className="mt-2 text-xs text-muted-foreground">{this.state.error.message}</p>
+            <button
+              type="button"
+              onClick={() => this.setState({ error: null })}
+              className="mt-4 rounded-md border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+            >
+              Try again
+            </button>
+          </Card>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function SectionFallback() {
   return (
@@ -729,7 +767,11 @@ function WarehouseWorkbenchPage() {
           {section === "stock" && <StockPanel />}
           {section === "samples" && <SamplesPanel />}
           {section === "tasks" && <WarehouseTasksPanel />}
-          {section === "inventory" && <InventoryPanel />}
+          {section === "inventory" && (
+            <PanelErrorBoundary label="Inventory">
+              <InventoryPanel initialViewMode="detailed" />
+            </PanelErrorBoundary>
+          )}
           {section === "transporter" && <TransporterPanel />}
         </Suspense>
       )}

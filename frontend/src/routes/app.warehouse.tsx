@@ -134,6 +134,8 @@ type Dispatch = {
 
 type Movement = {
   id: string;
+  product_id: string | null;
+  productId?: string | null;
   direction: "in" | "out";
   item_name: string;
   sku: string | null;
@@ -318,7 +320,7 @@ export function WarehousePage() {
   // verified against current stock before the order can be approved.
   const stockByProduct = useMemo(() => {
     const map = new Map<string, number>();
-    for (const r of movements as any[]) {
+    for (const r of Array.isArray(movements) ? movements : []) {
       if (r.status !== "confirmed") continue;
       const pid = r.product_id ?? r.productId;
       if (!pid) continue;
@@ -330,7 +332,7 @@ export function WarehousePage() {
 
   // ── Inventory on hand per product (confirmed movements + catalogue) ──
   const inventoryRows = useMemo(() => {
-    const products = (productsQ.data ?? []) as any[];
+    const products = Array.isArray(productsQ.data) ? productsQ.data : [];
     return products
       .map((p) => {
         const stockOnHand = stockByProduct.get(p.id) ?? 0;

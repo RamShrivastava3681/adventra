@@ -29,9 +29,12 @@ export const Route = createFileRoute("/app/inventory")({
 type Movement = {
   id: string;
   movement_number: string;
+  movementNumber?: string;
   product_id: string | null;
+  productId?: string | null;
   direction: "in" | "out";
   item_name: string;
+  itemName?: string;
   sku: string | null;
   quantity: number;
   unit: string;
@@ -48,6 +51,7 @@ type Movement = {
   confirmed_at: string | null;
   notes: string | null;
   movement_date: string;
+  movementDate?: string;
   invoice_id: string | null;
   purchase_invoice_id: string | null;
   goods_receipt_id: string | null;
@@ -262,7 +266,7 @@ function useInventoryData() {
     const m = new Map<string, number>();
     for (const r of (movementsQ.data ?? []) as Movement[]) {
       if (r.status !== "confirmed") continue;
-      const key = r.sku ?? r.product_id ?? `${r.item_name}|${r.unit}`;
+      const key = r.sku ?? r.product_id ?? r.productId ?? `${r.item_name ?? r.itemName}|${r.unit}`;
       const sign = r.direction === "in" ? 1 : -1;
       m.set(key, (m.get(key) ?? 0) + sign * Number(r.quantity));
     }
@@ -309,11 +313,11 @@ function useInventoryData() {
 
     for (const master of masterProducts.masters) {
       const colours = masterProducts.colourMap.get(master.id) ?? [];
-      const colourEntries = colours.map((colour: any) => {
+      const colourEntries = (colours.length > 0 ? colours : [master]).map((colour: any) => {
         const sizes = masterProducts.sizeMap.get(colour.id) ?? [];
         const sizeData = sizes.map((size: any) => {
           const sku = size.sku ?? "";
-          const stock = stockByProduct.get(sku) ?? 0;
+          const stock = stockByProduct.get(sku) ?? stockByProduct.get(size.id) ?? 0;
           return {
             id: size.id,
             sku: sku,
@@ -325,7 +329,18 @@ function useInventoryData() {
           };
         });
 
-        const colourStock = sizes.reduce((sum: number, s: any) => sum + (s.stock ?? 0), 0);
+        const leafRows = sizeData.length > 0
+          ? sizeData
+          : [{
+              id: colour.id,
+              sku: colour.sku ?? "",
+              name: colour.name || "",
+              size: colour.size || "",
+              color: colour.color || "",
+              stock: stockByProduct.get(colour.sku ?? "") ?? stockByProduct.get(colour.id) ?? 0,
+              stockState: "in",
+            }];
+        const colourStock = leafRows.reduce((sum: number, s: any) => sum + (s.stock ?? 0), 0);
         const totalColoursStock = colourStock;
 
         return {
@@ -333,7 +348,7 @@ function useInventoryData() {
           sku: colour.sku ?? "",
           name: colour.name || "",
           color: colour.color || "",
-          sizes,
+          sizes: leafRows,
           colourStock,
           totalColoursStock,
         };
@@ -460,7 +475,11 @@ function useFilterState() {
 }
 
 // ── Inventory Page ────────────────────────────────────────────────────────
-export function InventoryPage() {
+export function InventoryPage({
+  initialViewMode = "overview",
+}: {
+  initialViewMode?: "overview" | "detailed";
+}) {
   const { user, isAdmin, isClient, isChecker, isTreasury } = useAuth();
   const canWrite = isAdmin || (isClient && !isChecker && !isTreasury);
   const qc = useQueryClient();
@@ -609,7 +628,7 @@ export function InventoryPage() {
   ]);
 
   // ── Inventory Views state ──────────────────────────────────────────────
-  const [viewMode, setViewMode] = useState<"overview" | "detailed">("overview");
+  const [viewMode, setViewMode] = useState<"overview" | "detailed">(initialViewMode);
 
   // ── Render Overview Table ───────────────────────────────────────────────
   function renderOverviewTable() {
