@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   BarChart3,
   BarChart2,
@@ -86,6 +86,7 @@ import {
 } from "@/components/ui";
 import { cn } from "@/lib/utils";
 import api from "@/lib/api-client";
+import { useAuth } from "@/lib/auth-context";
 
 export const Route = createFileRoute("/app/amazon-dashboard")({
   component: AmazonDashboardPage,
@@ -149,17 +150,35 @@ interface AwaitingStockOrder {
   createdAt: string;
 }
 
+const EMPTY_KPIS: AmazonDashboardKpis = {
+  ordersReceived: 0,
+  awaitingSkuMapping: 0,
+  awaitingStock: 0,
+  awaitingInvoice: 0,
+  awaitingWarehouseAction: 0,
+  packedOrders: 0,
+  shippedOrders: 0,
+  deliveredOrders: 0,
+  cancelledOrders: 0,
+  returns: 0,
+  refunds: 0,
+  creditNotes: 0,
+  settlementStatus: "EXPECTED",
+  apiErrors: 0,
+};
+
 function useAmazonKpis(clientId: string): { kpis: AmazonDashboardKpis; isLoading: boolean } {
   const { data, isLoading } = useQuery({
     queryKey: ["amazon-dashboard-kpis", clientId],
     queryFn: async () => {
-      const orders = await api.amazonOrders.list(clientId);
-      const skuMappings = await api.amazonSkuMappings.list(clientId);
-      const invoiceRecords = await api.amazonInvoices.list(clientId);
-      const shipments = await api.amazonShipments.list(clientId);
-      const returns = await api.amazonReturns.list(clientId);
-      const refunds = await api.amazonRefunds.list(clientId);
-      const settlements = await api.amazonSettlements.list(clientId);
+      const ordersResponse = await api.amazonOrders.list(clientId);
+      const returnsResponse = await api.amazonReturns.list(clientId);
+      const refundsResponse = await api.amazonRefunds.list(clientId);
+      const settlementsResponse = await api.amazonSettlements.list(clientId);
+      const orders = Array.isArray(ordersResponse) ? ordersResponse : [];
+      const returns = Array.isArray(returnsResponse) ? returnsResponse : [];
+      const refunds = Array.isArray(refundsResponse) ? refundsResponse : [];
+      const settlements = Array.isArray(settlementsResponse) ? settlementsResponse : [];
 
       // Count orders by status
       const ordersReceived = orders.filter(
@@ -237,14 +256,15 @@ function useAmazonKpis(clientId: string): { kpis: AmazonDashboardKpis; isLoading
     enabled: !!clientId,
   });
 
-  return { kpis: data as AmazonDashboardKpis, isLoading };
+  return { kpis: data ?? EMPTY_KPIS, isLoading };
 }
 
 function useOrderStatusDistribution(clientId: string): { orderStatusDistribution: OrderStatusItem[]; isLoading: boolean } {
   const { data, isLoading } = useQuery({
     queryKey: ["amazon-dashboard-order-status", clientId],
     queryFn: async () => {
-      const orders = await api.amazonOrders.list(clientId);
+      const response = await api.amazonOrders.list(clientId);
+      const orders = Array.isArray(response) ? response : [];
 
       const statuses: OrderStatusItem[] = [
         { id: "delivered", name: "Delivered", count: 0, badgeClass: "bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300", color: "#10b981" },
@@ -314,9 +334,10 @@ function useRecentOrders(clientId: string) {
   const { data, isLoading } = useQuery({
     queryKey: ["amazon-dashboard-recent-orders", clientId],
     queryFn: async () => {
-      const orders = await api.amazonOrders.list(clientId);
+      const response = await api.amazonOrders.list(clientId);
+      const orders = Array.isArray(response) ? response : [];
       // Return last 10 orders, sorted by date descending
-      return orders
+      return [...orders]
         .sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime())
         .slice(0, 10);
     },
@@ -330,7 +351,8 @@ function useExceptions(clientId: string) {
   const { data, isLoading } = useQuery({
     queryKey: ["amazon-dashboard-exceptions", clientId],
     queryFn: async () => {
-      const exceptions = await api.amazonExceptions.list(clientId);
+      const response = await api.amazonExceptions.list(clientId);
+      const exceptions = Array.isArray(response) ? response : [];
       const openExceptions = exceptions.filter(
         (e) => e.currentStatus === "Open"
       );
@@ -369,7 +391,8 @@ function useExceptions(clientId: string) {
 }
 
 export function AmazonDashboardPage() {
-  const clientId = (useQueryClient().getQueryData(["auth", "user"]) as any)?.[0] as string | undefined;
+  const { user } = useAuth();
+  const clientId = user?.id;
 
   const { kpis, isLoading: kpisLoading } = useAmazonKpis(clientId || "");
   const { orderStatusDistribution, isLoading: statusLoading } = useOrderStatusDistribution(clientId || "");
