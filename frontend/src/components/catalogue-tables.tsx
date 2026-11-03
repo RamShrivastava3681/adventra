@@ -447,6 +447,8 @@ export function ProductsTable({
   const qc = useQueryClient();
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [openColours, setOpenColours] = useState<Set<string>>(new Set());
+  const [editingSku, setEditingSku] = useState<string | null>(null);
+  const [newSku, setNewSku] = useState("");
   const toggle = (set: Set<string>, id: string, apply: (n: Set<string>) => void) => {
     const next = new Set(set);
     if (next.has(id)) next.delete(id);
@@ -486,9 +488,6 @@ export function ProductsTable({
       </div>
     );
   }
-
-  const [editingSku, setEditingSku] = useState<string | null>(null);
-  const [newSku, setNewSku] = useState("");
 
   return (
     <>

@@ -341,6 +341,8 @@ function AppLayout() {
       "/app/finance-invoices",
       "/app/finance-proformas",
       "/app/finance-purchases",
+      "/app/finance-dispatches",
+      "/app/credit-debit-notes-workbench",
     ];
 
     // Procurement routes (purchase side)

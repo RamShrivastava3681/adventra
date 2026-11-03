@@ -165,7 +165,8 @@ type FinanceSection =
   | "sales-invoices"
   | "purchase-invoices"
   | "expenses"
-  ;
+  | "dispatches"
+  | "credit-debit-notes";
 
 const CashPanel = lazy(() =>
   import("@/routes/app.cash-flow").then((m) => ({ default: m.CashFlowPage })),
@@ -184,6 +185,16 @@ const PurchaseInvoicesPanel = lazy(() =>
 );
 const ExpensesPanel = lazy(() =>
   import("@/routes/app.expenses").then((m) => ({ default: m.ExpensesPage })),
+);
+const DispatchesPanel = lazy(() =>
+  import("@/routes/app.finance-dispatches").then((m) => ({
+    default: m.FinanceDispatchOrdersPanel,
+  })),
+);
+const CreditDebitNotesPanel = lazy(() =>
+  import("@/routes/app.credit-debit-notes-workbench").then((m) => ({
+    default: m.CreditDebitNotesWorkbenchPage,
+  })),
 );
 function SectionFallback() {
   return (
@@ -399,6 +410,16 @@ function FinanceWorkbenchPage() {
               label="Expenses"
               active={section === "expenses"}
               onClick={() => setSection("expenses")}
+            />
+            <NavTab
+              label="Dispatch Orders"
+              active={section === "dispatches"}
+              onClick={() => setSection("dispatches")}
+            />
+            <NavTab
+              label="Credit / Debit Notes"
+              active={section === "credit-debit-notes"}
+              onClick={() => setSection("credit-debit-notes")}
             />
           </nav>
         </div>
@@ -797,6 +818,16 @@ function FinanceWorkbenchPage() {
             />
           )}
           {section === "expenses" && <ExpensesPanel />}
+          {section === "dispatches" && (
+            <div className="mx-auto w-full max-w-[1440px] px-4 py-6 md:px-8 md:py-8">
+              <DispatchesPanel />
+            </div>
+          )}
+          {section === "credit-debit-notes" && (
+            <div className="mx-auto w-full max-w-[1440px] px-4 py-6 md:px-8 md:py-8">
+              <CreditDebitNotesPanel />
+            </div>
+          )}
         </Suspense>
       )}
     </div>
