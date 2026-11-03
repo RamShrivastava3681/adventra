@@ -27,6 +27,9 @@ import {
   Warehouse,
   ListTodo,
   Store,
+  Boxes,
+  Tag,
+  RotateCcw,
 } from "lucide-react";
 import { useTheme } from "@/lib/theme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -215,10 +218,18 @@ function buildNavSections(roles: string[]): NavSection[] {
 
   // E-Commerce / Marketplace Hub — Demo & PoC Flow
   const marketplaceSection: NavSection = {
-    type: "single",
+    type: "group",
     label: "Marketplace Hub",
     icon: Store,
-    to: "/app/marketplace",
+    items: [
+      { to: "/app/amazon-simulator", label: "Amazon Simulator", icon: Boxes },
+      { to: "/app/amazon-dashboard", label: "Amazon Dashboard", icon: LayoutDashboard },
+      { to: "/app/amazon-order-import", label: "Order Import", icon: ShoppingBag },
+      { to: "/app/amazon-sku-mappings", label: "SKU Mappings", icon: Tag },
+      { to: "/app/amazon-returns-settlement", label: "Returns & Settlements", icon: RotateCcw },
+      { to: "/app/amazon-exceptions", label: "Exceptions", icon: AlertTriangle },
+      { to: "/app/marketplace", label: "Multi-Channel PoC", icon: Store },
+    ],
   };
 
   // Assemble in the desired order: Dashboard, My Queue, Checker, Finance,

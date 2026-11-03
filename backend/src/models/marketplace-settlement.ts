@@ -19,6 +19,15 @@ export interface MarketplaceSettlement {
   actualSettlementDate: string | null;
   status: SettlementStatus;
   notes: string | null;
+  // ── Per-order marketplace settlement detail (optional) ──
+  /** Marketplace order this settlement line covers. */
+  amazonOrderId?: string | null;
+  /** Order value, commission, shipping fee, refund, other deductions and net. */
+  breakdown?: Record<string, number> | null;
+  /** Bank receipt recorded against the settlement (amount, date, reference). */
+  bankReceipt?: { amount: number; receivedOn: string; bankReference: string | null } | null;
+  /** Last reconciliation result (order → invoice → dispatch → return → credit note → deductions → net → bank). */
+  reconciliation?: Record<string, any> | null;
   createdAt: string; updatedAt: string;
 }
 
@@ -69,6 +78,10 @@ export async function create(
     actualSettlementDate: data.actualSettlementDate || null,
     status: data.status || "EXPECTED",
     notes: data.notes || null,
+    amazonOrderId: data.amazonOrderId || null,
+    breakdown: data.breakdown || null,
+    bankReceipt: data.bankReceipt || null,
+    reconciliation: data.reconciliation || null,
     createdAt: now, updatedAt: now,
   };
   await db.putItem(item);
@@ -82,6 +95,7 @@ export async function update(id: string, updates: Partial<MarketplaceSettlement>
     "grossSales", "marketplaceFees", "deductions", "refundsReturns",
     "netSettlementExpected", "expectedSettlementDate", "actualSettlementDate",
     "status", "notes",
+    "amazonOrderId", "breakdown", "bankReceipt", "reconciliation",
   ];
   for (const k of allowed) {
     if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k];

@@ -3554,6 +3554,8 @@ export interface PackingSlipPdfData {
   grossWeightUnit?: string | null;
   handlingInstructions?: string | null;
   notes?: string | null;
+  /** Optional banner printed under the header (e.g. "SIMULATED AMAZON PACKING SLIP"). */
+  watermark?: string | null;
   lines: PackingSlipLine[];
   companyName: string;
   companyAddress?: string | null;
@@ -3677,6 +3679,18 @@ export function buildPackingSlipPdf(data: PackingSlipPdfData): Promise<Buffer> {
 
       doc.restore();
       y += bandHeight + 12;
+
+      if (data.watermark) {
+        doc.save();
+        doc.rect(margin, y, contentWidth, 20).fill("#fef3c7");
+        doc
+          .font("Helvetica-Bold")
+          .fontSize(9)
+          .fillColor("#92400e")
+          .text(data.watermark, margin, y + 6, { width: contentWidth, align: "center" });
+        doc.restore();
+        y += 28;
+      }
 
       // 2. Metadata Columns (Ship-To Left, Dispatch/Transport Right)
       const colW = (contentWidth - 12) / 2;

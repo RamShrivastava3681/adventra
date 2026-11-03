@@ -15,6 +15,14 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { v4 as uuidv4 } from "uuid";
 import { config } from "./config.js";
+import {
+  demoWriteGuard,
+  DemoIsolationError,
+  filterForCurrentMode,
+  isDemoMode,
+  tagForCurrentMode,
+  visibleInCurrentMode,
+} from "./lib/demo-context.js";
 
 const dynamoConfig: ConstructorParameters<typeof DynamoDBClient>[0] = {
   region: config.dynamodb.region,
@@ -45,6 +53,13 @@ const TABLE = config.dynamodb.tableName;
 
 export { TABLE };
 
+// Demo tenant isolation (see lib/demo-context.ts): inside `runAsDemo` every write is
+// tagged as demo data and every read sees only demo data; outside it demo data is
+// invisible. Demo-mode writes are conditioned so they can never change live records.
+function isConditionFailure(err: any) {
+  return err?.name === "ConditionalCheckFailedException";
+}
+
 // ---- Generic CRUD ----
 
 export async function getItem(pk: string, sk?: string) {
@@ -53,12 +68,25 @@ export async function getItem(pk: string, sk?: string) {
     Key: { pk, sk: sk || pk },
   };
   const result = await docClient.send(new GetCommand(params));
-  return result.Item ?? null;
+  const item = result.Item ?? null;
+  return visibleInCurrentMode(item) ? item : null;
 }
 
 export async function putItem(item: Record<string, any>) {
+  item = tagForCurrentMode(item);
   const params: PutCommandInput = { TableName: TABLE, Item: item };
-  await docClient.send(new PutCommand(params));
+  const guard = demoWriteGuard();
+  if (guard) {
+    params.ConditionExpression = `attribute_not_exists(pk) OR ${guard.expression}`;
+    params.ExpressionAttributeNames = guard.names;
+    params.ExpressionAttributeValues = guard.values;
+  }
+  try {
+    await docClient.send(new PutCommand(params));
+  } catch (err: any) {
+    if (guard && isConditionFailure(err)) throw new DemoIsolationError();
+    throw err;
+  }
   return item;
 }
 
@@ -87,8 +115,19 @@ export async function updateItem(
     ExpressionAttributeValues: attrValues,
     ReturnValues: "ALL_NEW",
   };
-  const result = await docClient.send(new UpdateCommand(params));
-  return result.Attributes ?? null;
+  const guard = demoWriteGuard();
+  if (guard) {
+    params.ConditionExpression = guard.expression;
+    Object.assign(params.ExpressionAttributeNames!, guard.names);
+    Object.assign(params.ExpressionAttributeValues!, guard.values);
+  }
+  try {
+    const result = await docClient.send(new UpdateCommand(params));
+    return result.Attributes ?? null;
+  } catch (err: any) {
+    if (guard && isConditionFailure(err)) throw new DemoIsolationError();
+    throw err;
+  }
 }
 
 /**
@@ -117,13 +156,16 @@ export async function updateItemIf(
     (a, v, i) => ({ ...a, [`:v${i}`]: v }),
     {} as Record<string, any>
   );
+  const guard = demoWriteGuard();
   const params: UpdateCommandInput = {
     TableName: TABLE,
     Key: { pk, sk },
     UpdateExpression: `SET ${expr}`,
-    ConditionExpression: conditionExpression,
-    ExpressionAttributeNames: { ...attrNames, ...conditionNames },
-    ExpressionAttributeValues: { ...attrValues, ...conditionValues },
+    ConditionExpression: guard
+      ? `(${conditionExpression}) AND ${guard.expression}`
+      : conditionExpression,
+    ExpressionAttributeNames: { ...attrNames, ...conditionNames, ...(guard?.names ?? {}) },
+    ExpressionAttributeValues: { ...attrValues, ...conditionValues, ...(guard?.values ?? {}) },
     ReturnValues: "ALL_NEW",
   };
   try {
@@ -142,7 +184,20 @@ export async function deleteItem(pk: string, sk?: string) {
     TableName: TABLE,
     Key: { pk, sk: sk || pk },
   };
-  await docClient.send(new DeleteCommand(params));
+  const guard = demoWriteGuard();
+  if (guard) {
+    params.ConditionExpression = guard.expression;
+    params.ExpressionAttributeNames = guard.names;
+    params.ExpressionAttributeValues = guard.values;
+  }
+  try {
+    await docClient.send(new DeleteCommand(params));
+  } catch (err: any) {
+    if (!guard || !isConditionFailure(err)) throw err;
+    // Missing item → nothing to delete. A live item → refuse.
+    const existing = await docClient.send(new GetCommand({ TableName: TABLE, Key: params.Key }));
+    if (existing.Item) throw new DemoIsolationError();
+  }
 }
 
 // ---- Queries ----
@@ -159,7 +214,7 @@ export async function queryByPk(
     ScanIndexForward: options?.reverse !== undefined ? !options.reverse : true,
   };
   const result = await docClient.send(new QueryCommand(params));
-  return { items: result.Items ?? [], lastKey: result.LastEvaluatedKey };
+  return { items: filterForCurrentMode(result.Items ?? []), lastKey: result.LastEvaluatedKey };
 }
 
 export async function queryByGSI1(
@@ -187,7 +242,7 @@ export async function queryByGSI1(
   }
 
   const result = await docClient.send(new QueryCommand(params));
-  return { items: result.Items ?? [], lastKey: result.LastEvaluatedKey };
+  return { items: filterForCurrentMode(result.Items ?? []), lastKey: result.LastEvaluatedKey };
 }
 
 export async function scanByType(
@@ -211,7 +266,27 @@ export async function scanByType(
     lastKey = result.LastEvaluatedKey;
   } while (lastKey);
 
-  return allItems;
+  return filterForCurrentMode(allItems);
+}
+
+/** Every demo-tenant record (any entity type). Used by Reset Demo Baseline. */
+export async function scanDemoItems() {
+  if (!isDemoMode()) throw new DemoIsolationError("scanDemoItems is only available in demo mode");
+  let lastKey: Record<string, any> | undefined;
+  const allItems: Record<string, any>[] = [];
+  do {
+    const result = await docClient.send(
+      new ScanCommand({
+        TableName: TABLE,
+        FilterExpression: "isDemoData = :d",
+        ExpressionAttributeValues: { ":d": true },
+        ExclusiveStartKey: lastKey,
+      })
+    );
+    if (result.Items) allItems.push(...result.Items);
+    lastKey = result.LastEvaluatedKey;
+  } while (lastKey);
+  return filterForCurrentMode(allItems);
 }
 
 export async function queryByGSI2(
@@ -230,7 +305,7 @@ export async function queryByGSI2(
     ScanIndexForward: options?.reverse !== undefined ? !options.reverse : true,
   };
   const result = await docClient.send(new QueryCommand(params));
-  return result.Items ?? [];
+  return filterForCurrentMode(result.Items ?? []);
 }
 
 // ---- Helpers ----

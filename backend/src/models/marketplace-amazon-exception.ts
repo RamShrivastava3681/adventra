@@ -15,7 +15,11 @@ export type ExceptionReason =
   | "IncompleteReturnInformation"
   | "UnmatchedRefund"
   | "SettlementDiscrepancy"
-  | "APIAuthenticationFailure";
+  | "APIAuthenticationFailure"
+  | "APIFailure"
+  | "DuplicateOrder"
+  | "DuplicateReturn"
+  | "MissingTrackingNumber";
 
 export interface MarketplaceAmazonException {
   pk: string;
@@ -36,6 +40,10 @@ export interface MarketplaceAmazonException {
   currentStatus: ExceptionStatus;
   resolutionNotes: string | null;
   resolvedAt: string | null;
+  /** What "Retry" re-runs for this event (optional). */
+  retryAction?: string | null;
+  /** Payload kept for the retry (e.g. the order that failed to import). */
+  payload?: Record<string, any> | null;
   createdAt: string;
   updatedAt: string;
 }
