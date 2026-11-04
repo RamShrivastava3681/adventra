@@ -15,8 +15,8 @@ import {
   InfoPanel,
 } from "@/components/dialog";
 import { LineHeaders, AddLineButton } from "@/components/dialog/LineRow";
-import { SearchableSelect } from "@/components/ui/searchable-select";
 import { ProductThumb } from "@/components/product-thumb";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { SearchSkeleton, TableSkeleton, SkeletonRow } from "@/components/skeletons";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
@@ -442,37 +442,13 @@ function useMovementMutations(qc: ReturnType<typeof useQueryClient>) {
 
 // ── Filter state ──────────────────────────────────────────────────────────
 function useFilterState() {
-  const [searchProduct, setSearchProduct] = useState("");
-  const [searchSku, setSearchSku] = useState("");
-  const [searchChildSku, setSearchChildSku] = useState("");
-  const [colourFilter, setColourFilter] = useState("");
-  const [sizeFilter, setSizeFilter] = useState("");
-  const [stockFilter, setStockFilter] = useState<"all" | "low" | "out">("all");
-  const [sortBy, setSortBy] = useState<"name" | "stock" | "sku">("name");
-  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [search, setSearch] = useState("");
 
   const resetFilters = () => {
-    setSearchProduct("");
-    setSearchSku("");
-    setSearchChildSku("");
-    setColourFilter("");
-    setSizeFilter("");
-    setStockFilter("all");
-    setSortBy("name");
-    setSortDir("asc");
+    setSearch("");
   };
 
-  return {
-    searchProduct, setSearchProduct,
-    searchSku, setSearchSku,
-    searchChildSku, setSearchChildSku,
-    colourFilter, setColourFilter,
-    sizeFilter, setSizeFilter,
-    stockFilter, setStockFilter,
-    sortBy, setSortBy,
-    sortDir, setSortDir,
-    resetFilters,
-  };
+  return { search, setSearch, resetFilters };
 }
 
 // ── Inventory Page ────────────────────────────────────────────────────────
@@ -497,17 +473,7 @@ export function InventoryPage({
     productHierarchy,
   } = useInventoryData();
 
-  const {
-    searchProduct, setSearchProduct,
-    searchSku, setSearchSku,
-    searchChildSku, setSearchChildSku,
-    colourFilter, setColourFilter,
-    sizeFilter, setSizeFilter,
-    stockFilter, setStockFilter,
-    sortBy, setSortBy,
-    sortDir, setSortDir,
-    resetFilters,
-  } = useFilterState();
+  const { search, setSearch, resetFilters } = useFilterState();
 
   const { confirmMut, actMut, bulkCreateMut } = useMovementMutations(qc);
 
@@ -543,90 +509,18 @@ export function InventoryPage({
     />,
   ], [totalProducts, totalVariants, totalStockUnits, lowOutStockCount]);
 
-  // ── Filtered & sorted hierarchy ────────────────────────────────────────
+  // ── Filtered hierarchy ───────────────────────────────────────────────────
   const filteredHierarchy = useMemo(() => {
-    let result = [...productHierarchy];
-
-    // Filter by product name/sku search
-    if (searchProduct) {
-      const lower = searchProduct.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.name.toLowerCase().includes(lower) ||
-          p.sku.toLowerCase().includes(lower),
-      );
-    }
-    if (searchSku) {
-      const lower = searchSku.toLowerCase();
-      result = result.filter((p) => p.sku.toLowerCase().includes(lower));
-    }
-    if (searchChildSku) {
-      const lower = searchChildSku.toLowerCase();
-      // Flatten to check child SKUs
-      const flat: any[] = [];
-      result.forEach((p) => {
-        flat.push(...p.colours.flatMap((c: any) => c.sizes));
-      });
-      result = result.filter((p) => flat.some((s: any) => s.sku.toLowerCase().includes(lower)));
-    }
-
-    // Filter by colour
-    if (colourFilter && colourFilter !== "all") {
-      result = result.filter((p) =>
-        p.colours.some((c: any) => c.color === colourFilter),
-      );
-    }
-
-    // Filter by size
-    if (sizeFilter && sizeFilter !== "all") {
-      result = result.filter((p) =>
-        p.colours.some((c: any) => c.sizes.some((s: any) => s.size === sizeFilter)),
-      );
-    }
-
-    // Filter by stock status
-    if (stockFilter === "low") {
-      result = result.filter((p) =>
-        p.colours.some((c: any) =>
-          c.sizes.some((s: any) => s.stock > 0 && s.stock <= 5),
-        ),
-      );
-    }
-    if (stockFilter === "out") {
-      result = result.filter((p) =>
-        p.colours.some((c: any) =>
-          c.sizes.some((s: any) => s.stock <= 0),
-        ),
-      );
-    }
-
-    // Sort
-    const compare = (sortBy: string, sortDir: "asc" | "desc") => (a: any, b: any) => {
-      let aVal: any, bVal: any;
-      if (sortBy === "name") {
-        aVal = a.name.toLowerCase();
-        bVal = b.name.toLowerCase();
-      } else if (sortBy === "stock") {
-        aVal = a.totalVariants;
-        bVal = b.totalVariants;
-      } else if (sortBy === "sku") {
-        aVal = a.sku.toLowerCase();
-        bVal = b.sku.toLowerCase();
-      }
-      const sign = sortDir === "asc" ? 1 : -1;
-      if (aVal < bVal) return -1 * sign;
-      if (aVal > bVal) return 1 * sign;
-      return 0;
-    };
-
-    result.sort(compare(sortBy, sortDir));
-    return result;
-  }, [
-    productHierarchy,
-    searchProduct, searchSku, searchChildSku,
-    colourFilter, sizeFilter, stockFilter,
-    sortBy, sortDir,
-  ]);
+    const lower = search.toLowerCase();
+    return productHierarchy.filter((p) =>
+      p.name.toLowerCase().includes(lower) ||
+      p.sku.toLowerCase().includes(lower) ||
+      p.colours.some((c: any) =>
+        c.color.toLowerCase().includes(lower) ||
+        c.sizes.some((s: any) => s.size.toLowerCase().includes(lower) || s.sku.toLowerCase().includes(lower)),
+      ),
+    );
+  }, [productHierarchy, search]);
 
   // ── Inventory Views state ──────────────────────────────────────────────
   const [viewMode, setViewMode] = useState<"overview" | "detailed">(initialViewMode);
@@ -731,26 +625,14 @@ export function InventoryPage({
       });
     });
 
-    // Sort variants
-    const compare = (sortBy: string, sortDir: "asc" | "desc") => (a: any, b: any) => {
-      let aVal: any, bVal: any;
-      if (sortBy === "name") {
-        aVal = (a.productName + " " + a.colourName + " " + (a.size || "")).toLowerCase();
-        bVal = (b.productName + " " + b.colourName + " " + (b.size || "")).toLowerCase();
-      } else if (sortBy === "stock") {
-        aVal = a.stock;
-        bVal = b.stock;
-      } else if (sortBy === "sku") {
-        aVal = (a.sku || "").toLowerCase();
-        bVal = (b.sku || "").toLowerCase();
-      }
-      const sign = sortDir === "asc" ? 1 : -1;
-      if (aVal < bVal) return -1 * sign;
-      if (aVal > bVal) return 1 * sign;
+    // Sort variants by name
+    flatVariants.sort((a: any, b: any) => {
+      const aName = (a.productName + " " + (a.colourName || "") + " " + (a.size || "")).toLowerCase();
+      const bName = (b.productName + " " + (b.colourName || "") + " " + (b.size || "")).toLowerCase();
+      if (aName < bName) return -1;
+      if (aName > bName) return 1;
       return 0;
-    };
-
-    flatVariants.sort(compare(sortBy, sortDir));
+    });
 
     if (flatVariants.length === 0) {
       return (
@@ -759,13 +641,6 @@ export function InventoryPage({
         </div>
       );
     }
-
-    // Dynamically determine size columns from all variants
-  const uniqueSizes = [...new Set(flatVariants.map((v: any) => v.size))];
-  const sizeColumns = uniqueSizes.map((size: string) => ({
-    key: size,
-    label: size || "—",
-  }));
 
     return (
       <div className="overflow-x-auto">
@@ -778,12 +653,9 @@ export function InventoryPage({
               <th className="w-24 px-3 py-2 text-left font-medium">Product</th>
               <th className="w-32 px-3 py-2 text-left font-medium">Master SKU</th>
               <th className="w-16 px-3 py-2 text-left font-medium">Colour</th>
-              {sizeColumns.map((col) => (
-                <th key={col.key} className="w-20 px-3 py-2 text-right font-normal">
-                  {col.label}
-                </th>
-              ))}
-              <th className="w-16 px-3 py-2 text-left font-medium">Total</th>
+              <th className="w-16 px-3 py-2 text-left font-medium">Size</th>
+              <th className="w-16 px-3 py-2 text-right font-medium">Quantity</th>
+              <th className="w-16 px-3 py-2 text-left font-medium">Status</th>
               <th className="w-24 px-3 py-2 text-left font-medium">Actions</th>
             </tr>
           </thead>
@@ -814,47 +686,29 @@ export function InventoryPage({
                     {variant.colourName}
                   </span>
                 </td>
-                <td className="px-3 py-2 text-right">
-                  {sizeColumns.map((col) => {
-                    const sizeVal = variant.size ?? "—";
-                    const stock = variant.stock ?? 0;
-                    return (
-                      <div key={col.key} className="w-5">
-                        {sizeVal === col.key ? (
-                          <span className={`font-mono text-[10px] ${stock <= 0 ? "text-destructive" : stock <= 5 ? "text-sem-attention" : "text-sem-success"}`}>
-                            {stock.toLocaleString()}
-                          </span>
-                        ) : (
-                          <span className="font-mono text-[10px] text-muted-foreground">—</span>
-                        )}
-                      </div>
-                    );
-                  })}
+                <td className="px-3 py-2 text-right font-mono text-[10px]">
+                  {variant.size ?? "—"}
                 </td>
-                <td className="px-3 py-2 text-right font-medium">
-                  {flatVariants
-                    .filter(
-                      (v) =>
-                        v.productId === variant.productId && v.colourName === variant.colourName,
-                    )
-                    .reduce((sum: number, v: any) => sum + (v.stock ?? 0), 0)
-                    .toLocaleString()}
+                <td className="px-3 py-2 text-right font-medium text-[10px]">
+                  <span
+                    className={variant.stock <= 0 ? "text-destructive" : variant.stock <= 5 ? "text-sem-attention" : "text-sem-success"}
+                  >
+                    {(variant.stock ?? 0).toLocaleString()}
+                  </span>
+                </td>
+                <td className="px-3 py-2">
+                  <StockStatePill state={variant.stock <= 0 ? "out" : variant.stock <= 5 ? "low" : "in"} />
                 </td>
                 <td className="px-3 py-2 text-right">
                   {canWrite ? (
-                    <div className="flex gap-1">
-                      <button
-                        onClick={() => toast.info("Edit movement for variant")}
-                        className="rounded-md px-2 py-1 text-[9px] text-muted-foreground hover:bg-muted"
-                        title="Adjust"
-                      >
-                        <Pencil className="h-3 w-3" />
-                      </button>
-                      <StockStatePill state={variant.stock <= 0 ? "out" : variant.stock <= 5 ? "low" : "in"} />
-                    </div>
-                  ) : (
-                    <StockStatePill state={variant.stock <= 0 ? "out" : variant.stock <= 5 ? "low" : "in"} />
-                  )}
+                    <button
+                      onClick={() => toast.info("Edit movement for variant")}
+                      className="rounded-md px-2 py-1 text-[9px] text-muted-foreground hover:bg-muted"
+                      title="Adjust"
+                    >
+                      <Pencil className="h-3 w-3" />
+                    </button>
+                  ) : null}
                 </td>
               </tr>
             ))}
@@ -877,130 +731,29 @@ export function InventoryPage({
   function renderFilterToolbar() {
     return (
       <Card className="p-4 mb-4">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-          {/* Search */}
-          <div>
-            <SearchableSelect
-              placeholder="— Search product —"
-              value={searchProduct}
-              onChange={setSearchProduct}
-              options={[
-                { value: "product", label: "Product name" },
-                { value: "sku", label: "Master SKU" },
-                { value: "child", label: "Child SKU" },
-              ].map((opt) => ({
-                ...opt,
-              }))}
-            />
-          </div>
-
-          {/* Master SKU search */}
-          <div>
-            <input
-              type="text"
-              value={searchSku}
-              onChange={(e) => setSearchSku(e.target.value)}
-              className="input input-bordered w-full"
-              placeholder="Master SKU..."
-            />
-          </div>
-
-          {/* Child SKU search */}
-          <div>
-            <input
-              type="text"
-              value={searchChildSku}
-              onChange={(e) => setSearchChildSku(e.target.value)}
-              className="input input-bordered w-full"
-              placeholder="Child SKU..."
-            />
-          </div>
-
-          {/* Colour filter */}
-          <div>
-            <select
-              value={colourFilter}
-              onChange={(e) => setColourFilter(e.target.value)}
-              className="select select-bordered w-full"
-            >
-              <option value="all">— Colour —</option>
-              {Object.entries(STANDARD_COLOUR_CODES).map(([code, name]) => (
-                <option key={code} value={code}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Size filter */}
-          <div>
-            <select
-              value={sizeFilter}
-              onChange={(e) => setSizeFilter(e.target.value)}
-              className="select select-bordered w-full"
-            >
-              <option value="all">— Size —</option>
-              {/* Sizes will be populated dynamically based on products */}
-              <option value="S">S</option>
-              <option value="M">M</option>
-              <option value="L">L</option>
-              <option value="XL">XL</option>
-              <option value="XXL">XXL</option>
-            </select>
-          </div>
-
-          {/* Stock status filter */}
-          <div>
-            <select
-              value={stockFilter}
-              onChange={(e) => setStockFilter(e.target.value as any)}
-              className="select select-bordered w-full"
-            >
-              <option value="all">— Stock —</option>
-              <option value="in">In Stock</option>
-              <option value="low">Low Stock</option>
-              <option value="out">Out of Stock</option>
-            </select>
-          </div>
-
-          {/* Sort */}
-          <div className="col-span-2">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="select select-bordered w-full"
-            >
-              <option value="name">Name</option>
-              <option value="stock">Stock quantity</option>
-              <option value="sku">SKU</option>
-            </select>
-          </div>
-          <div>
-            <select
-              value={sortDir}
-              onChange={(e) => setSortDir(e.target.value as any)}
-              className="select select-bordered w-full"
-            >
-              <option value="asc">Ascending</option>
-              <option value="desc">Descending</option>
-            </select>
-          </div>
-
-          {/* Actions */}
-          <div className="col-span-2 flex gap-2">
-            <button
-              onClick={resetFilters}
-              className="rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-muted/40 transition"
-            >
-              Reset
-            </button>
-            <button
-              onClick={() => setViewMode((m) => (m === "overview" ? "detailed" : "overview"))}
-              className="rounded-md border border-primary px-3 py-1.5 text-[10px] uppercase tracking-wider text-primary-foreground hover:bg-primary/10 transition"
-            >
-              {viewMode === "overview" ? "Detailed view" : "Overview"}
-            </button>
-          </div>
+        <div className="flex items-center gap-3">
+          <label className="text-xs uppercase tracking-wider text-muted-foreground flex-shrink-0">
+            Search products…
+          </label>
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="input input-bordered w-full max-w-md"
+            placeholder="Search by product name, SKU, colour, size…"
+          />
+          <button
+            onClick={resetFilters}
+            className="rounded-md border border-border px-3 py-1.5 text-[10px] uppercase tracking-wider text-muted-foreground hover:bg-muted/40 transition"
+          >
+            Reset
+          </button>
+          <button
+            onClick={() => setViewMode((m) => (m === "overview" ? "detailed" : "overview"))}
+            className="rounded-md border border-primary px-3 py-1.5 text-[10px] uppercase tracking-wider text-primary-foreground hover:bg-primary/10 transition"
+          >
+            {viewMode === "overview" ? "Detailed view" : "Overview"}
+          </button>
         </div>
       </Card>
     );
