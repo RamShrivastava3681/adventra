@@ -365,7 +365,7 @@ function useInventoryData() {
         gender: master.gender,
         colours: colourEntries,
         totalColours: colours.length,
-        totalVariants: colours.reduce((sum: number, c: any) => sum + c.sizes.length, 0),
+        totalVariants: colourEntries.reduce((sum: number, c: any) => sum + c.sizes.length, 0),
         stockState: masterProducts.masters.length > 0 ? "ok" : "out",
       });
     }
