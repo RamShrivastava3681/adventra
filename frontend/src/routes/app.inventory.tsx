@@ -337,6 +337,7 @@ function useInventoryData() {
               name: colour.name || "",
               size: colour.size || "",
               color: colour.color || "",
+              sizes: [],
               stock: stockByProduct.get(colour.sku ?? "") ?? stockByProduct.get(colour.id) ?? 0,
               stockState: "in",
             }];
