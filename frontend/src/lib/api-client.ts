@@ -591,7 +591,9 @@ const api = {
   // shipments, returns, refunds, settlements and exception handling)
   amazonOrders: {
     list: (clientId?: string) =>
-      api.get<any[]>(`/amazon/orders${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+      api
+        .get<any[]>(`/amazon/orders${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
     get: (amazonOrderId: string) => api.get<any>(`/amazon/orders/${amazonOrderId}`),
     import: (data: any) => api.post<any>("/amazon/orders/import", data),
     updateStatus: (amazonOrderId: string, data: any) =>
@@ -599,7 +601,9 @@ const api = {
   },
   amazonSkuMappings: {
     list: (clientId?: string) =>
-      api.get<any[]>(`/amazon/sku-mappings${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+      api
+        .get<any[]>(`/amazon/sku-mappings${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
     create: (data: any) => api.post<any>("/amazon/sku-mappings", data),
     validate: (amazonSku: string) =>
       api.get<any>(`/amazon/sku-mappings/validate/${encodeURIComponent(amazonSku)}`),
@@ -608,7 +612,9 @@ const api = {
   },
   amazonInvoices: {
     list: (clientId?: string) =>
-      api.get<any[]>(`/amazon/invoices${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+      api
+        .get<any[]>(`/amazon/invoices${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
     create: (data: any) => api.post<any>("/amazon/invoices", data),
     updateStatus: (data: { amazonOrderId: string; status: string }) =>
       api.put<any>("/amazon/invoices/status", data),
@@ -620,7 +626,9 @@ const api = {
   },
   amazonShipments: {
     list: (clientId?: string) =>
-      api.get<any[]>(`/amazon/shipments${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+      api
+        .get<any[]>(`/amazon/shipments${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
     createTask: (data: any) => api.post<any>("/amazon/fulfilment/create-task", data),
     dispatch: (data: any) => api.put<any>("/amazon/fulfilment/dispatch", data),
   },
@@ -630,7 +638,7 @@ const api = {
         .get<{ success: boolean; returns: any[] }>(
           `/amazon/returns${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
         )
-        .then((response) => response.returns ?? []),
+        .then((response) => camelizeResponse(response).returns ?? []),
     create: (data: any) => api.post<any>("/amazon/returns", data),
     updateStatus: (returnId: string, data: any) =>
       api.put<any>(`/amazon/returns/${returnId}/status`, data),
@@ -638,7 +646,9 @@ const api = {
   },
   amazonRefunds: {
     list: (clientId?: string) =>
-      api.get<any[]>(`/amazon/refunds${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+      api
+        .get<any[]>(`/amazon/refunds${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
     create: (data: any) => api.post<any>("/amazon/refunds", data),
     updateStatus: (refundId: string, data: any) =>
       api.put<any>(`/amazon/refunds/${refundId}/status`, data),
@@ -649,18 +659,26 @@ const api = {
   },
   amazonSettlements: {
     list: (clientId?: string) =>
-      api.get<any[]>(`/amazon/settlements${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+      api
+        .get<any[]>(`/amazon/settlements${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
     create: (data: any) => api.post<any>("/amazon/settlements", data),
     updateStatus: (settlementId: string, status: string) =>
       api.put<any>(`/amazon/settlements/${settlementId}/status`, { status }),
     reconcile: (settlementId: string) =>
       api.put<any>(`/amazon/settlements/reconcile/${settlementId}`, {}),
     summary: (clientId?: string) =>
-      api.get<any>(`/amazon/settlements/summary${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+      api
+        .get<any>(
+          `/amazon/settlements/summary${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
+        )
+        .then(camelizeResponse),
   },
   amazonExceptions: {
     list: (clientId?: string) =>
-      api.get<any[]>(`/amazon/exceptions${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+      api
+        .get<any[]>(`/amazon/exceptions${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
     open: (clientId?: string) =>
       api.get<any[]>(`/amazon/exceptions/open${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
     byReason: (reason: string, clientId?: string) =>

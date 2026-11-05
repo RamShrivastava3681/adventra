@@ -154,8 +154,8 @@ export function AmazonReturnsSettlementPage() {
     queryKey: ["amazon-returns", clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      const response = await api.get<{ success: boolean; returns: any[] }>(`/amazon/returns`);
-      return response.returns ?? [];
+      const response = await api.amazonReturns.list(clientId);
+      return response;
     },
     enabled: !!clientId,
   });
@@ -167,7 +167,7 @@ export function AmazonReturnsSettlementPage() {
     queryKey: ["amazon-refunds", clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      return api.get<any[]>(`/amazon/refunds`);
+      return api.amazonRefunds.list(clientId);
     },
     enabled: !!clientId,
   });
@@ -179,7 +179,7 @@ export function AmazonReturnsSettlementPage() {
     queryKey: ["amazon-settlements", clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      return api.get<any[]>(`/amazon/settlements/summary`);
+      return api.amazonSettlements.list(clientId);
     },
     enabled: !!clientId,
   });
