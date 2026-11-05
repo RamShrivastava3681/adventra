@@ -626,7 +626,11 @@ const api = {
   },
   amazonReturns: {
     list: (clientId?: string) =>
-      api.get<any[]>(`/amazon/returns${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+      api
+        .get<{ success: boolean; returns: any[] }>(
+          `/amazon/returns${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
+        )
+        .then((response) => response.returns ?? []),
     create: (data: any) => api.post<any>("/amazon/returns", data),
     updateStatus: (returnId: string, data: any) =>
       api.put<any>(`/amazon/returns/${returnId}/status`, data),

@@ -14,6 +14,10 @@ import {
 
 export class AmazonReturnService {
 
+  static async listReturns(clientId: string) {
+    return await listReturns(clientId);
+  }
+
   static async createReturn(data: {
     clientId: string;
     amazonOrderId: string;

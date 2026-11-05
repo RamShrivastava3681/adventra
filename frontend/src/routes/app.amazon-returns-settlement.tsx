@@ -154,7 +154,8 @@ export function AmazonReturnsSettlementPage() {
     queryKey: ["amazon-returns", clientId],
     queryFn: async () => {
       if (!clientId) return [];
-      return api.get<any[]>(`/amazon/returns`);
+      const response = await api.get<{ success: boolean; returns: any[] }>(`/amazon/returns`);
+      return response.returns ?? [];
     },
     enabled: !!clientId,
   });

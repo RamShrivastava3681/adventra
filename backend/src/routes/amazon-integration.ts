@@ -15,7 +15,6 @@ import { list, findOpenExceptions, findByReason, resolveException, incrementRetr
 import { ExceptionReason } from "../models/marketplace-amazon-exception.js";
 import { list as listInvoices } from "../models/marketplace-amazon-invoice-record.js";
 import { list as listShipments } from "../models/marketplace-amazon-shipment.js";
-import { list as listReturns } from "../models/marketplace-amazon-return.js";
 import { list as listRefunds } from "../models/marketplace-amazon-refund.js";
 import { list as listSettlements } from "../models/marketplace-amazon-settlement.js";
 
@@ -389,9 +388,13 @@ router.put("/amazon/fulfilment/dispatch", authMiddleware, async (req: Request, r
 router.get("/amazon/returns", authMiddleware, async (req: Request, res: Response) => {
   try {
     const clientId = (req as any).user.userId;
-    res.json(await listReturns(clientId));
+    const returns = await AmazonReturnService.listReturns(clientId);
+    res.json({ success: true, returns });
   } catch (err: any) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({
+      success: false,
+      error: err.message || "Unable to load Amazon returns",
+    });
   }
 });
 
