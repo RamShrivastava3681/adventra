@@ -13,6 +13,11 @@ import { AmazonRefundService } from "../services/amazon-refund.service.js";
 import { AmazonSettlementService } from "../services/amazon-settlement.service.js";
 import { list, findOpenExceptions, findByReason, resolveException, incrementRetry } from "../models/marketplace-amazon-exception.js";
 import { ExceptionReason } from "../models/marketplace-amazon-exception.js";
+import { list as listInvoices } from "../models/marketplace-amazon-invoice-record.js";
+import { list as listShipments } from "../models/marketplace-amazon-shipment.js";
+import { list as listReturns } from "../models/marketplace-amazon-return.js";
+import { list as listRefunds } from "../models/marketplace-amazon-refund.js";
+import { list as listSettlements } from "../models/marketplace-amazon-settlement.js";
 
 
 const router = Router();
@@ -212,6 +217,19 @@ router.get("/amazon/sku-mappings/unmapped", authMiddleware, async (req: Request,
 // ===================== INVOICE MANAGEMENT =====================
 
 /**
+ * GET /amazon/invoices
+ * List Amazon invoice records for the authenticated client.
+ */
+router.get("/amazon/invoices", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    res.json(await listInvoices(clientId));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * POST /amazon/invoices
  * Create Amazon invoice record.
  */
@@ -290,6 +308,19 @@ router.put("/amazon/invoices/mark-received", authMiddleware, async (req: Request
 // ===================== FULFILMENT & DISPATCH =====================
 
 /**
+ * GET /amazon/shipments
+ * List Amazon shipments for the authenticated client.
+ */
+router.get("/amazon/shipments", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    res.json(await listShipments(clientId));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * POST /amazon/fulfilment/create-task
  * Create warehouse task for Amazon order fulfilment.
  */
@@ -350,6 +381,19 @@ router.put("/amazon/fulfilment/dispatch", authMiddleware, async (req: Request, r
 });
 
 // ===================== RETURNS MANAGEMENT =====================
+
+/**
+ * GET /amazon/returns
+ * List Amazon returns for the authenticated client.
+ */
+router.get("/amazon/returns", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    res.json(await listReturns(clientId));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 /**
  * POST /amazon/returns
@@ -434,6 +478,19 @@ router.put("/amazon/returns/finalize", authMiddleware, async (req: Request, res:
 // ===================== REFUNDS =====================
 
 /**
+ * GET /amazon/refunds
+ * List Amazon refunds for the authenticated client.
+ */
+router.get("/amazon/refunds", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    res.json(await listRefunds(clientId));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * POST /amazon/refunds
  * Create Amazon refund record.
  */
@@ -516,6 +573,19 @@ router.put("/amazon/refunds/check-existence", authMiddleware, async (req: Reques
 });
 
 // ===================== SETTLEMENT RECONCILIATION =====================
+
+/**
+ * GET /amazon/settlements
+ * List Amazon settlements for the authenticated client.
+ */
+router.get("/amazon/settlements", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    res.json(await listSettlements(clientId));
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 /**
  * POST /amazon/settlements
