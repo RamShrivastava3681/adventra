@@ -687,8 +687,56 @@ const api = {
       ),
     resolve: (exceptionId: string, data: { resolutionNotes: string; responsibleUser: string }) =>
       api.put<any>(`/amazon/exceptions/${exceptionId}/resolve`, data),
-    retry: (exceptionId: string) =>
-      api.put<any>(`/amazon/exceptions/${exceptionId}/retry`, {}),
+    retry: (exceptionId: string) => api.put<any>(`/amazon/exceptions/${exceptionId}/retry`, {}),
+  },
+
+  // Amazon synchronization & health monitoring
+  amazonSync: {
+    trigger: (data: { module?: string } = {}) => api.post<any>("/amazon/sync", data),
+    status: (clientId?: string) =>
+      api.get<any>(`/amazon/sync-status${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`).then(
+        camelizeResponse,
+      ),
+  },
+
+  // Amazon inventory
+  amazonInventory: {
+    list: (clientId?: string, params?: { limit?: number; startKey?: string }) => {
+      const qs = new URLSearchParams();
+      if (clientId) qs.set("clientId", clientId);
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.startKey) qs.set("startKey", JSON.stringify(params.startKey));
+      return api
+        .get<any>(`/amazon/inventory${qs.toString() ? `?${qs.toString()}` : ""}`)
+        .then(camelizeResponse);
+    },
+    aggregate: (clientId?: string) =>
+      api
+        .get<any>(`/amazon/inventory/aggregate${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
+  },
+
+  // Amazon listings
+  amazonListings: {
+    list: (clientId?: string, params?: { limit?: number; startKey?: string }) => {
+      const qs = new URLSearchParams();
+      if (clientId) qs.set("clientId", clientId);
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.startKey) qs.set("startKey", JSON.stringify(params.startKey));
+      return api
+        .get<any>(`/amazon/listings${qs.toString() ? `?${qs.toString()}` : ""}`)
+        .then(camelizeResponse);
+    },
+    aggregate: (clientId?: string) =>
+      api
+        .get<any>(`/amazon/listings/aggregate${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
+  },
+
+  // Amazon order items
+  amazonOrderItems: {
+    byOrder: (amazonOrderId: string) =>
+      api.get<any>(`/amazon/orders/${encodeURIComponent(amazonOrderId)}/items`).then(camelizeResponse),
   },
 
   // Amazon Demo Simulator (PDF Developer Note)

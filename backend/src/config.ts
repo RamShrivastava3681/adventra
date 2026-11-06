@@ -117,6 +117,20 @@ export const config = {
 
   appUrl: process.env.APP_URL || "http://localhost:3000",
 
+  // ── Amazon Selling Partner API (SP-API) / LWA ─────────────────────────────
+  amazon: {
+    clientId: process.env.AMAZON_CLIENT_ID || "",
+    clientSecret: process.env.AMAZON_CLIENT_SECRET || "",
+    refreshToken: process.env.AMAZON_REFRESH_TOKEN || "",
+    appId: process.env.AMAZON_APP_ID || "",
+    spapiEndpoint: process.env.AMAZON_SPAPI_ENDPOINT || "https://sellingpartnerapi-eu.amazon.com",
+    marketplaceId: process.env.AMAZON_MARKETPLACE_ID || "",
+    region: process.env.AMAZON_REGION || "eu-west-1",
+    lwaEndpoint: process.env.AMAZON_LWA_ENDPOINT || "https://api.amazon.com/auth/o2/token",
+    syncLookbackDays: parseInt(process.env.AMAZON_SYNC_LOOKBACK_DAYS || "30", 10),
+    isConfigured: Boolean(process.env.AMAZON_CLIENT_ID && process.env.AMAZON_CLIENT_SECRET && process.env.AMAZON_REFRESH_TOKEN),
+  },
+
   smtp: {
     host: process.env.SMTP_HOST || "",
     port: parseInt(process.env.SMTP_PORT || "587", 10),

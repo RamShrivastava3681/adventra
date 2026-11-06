@@ -9,6 +9,7 @@ import * as db from "./dynamodb.js";
 import { v4 as uuid } from "uuid";
 import { startReminderScheduler } from "./invoice-reminder.js";
 import { startWorkflowReminderScheduler } from "./workflow-reminders.js";
+import { startScheduledSync } from "./services/amazon-sync.service.js";
 import { snakeCaseToCamelCase, camelCaseToSnakeCase } from "./middleware/transform.js";
 import {
   requestLogger,
@@ -224,6 +225,9 @@ app.listen(config.port, async () => {
 
   // Start the workflow overdue/escalation reminder scheduler (checks every hour)
   startWorkflowReminderScheduler();
+
+  // Start the scheduled Amazon SP-API background sync (every 15 minutes)
+  startScheduledSync();
 
   // Recompute forecasts for all clients on startup so snapshots are always fresh
   recomputeAllForecastsOnStartup().catch((err) =>

@@ -11,12 +11,17 @@ import { AmazonFulfilmentService } from "../services/amazon-fulfilment.service.j
 import { AmazonReturnService } from "../services/amazon-return.service.js";
 import { AmazonRefundService } from "../services/amazon-refund.service.js";
 import { AmazonSettlementService } from "../services/amazon-settlement.service.js";
+import { amazonSync } from "../services/amazon-sync.service.js";
 import { list, findOpenExceptions, findByReason, resolveException, incrementRetry } from "../models/marketplace-amazon-exception.js";
 import { ExceptionReason } from "../models/marketplace-amazon-exception.js";
 import { list as listInvoices } from "../models/marketplace-amazon-invoice-record.js";
 import { list as listShipments } from "../models/marketplace-amazon-shipment.js";
 import { list as listRefunds } from "../models/marketplace-amazon-refund.js";
 import { list as listSettlements } from "../models/marketplace-amazon-settlement.js";
+import * as InventoryModel from "../models/marketplace-amazon-inventory.js";
+import * as ListingModel from "../models/marketplace-amazon-listing.js";
+import * as OrderModel from "../models/marketplace-amazon-order.js";
+import * as ReturnModel from "../models/marketplace-amazon-return.js";
 
 
 const router = Router();
@@ -777,6 +782,124 @@ router.get("/amazon/sync-logs", authMiddleware, async (req: Request, res: Respon
     res.json(exceptions);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ===================== AMAZON DATA SYNCHRONIZATION =====================
+
+/**
+ * POST /amazon/sync
+ * Trigger a manual SP-API synchronization. Body: { module?: "orders"|"order-items"|"inventory"|"listings"|"returns"|"all" }
+ */
+router.post("/amazon/sync", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    const { module } = req.body || {};
+    let result: any;
+    if (module === "all" || !module) {
+      result = await amazonSync.syncAll(clientId);
+    } else {
+      result = await amazonSync.sync(module as any, clientId);
+    }
+    res.json({ success: true, result });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /amazon/sync-status
+ * API health-monitoring snapshot for every integration module.
+ */
+router.get("/amazon/sync-status", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    const snapshot = await amazonSync.statusSnapshot(clientId);
+    res.json({ success: true, syncStatus: snapshot });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ===================== INVENTORY =====================
+
+/**
+ * GET /amazon/inventory
+ * Paginated inventory list for the authenticated client.
+ */
+router.get("/amazon/inventory", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    const limit = Number(req.query.limit || 100);
+    const startKey = req.query.startKey ? JSON.parse(String(req.query.startKey)) : undefined;
+    const { items, lastKey } = await InventoryModel.list(clientId, { limit, exclusiveStartKey: startKey });
+    res.json({ success: true, items, lastKey });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /amazon/inventory/aggregate
+ * Inventory health overview.
+ */
+router.get("/amazon/inventory/aggregate", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    const agg = await InventoryModel.aggregate(clientId);
+    res.json({ success: true, ...agg });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ===================== LISTINGS =====================
+
+/**
+ * GET /amazon/listings
+ * Paginated listings list for the authenticated client.
+ */
+router.get("/amazon/listings", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    const limit = Number(req.query.limit || 100);
+    const startKey = req.query.startKey ? JSON.parse(String(req.query.startKey)) : undefined;
+    const { items, lastKey } = await ListingModel.list(clientId, { limit, exclusiveStartKey: startKey });
+    res.json({ success: true, items, lastKey });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /amazon/listings/aggregate
+ * Listings health overview.
+ */
+router.get("/amazon/listings/aggregate", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    const agg = await ListingModel.aggregate(clientId);
+    res.json({ success: true, ...agg });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ===================== ORDER ITEMS =====================
+
+/**
+ * GET /amazon/orders/:amazonOrderId/items
+ * Order items for a specific Amazon order.
+ */
+router.get("/amazon/orders/:amazonOrderId/items", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    const order = await OrderModel.findByAmazonOrderId(clientId, req.params.amazonOrderId);
+    if (!order) return res.status(404).json({ success: false, error: "Order not found" });
+    const items = await db.queryByPk(`MARKETPLACE_AMAZON_ORDER_ITEM#${req.params.amazonOrderId}`, { limit: 200 });
+    res.json({ success: true, items: (items.items ?? []).map((i: any) => ({ ...i, pk: undefined, sk: undefined, gsi1pk: undefined, gsi1sk: undefined, entityType: undefined })) });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
   }
 });
 
