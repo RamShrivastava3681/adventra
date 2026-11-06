@@ -1,4 +1,5 @@
-import { amazonSpApi } from "./amazon-spapi.service.js";
+import { amazonSpApi, generateTraceId } from "./amazon-spapi.service.js";
+import { AmazonDebugLogger } from "./amazon-spapi.service.js";
 import * as OrderModel from "../models/marketplace-amazon-order.js";
 import * as SyncStatusModel from "../models/marketplace-amazon-sync-status.js";
 import * as InventoryModel from "../models/marketplace-amazon-inventory.js";
@@ -10,10 +11,6 @@ import * as db from "../dynamodb.js";
 
 type Module = SyncStatusModel.MarketplaceAmazonSyncStatus["module"];
 
-/** Simple in-memory sync queue so large syncs don't block HTTP request/response cycles. */
-const syncQueue: Array<{ module: Module; clientId: string; resolve: (v: any) => void; reject: (e: any) => void }> = [];
-let queueProcessing = false;
-
 export interface SyncResult {
   module: Module;
   status: SyncStatusModel.SyncStatus;
@@ -21,6 +18,9 @@ export interface SyncResult {
   lastCursor: string | null;
   error: string | null;
   errorCode: string | null;
+  startTime: string;
+  endTime: string | null;
+  durationMs: number;
 }
 
 type SyncStatus = SyncStatusModel.SyncStatus;
@@ -183,23 +183,38 @@ function normalizeInventory(clientId: string, marketplaceId: string, item: any) 
 }
 
 export class AmazonSyncService {
+  private readonly log: AmazonDebugLogger;
+
+  constructor() {
+    this.log = new AmazonDebugLogger({ module: "sync-service" });
+  }
+
   /** Enqueue a sync and return when complete. */
-  async sync(module: Module, clientId: string): Promise<SyncResult> {
+  async sync(module: Module, clientId: string, traceId?: string): Promise<SyncResult> {
     return new Promise((resolve, reject) => {
-      syncQueue.push({ module, clientId, resolve, reject });
+      const log = new AmazonDebugLogger({ traceId, clientId }).child({ module });
+      log.info({ operation: "sync.enqueue", stage: "before", config: { module } });
+      const entry = { module, clientId, traceId, resolve, reject, log };
+      syncQueue.push(entry);
       void processQueue();
     });
   }
 
   /** Sync all modules for a client. */
-  async syncAll(clientId: string): Promise<Record<Module, SyncResult>> {
+  async syncAll(clientId: string, traceId?: string): Promise<Record<Module, SyncResult>> {
+    const log = new AmazonDebugLogger({ traceId, clientId }).child({ module: "all" });
+    log.info({ operation: "syncAll.enqueue", stage: "before", config: { modules: ["orders", "order-items", "inventory", "listings", "returns"] } });
+
     const modules: Module[] = ["orders", "order-items", "inventory", "listings", "returns"];
     const results: Record<Module, SyncResult> = {} as any;
     for (const module of modules) {
-      // order-items depends on orders; run orders first, then order-items.
-      const result = await this.sync(module, clientId);
+      const result = await this.sync(module, clientId, traceId);
       results[module] = result;
+      if (result.status === "Failed" || result.status === "AuthenticationError" || result.status === "AccessRestricted") {
+        log.warn({ operation: "syncAll", stage: "after", config: { failedModule: module, status: result.status, error: result.error } });
+      }
     }
+    log.info({ operation: "syncAll", stage: "after", config: { modulesCompleted: modules.length } });
     return results;
   }
 
@@ -219,152 +234,387 @@ export class AmazonSyncService {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Module syncs
+  // Module syncs (instrumented)
   // ──────────────────────────────────────────────────────────────────────────
 
-  private async syncOrders(clientId: string): Promise<SyncResult> {
+  private async syncOrders(clientId: string, traceId?: string): Promise<SyncResult> {
+    const log = new AmazonDebugLogger({ traceId, clientId }).child({ module: "orders" });
+    const startTime = nowISO();
+    const startMs = Date.now();
+
     await SyncStatusModel.markSyncing({ clientId, module: "orders" });
-    if (!amazonSpApi) {
+    log.info({ operation: "syncOrders", stage: "before", config: { startTime } });
+
+    if (!config.amazon.isConfigured) {
       const err = new Error("Amazon SP-API is not configured");
+      log.error({ operation: "syncOrders", stage: "error", errorCode: "NotConfigured", errorMessage: err.message });
       await SyncStatusModel.upsert({ clientId, module: "orders", status: "NotConfigured", error: err.message, errorCode: "NotConfigured" });
-      return { module: "orders", status: "NotConfigured", recordsSynced: 0, lastCursor: null, error: err.message, errorCode: "NotConfigured" };
+      return this._result("orders", "NotConfigured", 0, null, err.message, "NotConfigured", startTime, nowISO(), Date.now() - startMs);
     }
 
     let total = 0;
     let nextToken: string | null = null;
     let lastUpdatedAfter = null;
+    let pages = 0;
 
-    // Resume cursor: if we've synced before, start from the last sync timestamp.
     const existing = await SyncStatusModel.findByClientAndModule(clientId, "orders");
     if (existing?.lastCursor) lastUpdatedAfter = existing.lastCursor;
     else lastUpdatedAfter = defaultLookback();
 
+    log.info({
+      operation: "syncOrders",
+      stage: "before",
+      config: {
+        lookback: lastUpdatedAfter,
+        pageSize: 100,
+        resumeFromCursor: Boolean(existing?.lastCursor),
+      },
+    });
+
     try {
       do {
+        pages += 1;
+        log.debug({
+          operation: "syncOrders",
+          stage: "pagination",
+          config: { page: pages, nextToken: nextToken ? "[present]" : null, lastUpdatedAfter },
+        });
+
         const resp = await amazonSpApi.getOrders({
           lastUpdatedAfter,
           maxResults: 100,
           nextToken: nextToken || undefined,
+          traceId,
+          clientId,
+          sellerId: config.amazon.marketplaceId,
         });
+
         const orders = Array.isArray(resp.Orders) ? resp.Orders : [];
         nextToken = resp.NextToken || null;
+        log.info({
+          operation: "syncOrders",
+          stage: "pagination.after",
+          config: { page: pages, recordsReceived: orders.length, nextPage: Boolean(nextToken) },
+        });
+
+        let inserted = 0;
+        let updated = 0;
+        let skipped = 0;
+        let failed = 0;
 
         for (const order of orders) {
-          const normalized = normalizeOrder(clientId, order);
-          const existingOrder = await OrderModel.findByAmazonOrderId(clientId, normalized.amazonOrderId);
-          if (existingOrder) {
-            await OrderModel.update(existingOrder.id, {
-              orderDate: normalized.orderDate,
-              amazonOrderStatus: normalized.amazonOrderStatus,
-              sellingPrice: normalized.sellingPrice,
-              quantity: normalized.quantity,
-              updatedAt: nowISO(),
+          try {
+            const normalized = normalizeOrder(clientId, order);
+            const existingOrder = await OrderModel.findByAmazonOrderId(clientId, normalized.amazonOrderId);
+            if (existingOrder) {
+              await OrderModel.update(existingOrder.id, {
+                orderDate: normalized.orderDate,
+                amazonOrderStatus: normalized.amazonOrderStatus,
+                sellingPrice: normalized.sellingPrice,
+                quantity: normalized.quantity,
+                updatedAt: nowISO(),
+              });
+              updated += 1;
+            } else {
+              await OrderModel.create(normalized as any);
+              inserted += 1;
+            }
+            total += 1;
+          } catch (err: any) {
+            failed += 1;
+            log.error({
+              operation: "syncOrders",
+              stage: "db-write",
+              config: { amazonOrderId: order.AmazonOrderId },
+              errorCode: err?.code ?? "DbWriteError",
+              errorMessage: err?.message ?? String(err),
             });
+          }
+        }
+
+        log.info({
+          operation: "syncOrders",
+          stage: "db-write.summary",
+          config: { page: pages, inserted, updated, skipped, failed, total },
+        });
+      } while (nextToken);
+
+      const lastCursor = lastUpdatedAfter || defaultLookback();
+      const endMs = Date.now();
+      await SyncStatusModel.upsert({
+        clientId,
+        module: "orders",
+        status: "Synchronized",
+        lastSyncAt: nowISO(),
+        recordsSynced: total,
+        lastCursor: lastCursor,
+      });
+      log.info({
+        operation: "syncOrders",
+        stage: "after",
+        durationMs: endMs - startMs,
+        recordsReceived: total,
+        recordsSaved: total,
+        config: { pages, lastCursor },
+      });
+      return this._result("orders", "Synchronized", total, lastCursor, null, null, startTime, nowISO(), endMs - startMs);
+    } catch (err: any) {
+      const endMs = Date.now();
+      const { status, code, message } = classifyError(err);
+      log.error({
+        operation: "syncOrders",
+        stage: "error",
+        durationMs: endMs - startMs,
+        errorCode: code,
+        errorMessage: message,
+        recordsReceived: total,
+      });
+      await SyncStatusModel.upsert({
+        clientId,
+        module: "orders",
+        status,
+        lastSyncAt: nowISO(),
+        recordsSynced: total,
+        error: message,
+        errorCode: code,
+      });
+      return this._result("orders", status, total, null, message, code, startTime, nowISO(), endMs - startMs);
+    }
+  }
+
+  private async syncOrderItems(clientId: string, traceId?: string): Promise<SyncResult> {
+    const log = new AmazonDebugLogger({ traceId, clientId }).child({ module: "order-items" });
+    const startTime = nowISO();
+    const startMs = Date.now();
+
+    await SyncStatusModel.markSyncing({ clientId, module: "order-items" });
+    log.info({ operation: "syncOrderItems", stage: "before", config: { startTime } });
+
+    const orders = await OrderModel.list(clientId);
+    log.info({
+      operation: "syncOrderItems",
+      stage: "before",
+      config: { sourceOrders: orders.length },
+    });
+
+    let total = 0;
+    let failed = 0;
+    let processedOrders = 0;
+
+    for (const order of orders) {
+      processedOrders += 1;
+      try {
+        const resp = await amazonSpApi.getOrderItems({ amazonOrderId: order.amazonOrderId, traceId, clientId, sellerId: config.amazon.marketplaceId });
+        const items = Array.isArray(resp.OrderItems) ? resp.OrderItems : [];
+        log.debug({
+          operation: "syncOrderItems",
+          stage: "pagination.after",
+          config: { amazonOrderId: order.amazonOrderId, recordsReceived: items.length },
+        });
+
+        let inserted = 0;
+        for (const item of items) {
+          try {
+            const normalized = normalizeOrderItem(clientId, order.amazonOrderId, item);
+            const id = `${order.amazonOrderId}#${item.LineNumber || item.lineNumber || total}`;
+            await db.putItem({
+              pk: `MARKETPLACE_AMAZON_ORDER_ITEM#${order.amazonOrderId}`,
+              sk: `MARKETPLACE_AMAZON_ORDER_ITEM#${id}`,
+              gsi1pk: `CLIENT#${clientId}`,
+              gsi1sk: `MarketplaceAmazonOrderItem#${nowISO()}`,
+              entityType: "MarketplaceAmazonOrderItem",
+              id,
+              orderId: order.id,
+              ...normalized,
+              createdAt: nowISO(),
+              updatedAt: nowISO(),
+            } as any);
+            inserted += 1;
+            total += 1;
+          } catch (err: any) {
+            failed += 1;
+            log.error({
+              operation: "syncOrderItems",
+              stage: "db-write",
+              config: { amazonOrderId: order.amazonOrderId, lineNumber: item.LineNumber },
+              errorCode: err?.code ?? "DbWriteError",
+              errorMessage: err?.message ?? String(err),
+            });
+          }
+        }
+
+        log.info({
+          operation: "syncOrderItems",
+          stage: "db-write.summary",
+          config: { amazonOrderId: order.amazonOrderId, itemsReceived: items.length, inserted },
+        });
+      } catch (err: any) {
+        failed += 1;
+        log.error({
+          operation: "syncOrderItems",
+          stage: "error",
+          config: { amazonOrderId: order.amazonOrderId },
+          errorCode: err?.code ?? "ApiError",
+          errorMessage: err?.message ?? String(err),
+        });
+      }
+    }
+
+    const endMs = Date.now();
+    const status = failed > 0 && total === 0 ? "Failed" : "Synchronized";
+    await SyncStatusModel.upsert({
+      clientId,
+      module: "order-items",
+      status,
+      lastSyncAt: nowISO(),
+      recordsSynced: total,
+      error: failed > 0 ? `${failed} order(s) failed to fetch items` : null,
+      errorCode: failed > 0 ? "PartialFailure" : null,
+    });
+    log.info({
+      operation: "syncOrderItems",
+      stage: "after",
+      durationMs: endMs - startMs,
+      recordsReceived: total,
+      recordsSaved: total,
+      recordsFailed: failed,
+      config: { processedOrders, failedOrders: failed },
+    });
+    return this._result("order-items", status, total, null, failed > 0 ? `${failed} order(s) failed` : null, failed > 0 ? "PartialFailure" : null, startTime, nowISO(), endMs - startMs);
+  }
+
+  private async syncInventory(clientId: string, traceId?: string): Promise<SyncResult> {
+    const log = new AmazonDebugLogger({ traceId, clientId }).child({ module: "inventory" });
+    const startTime = nowISO();
+    const startMs = Date.now();
+
+    await SyncStatusModel.markSyncing({ clientId, module: "inventory" });
+    log.info({ operation: "syncInventory", stage: "before", config: { startTime } });
+
+    const marketplaceId = config.amazon.marketplaceId || "";
+    let total = 0;
+    let nextToken: string | null = null;
+    let pages = 0;
+    let inserted = 0;
+    let updated = 0;
+
+    log.info({
+      operation: "syncInventory",
+      stage: "before",
+      config: { marketplaceId, pageSize: 100 },
+    });
+
+    try {
+      do {
+        pages += 1;
+        log.debug({
+          operation: "syncInventory",
+          stage: "pagination",
+          config: { page: pages, nextToken: nextToken ? "[present]" : null },
+        });
+
+        const resp = await amazonSpApi.getInventorySummaries({
+          marketplaceIds: marketplaceId ? [marketplaceId] : [],
+          maxResults: 100,
+          nextToken: nextToken || undefined,
+          traceId,
+          clientId,
+          sellerId: marketplaceId,
+        });
+
+        const summaries = Array.isArray(resp.InventorySummaries) ? resp.InventorySummaries : [];
+        nextToken = resp.NextToken || null;
+        log.info({
+          operation: "syncInventory",
+          stage: "pagination.after",
+          config: { page: pages, recordsReceived: summaries.length, nextPage: Boolean(nextToken) },
+        });
+
+        for (const item of summaries) {
+          const normalized = normalizeInventory(clientId, marketplaceId, item);
+          const existing = await InventoryModel.findBySku(clientId, normalized.sellerSku);
+          if (existing) {
+            await InventoryModel.upsert(normalized as any);
+            updated += 1;
           } else {
-            await OrderModel.create(normalized as any);
+            await InventoryModel.upsert(normalized as any);
+            inserted += 1;
           }
           total += 1;
         }
       } while (nextToken);
 
-      const lastCursor = lastUpdatedAfter || defaultLookback();
-      await SyncStatusModel.upsert({ clientId, module: "orders", status: "Synchronized", lastSyncAt: nowISO(), recordsSynced: total, lastCursor: lastCursor });
-      return { module: "orders", status: "Synchronized", recordsSynced: total, lastCursor, error: null, errorCode: null };
-    } catch (err: any) {
-      const { status, code, message } = classifyError(err);
-      await SyncStatusModel.upsert({ clientId, module: "orders", status, lastSyncAt: nowISO(), recordsSynced: total, error: message, errorCode: code });
-      return { module: "orders", status, recordsSynced: total, lastCursor: null, error: message, errorCode: code };
-    }
-  }
-
-  private async syncOrderItems(clientId: string): Promise<SyncResult> {
-    await SyncStatusModel.markSyncing({ clientId, module: "order-items" });
-
-    const orders = await OrderModel.list(clientId);
-    let total = 0;
-    let failed = 0;
-
-    for (const order of orders) {
-      try {
-        const resp = await amazonSpApi.getOrderItems({ amazonOrderId: order.amazonOrderId });
-        const items = Array.isArray(resp.OrderItems) ? resp.OrderItems : [];
-        for (const item of items) {
-          const normalized = normalizeOrderItem(clientId, order.amazonOrderId, item);
-          // Upsert order items keyed by (order, line). All items of an order share
-          // the same PK (amazonOrderId) so they can be fetched with one query.
-          const id = `${order.amazonOrderId}#${item.LineNumber || item.lineNumber || total}`;
-          await db.putItem({
-            pk: `MARKETPLACE_AMAZON_ORDER_ITEM#${order.amazonOrderId}`,
-            sk: `MARKETPLACE_AMAZON_ORDER_ITEM#${id}`,
-            gsi1pk: `CLIENT#${clientId}`,
-            gsi1sk: `MarketplaceAmazonOrderItem#${nowISO()}`,
-            entityType: "MarketplaceAmazonOrderItem",
-            id,
-            orderId: order.id,
-            ...normalized,
-            createdAt: nowISO(),
-            updatedAt: nowISO(),
-          } as any);
-          total += 1;
-        }
-      } catch (err: any) {
-        failed += 1;
-        console.error(`[amazon-sync] order-items failed for ${order.amazonOrderId}:`, err.message);
-      }
-    }
-
-    const status = failed > 0 && total === 0 ? "Failed" : "Synchronized";
-    await SyncStatusModel.upsert({ clientId, module: "order-items", status, lastSyncAt: nowISO(), recordsSynced: total, error: failed > 0 ? `${failed} order(s) failed to fetch items` : null, errorCode: failed > 0 ? "PartialFailure" : null });
-    return { module: "order-items", status, recordsSynced: total, lastCursor: null, error: failed > 0 ? `${failed} order(s) failed` : null, errorCode: failed > 0 ? "PartialFailure" : null };
-  }
-
-  private async syncInventory(clientId: string): Promise<SyncResult> {
-    await SyncStatusModel.markSyncing({ clientId, module: "inventory" });
-    const marketplaceId = config.amazon.marketplaceId || "";
-    let total = 0;
-    let nextToken: string | null = null;
-
-    try {
-      do {
-        const resp = await amazonSpApi.getInventorySummaries({
-          marketplaceIds: marketplaceId ? [marketplaceId] : [],
-          maxResults: 100,
-          nextToken: nextToken || undefined,
-        });
-        const summaries = Array.isArray(resp.InventorySummaries) ? resp.InventorySummaries : [];
-        nextToken = resp.NextToken || null;
-
-        for (const item of summaries) {
-          const normalized = normalizeInventory(clientId, marketplaceId, item);
-          await InventoryModel.upsert(normalized as any);
-          total += 1;
-        }
-      } while (nextToken);
-
+      const endMs = Date.now();
       await SyncStatusModel.upsert({ clientId, module: "inventory", status: "Synchronized", lastSyncAt: nowISO(), recordsSynced: total });
-      return { module: "inventory", status: "Synchronized", recordsSynced: total, lastCursor: null, error: null, errorCode: null };
+      log.info({
+        operation: "syncInventory",
+        stage: "after",
+        durationMs: endMs - startMs,
+        recordsReceived: total,
+        recordsSaved: total,
+        config: { pages, inserted, updated },
+      });
+      return this._result("inventory", "Synchronized", total, null, null, null, startTime, nowISO(), endMs - startMs);
     } catch (err: any) {
+      const endMs = Date.now();
       const { status, code, message } = classifyError(err);
+      log.error({
+        operation: "syncInventory",
+        stage: "error",
+        durationMs: endMs - startMs,
+        errorCode: code,
+        errorMessage: message,
+        recordsReceived: total,
+      });
       await SyncStatusModel.upsert({ clientId, module: "inventory", status, lastSyncAt: nowISO(), recordsSynced: total, error: message, errorCode: code });
-      return { module: "inventory", status, recordsSynced: total, lastCursor: null, error: message, errorCode: code };
+      return this._result("inventory", status, total, null, message, code, startTime, nowISO(), endMs - startMs);
     }
   }
 
-  private async syncListings(clientId: string): Promise<SyncResult> {
+  private async syncListings(clientId: string, traceId?: string): Promise<SyncResult> {
+    const log = new AmazonDebugLogger({ traceId, clientId }).child({ module: "listings" });
+    const startTime = nowISO();
+    const startMs = Date.now();
+
     await SyncStatusModel.markSyncing({ clientId, module: "listings" });
+    log.info({ operation: "syncListings", stage: "before", config: { startTime } });
+
     const marketplaceId = config.amazon.marketplaceId || "";
     let total = 0;
     let nextToken: string | null = null;
+    let pages = 0;
+
+    log.info({
+      operation: "syncListings",
+      stage: "before",
+      config: { marketplaceId, pageSize: 100 },
+    });
 
     try {
       do {
+        pages += 1;
+        log.debug({
+          operation: "syncListings",
+          stage: "pagination",
+          config: { page: pages, nextToken: nextToken ? "[present]" : null },
+        });
+
         const resp = await amazonSpApi.getListingsItems({
           marketplaceIds: marketplaceId ? [marketplaceId] : [],
           maxResults: 100,
           nextToken: nextToken || undefined,
+          traceId,
+          clientId,
+          sellerId: marketplaceId,
         });
+
         const listings = Array.isArray(resp.Listings) ? resp.Listings : [];
         nextToken = resp.NextToken || null;
+        log.info({
+          operation: "syncListings",
+          stage: "pagination.after",
+          config: { page: pages, recordsReceived: listings.length, nextPage: Boolean(nextToken) },
+        });
 
         for (const listing of listings) {
           const sellerSku = listing.SellerSKU || listing.sellerSKU || "";
@@ -404,17 +654,40 @@ export class AmazonSyncService {
         }
       } while (nextToken);
 
+      const endMs = Date.now();
       await SyncStatusModel.upsert({ clientId, module: "listings", status: "Synchronized", lastSyncAt: nowISO(), recordsSynced: total });
-      return { module: "listings", status: "Synchronized", recordsSynced: total, lastCursor: null, error: null, errorCode: null };
+      log.info({
+        operation: "syncListings",
+        stage: "after",
+        durationMs: endMs - startMs,
+        recordsReceived: total,
+        recordsSaved: total,
+        config: { pages },
+      });
+      return this._result("listings", "Synchronized", total, null, null, null, startTime, nowISO(), endMs - startMs);
     } catch (err: any) {
+      const endMs = Date.now();
       const { status, code, message } = classifyError(err);
+      log.error({
+        operation: "syncListings",
+        stage: "error",
+        durationMs: endMs - startMs,
+        errorCode: code,
+        errorMessage: message,
+        recordsReceived: total,
+      });
       await SyncStatusModel.upsert({ clientId, module: "listings", status, lastSyncAt: nowISO(), recordsSynced: total, error: message, errorCode: code });
-      return { module: "listings", status, recordsSynced: total, lastCursor: null, error: message, errorCode: code };
+      return this._result("listings", status, total, null, message, code, startTime, nowISO(), endMs - startMs);
     }
   }
 
-  private async syncReturns(clientId: string): Promise<SyncResult> {
+  private async syncReturns(clientId: string, traceId?: string): Promise<SyncResult> {
+    const log = new AmazonDebugLogger({ traceId, clientId }).child({ module: "returns" });
+    const startTime = nowISO();
+    const startMs = Date.now();
+
     await SyncStatusModel.markSyncing({ clientId, module: "returns" });
+    log.info({ operation: "syncReturns", stage: "before", config: { startTime } });
 
     // Amazon SP-API does not expose a standalone "Get Returns" endpoint for all
     // seller accounts. Returns are surfaced through the Orders API: orders with
@@ -425,34 +698,57 @@ export class AmazonSyncService {
     let total = 0;
     let nextToken: string | null = null;
     let lastUpdatedAfter = null;
+    let pages = 0;
 
     const existing = await SyncStatusModel.findByClientAndModule(clientId, "returns");
     if (existing?.lastCursor) lastUpdatedAfter = existing.lastCursor;
     else lastUpdatedAfter = defaultLookback();
 
+    log.info({
+      operation: "syncReturns",
+      stage: "before",
+      config: { returnStatuses, lookback: lastUpdatedAfter, pageSize: 100 },
+      note: "Returns are derived from Orders API (Refunded/Returned/Cancelled). No standalone Get Returns endpoint for all accounts.",
+    });
+
     try {
       do {
+        pages += 1;
+        log.debug({
+          operation: "syncReturns",
+          stage: "pagination",
+          config: { page: pages, nextToken: nextToken ? "[present]" : null, lastUpdatedAfter },
+        });
+
         const resp = await amazonSpApi.getOrders({
           lastUpdatedAfter,
           orderStatuses: returnStatuses,
           maxResults: 100,
           nextToken: nextToken || undefined,
+          traceId,
+          clientId,
+          sellerId: config.amazon.marketplaceId,
         });
+
         const orders = Array.isArray(resp.Orders) ? resp.Orders : [];
         nextToken = resp.NextToken || null;
+        log.info({
+          operation: "syncReturns",
+          stage: "pagination.after",
+          config: { page: pages, recordsReceived: orders.length, nextPage: Boolean(nextToken) },
+        });
 
         for (const order of orders) {
           const amazonOrderId = order.AmazonOrderId;
           const existingReturn = await ReturnModel.findByAmazonOrderId(clientId, amazonOrderId);
           if (existingReturn) continue;
 
-          // Fetch line items for this order so the return record has real SKU/qty.
           let quantityReturned = 0;
           let sku = "";
           let asin: string | null = null;
           let productName = "";
           try {
-            const itemsResp = await amazonSpApi.getOrderItems({ amazonOrderId });
+            const itemsResp = await amazonSpApi.getOrderItems({ amazonOrderId, traceId, clientId, sellerId: config.amazon.marketplaceId });
             const items = Array.isArray(itemsResp.OrderItems) ? itemsResp.OrderItems : [];
             quantityReturned = items.reduce((sum: number, it: any) => sum + Number(it.Quantity || 0), 0);
             const first = items[0] ?? {};
@@ -460,7 +756,6 @@ export class AmazonSyncService {
             asin = first.ASIN || null;
             productName = first.Title || "";
           } catch {
-            // Order items may not be available; fall back to order-level fields.
             quantityReturned = Number(order.NumberOfItems || 0);
           }
 
@@ -482,26 +777,58 @@ export class AmazonSyncService {
         }
       } while (nextToken);
 
+      const endMs = Date.now();
       await SyncStatusModel.upsert({ clientId, module: "returns", status: "Synchronized", lastSyncAt: nowISO(), recordsSynced: total });
-      return { module: "returns", status: "Synchronized", recordsSynced: total, lastCursor: null, error: null, errorCode: null };
+      log.info({
+        operation: "syncReturns",
+        stage: "after",
+        durationMs: endMs - startMs,
+        recordsReceived: total,
+        recordsSaved: total,
+        config: { pages },
+      });
+      return this._result("returns", "Synchronized", total, null, null, null, startTime, nowISO(), endMs - startMs);
     } catch (err: any) {
+      const endMs = Date.now();
       const { status, code, message } = classifyError(err);
+      log.error({
+        operation: "syncReturns",
+        stage: "error",
+        durationMs: endMs - startMs,
+        errorCode: code,
+        errorMessage: message,
+        recordsReceived: total,
+      });
       await SyncStatusModel.upsert({ clientId, module: "returns", status, lastSyncAt: nowISO(), recordsSynced: total, error: message, errorCode: code });
-      return { module: "returns", status, recordsSynced: total, lastCursor: null, error: message, errorCode: code };
+      return this._result("returns", status, total, null, message, code, startTime, nowISO(), endMs - startMs);
     }
+  }
+
+  private _result(
+    module: Module,
+    status: SyncStatus,
+    recordsSynced: number,
+    lastCursor: string | null,
+    error: string | null,
+    errorCode: string | null,
+    startTime: string,
+    endTime: string,
+    durationMs: number,
+  ): SyncResult {
+    return { module, status, recordsSynced, lastCursor, error, errorCode, startTime, endTime, durationMs };
   }
 
   // ──────────────────────────────────────────────────────────────────────────
   // Dispatch
   // ──────────────────────────────────────────────────────────────────────────
 
-  async run(module: Module, clientId: string): Promise<SyncResult> {
+  async run(module: Module, clientId: string, traceId?: string): Promise<SyncResult> {
     switch (module) {
-      case "orders": return this.syncOrders(clientId);
-      case "order-items": return this.syncOrderItems(clientId);
-      case "inventory": return this.syncInventory(clientId);
-      case "listings": return this.syncListings(clientId);
-      case "returns": return this.syncReturns(clientId);
+      case "orders": return this.syncOrders(clientId, traceId);
+      case "order-items": return this.syncOrderItems(clientId, traceId);
+      case "inventory": return this.syncInventory(clientId, traceId);
+      case "listings": return this.syncListings(clientId, traceId);
+      case "returns": return this.syncReturns(clientId, traceId);
     }
   }
 }
@@ -509,18 +836,35 @@ export class AmazonSyncService {
 export const amazonSync = new AmazonSyncService();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Queue processor (background)
+// Queue processor (background) — instrumented
 // ─────────────────────────────────────────────────────────────────────────────
+
+interface SyncQueueEntry {
+  module: Module;
+  clientId: string;
+  traceId?: string;
+  resolve: (v: any) => void;
+  reject: (e: any) => void;
+  log: AmazonDebugLogger;
+}
+
+const syncQueue: SyncQueueEntry[] = [];
+let queueProcessing = false;
 
 async function processQueue() {
   if (queueProcessing) return;
   queueProcessing = true;
-  let item: { module: Module; clientId: string; resolve: (v: any) => void; reject: (e: any) => void } | undefined;
+  let item: SyncQueueEntry | undefined;
   while ((item = syncQueue.shift())) {
+    const log = item.log;
+    log.info({ operation: "sync.queue.process", stage: "before", config: { module: item.module, queueRemaining: syncQueue.length } });
     try {
-      const result = await amazonSync.run(item.module, item.clientId);
+      const result = await amazonSync.run(item.module, item.clientId, item.traceId);
+      log.info({ operation: "sync.queue.process", stage: "after", config: { module: item.module, status: result.status, records: result.recordsSynced } });
       item.resolve(result);
     } catch (err) {
+      const e = err as any;
+      log.error({ operation: "sync.queue.process", stage: "error", config: { module: item.module }, errorMessage: e?.message ?? String(e) });
       item.reject(err);
     }
   }

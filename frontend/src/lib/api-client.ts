@@ -35,6 +35,11 @@ async function request<T = any>(path: string, options: RequestInit = {}): Promis
     ...(options.headers as Record<string, string>),
   };
 
+  // Generate a trace ID for correlating frontend requests with backend logs.
+  // Never sent to Amazon — only to our own backend for debugging.
+  const traceId = `fe-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  headers["x-amazon-debug-trace-id"] = traceId;
+
   // Auto-forward viewAsUserId from browser URL search params to API calls
   // This enables the reporting manager's view-as mode to work across all API requests
   let apiPath = path;
@@ -47,12 +52,19 @@ async function request<T = any>(path: string, options: RequestInit = {}): Promis
     }
   }
 
+  const startMs = Date.now();
+  if (import.meta.env.DEV || process.env.AMAZON_DEBUG === "true") {
+    console.debug(`[Amazon-Debug] ${options.method || "GET"} ${path} traceId=${traceId}`);
+  }
+
   const res = await fetch(`${API_URL}${apiPath}`, {
     ...options,
     headers,
     // Send the httpOnly session cookie (JWT is never in localStorage).
     credentials: "include",
   });
+
+  const durationMs = Date.now() - startMs;
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -61,10 +73,17 @@ async function request<T = any>(path: string, options: RequestInit = {}): Promis
     console.error(
       `[API] ${options.method || "GET"} ${path} → ${res.status}:`,
       body.error || res.statusText,
+      `traceId=${traceId} durationMs=${durationMs}`,
     );
     // Log full error body in development for debugging
     if (import.meta.env.DEV) console.debug("[API] Response body:", body);
     throw error;
+  }
+
+  if (import.meta.env.DEV || process.env.AMAZON_DEBUG === "true") {
+    console.debug(
+      `[Amazon-Debug] ${options.method || "GET"} ${path} → ${res.status} traceId=${traceId} durationMs=${durationMs}`,
+    );
   }
 
   if (res.status === 204) return undefined as T;
@@ -692,7 +711,7 @@ const api = {
 
   // Amazon synchronization & health monitoring
   amazonSync: {
-    trigger: (data: { module?: string } = {}) => api.post<any>("/amazon/sync", data),
+    trigger: (data: { module?: string; traceId?: string } = {}) => api.post<any>("/amazon/sync", data),
     status: (clientId?: string) =>
       api.get<any>(`/amazon/sync-status${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`).then(
         camelizeResponse,

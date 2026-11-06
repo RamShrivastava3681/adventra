@@ -1,4 +1,5 @@
 import { config } from "../config.js";
+import { AmazonDebugLogger, generateTraceId } from "../lib/amazon-debug-logger.js";
 
 type Json = Record<string, any>;
 
@@ -6,11 +7,16 @@ interface TokenCache {
   accessToken: string | null;
   expiresAt: number; // epoch ms
   refreshing: Promise<string> | null;
+  refreshCount: number;
+  lastRefreshAt: number | null;
+  lastRefreshError: string | null;
 }
 
 interface RateLimitState {
   lastCall: number;
   minIntervalMs: number;
+  totalCalls: number;
+  totalDelayedMs: number;
 }
 
 // SP-API rate limits (requests per second) per operation group.
@@ -39,87 +45,191 @@ const OPERATION_RATE_LIMITS: Record<string, number> = {
  * - Per-operation rate limiting (token-bucket style, min interval between calls)
  * - Exponential backoff retry on 429 / 503 / transient errors
  * - Idempotency-key support where the operation allows it
+ * - Structured debug logging for every lifecycle stage
  *
  * Secrets (client secret, refresh token) are read from env only and are never
- * returned to the frontend.
+ * returned to the frontend or logged.
  */
 export class AmazonSpApiService {
   private readonly endpoint: string;
   private readonly marketplaceId: string;
   private readonly region: string;
-  private token: TokenCache = { accessToken: null, expiresAt: 0, refreshing: null };
+  private token: TokenCache = {
+    accessToken: null,
+    expiresAt: 0,
+    refreshing: null,
+    refreshCount: 0,
+    lastRefreshAt: null,
+    lastRefreshError: null,
+  };
   private readonly rateLimits = new Map<string, RateLimitState>();
+  private readonly log: AmazonDebugLogger;
 
   constructor() {
+    this.log = new AmazonDebugLogger({ module: "auth" });
     if (!config.amazon.isConfigured) {
-      // Defer the hard error until a call is actually attempted, so the app can
-      // boot without Amazon creds in non-Amazon deployments.
+      this.log.warn({
+        operation: "constructor",
+        stage: "config-check",
+        errorCode: "NotConfigured",
+        errorMessage:
+          "Amazon SP-API is not configured. Set AMAZON_CLIENT_ID, AMAZON_CLIENT_SECRET and AMAZON_REFRESH_TOKEN.",
+      });
     }
     this.endpoint = config.amazon.spapiEndpoint;
     this.marketplaceId = config.amazon.marketplaceId;
     this.region = config.amazon.region;
   }
 
+  // ──────────────────────────────────────────────────────────────────────────
+  // LWA access token (instrumented)
+  // ──────────────────────────────────────────────────────────────────────────
+
   private isConfigured(): boolean {
     return Boolean(config.amazon.isConfigured);
   }
 
-  // ──────────────────────────────────────────────────────────────────────────
-  // LWA access token
-  // ──────────────────────────────────────────────────────────────────────────
-
   private async fetchAccessToken(): Promise<string> {
     const { clientId, clientSecret, refreshToken, lwaEndpoint } = config.amazon;
     if (!clientId || !clientSecret || !refreshToken) {
-      throw new Error(
+      const err = new Error(
         "Amazon SP-API is not configured: AMAZON_CLIENT_ID, AMAZON_CLIENT_SECRET and AMAZON_REFRESH_TOKEN must be set.",
       );
+      this.log.error({
+        operation: "fetchAccessToken",
+        endpoint: lwaEndpoint,
+        stage: "error",
+        errorCode: "NotConfigured",
+        errorMessage: err.message,
+      });
+      throw err;
     }
 
-    const body = new URLSearchParams();
-    body.set("grant_type", "refresh_token");
-    body.set("refresh_token", refreshToken);
-    body.set("client_id", clientId);
-    body.set("client_secret", clientSecret);
-    body.set("scope", "sellingpartnerapi::notifications");
-
-    const res = await fetch(lwaEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body,
+    const start = Date.now();
+    this.log.info({
+      operation: "fetchAccessToken",
+      endpoint: lwaEndpoint,
+      stage: "before",
+      retryAttempt: this.token.refreshCount,
+      tokenValid: Boolean(this.token.accessToken && Date.now() < this.token.expiresAt),
+      config: {
+        hasClientId: Boolean(clientId),
+        hasClientSecret: Boolean(clientSecret),
+        hasRefreshToken: Boolean(refreshToken),
+        lwaEndpoint,
+        grantType: "refresh_token",
+      },
     });
 
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`LWA token request failed (${res.status}): ${text}`);
-    }
+    try {
+      const res = await fetch(lwaEndpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+          client_id: clientId,
+          client_secret: clientSecret,
+          scope: "sellingpartnerapi::notifications",
+        }),
+      });
 
-    const data = (await res.json()) as {
-      access_token?: string;
-      expires_in?: number;
-      refresh_token?: string;
-    };
-    if (!data.access_token) {
-      throw new Error("LWA token response did not include an access_token");
-    }
+      const duration = Date.now() - start;
 
-    const ttl = Number(data.expires_in || 3600) * 1000;
-    // Refresh 60s before actual expiry to avoid racing the boundary.
-    this.token = {
-      accessToken: data.access_token,
-      expiresAt: Date.now() + ttl - 60_000,
-      refreshing: null,
-    };
-    return data.access_token;
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        const err = new Error(`LWA token request failed (${res.status}): ${text.slice(0, 500)}`);
+        this.log.error({
+          operation: "fetchAccessToken",
+          endpoint: lwaEndpoint,
+          stage: "error",
+          durationMs: duration,
+          httpStatus: res.status,
+          errorCode: String(res.status),
+          errorMessage: err.message,
+          retryAttempt: this.token.refreshCount,
+        });
+        throw err;
+      }
+
+      const data = (await res.json()) as {
+        access_token?: string;
+        expires_in?: number;
+        refresh_token?: string;
+      };
+      if (!data.access_token) {
+        const err = new Error("LWA token response did not include an access_token");
+        this.log.error({
+          operation: "fetchAccessToken",
+          endpoint: lwaEndpoint,
+          stage: "error",
+          durationMs: duration,
+          httpStatus: res.status,
+          errorCode: "MissingAccessToken",
+          errorMessage: err.message,
+        });
+        throw err;
+      }
+
+      const ttl = Number(data.expires_in || 3600) * 1000;
+      const now = Date.now();
+      this.token = {
+        accessToken: data.access_token,
+        expiresAt: now + ttl - 60_000, // refresh 60s before actual expiry
+        refreshing: null,
+        refreshCount: this.token.refreshCount + 1,
+        lastRefreshAt: now,
+        lastRefreshError: null,
+      };
+
+      this.log.info({
+        operation: "fetchAccessToken",
+        endpoint: lwaEndpoint,
+        stage: "after",
+        durationMs: duration,
+        httpStatus: res.status,
+        recordsReceived: 1,
+        config: {
+          expiresIn: data.expires_in,
+          refreshCount: this.token.refreshCount,
+          tokenValidForMs: ttl,
+        },
+      });
+
+      return data.access_token;
+    } catch (err: any) {
+      this.token.lastRefreshError = err?.message ?? String(err);
+      throw err;
+    }
   }
 
   async getAccessToken(): Promise<string> {
     const now = Date.now();
-    if (this.token.accessToken && now < this.token.expiresAt) {
-      return this.token.accessToken;
+    const valid = Boolean(this.token.accessToken && now < this.token.expiresAt);
+
+    this.log.debug({
+      operation: "getAccessToken",
+      stage: "before",
+      tokenValid: valid,
+      refreshCount: this.token.refreshCount,
+      lastRefreshError: this.token.lastRefreshError,
+      expiresAt: this.token.expiresAt ? new Date(this.token.expiresAt).toISOString() : null,
+      now: new Date(now).toISOString(),
+    });
+
+    if (valid) {
+      return this.token.accessToken!;
     }
-    // Only one refresh in flight at a time.
+    // Only one refresh in flight at a time — prevents concurrent requests
+    // from triggering unnecessary token refresh operations.
     if (this.token.refreshing) {
+      this.log.info({
+        operation: "getAccessToken",
+        stage: "before",
+        tokenValid: false,
+        refreshingInFlight: true,
+        retryAttempt: this.token.refreshCount,
+      });
       return this.token.refreshing;
     }
     this.token.refreshing = this.fetchAccessToken();
@@ -130,8 +240,32 @@ export class AmazonSpApiService {
     }
   }
 
+  /** Returns sanitized token-state summary for diagnostics (no secrets). */
+  getTokenState(): {
+    configured: boolean;
+    hasAccessToken: boolean;
+    tokenValid: boolean;
+    refreshCount: number;
+    lastRefreshAt: string | null;
+    lastRefreshError: string | null;
+    expiresAt: string | null;
+    refreshing: boolean;
+  } {
+    const now = Date.now();
+    return {
+      configured: this.isConfigured(),
+      hasAccessToken: Boolean(this.token.accessToken),
+      tokenValid: Boolean(this.token.accessToken && now < this.token.expiresAt),
+      refreshCount: this.token.refreshCount,
+      lastRefreshAt: this.token.lastRefreshAt ? new Date(this.token.lastRefreshAt).toISOString() : null,
+      lastRefreshError: this.token.lastRefreshError ?? null,
+      expiresAt: this.token.expiresAt ? new Date(this.token.expiresAt).toISOString() : null,
+      refreshing: Boolean(this.token.refreshing),
+    };
+  }
+
   // ──────────────────────────────────────────────────────────────────────────
-  // Rate limiting
+  // Rate limiting (instrumented)
   // ──────────────────────────────────────────────────────────────────────────
 
   private rateLimitMs(operation: string): number {
@@ -139,21 +273,48 @@ export class AmazonSpApiService {
     return Math.max(100, Math.round(1000 / rps));
   }
 
-  private async enforceRateLimit(operation: string): Promise<void> {
+  private async enforceRateLimit(operation: string, log: AmazonDebugLogger): Promise<void> {
     const minInterval = this.rateLimitMs(operation);
-    const state = this.rateLimits.get(operation) ?? { lastCall: 0, minIntervalMs: minInterval };
+    const state = this.rateLimits.get(operation) ?? {
+      lastCall: 0,
+      minIntervalMs: minInterval,
+      totalCalls: 0,
+      totalDelayedMs: 0,
+    };
     state.minIntervalMs = minInterval;
+    state.totalCalls += 1;
     const now = Date.now();
     const elapsed = now - state.lastCall;
+    let delayedMs = 0;
     if (elapsed < minInterval) {
-      await new Promise((resolve) => setTimeout(resolve, minInterval - elapsed));
+      delayedMs = minInterval - elapsed;
+      state.totalDelayedMs += delayedMs;
+      await new Promise((resolve) => setTimeout(resolve, delayedMs));
     }
     state.lastCall = Date.now();
     this.rateLimits.set(operation, state);
+
+    if (delayedMs > 0) {
+      log.debug({
+        operation,
+        stage: "rate-limit",
+        durationMs: delayedMs,
+        config: { minInterval, totalCalls: state.totalCalls, totalDelayedMs: state.totalDelayedMs },
+      });
+    }
+  }
+
+  /** Returns per-operation rate-limit stats for diagnostics. */
+  getRateLimitStats(): Record<string, { totalCalls: number; totalDelayedMs: number; minIntervalMs: number }> {
+    const out: Record<string, { totalCalls: number; totalDelayedMs: number; minIntervalMs: number }> = {};
+    for (const [op, st] of this.rateLimits.entries()) {
+      out[op] = { totalCalls: st.totalCalls, totalDelayedMs: st.totalDelayedMs, minIntervalMs: st.minIntervalMs };
+    }
+    return out;
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Core SP-API request
+  // Core SP-API request (instrumented)
   // ──────────────────────────────────────────────────────────────────────────
 
   async request<T = any>({
@@ -164,6 +325,10 @@ export class AmazonSpApiService {
     body,
     idempotencyKey,
     maxRetries = 5,
+    traceId,
+    clientId,
+    sellerId,
+    module,
   }: {
     operation: string;
     method?: string;
@@ -172,84 +337,224 @@ export class AmazonSpApiService {
     body?: any;
     idempotencyKey?: string;
     maxRetries?: number;
+    traceId?: string;
+    clientId?: string | null;
+    sellerId?: string | null;
+    module?: string;
   }): Promise<T> {
+    const log = new AmazonDebugLogger({
+      traceId,
+      clientId: clientId ?? this.log.clientId ?? null,
+      sellerId: sellerId ?? this.log.sellerId ?? null,
+    }).child({ module: module ?? operation, clientId, sellerId });
+
     if (!this.isConfigured()) {
+      log.error({
+        operation,
+        endpoint: path,
+        stage: "error",
+        errorCode: "NotConfigured",
+        errorMessage:
+          "Amazon SP-API is not configured. Set AMAZON_CLIENT_ID, AMAZON_CLIENT_SECRET and AMAZON_REFRESH_TOKEN.",
+      });
       throw new Error(
         "Amazon SP-API is not configured. Set AMAZON_CLIENT_ID, AMAZON_CLIENT_SECRET and AMAZON_REFRESH_TOKEN.",
       );
     }
 
-    await this.enforceRateLimit(operation);
+    await this.enforceRateLimit(operation, log);
 
     const accessToken = await this.getAccessToken();
     const url = new URL(`${this.endpoint}${path}`);
+    const sanitizedQuery: Record<string, any> = {};
     if (query) {
       for (const [k, v] of Object.entries(query)) {
         if (v === undefined || v === null || v === "") continue;
-        url.searchParams.set(k, String(v));
+        // Do not log potentially sensitive query values raw; mark presence only.
+        sanitizedQuery[k] = typeof v === "string" && v.length > 0 ? `[present:${v.length}]` : v;
       }
     }
 
+    const start = Date.now();
+    log.info({
+      operation,
+      endpoint: path,
+      method,
+      stage: "before",
+      config: { ...sanitizedQuery, idempotencyKey: idempotencyKey ? "[present]" : undefined },
+      tokenValid: true,
+    });
+
     const headers: Record<string, string> = {
+      Authorization: "Bearer [redacted]",
+      "x-amz-access-token": "[redacted]",
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    };
+    const realHeaders: Record<string, string> = {
       Authorization: `Bearer ${accessToken}`,
       "x-amz-access-token": accessToken,
       "Content-Type": "application/json",
       Accept: "application/json",
     };
-    if (idempotencyKey) headers["x-amz-idempotency-key"] = idempotencyKey;
+    if (idempotencyKey) realHeaders["x-amz-idempotency-key"] = idempotencyKey;
 
     let lastError: any = null;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         const res = await fetch(url.toString(), {
           method,
-          headers,
+          headers: realHeaders,
           body: body ? JSON.stringify(body) : undefined,
         });
 
-        // Honor Amazon's retry-after / rate-limit headers.
+        const duration = Date.now() - start;
         const retryAfter = res.headers.get("retry-after") || res.headers.get("x-amzn-RateLimit-Retry-After");
         const rateLimitLimit = res.headers.get("x-amzn-RateLimit-Limit");
 
         if (res.status === 401) {
+          log.warn({
+            operation,
+            endpoint: path,
+            stage: "retry",
+            durationMs: duration,
+            httpStatus: res.status,
+            errorCode: "AuthError",
+            errorMessage: "401 Unauthorized — forcing token refresh",
+            retryAttempt: attempt,
+          });
           // Token may have expired; force refresh and retry once.
-          this.token = { accessToken: null, expiresAt: 0, refreshing: null };
+          this.token = {
+            ...this.token,
+            accessToken: null,
+            expiresAt: 0,
+            refreshing: null,
+          };
           const freshToken = await this.getAccessToken();
-          headers.Authorization = `Bearer ${freshToken}`;
-          headers["x-amz-access-token"] = freshToken;
+          realHeaders.Authorization = `Bearer ${freshToken}`;
+          realHeaders["x-amz-access-token"] = freshToken;
           continue;
         }
 
         if (res.status === 429 || res.status === 503) {
           const retryAfterSec = retryAfter ? parseInt(retryAfter, 10) : null;
           const backoffMs = retryAfterSec ? retryAfterSec * 1000 : Math.min(1000 * 2 ** attempt, 30_000);
-          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+          log.warn({
+            operation,
+            endpoint: path,
+            stage: "retry",
+            durationMs: duration,
+            httpStatus: res.status,
+            errorCode: res.status === 429 ? "RateLimited" : "ServiceUnavailable",
+            errorMessage: `SP-API throttled (${res.status}), retrying in ${backoffMs}ms`,
+            retryAttempt: attempt,
+            config: {
+              retryAfterHeader: retryAfter,
+              rateLimitLimit,
+              backoffMs,
+            },
+          });
           lastError = new Error(`SP-API throttled (${res.status}), retrying in ${backoffMs}ms`);
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
           continue;
         }
 
         if (res.status >= 500 && attempt < maxRetries) {
           const backoffMs = Math.min(1000 * 2 ** attempt, 30_000);
-          await new Promise((resolve) => setTimeout(resolve, backoffMs));
+          log.warn({
+            operation,
+            endpoint: path,
+            stage: "retry",
+            durationMs: duration,
+            httpStatus: res.status,
+            errorCode: `ServerError${res.status}`,
+            errorMessage: `SP-API server error (${res.status}), retrying in ${backoffMs}ms`,
+            retryAttempt: attempt,
+            config: { backoffMs },
+          });
           lastError = new Error(`SP-API server error (${res.status}), retrying`);
+          await new Promise((resolve) => setTimeout(resolve, backoffMs));
           continue;
         }
 
         if (!res.ok) {
           const text = await res.text().catch(() => "");
-          throw new Error(`SP-API ${method} ${path} failed (${res.status}): ${text.slice(0, 500)}`);
+          const err = new Error(`SP-API ${method} ${path} failed (${res.status}): ${text.slice(0, 500)}`);
+          log.error({
+            operation,
+            endpoint: path,
+            stage: "error",
+            durationMs: duration,
+            httpStatus: res.status,
+            errorCode: String(res.status),
+            errorMessage: err.message,
+            retryAttempt: attempt,
+          });
+          throw err;
         }
 
         const contentType = res.headers.get("content-type") || "";
+        let result: any;
         if (contentType.includes("application/json")) {
-          return (await res.json()) as T;
+          result = await res.json();
+        } else {
+          result = await res.text();
         }
-        return (await res.text()) as unknown as T;
+
+        let recordsReceived = 0;
+        let paginationToken: string | null = null;
+        let nextPage = false;
+        if (result && typeof result === "object" && !Array.isArray(result) && typeof result !== "string") {
+          const orders = result.Orders ?? result.InventorySummaries ?? result.Listings ?? result.OrderItems ?? [];
+          recordsReceived = Array.isArray(orders) ? orders.length : 0;
+          paginationToken = result.NextToken ?? result.nextToken ?? null;
+          nextPage = Boolean(paginationToken);
+        }
+
+        log.info({
+          operation,
+          endpoint: path,
+          stage: "after",
+          durationMs: duration,
+          httpStatus: res.status,
+          recordsReceived,
+          paginationToken,
+          nextPage,
+          config: {
+            rateLimitLimit,
+            retryAfterHeader: retryAfter,
+          },
+        });
+
+        return result as T;
       } catch (err: any) {
         lastError = err;
+        const duration = Date.now() - start;
         // Don't retry non-transient fetch failures (DNS, config) except 401 handled above.
-        if (err.message && err.message.includes("not configured")) throw err;
-        if (attempt >= maxRetries) break;
+        if (err.message && err.message.includes("not configured")) {
+          log.error({
+            operation,
+            endpoint: path,
+            stage: "error",
+            durationMs: duration,
+            errorCode: "NotConfigured",
+            errorMessage: err.message,
+            retryAttempt: attempt,
+          });
+          throw err;
+        }
+        if (attempt >= maxRetries) {
+          log.error({
+            operation,
+            endpoint: path,
+            stage: "error",
+            durationMs: duration,
+            errorCode: err?.code ?? err?.status ?? "Unknown",
+            errorMessage: err?.message ?? String(err),
+            retryAttempt: attempt,
+          });
+          break;
+        }
         const backoffMs = Math.min(1000 * 2 ** attempt, 30_000);
         await new Promise((resolve) => setTimeout(resolve, backoffMs));
       }
@@ -259,7 +564,7 @@ export class AmazonSpApiService {
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Orders API
+  // Orders API (instrumented)
   // ──────────────────────────────────────────────────────────────────────────
 
   async getOrders({
@@ -269,6 +574,9 @@ export class AmazonSpApiService {
     orderStatuses,
     nextToken,
     maxResults = 100,
+    traceId,
+    clientId,
+    sellerId,
   }: {
     createdAfter?: string;
     lastUpdatedAfter?: string;
@@ -276,7 +584,30 @@ export class AmazonSpApiService {
     orderStatuses?: string[];
     nextToken?: string;
     maxResults?: number;
+    traceId?: string;
+    clientId?: string | null;
+    sellerId?: string | null;
   }) {
+    const log = new AmazonDebugLogger({ traceId, clientId, sellerId }).child({
+      module: "orders",
+      clientId,
+      sellerId,
+    });
+
+    log.info({
+      operation: "getOrders",
+      endpoint: "/orders/v0/orders",
+      stage: "before",
+      config: {
+        marketplaceIdsCount: marketplaceIds.length,
+        lastUpdatedAfter,
+        createdAfter,
+        orderStatusesCount: orderStatuses?.length ?? 0,
+        nextToken: nextToken ? "[present]" : null,
+        maxResults,
+      },
+    });
+
     const query: Record<string, any> = {
       MarketplaceIds: marketplaceIds.join(","),
       MaxResults: String(maxResults),
@@ -286,23 +617,74 @@ export class AmazonSpApiService {
     if (orderStatuses?.length) query.OrderStatuses = orderStatuses.join(",");
     if (nextToken) query.NextToken = nextToken;
 
-    return this.request({
+    const result = await this.request({
       operation: "getOrders",
       path: "/orders/v0/orders",
       query,
+      traceId,
+      clientId,
+      sellerId,
+      module: "orders",
     });
+
+    log.info({
+      operation: "getOrders",
+      endpoint: "/orders/v0/orders",
+      stage: "after",
+      config: {
+        nextToken: result.NextToken ? "[present]" : null,
+      },
+    });
+
+    return result;
   }
 
-  async getOrderItems({ amazonOrderId }: { amazonOrderId: string }) {
-    return this.request({
+  async getOrderItems({
+    amazonOrderId,
+    traceId,
+    clientId,
+    sellerId,
+  }: {
+    amazonOrderId: string;
+    traceId?: string;
+    clientId?: string | null;
+    sellerId?: string | null;
+  }) {
+    const log = new AmazonDebugLogger({ traceId, clientId, sellerId }).child({
+      module: "order-items",
+      clientId,
+      sellerId,
+    });
+
+    log.info({
+      operation: "getOrderItems",
+      endpoint: "/orders/v0/orders/{orderId}/orderItems",
+      stage: "before",
+      config: { amazonOrderId },
+    });
+
+    const result = await this.request({
       operation: "getOrderItems",
       path: `/orders/v0/orders/${encodeURIComponent(amazonOrderId)}/orderItems`,
       query: {},
+      traceId,
+      clientId,
+      sellerId,
+      module: "order-items",
     });
+
+    log.info({
+      operation: "getOrderItems",
+      endpoint: "/orders/v0/orders/{orderId}/orderItems",
+      stage: "after",
+      config: { amazonOrderId },
+    });
+
+    return result;
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Listings Items API
+  // Listings Items API (instrumented)
   // ──────────────────────────────────────────────────────────────────────────
 
   async getListingsItems({
@@ -311,13 +693,38 @@ export class AmazonSpApiService {
     asins,
     nextToken,
     maxResults = 100,
+    traceId,
+    clientId,
+    sellerId,
   }: {
     marketplaceIds?: string[];
     sellerSkus?: string[];
     asins?: string[];
     nextToken?: string;
     maxResults?: number;
+    traceId?: string;
+    clientId?: string | null;
+    sellerId?: string | null;
   }) {
+    const log = new AmazonDebugLogger({ traceId, clientId, sellerId }).child({
+      module: "listings",
+      clientId,
+      sellerId,
+    });
+
+    log.info({
+      operation: "getListingsItems",
+      endpoint: "/listings/2021-08-01/listings",
+      stage: "before",
+      config: {
+        marketplaceIdsCount: marketplaceIds.length,
+        sellerSkusCount: sellerSkus?.length ?? 0,
+        asinsCount: asins?.length ?? 0,
+        nextToken: nextToken ? "[present]" : null,
+        maxResults,
+      },
+    });
+
     const query: Record<string, any> = {
       marketplaceIds: marketplaceIds.join(","),
       MaxResults: String(maxResults),
@@ -326,18 +733,43 @@ export class AmazonSpApiService {
     if (asins?.length) query.asins = asins.join(",");
     if (nextToken) query.nextToken = nextToken;
 
-    return this.request({
+    const result = await this.request({
       operation: "getListingsItems",
       path: "/listings/2021-08-01/listings",
       query,
+      traceId,
+      clientId,
+      sellerId,
+      module: "listings",
     });
+
+    log.info({
+      operation: "getListingsItems",
+      endpoint: "/listings/2021-08-01/listings",
+      stage: "after",
+      config: { nextToken: result.NextToken ? "[present]" : null },
+    });
+
+    return result;
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Catalog Items API
+  // Catalog Items API (instrumented)
   // ──────────────────────────────────────────────────────────────────────────
 
-  async getCatalogItem({ asin, marketplaceIds = this.marketplaceId ? [this.marketplaceId] : [] }: { asin: string; marketplaceIds?: string[] }) {
+  async getCatalogItem({
+    asin,
+    marketplaceIds = this.marketplaceId ? [this.marketplaceId] : [],
+    traceId,
+    clientId,
+    sellerId,
+  }: {
+    asin: string;
+    marketplaceIds?: string[];
+    traceId?: string;
+    clientId?: string | null;
+    sellerId?: string | null;
+  }) {
     return this.request({
       operation: "getCatalogItem",
       path: `/catalog/2022-04-01/items/${encodeURIComponent(asin)}`,
@@ -345,11 +777,15 @@ export class AmazonSpApiService {
         MarketplaceIds: marketplaceIds.join(","),
         InclusionOptions: "summaries,attributes,images",
       },
+      traceId,
+      clientId,
+      sellerId,
+      module: "catalog",
     });
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // FBA Inventory API
+  // FBA Inventory API (instrumented)
   // ──────────────────────────────────────────────────────────────────────────
 
   async getInventorySummaries({
@@ -357,12 +793,36 @@ export class AmazonSpApiService {
     nextToken,
     maxResults = 100,
     queryDetails = false,
+    traceId,
+    clientId,
+    sellerId,
   }: {
     marketplaceIds?: string[];
     nextToken?: string;
     maxResults?: number;
     queryDetails?: boolean;
+    traceId?: string;
+    clientId?: string | null;
+    sellerId?: string | null;
   }) {
+    const log = new AmazonDebugLogger({ traceId, clientId, sellerId }).child({
+      module: "inventory",
+      clientId,
+      sellerId,
+    });
+
+    log.info({
+      operation: "getInventorySummaries",
+      endpoint: "/fba/inventory/v1/summaries",
+      stage: "before",
+      config: {
+        marketplaceIdsCount: marketplaceIds.length,
+        nextToken: nextToken ? "[present]" : null,
+        maxResults,
+        queryDetails,
+      },
+    });
+
     const query: Record<string, any> = {
       marketplaceIds: marketplaceIds.join(","),
       MaxResults: String(maxResults),
@@ -370,15 +830,28 @@ export class AmazonSpApiService {
     };
     if (nextToken) query.nextToken = nextToken;
 
-    return this.request({
+    const result = await this.request({
       operation: "getInventorySummaries",
       path: "/fba/inventory/v1/summaries",
       query,
+      traceId,
+      clientId,
+      sellerId,
+      module: "inventory",
     });
+
+    log.info({
+      operation: "getInventorySummaries",
+      endpoint: "/fba/inventory/v1/summaries",
+      stage: "after",
+      config: { nextToken: result.NextToken ? "[present]" : null },
+    });
+
+    return result;
   }
 
   // ──────────────────────────────────────────────────────────────────────────
-  // Reports API
+  // Reports API (instrumented)
   // ──────────────────────────────────────────────────────────────────────────
 
   async createReport({
@@ -386,11 +859,17 @@ export class AmazonSpApiService {
     marketplaceIds = this.marketplaceId ? [this.marketplaceId] : [],
     dataStartTime,
     dataEndTime,
+    traceId,
+    clientId,
+    sellerId,
   }: {
     reportType: string;
     marketplaceIds?: string[];
     dataStartTime?: string;
     dataEndTime?: string;
+    traceId?: string;
+    clientId?: string | null;
+    sellerId?: string | null;
   }) {
     return this.request({
       operation: "createReport",
@@ -402,22 +881,34 @@ export class AmazonSpApiService {
         ...(dataStartTime ? { dataStartTime } : {}),
         ...(dataEndTime ? { dataEndTime } : {}),
       },
+      traceId,
+      clientId,
+      sellerId,
+      module: "reports",
     });
   }
 
-  async getReport({ reportId }: { reportId: string }) {
+  async getReport({ reportId, traceId, clientId, sellerId }: { reportId: string; traceId?: string; clientId?: string | null; sellerId?: string | null }) {
     return this.request({
       operation: "getReport",
       path: `/reports/2021-06-30/reports/${encodeURIComponent(reportId)}`,
       query: {},
+      traceId,
+      clientId,
+      sellerId,
+      module: "reports",
     });
   }
 
-  async getReportDocument({ documentId }: { documentId: string }) {
+  async getReportDocument({ documentId, traceId, clientId, sellerId }: { documentId: string; traceId?: string; clientId?: string | null; sellerId?: string | null }) {
     return this.request({
-      operation: "getReport",
+      operation: "getReportDocument",
       path: `/reports/2021-06-30/documents/${encodeURIComponent(documentId)}`,
       query: {},
+      traceId,
+      clientId,
+      sellerId,
+      module: "reports",
     });
   }
 
@@ -429,3 +920,4 @@ export class AmazonSpApiService {
 }
 
 export const amazonSpApi = new AmazonSpApiService();
+export { generateTraceId, AmazonDebugLogger };

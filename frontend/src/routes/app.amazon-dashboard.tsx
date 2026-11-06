@@ -642,13 +642,33 @@ export function AmazonDashboardPage() {
 
   // ── Sync mutation ──
   const syncMutation = useMutation({
-    mutationFn: (data: { module?: string }) => api.amazonSync.trigger(data),
-    onSuccess: () => {
+    mutationFn: async (data: { module?: string }) => {
+      const traceId = `fe-sync-${Date.now().toString(36)}`;
+      if (import.meta.env.DEV || process.env.AMAZON_DEBUG === "true") {
+        console.debug(`[Amazon-Debug] sync.trigger module=${data.module ?? "all"} traceId=${traceId}`);
+      }
+      const res = await api.amazonSync.trigger({ ...data, traceId });
+      if (import.meta.env.DEV || process.env.AMAZON_DEBUG === "true") {
+        console.debug(`[Amazon-Debug] sync.trigger accepted traceId=${res?.traceId ?? traceId}`);
+      }
+      return res;
+    },
+    onSuccess: (res: any) => {
+      const traceId = res?.traceId;
+      if (import.meta.env.DEV || process.env.AMAZON_DEBUG === "true") {
+        console.debug(`[Amazon-Debug] sync.started traceId=${traceId}`);
+      }
       setSyncing(true);
       pollRef.current = setInterval(async () => {
         await queryClient.refetchQueries({ queryKey: ["amazon-sync-status", clientId] });
         const latest = syncStatusQuery.data ?? [];
         const syncingMod = latest.some((s) => s.status === "Synchronizing");
+        if (import.meta.env.DEV || process.env.AMAZON_DEBUG === "true") {
+          console.debug(
+            `[Amazon-Debug] sync.poll modules=${latest.length} syncing=${syncingMod} traceId=${traceId}`,
+            latest.map((s: any) => ({ module: s.module, status: s.status, records: s.records })),
+          );
+        }
         if (!syncingMod || latest.length === 0) {
           stopPolling();
           queryClient.invalidateQueries({ queryKey: ["amazon-orders", clientId] });
@@ -656,9 +676,12 @@ export function AmazonDashboardPage() {
           queryClient.invalidateQueries({ queryKey: ["amazon-listings", clientId] });
           queryClient.invalidateQueries({ queryKey: ["amazon-returns", clientId] });
           const failed = latest.some(
-            (s) => s.status === "Failed" || s.status === "AuthenticationError" || s.status === "AccessRestricted",
+            (s: any) => s.status === "Failed" || s.status === "AuthenticationError" || s.status === "AccessRestricted",
           );
           const allDone = latest.length > 0 && !syncingMod;
+          if (import.meta.env.DEV || process.env.AMAZON_DEBUG === "true") {
+            console.debug(`[Amazon-Debug] sync.done traceId=${traceId} allDone=${allDone} failed=${failed}`, latest);
+          }
           if (allDone && !failed) {
             toast.success("Amazon synchronization completed");
           } else if (allDone && failed) {
@@ -669,6 +692,9 @@ export function AmazonDashboardPage() {
     },
     onError: (err: any) => {
       stopPolling();
+      if (import.meta.env.DEV || process.env.AMAZON_DEBUG === "true") {
+        console.debug(`[Amazon-Debug] sync.error ${err?.message ?? "unknown error"}`);
+      }
       toast.error(`Sync failed to start: ${err?.message || "unknown error"}`);
     },
   });

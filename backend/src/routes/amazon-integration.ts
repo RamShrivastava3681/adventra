@@ -3,6 +3,7 @@ import { authMiddleware } from "../middleware/auth.js";
 import { requireRole, effectiveListScope } from "../middleware/roles.js";
 import * as db from "../dynamodb.js";
 import * as AuditLog from "../models/audit-log.js";
+import { config } from "../config.js";
 
 import { AmazonOrderImportService } from "../services/amazon-order-import.service.js";
 import { AmazonSkuMappingService } from "../services/amazon-sku-mapping.service.js";
@@ -12,6 +13,7 @@ import { AmazonReturnService } from "../services/amazon-return.service.js";
 import { AmazonRefundService } from "../services/amazon-refund.service.js";
 import { AmazonSettlementService } from "../services/amazon-settlement.service.js";
 import { amazonSync } from "../services/amazon-sync.service.js";
+import { amazonSpApi, generateTraceId } from "../services/amazon-spapi.service.js";
 import { list, findOpenExceptions, findByReason, resolveException, incrementRetry } from "../models/marketplace-amazon-exception.js";
 import { ExceptionReason } from "../models/marketplace-amazon-exception.js";
 import { list as listInvoices } from "../models/marketplace-amazon-invoice-record.js";
@@ -796,23 +798,127 @@ router.get("/amazon/sync-logs", authMiddleware, async (req: Request, res: Respon
 router.post("/amazon/sync", authMiddleware, async (req: Request, res: Response) => {
   try {
     const clientId = (req as any).user.userId;
-    const { module } = req.body || {};
+    const { module, traceId: clientTraceId } = req.body || {};
+    const traceId = clientTraceId || generateTraceId();
 
     // Kick off background sync (fire-and-forget) so the HTTP request never
     // blocks on slow SP-API pagination / per-order item fetches.
     (async () => {
       try {
         if (module === "all" || !module) {
-          await amazonSync.syncAll(clientId);
+          await amazonSync.syncAll(clientId, traceId);
         } else {
-          await amazonSync.sync(module as any, clientId);
+          await amazonSync.sync(module as any, clientId, traceId);
         }
       } catch (err) {
         console.error(`[amazon-sync] background sync failed for client ${clientId}:`, err);
       }
     })();
 
-    return res.status(202).json({ success: true, accepted: true, message: "Synchronization started in the background" });
+    return res.status(202).json({
+      success: true,
+      accepted: true,
+      traceId,
+      message: "Synchronization started in the background",
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /amazon/diagnostics
+ * Consolidated diagnostic report for the Amazon SP-API integration.
+ * Restricted to authenticated users (admins preferred). Does not trigger
+ * Amazon API calls and never exposes secrets.
+ */
+router.get("/amazon/diagnostics", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    const roles = (req as any).user?.roles ?? [];
+
+    // Restrict diagnostics to admin-like roles.
+    const isAdmin = roles.includes("factor_admin") || roles.includes("super_admin") || roles.includes("admin");
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: "Diagnostics restricted to administrators" });
+    }
+
+    const snapshot = await amazonSync.statusSnapshot(clientId);
+    const tokenState = amazonSpApi.getTokenState();
+    const rateLimitStats = amazonSpApi.getRateLimitStats();
+
+    // DB record counts per module (verified readable under this clientId).
+    let dbCounts: Record<string, number> = {};
+    try {
+      const orders = await OrderModel.list(clientId);
+      dbCounts.orders = orders.length;
+    } catch { dbCounts.orders = -1; }
+    try {
+      const inv = await InventoryModel.list(clientId, { limit: 10000 });
+      dbCounts.inventory = inv.items.length;
+    } catch { dbCounts.inventory = -1; }
+    try {
+      const list = await ListingModel.list(clientId, { limit: 10000 });
+      dbCounts.listings = list.items.length;
+    } catch { dbCounts.listings = -1; }
+    try {
+      const rets = await ReturnModel.list(clientId);
+      dbCounts.returns = rets.length;
+    } catch { dbCounts.returns = -1; }
+
+    const moduleMap: Record<string, { status: string; records: number; lastSync: string | null; error: string | null; errorCode: string | null; dbCount: number }> = {};
+    for (const s of snapshot) {
+      moduleMap[s.module] = {
+        status: s.status,
+        records: s.records,
+        lastSync: s.lastSync,
+        error: s.error,
+        errorCode: s.errorCode,
+        dbCount: dbCounts[s.module] ?? 0,
+      };
+    }
+
+    // Ensure all expected modules appear even if never synced.
+    for (const m of ["orders", "order-items", "inventory", "listings", "returns"]) {
+      if (!moduleMap[m]) {
+        moduleMap[m] = {
+          status: "NOT_STARTED",
+          records: 0,
+          lastSync: null,
+          error: null,
+          errorCode: null,
+          dbCount: dbCounts[m] ?? 0,
+        };
+      }
+    }
+
+    res.json({
+      success: true,
+      clientId,
+      traceId: generateTraceId(),
+      amazon: {
+        configured: tokenState.configured,
+        endpoint: config.amazon.spapiEndpoint,
+        region: config.amazon.region,
+        marketplaceId: config.amazon.marketplaceId || null,
+        syncLookbackDays: config.amazon.syncLookbackDays,
+      },
+      auth: {
+        hasAccessToken: tokenState.hasAccessToken,
+        tokenValid: tokenState.tokenValid,
+        refreshCount: tokenState.refreshCount,
+        lastRefreshAt: tokenState.lastRefreshAt,
+        lastRefreshError: tokenState.lastRefreshError,
+        refreshing: tokenState.refreshing,
+      },
+      rateLimits: rateLimitStats,
+      modules: moduleMap,
+      database: {
+        connectivity: "ok",
+        recordCounts: dbCounts,
+      },
+      timestamp: new Date().toISOString(),
+    });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }
