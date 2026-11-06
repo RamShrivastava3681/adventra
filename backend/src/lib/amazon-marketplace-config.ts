@@ -77,6 +77,7 @@ export interface MarketplaceConfigValidation {
   valid: boolean;
   configured: boolean;
   marketplaceId: string | null;
+  sellerId: string | null;
   marketplaceName: string | null;
   countryCode: string | null;
   endpoint: string | null;
@@ -93,6 +94,7 @@ function effectiveAmazonConfig(): {
   endpoint: string;
   region: string;
   marketplaceId: string;
+  sellerId: string;
   countryCode: string | null;
   clientId: string;
   clientSecret: string;
@@ -110,6 +112,7 @@ function effectiveAmazonConfig(): {
       config.amazon.region ||
       "",
     marketplaceId: process.env.AMAZON_MARKETPLACE_ID || config.amazon.marketplaceId || "",
+    sellerId: process.env.AMAZON_SELLER_ID || config.amazon.sellerId || "",
     countryCode: process.env.AMAZON_COUNTRY_CODE || null,
     clientId: process.env.AMAZON_CLIENT_ID || config.amazon.clientId || "",
     clientSecret: process.env.AMAZON_CLIENT_SECRET || config.amazon.clientSecret || "",
@@ -141,6 +144,9 @@ export function validateMarketplaceConfig(): MarketplaceConfigValidation {
   }
   if (!cfg.marketplaceId) {
     errors.push("AMAZON_MARKETPLACE_ID is not set");
+  }
+  if (!cfg.sellerId) {
+    warnings.push("AMAZON_SELLER_ID is not set — seller identification may be missing from requests");
   }
 
   if (marketplace) {
@@ -213,6 +219,7 @@ export function validateMarketplaceConfig(): MarketplaceConfigValidation {
     valid: errors.length === 0 && configured,
     configured,
     marketplaceId: cfg.marketplaceId || null,
+    sellerId: cfg.sellerId || null,
     marketplaceName: marketplace?.marketplaceName ?? null,
     countryCode: marketplace?.countryCode ?? cfg.countryCode ?? null,
     endpoint: cfg.endpoint || null,

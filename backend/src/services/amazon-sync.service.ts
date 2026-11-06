@@ -286,7 +286,7 @@ export class AmazonSyncService {
           nextToken: nextToken || undefined,
           traceId,
           clientId,
-          sellerId: config.amazon.marketplaceId,
+          sellerId: config.amazon.sellerId,
         });
 
         const orders = Array.isArray(resp.Orders) ? resp.Orders : [];
@@ -404,7 +404,7 @@ export class AmazonSyncService {
     for (const order of orders) {
       processedOrders += 1;
       try {
-        const resp = await amazonSpApi.getOrderItems({ amazonOrderId: order.amazonOrderId, traceId, clientId, sellerId: config.amazon.marketplaceId });
+        const resp = await amazonSpApi.getOrderItems({ amazonOrderId: order.amazonOrderId, traceId, clientId, sellerId: config.amazon.sellerId });
         const items = Array.isArray(resp.OrderItems) ? resp.OrderItems : [];
         log.debug({
           operation: "syncOrderItems",
@@ -727,7 +727,7 @@ export class AmazonSyncService {
           nextToken: nextToken || undefined,
           traceId,
           clientId,
-          sellerId: config.amazon.marketplaceId,
+          sellerId: config.amazon.sellerId,
         });
 
         const orders = Array.isArray(resp.Orders) ? resp.Orders : [];
@@ -748,7 +748,7 @@ export class AmazonSyncService {
           let asin: string | null = null;
           let productName = "";
           try {
-            const itemsResp = await amazonSpApi.getOrderItems({ amazonOrderId, traceId, clientId, sellerId: config.amazon.marketplaceId });
+            const itemsResp = await amazonSpApi.getOrderItems({ amazonOrderId, traceId, clientId, sellerId: config.amazon.sellerId });
             const items = Array.isArray(itemsResp.OrderItems) ? itemsResp.OrderItems : [];
             quantityReturned = items.reduce((sum: number, it: any) => sum + Number(it.Quantity || 0), 0);
             const first = items[0] ?? {};

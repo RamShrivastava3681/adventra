@@ -128,6 +128,9 @@ export const config = {
     // Backward-compatible alias for spApiRegion.
     region: process.env.AMAZON_SP_API_REGION || process.env.AMAZON_REGION || "eu-west-1",
     marketplaceId: process.env.AMAZON_MARKETPLACE_ID || "",
+    // Seller ID (merchant ID) — separate from marketplace ID.
+    // Amazon India marketplace ID is A21TJRUUN4KGV; seller ID is different.
+    sellerId: process.env.AMAZON_SELLER_ID || "",
     countryCode: process.env.AMAZON_COUNTRY_CODE || null,
     applicationStatus: process.env.AMAZON_APPLICATION_STATUS || null,
     lwaEndpoint: process.env.AMAZON_LWA_ENDPOINT || "https://api.amazon.com/auth/o2/token",

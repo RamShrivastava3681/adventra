@@ -681,6 +681,25 @@ export class AmazonSpApiService {
       },
     });
 
+    // ORDERS_REQUEST_PARAMS — safe diagnostic log (no credentials or buyer data)
+    const firstMarketplaceId = marketplaceIds && marketplaceIds.length > 0 ? marketplaceIds[0] : null;
+    log.info({
+      operation: "getOrders",
+      endpoint: "/orders/v0/orders",
+      stage: "request-params",
+      config: {
+        marketplaceIdPresent: Boolean(firstMarketplaceId),
+        marketplaceIdLength: firstMarketplaceId ? firstMarketplaceId.length : 0,
+        marketplaceIdValue: firstMarketplaceId ? `[present:${firstMarketplaceId.length}]` : null,
+        marketplaceIdsPresent: Boolean(marketplaceIds && marketplaceIds.length > 0),
+        marketplaceIdsCount: marketplaceIds ? marketplaceIds.length : 0,
+        sellerIdPresent: Boolean(sellerId),
+        sellerIdLength: sellerId ? sellerId.length : 0,
+        lastUpdatedAfter: lastUpdatedAfter ?? null,
+        sdkPropertyName: "MarketplaceIds", // Orders API v0 expects capital M, plural
+      },
+    });
+
     const query: Record<string, any> = {
       MarketplaceIds: marketplaceIds.join(","),
       MaxResults: String(maxResults),
