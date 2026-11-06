@@ -278,7 +278,7 @@ export class AmazonSpApiService {
     maxResults?: number;
   }) {
     const query: Record<string, any> = {
-      marketplaceIds: marketplaceIds.join(","),
+      MarketplaceIds: marketplaceIds.join(","),
       MaxResults: String(maxResults),
     };
     if (createdAfter) query.CreatedAfter = createdAfter;

@@ -765,78 +765,80 @@ export function AmazonDashboardPage() {
           </div>
 
           {/* Filters */}
-          <div className="flex flex-wrap items-center gap-4 border-t border-slate-100 dark:border-slate-800 pt-4">
-            <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-              <Calendar className="w-3.5 h-3.5" />
-              <Select value={dateRangeLabel} onValueChange={(v) => setDateRangeLabel(v as any)}>
-                <SelectTrigger className="text-[12px] h-8 min-w-[120px] w-48">
-                  <SelectValue placeholder="Date range" />
-                </SelectTrigger>
-                <SelectContent>
-                  {RANGE_PRESETS.map((p) => (
-                    <SelectItem key={p.label} value={p.label as any}>
-                      {p.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {dateRangeLabel === "Custom range" && (
-                <>
-                  <Input
-                    type="date"
-                    value={customFrom}
-                    onChange={(e) => setCustomFrom(e.target.value)}
-                    className="text-[12px] h-8 w-32"
-                  />
-                  <Input
-                    type="date"
-                    value={customTo}
-                    onChange={(e) => setCustomTo(e.target.value)}
-                    className="text-[12px] h-8 w-32"
-                  />
-                </>
-              )}
-            </div>
-            <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-              <MapPin className="w-3.5 h-3.5" />
-              <Select value={marketplace} onValueChange={setMarketplace}>
-                <SelectTrigger className="text-[12px] h-8 min-w-[110px] w-40">
-                  <SelectValue placeholder="Marketplace" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Marketplaces</SelectItem>
-                  <SelectItem value="amazon.in">Amazon.in (A21TJRUUN4KGV)</SelectItem>
-                  <SelectItem value="amazon.com">Amazon.com</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-              <Building2 className="w-3.5 h-3.5" />
-              <Select value={store} onValueChange={setStore}>
-                <SelectTrigger className="text-[12px] h-8 min-w-[110px] w-40">
-                  <SelectValue placeholder="Store / Account" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Accounts</SelectItem>
-                  <SelectItem value="adventra">Adventra Sports (Amazon.in)</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500 ml-auto">
-              <Clock className="w-3 h-3 mr-1" />
-              <span id="last-sync-timestamp">
-                Last sync:{" "}
-                {syncStatuses.length
-                  ? new Date(
-                      Math.max(
-                        0,
-                        ...syncStatuses.map((s) =>
-                          s.lastSync ? new Date(s.lastSync).getTime() : 0,
+          <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <Calendar className="w-3.5 h-3.5" />
+                <Select value={dateRangeLabel} onValueChange={(v) => setDateRangeLabel(v as any)}>
+                  <SelectTrigger className="text-[12px] h-8 w-full min-w-[140px]">
+                    <SelectValue placeholder="Date range" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {RANGE_PRESETS.map((p) => (
+                      <SelectItem key={p.label} value={p.label as any}>
+                        {p.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {dateRangeLabel === "Custom range" && (
+                  <div className="flex gap-1 mt-1">
+                    <Input
+                      type="date"
+                      value={customFrom}
+                      onChange={(e) => setCustomFrom(e.target.value)}
+                      className="text-[12px] h-8 flex-1"
+                    />
+                    <Input
+                      type="date"
+                      value={customTo}
+                      onChange={(e) => setCustomTo(e.target.value)}
+                      className="text-[12px] h-8 flex-1"
+                    />
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <MapPin className="w-3.5 h-3.5" />
+                <Select value={marketplace} onValueChange={setMarketplace}>
+                  <SelectTrigger className="text-[12px] h-8 w-full min-w-[140px]">
+                    <SelectValue placeholder="Marketplace" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Marketplaces</SelectItem>
+                    <SelectItem value="amazon.in">Amazon.in (A21TJRUUN4KGV)</SelectItem>
+                    <SelectItem value="amazon.com">Amazon.com</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
+                <Building2 className="w-3.5 h-3.5" />
+                <Select value={store} onValueChange={setStore}>
+                  <SelectTrigger className="text-[12px] h-8 w-full min-w-[140px]">
+                    <SelectValue placeholder="Store / Account" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Accounts</SelectItem>
+                    <SelectItem value="adventra">Adventra Sports (Amazon.in)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500 justify-end">
+                <Clock className="w-3 h-3 mr-1" />
+                <span id="last-sync-timestamp">
+                  Last sync:{" "}
+                  {syncStatuses.length
+                    ? new Date(
+                        Math.max(
+                          0,
+                          ...syncStatuses.map((s) =>
+                            s.lastSync ? new Date(s.lastSync).getTime() : 0,
+                          ),
                         ),
-                      ),
-                    ).toISOString()
-                  : "Never"}
-              </span>
+                      ).toISOString()
+                    : "Never"}
+                </span>
+              </div>
             </div>
           </div>
         </div>

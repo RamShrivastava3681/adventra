@@ -416,62 +416,74 @@ export class AmazonSyncService {
   private async syncReturns(clientId: string): Promise<SyncResult> {
     await SyncStatusModel.markSyncing({ clientId, module: "returns" });
 
-    // Amazon SP-API does not expose a general returns API for all seller accounts.
-    // Where accessible, returns are surfaced via the Orders API (order status
-    // Refunded/Returned) and the Reports API. We sync refund-related records
-    // already stored locally and mark the module status based on SP-API access.
-    //
-    // To keep this safe and real: attempt to probe SP-API orders for refunded
-    // orders; if SP-API is unreachable/restricted, report the actual limitation
-    // instead of fabricating returns data.
+    // Amazon SP-API does not expose a standalone "Get Returns" endpoint for all
+    // seller accounts. Returns are surfaced through the Orders API: orders with
+    // status Refunded / Returned / Cancelled represent customer returns. We fetch
+    // those orders live from Amazon, then pull each order's items via the Order
+    // Items API to build real return records — never from local/mock data.
+    const returnStatuses = ["Refunded", "Returned", "Cancelled"];
     let total = 0;
+    let nextToken: string | null = null;
+    let lastUpdatedAfter = null;
+
+    const existing = await SyncStatusModel.findByClientAndModule(clientId, "returns");
+    if (existing?.lastCursor) lastUpdatedAfter = existing.lastCursor;
+    else lastUpdatedAfter = defaultLookback();
+
     try {
-      const orders = await OrderModel.list(clientId);
-      const refunded = orders.filter((o) => o.amazonOrderStatus === "Refunded" || o.amazonOrderStatus === "Returned");
-      for (const order of refunded) {
-        const existing = await ReturnModel.findByAmazonOrderId(clientId, order.amazonOrderId);
-        if (!existing) {
+      do {
+        const resp = await amazonSpApi.getOrders({
+          lastUpdatedAfter,
+          orderStatuses: returnStatuses,
+          maxResults: 100,
+          nextToken: nextToken || undefined,
+        });
+        const orders = Array.isArray(resp.Orders) ? resp.Orders : [];
+        nextToken = resp.NextToken || null;
+
+        for (const order of orders) {
+          const amazonOrderId = order.AmazonOrderId;
+          const existingReturn = await ReturnModel.findByAmazonOrderId(clientId, amazonOrderId);
+          if (existingReturn) continue;
+
+          // Fetch line items for this order so the return record has real SKU/qty.
+          let quantityReturned = 0;
+          let sku = "";
+          let asin: string | null = null;
+          let productName = "";
+          try {
+            const itemsResp = await amazonSpApi.getOrderItems({ amazonOrderId });
+            const items = Array.isArray(itemsResp.OrderItems) ? itemsResp.OrderItems : [];
+            quantityReturned = items.reduce((sum: number, it: any) => sum + Number(it.Quantity || 0), 0);
+            const first = items[0] ?? {};
+            sku = first.SellerSKU || "";
+            asin = first.ASIN || null;
+            productName = first.Title || "";
+          } catch {
+            // Order items may not be available; fall back to order-level fields.
+            quantityReturned = Number(order.NumberOfItems || 0);
+          }
+
           await ReturnModel.create({
             clientId,
-            amazonOrderId: order.amazonOrderId,
-            whizunikSalesOrderId: order.salesOrderId ?? "",
+            amazonOrderId,
+            whizunikSalesOrderId: "",
             amazonReturnId: null,
             returnStatus: "ReturnInitiated",
-            quantityReturned: order.quantity || 0,
+            quantityReturned,
             quantityAccepted: 0,
             quantityDamaged: 0,
             quantityMissing: 0,
             returnReason: null,
             conditionDescription: null,
-            refundStatus: "Pending",
+            refundStatus: order.OrderStatus?.toLowerCase() === "refunded" ? "Processed" : "Pending",
           } as any);
           total += 1;
         }
-      }
+      } while (nextToken);
 
-      // Check whether SP-API returns/reports access is available by probing the
-      // reports endpoint; on auth/access failure, surface the real limitation.
-      let spapiAccessible = true;
-      try {
-        await amazonSpApi.getOrders({ lastUpdatedAfter: defaultLookback(), maxResults: 1 });
-      } catch (err: any) {
-        const { status } = classifyError(err);
-        if (status === "AuthenticationError" || status === "AccessRestricted" || status === "NotConfigured") {
-          spapiAccessible = false;
-        }
-      }
-
-      const status = spapiAccessible ? "Synchronized" : "AccessRestricted";
-      await SyncStatusModel.upsert({
-        clientId,
-        module: "returns",
-        status,
-        lastSyncAt: nowISO(),
-        recordsSynced: total,
-        error: spapiAccessible ? null : "Amazon Returns/Reports API access is restricted for this account. Returns are derived from synced orders only.",
-        errorCode: spapiAccessible ? null : "AccessRestricted",
-      });
-      return { module: "returns", status, recordsSynced: total, lastCursor: null, error: spapiAccessible ? null : "Amazon Returns API access restricted", errorCode: spapiAccessible ? null : "AccessRestricted" };
+      await SyncStatusModel.upsert({ clientId, module: "returns", status: "Synchronized", lastSyncAt: nowISO(), recordsSynced: total });
+      return { module: "returns", status: "Synchronized", recordsSynced: total, lastCursor: null, error: null, errorCode: null };
     } catch (err: any) {
       const { status, code, message } = classifyError(err);
       await SyncStatusModel.upsert({ clientId, module: "returns", status, lastSyncAt: nowISO(), recordsSynced: total, error: message, errorCode: code });
