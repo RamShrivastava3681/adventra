@@ -439,6 +439,8 @@ export class AmazonSpApiService {
     if (query) {
       for (const [k, v] of Object.entries(query)) {
         if (v === undefined || v === null || v === "") continue;
+        // Attach actual query parameters to the URL so Amazon receives them.
+        url.searchParams.set(k, String(v));
         // Do not log potentially sensitive query values raw; mark presence only.
         sanitizedQuery[k] = typeof v === "string" && v.length > 0 ? `[present:${v.length}]` : v;
       }
@@ -452,6 +454,18 @@ export class AmazonSpApiService {
       stage: "before",
       config: { ...sanitizedQuery, idempotencyKey: idempotencyKey ? "[present]" : undefined },
       tokenValid: true,
+    });
+
+    // Final request URL logging — safe, no credentials or buyer data.
+    log.info({
+      operation,
+      endpoint: path,
+      stage: "final-request-url",
+      config: {
+        queryKeys: query ? Object.keys(query) : [],
+        queryString: url.searchParams.toString(),
+        url: url.origin + url.pathname,
+      },
     });
 
     const headers: Record<string, string> = {
