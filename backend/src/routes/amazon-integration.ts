@@ -14,6 +14,8 @@ import { AmazonRefundService } from "../services/amazon-refund.service.js";
 import { AmazonSettlementService } from "../services/amazon-settlement.service.js";
 import { amazonSync } from "../services/amazon-sync.service.js";
 import { amazonSpApi, generateTraceId } from "../services/amazon-spapi.service.js";
+import { validateMarketplaceConfig } from "../lib/amazon-marketplace-config.js";
+import { classifyError, classificationToSyncStatus } from "../lib/amazon-error-classification.js";
 import { list, findOpenExceptions, findByReason, resolveException, incrementRetry } from "../models/marketplace-amazon-exception.js";
 import { ExceptionReason } from "../models/marketplace-amazon-exception.js";
 import { list as listInvoices } from "../models/marketplace-amazon-invoice-record.js";
@@ -916,6 +918,181 @@ router.get("/amazon/diagnostics", authMiddleware, async (req: Request, res: Resp
       database: {
         connectivity: "ok",
         recordCounts: dbCounts,
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+/**
+ * GET /amazon/sp-api/diagnostics
+ * Admin-only consolidated SP-API diagnostic report.
+ * Does not trigger Amazon API calls and never exposes secrets.
+ * Reports marketplace configuration, application status, LWA token state,
+ * per-module health with error classifications, and database persistence.
+ */
+router.get("/amazon/sp-api/diagnostics", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    const roles = (req as any).user?.roles ?? [];
+
+    const isAdmin = roles.includes("factor_admin") || roles.includes("super_admin") || roles.includes("admin");
+    if (!isAdmin) {
+      return res.status(403).json({ success: false, error: "Diagnostics restricted to administrators" });
+    }
+
+    const mv = validateMarketplaceConfig();
+    const tokenState = amazonSpApi.getTokenState();
+    const rateLimitStats = amazonSpApi.getRateLimitStats();
+    const snapshot = await amazonSync.statusSnapshot(clientId);
+
+    // DB record counts per module (verified readable under this clientId).
+    let dbCounts: Record<string, number> = {};
+    try {
+      const orders = await OrderModel.list(clientId);
+      dbCounts.orders = orders.length;
+    } catch { dbCounts.orders = -1; }
+    try {
+      const inv = await InventoryModel.list(clientId, { limit: 10000 });
+      dbCounts.inventory = inv.items.length;
+    } catch { dbCounts.inventory = -1; }
+    try {
+      const list = await ListingModel.list(clientId, { limit: 10000 });
+      dbCounts.listings = list.items.length;
+    } catch { dbCounts.listings = -1; }
+    try {
+      const rets = await ReturnModel.list(clientId);
+      dbCounts.returns = rets.length;
+    } catch { dbCounts.returns = -1; }
+
+    const moduleMap: Record<string, {
+      status: string;
+      records: number;
+      lastSync: string | null;
+      error: string | null;
+      errorCode: string | null;
+      classification: string | null;
+      retryable: boolean | null;
+      dbCount: number;
+    }> = {};
+    const errors: Array<{
+      operation: string;
+      classification: string;
+      httpStatus: number | null;
+      amazonErrorCode: string | null;
+      amazonRequestId: string | null;
+      message: string;
+    }> = [];
+
+    for (const s of snapshot) {
+      let classification: string | null = null;
+      let retryable: boolean | null = null;
+      if (s.errorCode) {
+        // Map stored errorCode back to a classification for display.
+        const mapped = classifyError(
+          new Error(s.error || "Unknown error"),
+          undefined,
+          s.error ?? undefined,
+        );
+        classification = mapped.classification;
+        retryable = mapped.retryable;
+        if (mapped.classification !== "UNKNOWN" && mapped.classification !== "ACCESS_GRANTED_NO_DATA") {
+          errors.push({
+            operation: s.module,
+            classification: mapped.classification,
+            httpStatus: mapped.httpStatus ?? null,
+            amazonErrorCode: mapped.amazonErrorCode ?? null,
+            amazonRequestId: mapped.amazonRequestId ?? null,
+            message: mapped.message,
+          });
+        }
+      }
+      moduleMap[s.module] = {
+        status: s.status,
+        records: s.records,
+        lastSync: s.lastSync,
+        error: s.error,
+        errorCode: s.errorCode,
+        classification,
+        retryable,
+        dbCount: dbCounts[s.module] ?? 0,
+      };
+    }
+
+    // Ensure all expected modules appear even if never synced.
+    for (const m of ["orders", "order-items", "inventory", "listings", "returns"]) {
+      if (!moduleMap[m]) {
+        moduleMap[m] = {
+          status: "NOT_STARTED",
+          records: 0,
+          lastSync: null,
+          error: null,
+          errorCode: null,
+          classification: null,
+          retryable: null,
+          dbCount: dbCounts[m] ?? 0,
+        };
+      }
+    }
+
+    const allModules = Object.values(moduleMap);
+    const hasFailed = allModules.some(
+      (m) => m.status === "Failed" || m.status === "AuthenticationError" || m.status === "AccessRestricted" || m.status === "RateLimited",
+    );
+    const allCompleted = allModules.every((m) => m.status === "Synchronized");
+
+    const applicationStatus =
+      config.amazon.applicationStatus ??
+      (mv.warnings.some((w) => w.includes("Draft status")) ? "DRAFT" : null);
+
+    res.json({
+      success: true,
+      clientId,
+      traceId: generateTraceId(),
+      marketplace: {
+        name: mv.marketplaceName ?? null,
+        marketplaceId: mv.marketplaceId,
+        countryCode: mv.countryCode,
+        endpoint: mv.endpoint,
+        awsRegion: mv.signingRegion,
+        signingService: mv.signingService,
+        applicationStatus,
+        configurationValid: mv.valid,
+        configurationErrors: mv.errors,
+        configurationWarnings: mv.warnings,
+      },
+      auth: {
+        lwaConfigured: tokenState.configured,
+        hasAccessToken: tokenState.hasAccessToken,
+        tokenValid: tokenState.tokenValid,
+        refreshCount: tokenState.refreshCount,
+        lastRefreshAt: tokenState.lastRefreshAt,
+        lastRefreshError: tokenState.lastRefreshError,
+        refreshing: tokenState.refreshing,
+        sellerAuthorizationPresent: tokenState.tokenValid ? true : null,
+      },
+      checks: {
+        configuration: mv.valid ? "pass" : "fail",
+        tokenExchange: tokenState.configured && tokenState.hasAccessToken ? "pass" : "fail",
+        orders: moduleMap.orders?.status === "Synchronized" ? "pass" : moduleMap.orders?.status === "Failed" || moduleMap.orders?.status === "AuthenticationError" || moduleMap.orders?.status === "AccessRestricted" ? "fail" : moduleMap.orders?.status === "Synchronized" ? "pass" : "unknown",
+        orderItems: moduleMap["order-items"]?.status === "Synchronized" ? "pass" : moduleMap["order-items"]?.status === "Failed" ? "fail" : "unknown",
+        inventory: moduleMap.inventory?.status === "Synchronized" ? "pass" : moduleMap.inventory?.status === "Failed" ? "fail" : "unknown",
+        listings: moduleMap.listings?.status === "Synchronized" ? "pass" : moduleMap.listings?.status === "Failed" ? "fail" : "unknown",
+        returns: moduleMap.returns?.status === "Synchronized" ? "pass" : moduleMap.returns?.status === "Failed" ? "fail" : "unknown",
+        database: dbCounts.orders >= 0 && dbCounts.inventory >= 0 ? "pass" : "fail",
+      },
+      modules: moduleMap,
+      errors,
+      database: {
+        connectivity: "ok",
+        recordCounts: dbCounts,
+      },
+      summary: {
+        allModulesCompleted: allCompleted,
+        hasFailedModule: hasFailed,
+        totalRecordsSynced: allModules.reduce((sum, m) => sum + m.records, 0),
       },
       timestamp: new Date().toISOString(),
     });

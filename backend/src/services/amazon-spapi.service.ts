@@ -1,5 +1,7 @@
 import { config } from "../config.js";
 import { AmazonDebugLogger, generateTraceId } from "../lib/amazon-debug-logger.js";
+import { validateMarketplaceConfig, getSigningConfig } from "../lib/amazon-marketplace-config.js";
+import { classifyError } from "../lib/amazon-error-classification.js";
 
 type Json = Record<string, any>;
 
@@ -33,6 +35,16 @@ const OPERATION_RATE_LIMITS: Record<string, number> = {
   createReport: 1,
   default: 1,
 };
+
+// Cached marketplace config validation (validated once per process).
+let _marketplaceValidation: Awaited<ReturnType<typeof validateMarketplaceConfig>> | null = null;
+
+function getMarketplaceValidation() {
+  if (!_marketplaceValidation) {
+    _marketplaceValidation = validateMarketplaceConfig();
+  }
+  return _marketplaceValidation;
+}
 
 /**
  * Amazon Selling Partner API (SP-API) client.
@@ -388,6 +400,37 @@ export class AmazonSpApiService {
       );
     }
 
+    // Validate marketplace-region configuration (fail fast with clear error).
+    const mv = getMarketplaceValidation();
+    if (!mv.valid) {
+      log.error({
+        operation,
+        endpoint: path,
+        stage: "error",
+        errorCode: "ConfigurationInvalid",
+        errorMessage: mv.errors.join("; "),
+        config: { errors: mv.errors, warnings: mv.warnings },
+      });
+      throw new Error(`Amazon SP-API configuration invalid: ${mv.errors.join("; ")}`);
+    }
+
+    // Log signing configuration for every request (no secrets).
+    const signing = getSigningConfig();
+    if (signing) {
+      log.debug({
+        operation,
+        endpoint: path,
+        stage: "signing",
+        config: {
+          service: signing.service,
+          signingRegion: signing.region,
+          host: signing.host,
+          method,
+          path,
+        },
+      });
+    }
+
     await this.enforceRateLimit(operation, log);
 
     const accessToken = await this.getAccessToken();
@@ -506,14 +549,18 @@ export class AmazonSpApiService {
         if (!res.ok) {
           const text = await res.text().catch(() => "");
           const err = new Error(`SP-API ${method} ${path} failed (${res.status}): ${text.slice(0, 500)}`);
+          const classified = classifyError(err, res.headers, text.slice(0, 200));
           log.error({
             operation,
             endpoint: path,
             stage: "error",
             durationMs: duration,
             httpStatus: res.status,
-            errorCode: String(res.status),
-            errorMessage: err.message,
+            errorCode: classified.classification,
+            errorMessage: classified.message,
+            amazonErrorCode: classified.amazonErrorCode,
+            amazonRequestId: classified.amazonRequestId,
+            retryable: classified.retryable,
             retryAttempt: attempt,
           });
           throw err;

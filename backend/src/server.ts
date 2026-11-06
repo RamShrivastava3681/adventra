@@ -10,6 +10,7 @@ import { v4 as uuid } from "uuid";
 import { startReminderScheduler } from "./invoice-reminder.js";
 import { startWorkflowReminderScheduler } from "./workflow-reminders.js";
 import { startScheduledSync } from "./services/amazon-sync.service.js";
+import { validateMarketplaceConfig } from "./lib/amazon-marketplace-config.js";
 import { snakeCaseToCamelCase, camelCaseToSnakeCase } from "./middleware/transform.js";
 import {
   requestLogger,
@@ -216,6 +217,24 @@ async function seedAdmin() {
 app.listen(config.port, async () => {
   console.log(`🚀 Adventra Platform API running on port ${config.port}`);
   console.log(`   Environment: ${config.nodeEnv}`);
+
+  // Validate Amazon marketplace-region configuration before starting schedulers.
+  try {
+    const mv = validateMarketplaceConfig();
+    if (!mv.valid) {
+      console.error("  ❌ Amazon SP-API marketplace configuration invalid:", mv.errors.join("; "));
+    } else {
+      console.log(
+        `  ✅ Amazon SP-API marketplace configured: ${mv.marketplaceName ?? mv.marketplaceId} (${mv.countryCode}) → ${mv.endpoint} / signing region ${mv.signingRegion}`,
+      );
+    }
+    for (const w of mv.warnings) {
+      console.log(`  ⚠ ${w}`);
+    }
+  } catch (err) {
+    console.error("  ❌ Amazon SP-API marketplace configuration error:", err);
+  }
+
   await seedAdmin();
   
   // Start the invoice due-date reminder scheduler (checks every hour)
