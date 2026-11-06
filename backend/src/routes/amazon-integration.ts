@@ -789,19 +789,30 @@ router.get("/amazon/sync-logs", authMiddleware, async (req: Request, res: Respon
 
 /**
  * POST /amazon/sync
- * Trigger a manual SP-API synchronization. Body: { module?: "orders"|"order-items"|"inventory"|"listings"|"returns"|"all" }
+ * Trigger a manual SP-API synchronization. Returns 202 immediately; sync runs
+ * in the background. Poll GET /amazon/sync-status for progress.
+ * Body: { module?: "orders"|"order-items"|"inventory"|"listings"|"returns"|"all" }
  */
 router.post("/amazon/sync", authMiddleware, async (req: Request, res: Response) => {
   try {
     const clientId = (req as any).user.userId;
     const { module } = req.body || {};
-    let result: any;
-    if (module === "all" || !module) {
-      result = await amazonSync.syncAll(clientId);
-    } else {
-      result = await amazonSync.sync(module as any, clientId);
-    }
-    res.json({ success: true, result });
+
+    // Kick off background sync (fire-and-forget) so the HTTP request never
+    // blocks on slow SP-API pagination / per-order item fetches.
+    (async () => {
+      try {
+        if (module === "all" || !module) {
+          await amazonSync.syncAll(clientId);
+        } else {
+          await amazonSync.sync(module as any, clientId);
+        }
+      } catch (err) {
+        console.error(`[amazon-sync] background sync failed for client ${clientId}:`, err);
+      }
+    })();
+
+    return res.status(202).json({ success: true, accepted: true, message: "Synchronization started in the background" });
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });
   }

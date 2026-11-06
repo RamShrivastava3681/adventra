@@ -458,6 +458,17 @@ export function AmazonDashboardPage() {
   const inventoryAgg = inventoryAggQuery.data ?? {};
   const listingsAgg = listingsAggQuery.data ?? {};
 
+  const [syncing, setSyncing] = useState(false);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+    setSyncing(false);
+  }, []);
+
   const relatedReturnsForOrder = (amazonOrderId: string) =>
     returns.filter((r) => r.amazonOrderId === amazonOrderId);
 
@@ -633,17 +644,40 @@ export function AmazonDashboardPage() {
   const syncMutation = useMutation({
     mutationFn: (data: { module?: string }) => api.amazonSync.trigger(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["amazon-sync-status", clientId] });
-      queryClient.invalidateQueries({ queryKey: ["amazon-orders", clientId] });
-      queryClient.invalidateQueries({ queryKey: ["amazon-inventory", clientId] });
-      queryClient.invalidateQueries({ queryKey: ["amazon-listings", clientId] });
-      queryClient.invalidateQueries({ queryKey: ["amazon-returns", clientId] });
-      toast.success("Amazon synchronization completed");
+      setSyncing(true);
+      pollRef.current = setInterval(async () => {
+        await queryClient.refetchQueries({ queryKey: ["amazon-sync-status", clientId] });
+        const latest = syncStatusQuery.data ?? [];
+        const syncingMod = latest.some((s) => s.status === "Synchronizing");
+        if (!syncingMod || latest.length === 0) {
+          stopPolling();
+          queryClient.invalidateQueries({ queryKey: ["amazon-orders", clientId] });
+          queryClient.invalidateQueries({ queryKey: ["amazon-inventory", clientId] });
+          queryClient.invalidateQueries({ queryKey: ["amazon-listings", clientId] });
+          queryClient.invalidateQueries({ queryKey: ["amazon-returns", clientId] });
+          const failed = latest.some(
+            (s) => s.status === "Failed" || s.status === "AuthenticationError" || s.status === "AccessRestricted",
+          );
+          const allDone = latest.length > 0 && !syncingMod;
+          if (allDone && !failed) {
+            toast.success("Amazon synchronization completed");
+          } else if (allDone && failed) {
+            toast.error("Sync completed with errors — see API Health for details");
+          }
+        }
+      }, 2000);
     },
     onError: (err: any) => {
-      toast.error(`Sync failed: ${err?.message || "unknown error"}`);
+      stopPolling();
+      toast.error(`Sync failed to start: ${err?.message || "unknown error"}`);
     },
   });
+
+  useEffect(() => {
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [pollRef]);
 
   // ── Orders detail drawer ──
   const [openOrder, setOpenOrder] = useState<AmazonOrder | null>(null);
@@ -721,11 +755,11 @@ export function AmazonDashboardPage() {
               <Button
                 size="sm"
                 onClick={() => syncMutation.mutate({ module: "all" })}
-                disabled={syncMutation.isPending}
+                disabled={syncing}
                 className="text-[12px] px-3"
               >
-                <SyncIcon className="w-3 h-3 mr-2 animate-{syncMutation.isPending ? 'spin' : ''}" />
-                {syncMutation.isPending ? "Syncing…" : "Refresh Data"}
+                <SyncIcon className="w-3 h-3 mr-2 animate-{syncing ? 'spin' : ''}" />
+                {syncing ? "Syncing…" : "Refresh Data"}
               </Button>
             </div>
           </div>
