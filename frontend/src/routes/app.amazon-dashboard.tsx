@@ -881,48 +881,48 @@ export function AmazonDashboardPage() {
           </div>
         ) : (
           <Tabs defaultValue="overview" className="border-none">
-            <TabsList className="grid w-full grid-cols-2 gap-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 mb-6">
+            <TabsList className="flex w-full flex-wrap gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 mb-6">
               <TabsTrigger
                 value="overview"
-                className="flex flex-col items-center gap-1 px-2 py-3 text-sm font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50"
+                className="flex flex-col items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50 min-w-[60px]"
               >
-                <BarChart2 className="w-5 h-5 mb-1" /> Overview
+                <BarChart2 className="w-4 h-4 mb-1" /> Overview
               </TabsTrigger>
               <TabsTrigger
                 value="orders"
-                className="flex flex-col items-center gap-1 px-2 py-3 text-sm font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50"
+                className="flex flex-col items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50 min-w-[60px]"
               >
-                <ShoppingBag className="w-5 h-5 mb-1" /> Orders
+                <ShoppingBag className="w-4 h-4 mb-1" /> Orders
               </TabsTrigger>
               <TabsTrigger
                 value="inventory"
-                className="flex flex-col items-center gap-1 px-2 py-3 text-sm font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50"
+                className="flex flex-col items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50 min-w-[60px]"
               >
-                <Warehouse className="w-5 h-5 mb-1" /> Inventory
+                <Warehouse className="w-4 h-4 mb-1" /> Inventory
               </TabsTrigger>
               <TabsTrigger
                 value="listings"
-                className="flex flex-col items-center gap-1 px-2 py-3 text-sm font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50"
+                className="flex flex-col items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50 min-w-[60px]"
               >
-                <Package className="w-5 h-5 mb-1" /> Listings
+                <Package className="w-4 h-4 mb-1" /> Listings
               </TabsTrigger>
               <TabsTrigger
                 value="returns"
-                className="flex flex-col items-center gap-1 px-2 py-3 text-sm font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50"
+                className="flex flex-col items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50 min-w-[60px]"
               >
-                <ArrowRightLeft className="w-5 h-5 mb-1" /> Returns
+                <ArrowRightLeft className="w-4 h-4 mb-1" /> Returns
               </TabsTrigger>
               <TabsTrigger
                 value="analytics"
-                className="flex flex-col items-center gap-1 px-2 py-3 text-sm font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50"
+                className="flex flex-col items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50 min-w-[60px]"
               >
-                <BarChart2 className="w-5 h-5 mb-1" /> Analytics
+                <BarChart2 className="w-4 h-4 mb-1" /> Analytics
               </TabsTrigger>
               <TabsTrigger
                 value="api-health"
-                className="flex flex-col items-center gap-1 px-2 py-3 text-sm font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50"
+                className="flex flex-col items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50 min-w-[60px]"
               >
-                <ShieldCheck className="w-5 h-5 mb-1" /> API Health
+                <ShieldCheck className="w-4 h-4 mb-1" /> API Health
               </TabsTrigger>
             </TabsList>
 
