@@ -76,9 +76,35 @@ export class AmazonSpApiService {
           "Amazon SP-API is not configured. Set AMAZON_CLIENT_ID, AMAZON_CLIENT_SECRET and AMAZON_REFRESH_TOKEN.",
       });
     }
+    if (!config.amazon.marketplaceId) {
+      this.log.warn({
+        operation: "constructor",
+        stage: "config-check",
+        errorCode: "NotConfigured",
+        errorMessage:
+          "Amazon SP-API marketplace is not configured. Set AMAZON_MARKETPLACE_ID.",
+      });
+    }
     this.endpoint = config.amazon.spapiEndpoint;
     this.marketplaceId = config.amazon.marketplaceId;
     this.region = config.amazon.region;
+  }
+
+  /** Returns the configured marketplace IDs array, or throws a clear error if none is set. */
+  private requireMarketplaceIds(): string[] {
+    if (!this.marketplaceId) {
+      const err = new Error(
+        "Amazon SP-API marketplace is not configured: AMAZON_MARKETPLACE_ID must be set.",
+      );
+      this.log.error({
+        operation: "requireMarketplaceIds",
+        stage: "error",
+        errorCode: "NotConfigured",
+        errorMessage: err.message,
+      });
+      throw err;
+    }
+    return [this.marketplaceId];
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -570,7 +596,7 @@ export class AmazonSpApiService {
   async getOrders({
     createdAfter,
     lastUpdatedAfter,
-    marketplaceIds = this.marketplaceId ? [this.marketplaceId] : [],
+    marketplaceIds = this.requireMarketplaceIds(),
     orderStatuses,
     nextToken,
     maxResults = 100,
@@ -688,7 +714,7 @@ export class AmazonSpApiService {
   // ──────────────────────────────────────────────────────────────────────────
 
   async getListingsItems({
-    marketplaceIds = this.marketplaceId ? [this.marketplaceId] : [],
+    marketplaceIds = this.requireMarketplaceIds(),
     sellerSkus,
     asins,
     nextToken,
@@ -759,7 +785,7 @@ export class AmazonSpApiService {
 
   async getCatalogItem({
     asin,
-    marketplaceIds = this.marketplaceId ? [this.marketplaceId] : [],
+    marketplaceIds = this.requireMarketplaceIds(),
     traceId,
     clientId,
     sellerId,
@@ -789,7 +815,7 @@ export class AmazonSpApiService {
   // ──────────────────────────────────────────────────────────────────────────
 
   async getInventorySummaries({
-    marketplaceIds = this.marketplaceId ? [this.marketplaceId] : [],
+    marketplaceIds = this.requireMarketplaceIds(),
     nextToken,
     maxResults = 100,
     queryDetails = false,
@@ -856,7 +882,7 @@ export class AmazonSpApiService {
 
   async createReport({
     reportType,
-    marketplaceIds = this.marketplaceId ? [this.marketplaceId] : [],
+    marketplaceIds = this.requireMarketplaceIds(),
     dataStartTime,
     dataEndTime,
     traceId,
