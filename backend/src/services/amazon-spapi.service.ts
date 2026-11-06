@@ -278,7 +278,7 @@ export class AmazonSpApiService {
     maxResults?: number;
   }) {
     const query: Record<string, any> = {
-      MarketplaceIds: marketplaceIds.join(","),
+      marketplaceIds: marketplaceIds.join(","),
       MaxResults: String(maxResults),
     };
     if (createdAfter) query.CreatedAfter = createdAfter;
@@ -319,7 +319,7 @@ export class AmazonSpApiService {
     maxResults?: number;
   }) {
     const query: Record<string, any> = {
-      MarketplaceIds: marketplaceIds.join(","),
+      marketplaceIds: marketplaceIds.join(","),
       MaxResults: String(maxResults),
     };
     if (sellerSkus?.length) query.sellerSkus = sellerSkus.join(",");
@@ -364,7 +364,7 @@ export class AmazonSpApiService {
     queryDetails?: boolean;
   }) {
     const query: Record<string, any> = {
-      MarketplaceIds: marketplaceIds.join(","),
+      marketplaceIds: marketplaceIds.join(","),
       MaxResults: String(maxResults),
       ...(queryDetails ? { QueryDetails: "true" } : {}),
     };
