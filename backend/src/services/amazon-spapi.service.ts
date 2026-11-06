@@ -550,6 +550,8 @@ export class AmazonSpApiService {
           const text = await res.text().catch(() => "");
           const err = new Error(`SP-API ${method} ${path} failed (${res.status}): ${text.slice(0, 500)}`);
           const classified = classifyError(err, res.headers, text.slice(0, 200));
+          // Attach classification so the catch block knows if this is retryable
+          Object.defineProperty(err, 'classified', { value: classified, enumerable: false, writable: false });
           log.error({
             operation,
             endpoint: path,
@@ -603,7 +605,27 @@ export class AmazonSpApiService {
       } catch (err: any) {
         lastError = err;
         const duration = Date.now() - start;
-        // Don't retry non-transient fetch failures (DNS, config) except 401 handled above.
+        // Get classification - either from attached property or classify fresh
+        const classified = err?.classified ?? classifyError(err, undefined, undefined);
+
+        // Don't retry non-transient errors (400, 403, permanent failures)
+        if (!classified.retryable) {
+          log.error({
+            operation,
+            endpoint: path,
+            stage: "error",
+            durationMs: duration,
+            errorCode: classified.classification,
+            errorMessage: classified.message,
+            amazonErrorCode: classified.amazonErrorCode,
+            amazonRequestId: classified.amazonRequestId,
+            retryable: false,
+            retryAttempt: attempt,
+          });
+          throw err;
+        }
+
+        // Don't retry "not configured" errors
         if (err.message && err.message.includes("not configured")) {
           log.error({
             operation,
@@ -616,20 +638,38 @@ export class AmazonSpApiService {
           });
           throw err;
         }
+
         if (attempt >= maxRetries) {
           log.error({
             operation,
             endpoint: path,
             stage: "error",
             durationMs: duration,
-            errorCode: err?.code ?? err?.status ?? "Unknown",
-            errorMessage: err?.message ?? String(err),
+            errorCode: classified.classification,
+            errorMessage: classified.message,
+            retryable: false,
             retryAttempt: attempt,
           });
           break;
         }
+
+        // Exponential backoff with jitter for retryable errors (429, 5xx, network)
         const backoffMs = Math.min(1000 * 2 ** attempt, 30_000);
-        await new Promise((resolve) => setTimeout(resolve, backoffMs));
+        const jitterMs = Math.floor(Math.random() * 1000);
+        log.warn({
+          operation,
+          endpoint: path,
+          stage: "retry",
+          durationMs: duration,
+          httpStatus: classified.httpStatus,
+          errorCode: classified.classification,
+          errorMessage: classified.message,
+          retryable: true,
+          retryAttempt: attempt,
+          config: { backoffMs, jitterMs },
+        });
+        lastError = new Error(`SP-API retryable error, retrying in ${backoffMs + jitterMs}ms`);
+        await new Promise((resolve) => setTimeout(resolve, backoffMs + jitterMs));
       }
     }
 

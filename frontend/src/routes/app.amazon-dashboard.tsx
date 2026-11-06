@@ -330,6 +330,8 @@ function syncStatusBadge(status: string) {
     return "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300";
   if (s === "notconfigured")
     return "bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400";
+  if (s === "blocked")
+    return "bg-gray-100 dark:bg-gray-900 text-gray-500 dark:text-gray-400";
   return "bg-slate-100 dark:bg-slate-900 text-slate-500";
 }
 

@@ -9,7 +9,8 @@ export type SyncStatus =
   | "Failed"
   | "AuthenticationError"
   | "RateLimited"
-  | "AccessRestricted";
+  | "AccessRestricted"
+  | "Blocked";
 
 export interface MarketplaceAmazonSyncStatus {
   pk: string;

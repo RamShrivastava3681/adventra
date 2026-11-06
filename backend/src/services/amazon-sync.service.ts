@@ -208,6 +208,20 @@ export class AmazonSyncService {
     const modules: Module[] = ["orders", "order-items", "inventory", "listings", "returns"];
     const results: Record<Module, SyncResult> = {} as any;
     for (const module of modules) {
+      // Order Items depends on Orders - if Orders failed, mark Order Items as BLOCKED
+      if (module === "order-items") {
+        const ordersResult = results["orders"];
+        if (ordersResult && (ordersResult.status === "Failed" || ordersResult.status === "AuthenticationError" || ordersResult.status === "AccessRestricted" || ordersResult.status === "NotConfigured")) {
+          log.warn({
+            operation: "syncAll",
+            stage: "dependency-blocked",
+            config: { module: "order-items", dependency: "orders", dependencyStatus: ordersResult.status, dependencyError: ordersResult.error },
+          });
+          results["order-items"] = this._result("order-items", "Blocked", 0, null, `Orders dependency failed: ${ordersResult.error || "unknown error"}`, "DependencyFailed", nowISO(), nowISO(), 0);
+          continue;
+        }
+      }
+
       const result = await this.sync(module, clientId, traceId);
       results[module] = result;
       if (result.status === "Failed" || result.status === "AuthenticationError" || result.status === "AccessRestricted") {
