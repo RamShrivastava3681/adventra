@@ -705,10 +705,15 @@ export class AmazonSyncService {
 
     // Amazon SP-API does not expose a standalone "Get Returns" endpoint for all
     // seller accounts. Returns are surfaced through the Orders API: orders with
-    // status Refunded / Returned / Cancelled represent customer returns. We fetch
-    // those orders live from Amazon, then pull each order's items via the Order
-    // Items API to build real return records — never from local/mock data.
-    const returnStatuses = ["Refunded", "Returned", "Cancelled"];
+    // status Canceled / Unshipped / Pending represent potential customer returns.
+    // We fetch those orders live from Amazon, then pull each order's items via the
+    // Order Items API to build real return records — never from local/mock data.
+    //
+    // NOTE: Amazon Orders API v0 OrderStatuses filter accepts only these enum
+    // values: Unfulfillable, PartiallyShipped, PendingAvailability, Shipped,
+    // Pending, InvoiceUnconfirmed, Canceled, Unshipped. "Refunded", "Returned"
+    // and "Cancelled" (double L) are NOT valid filter values.
+    const returnStatuses = ["Canceled", "Unshipped", "Pending"];
     let total = 0;
     let nextToken: string | null = null;
     let lastUpdatedAfter = null;
