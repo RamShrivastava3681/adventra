@@ -121,10 +121,68 @@ interface SyncStatusItem {
   module: string;
   status: string;
   lastSync: string | null;
+  lastAttemptedAt: string | null;
+  lastSuccessfulAt: string | null;
   records: number;
+  recordsReceived: number;
+  recordsProcessed: number;
+  recordsInserted: number;
+  recordsUpdated: number;
+  recordsSkipped: number;
+  recordsRejected: number;
   error: string | null;
   errorCode: string | null;
+  errorClassification: string | null;
+  httpStatus: number | null;
+  amazonRequestId: string | null;
+  durationMs: number | null;
+  paginationCount: number;
   retries: number;
+}
+
+interface AmazonModuleHealth {
+  module: string;
+  status: string;
+  lastAttemptedAt: string | null;
+  lastSuccessfulAt: string | null;
+  httpStatus: number | null;
+  recordsReceived: number;
+  recordsProcessed: number;
+  recordsInserted: number;
+  recordsUpdated: number;
+  recordsSkipped: number;
+  databaseRecordCount: number;
+  paginationCount: number;
+  durationMs: number | null;
+  errorClassification: string | null;
+  errorMessage: string | null;
+  errorCode: string | null;
+  amazonRequestId: string | null;
+}
+
+interface AmazonApplicationState {
+  developerRegistration: string;
+  applicationStatus: string;
+  publicDeveloperApproved: boolean;
+  productionClientAvailable: boolean;
+  roleApprovalStatus: string;
+  sellerAuthorizationStatus: string;
+  overallClassification: string;
+  reviewPendingMessage: string | null;
+  lastSuccessfulSync: string | null;
+}
+
+interface AmazonApplicationHealth {
+  application: AmazonApplicationState;
+  modules: AmazonModuleHealth[];
+  summary: {
+    allModulesSuccess: boolean;
+    hasAccessRestricted: boolean;
+    hasReviewPending: boolean;
+    hasFailed: boolean;
+    totalRecordsReceived: number;
+    totalRecordsPersisted: number;
+  };
 }
 
 interface AmazonOrder {
@@ -433,6 +491,15 @@ export function AmazonDashboardPage() {
     enabled: !!clientId,
   });
 
+  const applicationStatusQuery = useQuery({
+    queryKey: ["amazon-application-status", clientId],
+    queryFn: async () => {
+      const res = await api.amazonSync.applicationStatus(clientId);
+      return res;
+    },
+    enabled: !!clientId,
+  });
+
   const inventoryAggQuery = useQuery({
     queryKey: ["amazon-inventory-agg", clientId],
     queryFn: async () => {
@@ -459,6 +526,10 @@ export function AmazonDashboardPage() {
   const syncStatuses = syncStatusQuery.data ?? [];
   const inventoryAgg = inventoryAggQuery.data ?? {};
   const listingsAgg = listingsAggQuery.data ?? {};
+  const applicationHealth = applicationStatusQuery.data as AmazonApplicationHealth | undefined;
+  const appState = applicationHealth?.application;
+  const appModules = applicationHealth?.modules ?? [];
+  const appSummary = applicationHealth?.summary;
 
   const [syncing, setSyncing] = useState(false);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -736,7 +807,8 @@ export function AmazonDashboardPage() {
     ordersQuery.isLoading ||
     inventoryQuery.isLoading ||
     listingsQuery.isLoading ||
-    syncStatusQuery.isLoading;
+    syncStatusQuery.isLoading ||
+    applicationStatusQuery.isLoading;
   const hasOrders = orders.length > 0;
   const hasInventory = inventory.length > 0;
   const hasListings = listings.length > 0;
@@ -747,12 +819,22 @@ export function AmazonDashboardPage() {
       s.status === "AuthenticationError" ||
       s.status === "AccessRestricted",
   );
+  const appReviewPending = Boolean(
+    appState &&
+      (appState.overallClassification === "APPLICATION_REVIEW_PENDING" ||
+        appState.overallClassification === "APPLICATION_DRAFT" ||
+        appState.overallClassification === "PRODUCTION_CLIENT_UNAVAILABLE" ||
+        appState.overallClassification === "ROLE_NOT_APPROVED" ||
+        appState.overallClassification === "SELLER_NOT_AUTHORIZED")
+  );
   const syncStatusText =
     syncStatuses.length === 0
       ? "Not Configured"
-      : syncStatuses.every((s) => s.status === "Synchronized")
-        ? "Synchronized"
-        : "Syncing";
+      : appReviewPending
+        ? "Review Pending"
+        : syncStatuses.every((s) => s.status === "Synchronized")
+          ? "Synchronized"
+          : "Syncing";
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
@@ -871,6 +953,22 @@ export function AmazonDashboardPage() {
           </div>
         </div>
       </header>
+
+      {appReviewPending && appState?.reviewPendingMessage && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 p-4 sm:p-6">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
+                Amazon Public Developer Review Pending
+              </p>
+              <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
+                {appState.reviewPendingMessage}
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="p-4 sm:p-6 lg:p-8">
         {loading ? (
@@ -1067,6 +1165,9 @@ export function AmazonDashboardPage() {
             <TabsContent value="api-health" className="border-none p-0">
               <ApiHealthSection
                 statuses={syncStatuses}
+                appState={appState}
+                appModules={appModules}
+                appSummary={appSummary}
                 onRetryAll={() => syncMutation.mutate({ module: "all" })}
               />
             </TabsContent>
@@ -2242,68 +2343,297 @@ function AnalyticsSection({
 
 function ApiHealthSection({
   statuses,
+  appState,
+  appModules,
+  appSummary,
   onRetryAll,
 }: {
   statuses: SyncStatusItem[];
+  appState?: AmazonApplicationState;
+  appModules?: AmazonModuleHealth[];
+  appSummary?: AmazonApplicationHealth["summary"];
   onRetryAll: () => void;
 }) {
   const modules = ["orders", "order-items", "inventory", "listings", "returns"];
+  const reviewPending = Boolean(
+    appState &&
+      (appState.overallClassification === "APPLICATION_REVIEW_PENDING" ||
+        appState.overallClassification === "APPLICATION_DRAFT" ||
+        appState.overallClassification === "PRODUCTION_CLIENT_UNAVAILABLE" ||
+        appState.overallClassification === "ROLE_NOT_APPROVED" ||
+        appState.overallClassification === "SELLER_NOT_AUTHORIZED")
+  );
+
+  const healthStatus = (status: string) => {
+    const s = (status || "").toLowerCase();
+    if (s === "success") return "bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300";
+    if (s === "empty") return "bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300";
+    if (s === "partial") return "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300";
+    if (s === "failed") return "bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300";
+    if (s === "access_restricted" || s === "accessrestricted") return "bg-orange-100 dark:bg-orange-950 text-orange-800 dark:text-orange-300";
+    if (s === "review_pending" || s === "reviewpending") return "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 animate-pulse";
+    if (s === "in_progress" || s === "inprogress") return "bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 animate-pulse";
+    return "bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400";
+  };
+
+  // Normalize module health into a single shape for the table.
+  const normalizedModules = useMemo(() => {
+    const out: AmazonModuleHealth[] = [];
+    for (const m of modules) {
+      const src =
+        appModules?.find((x) => x.module === m) ??
+        (statuses.find((x) => x.module === m) ?? null);
+      if (!src) {
+        out.push({
+          module: m,
+          status: "NotConfigured",
+          lastAttemptedAt: null,
+          lastSuccessfulAt: null,
+          httpStatus: null,
+          recordsReceived: 0,
+          recordsProcessed: 0,
+          recordsInserted: 0,
+          recordsUpdated: 0,
+          recordsSkipped: 0,
+          databaseRecordCount: 0,
+          paginationCount: 0,
+          durationMs: null,
+          errorClassification: null,
+          errorMessage: null,
+          errorCode: null,
+          amazonRequestId: null,
+        });
+        continue;
+      }
+      out.push({
+        module: m,
+        status: (src as any).status ?? "NotConfigured",
+        lastAttemptedAt: (src as any).lastAttemptedAt ?? (src as any).lastSync ?? null,
+        lastSuccessfulAt: (src as any).lastSuccessfulAt ?? null,
+        httpStatus: (src as any).httpStatus ?? null,
+        recordsReceived: (src as any).recordsReceived ?? (src as any).records ?? 0,
+        recordsProcessed: (src as any).recordsProcessed ?? 0,
+        recordsInserted: (src as any).recordsInserted ?? 0,
+        recordsUpdated: (src as any).recordsUpdated ?? 0,
+        recordsSkipped: (src as any).recordsSkipped ?? 0,
+        databaseRecordCount: (src as any).databaseRecordCount ?? 0,
+        paginationCount: (src as any).paginationCount ?? 0,
+        durationMs: (src as any).durationMs ?? null,
+        errorClassification: (src as any).errorClassification ?? null,
+        errorMessage: (src as any).errorMessage ?? (src as any).error ?? null,
+        errorCode: (src as any).errorCode ?? null,
+        amazonRequestId: (src as any).amazonRequestId ?? null,
+      });
+    }
+    return out;
+  }, [modules, appModules, statuses]);
+
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="font-bold text-slate-900 dark:text-slate-100">API Synchronization Health</h2>
-        <Button size="sm" variant="outline" onClick={onRetryAll}>
-          Retry All Modules
-        </Button>
+      {/* Application-level status */}
+      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-bold text-slate-900 dark:text-slate-100">Amazon Application Status</h2>
+          {reviewPending && (
+            <Badge variant="destructive" className="text-[10px] px-2 py-1">
+              Review Pending
+            </Badge>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800/50">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Developer Registration</p>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100 capitalize">
+              {appState?.developerRegistration ?? "—"}
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800/50">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Application Status</p>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100 capitalize">
+              {appState?.applicationStatus ?? "—"}
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800/50">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Production Client</p>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100 capitalize">
+              {appState?.productionClientAvailable === true ? "Available" : "Unavailable"}
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800/50">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Public Developer Approved</p>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100 capitalize">
+              {appState?.publicDeveloperApproved === true ? "Yes" : "No / Pending"}
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800/50">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Role Approval</p>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100 capitalize">
+              {appState?.roleApprovalStatus ?? "—"}
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800/50">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Seller Authorized</p>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100 capitalize">
+              {appState?.sellerAuthorizationStatus ?? "—"}
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800/50">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Last Successful Sync</p>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100">
+              {appState?.lastSuccessfulSync ?? "Never"}
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800/50">
+            <p className="text-xs text-slate-500 dark:text-slate-400">Overall Classification</p>
+            <p className="text-sm font-medium text-slate-900 dark:text-slate-100 capitalize truncate">
+              {appState?.overallClassification ?? "—"}
+            </p>
+          </div>
+        </div>
+
+        {appState?.reviewPendingMessage && (
+          <div className="mt-4 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50">
+            <p className="text-sm text-amber-800 dark:text-amber-300">
+              {appState.reviewPendingMessage}
+            </p>
+          </div>
+        )}
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm border border-slate-200 dark:border-slate-800 rounded-lg">
-          <thead className="bg-slate-50 dark:bg-slate-800/50 sticky top-0 z-10">
-            <tr>
-              <th className="p-3 text-left text-slate-500 font-medium">Module</th>
-              <th className="p-3 text-left text-slate-500 font-medium">Status</th>
-              <th className="p-3 text-left text-slate-500 font-medium">Last Sync</th>
-              <th className="p-3 text-right text-slate-500 font-medium">Records</th>
-              <th className="p-3 text-left text-slate-500 font-medium">Error</th>
-            </tr>
-          </thead>
-          <tbody>
-            {modules.map((m) => {
-              const s = statuses.find((x) => x.module === m) || {
-                module: m,
-                status: "NotConfigured",
-                lastSync: null,
-                records: 0,
-                error: null,
-                errorCode: null,
-                retries: 0,
-              };
-              return (
-                <tr
-                  key={m}
-                  className="border-b border-slate-100 dark:border-slate-800 last:border-0"
-                >
-                  <td className="p-3 font-mono text-sm">{m}</td>
-                  <td className="p-3 text-sm">
-                    <span
-                      className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold ${syncStatusBadge(s.status)}`}
-                    >
+      {/* Per-module API health */}
+      <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="font-bold text-slate-900 dark:text-slate-100">API Synchronization Health</h2>
+          <Button size="sm" variant="outline" onClick={onRetryAll}>
+            Retry All Modules
+          </Button>
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm border border-slate-200 dark:border-slate-800 rounded-lg">
+            <thead className="bg-slate-50 dark:bg-slate-800/50 sticky top-0 z-10">
+              <tr>
+                <th className="p-3 text-left text-slate-500 font-medium">Module</th>
+                <th className="p-3 text-left text-slate-500 font-medium">Status</th>
+                <th className="p-3 text-left text-slate-500 font-medium">Last Attempted</th>
+                <th className="p-3 text-right text-slate-500 font-medium">Received</th>
+                <th className="p-3 text-right text-slate-500 font-medium">Processed</th>
+                <th className="p-3 text-right text-slate-500 font-medium">Inserted</th>
+                <th className="p-3 text-right text-slate-500 font-medium">Updated</th>
+                <th className="p-3 text-right text-slate-500 font-medium">Skipped</th>
+                <th className="p-3 text-right text-slate-500 font-medium">DB Count</th>
+                <th className="p-3 text-right text-slate-500 font-medium">Pages</th>
+                <th className="p-3 text-right text-slate-500 font-medium">Duration (ms)</th>
+                <th className="p-3 text-left text-slate-500 font-medium">Error Classification</th>
+                <th className="p-3 text-left text-slate-500 font-medium">Error</th>
+              </tr>
+            </thead>
+            <tbody>
+              {normalizedModules.map((s) => {
+                return (
+                  <tr
+                    key={s.module}
+                    className="border-b border-slate-100 dark:border-slate-800 last:border-0"
+                  >
+                    <td className="p-3 font-mono text-sm">{s.module}</td>
+                    <td className="p-3 text-sm">
                       <span
-                        className="w-1.5 h-1.5 rounded-full"
-                        style={{ backgroundColor: statusDotColor(s.status) }}
-                      />
-                      {s.status}
-                    </span>
-                  </td>
-                  <td className="p-3 text-sm text-slate-500">{s.lastSync || "Never"}</td>
-                  <td className="p-3 text-right text-sm font-mono">{s.records}</td>
-                  <td className="p-3 text-sm text-rose-500 dark:text-rose-400">{s.error || "—"}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+                        className={`inline-flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-bold ${healthStatus(
+                          s.status,
+                        )}`}
+                      >
+                        <span
+                          className="w-1.5 h-1.5 rounded-full"
+                          style={{ backgroundColor: statusDotColor(s.status) }}
+                        />
+                        {s.status}
+                      </span>
+                    </td>
+                    <td className="p-3 text-sm text-slate-500">
+                      {s.lastAttemptedAt ?? "Never"}
+                    </td>
+                    <td className="p-3 text-right text-sm font-mono">
+                      {s.recordsReceived}
+                    </td>
+                    <td className="p-3 text-right text-sm font-mono">
+                      {s.recordsProcessed}
+                    </td>
+                    <td className="p-3 text-right text-sm font-mono">
+                      {s.recordsInserted}
+                    </td>
+                    <td className="p-3 text-right text-sm font-mono">
+                      {s.recordsUpdated}
+                    </td>
+                    <td className="p-3 text-right text-sm font-mono">
+                      {s.recordsSkipped}
+                    </td>
+                    <td className="p-3 text-right text-sm font-mono">
+                      {s.databaseRecordCount}
+                    </td>
+                    <td className="p-3 text-right text-sm font-mono">
+                      {s.paginationCount}
+                    </td>
+                    <td className="p-3 text-right text-sm font-mono">
+                      {s.durationMs ?? "—"}
+                    </td>
+                    <td className="p-3 text-sm text-slate-500 font-mono">
+                      {s.errorClassification ?? "—"}
+                    </td>
+                    <td className="p-3 text-sm text-rose-500 dark:text-rose-400">
+                      {s.errorMessage ?? "—"}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {appSummary && (
+          <div className="mt-4 p-3 rounded-lg bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800/50">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
+                <p>
+                  <span className="font-medium">
+                    {appSummary.totalRecordsReceived}
+                  </span>{" "}
+                  records received ·
+                  <span className="font-medium">
+                    {appSummary.totalRecordsPersisted}
+                  </span>{" "}
+                  persisted
+                </p>
+                <p>
+                  {appSummary.hasReviewPending
+                    ? "Amazon review is pending — some modules may be access-restricted."
+                    : appSummary.allModulesSuccess
+                      ? "All modules synchronized successfully."
+                      : appSummary.hasFailed
+                        ? "One or more modules failed. See error classification above."
+                        : "Sync status mixed."}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                {appSummary.hasReviewPending && (
+                  <Badge variant="destructive" className="text-[10px] px-2 py-1">
+                    Review Pending
+                  </Badge>
+                )}
+                {appSummary.hasAccessRestricted && (
+                  <Badge variant="outline" className="text-[10px] px-2 py-1">
+                    Access Restricted
+                  </Badge>
+                )}
+                {appSummary.hasFailed && (
+                  <Badge variant="destructive" className="text-[10px] px-2 py-1">
+                    Failed
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

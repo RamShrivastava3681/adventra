@@ -16,6 +16,7 @@ import { amazonSync } from "../services/amazon-sync.service.js";
 import { amazonSpApi, generateTraceId } from "../services/amazon-spapi.service.js";
 import { validateMarketplaceConfig } from "../lib/amazon-marketplace-config.js";
 import { classifyError, classificationToSyncStatus } from "../lib/amazon-error-classification.js";
+import { amazonApplicationStatus, type AmazonApplicationHealth } from "../lib/amazon-application-status.js";
 import { list, findOpenExceptions, findByReason, resolveException, incrementRetry } from "../models/marketplace-amazon-exception.js";
 import { ExceptionReason } from "../models/marketplace-amazon-exception.js";
 import { list as listInvoices } from "../models/marketplace-amazon-invoice-record.js";
@@ -1041,7 +1042,7 @@ router.get("/amazon/sp-api/diagnostics", authMiddleware, async (req: Request, re
     const hasFailed = allModules.some(
       (m) => m.status === "Failed" || m.status === "AuthenticationError" || m.status === "AccessRestricted" || m.status === "RateLimited",
     );
-    const allCompleted = allModules.every((m) => m.status === "Synchronized");
+    const allCompleted = allModules.every((m) => m.status === "Synchronized" || m.status === "EMPTY");
 
     const applicationStatus =
       config.amazon.applicationStatus ??
@@ -1076,11 +1077,11 @@ router.get("/amazon/sp-api/diagnostics", authMiddleware, async (req: Request, re
       checks: {
         configuration: mv.valid ? "pass" : "fail",
         tokenExchange: tokenState.configured && tokenState.hasAccessToken ? "pass" : "fail",
-        orders: moduleMap.orders?.status === "Synchronized" ? "pass" : moduleMap.orders?.status === "Failed" || moduleMap.orders?.status === "AuthenticationError" || moduleMap.orders?.status === "AccessRestricted" ? "fail" : moduleMap.orders?.status === "Synchronized" ? "pass" : "unknown",
-        orderItems: moduleMap["order-items"]?.status === "Synchronized" ? "pass" : moduleMap["order-items"]?.status === "Failed" ? "fail" : "unknown",
-        inventory: moduleMap.inventory?.status === "Synchronized" ? "pass" : moduleMap.inventory?.status === "Failed" ? "fail" : "unknown",
-        listings: moduleMap.listings?.status === "Synchronized" ? "pass" : moduleMap.listings?.status === "Failed" ? "fail" : "unknown",
-        returns: moduleMap.returns?.status === "Synchronized" ? "pass" : moduleMap.returns?.status === "Failed" ? "fail" : "unknown",
+        orders: moduleMap.orders?.status === "Synchronized" || moduleMap.orders?.status === "EMPTY" ? "pass" : moduleMap.orders?.status === "Failed" || moduleMap.orders?.status === "AuthenticationError" || moduleMap.orders?.status === "AccessRestricted" ? "fail" : "unknown",
+        orderItems: moduleMap["order-items"]?.status === "Synchronized" || moduleMap["order-items"]?.status === "EMPTY" ? "pass" : moduleMap["order-items"]?.status === "Failed" ? "fail" : "unknown",
+        inventory: moduleMap.inventory?.status === "Synchronized" || moduleMap.inventory?.status === "EMPTY" ? "pass" : moduleMap.inventory?.status === "Failed" ? "fail" : "unknown",
+        listings: moduleMap.listings?.status === "Synchronized" || moduleMap.listings?.status === "EMPTY" ? "pass" : moduleMap.listings?.status === "Failed" ? "fail" : "unknown",
+        returns: moduleMap.returns?.status === "Synchronized" || moduleMap.returns?.status === "EMPTY" ? "pass" : moduleMap.returns?.status === "Failed" ? "fail" : "unknown",
         database: dbCounts.orders >= 0 && dbCounts.inventory >= 0 ? "pass" : "fail",
       },
       modules: moduleMap,
@@ -1100,6 +1101,204 @@ router.get("/amazon/sp-api/diagnostics", authMiddleware, async (req: Request, re
     res.status(500).json({ success: false, error: err.message });
   }
 });
+
+/**
+ * GET /amazon/application-status
+ * Centralized Amazon application review/production-readiness status.
+ * Distinguishes Amazon-side restrictions (developer registration under review,
+ * production client unavailable, roles not approved, seller not authorized) from
+ * code defects. Never exposes credentials or tokens.
+ */
+router.get("/amazon/application-status", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+
+    const appState = amazonApplicationStatus.getApplicationState();
+    const mv = validateMarketplaceConfig();
+    const tokenState = amazonSpApi.getTokenState();
+
+    // Refresh seller authorization signal from actual token/seller config when not explicitly declared.
+    let sellerAuthorizationStatus = appState.sellerAuthorizationStatus;
+    if (sellerAuthorizationStatus === "pending" && config.amazon.isConfigured && config.amazon.sellerId && tokenState.tokenValid) {
+      sellerAuthorizationStatus = "pending"; // token present but seller authorization not explicitly confirmed
+    }
+
+    // Last successful sync across modules (from sync status records).
+    let lastSuccessfulSync: string | null = null;
+    try {
+      const snapshot = await amazonSync.statusSnapshot(clientId);
+      const successes = snapshot
+        .filter((s: any) => s.lastSuccessfulAt)
+        .map((s: any) => s.lastSuccessfulAt)
+        .sort();
+      if (successes.length > 0) {
+        lastSuccessfulSync = successes[successes.length - 1];
+      }
+    } catch {
+      // ignore
+    }
+
+    const health: AmazonApplicationHealth = {
+      application: {
+        ...appState,
+        sellerAuthorizationStatus,
+        lastSuccessfulSync,
+      },
+      modules: [],
+      summary: {
+        allModulesSuccess: true,
+        hasAccessRestricted: false,
+        hasReviewPending: appState.overallClassification === "APPLICATION_REVIEW_PENDING" ||
+          appState.overallClassification === "APPLICATION_DRAFT" ||
+          appState.overallClassification === "PRODUCTION_CLIENT_UNAVAILABLE" ||
+          appState.overallClassification === "ROLE_NOT_APPROVED" ||
+          appState.overallClassification === "SELLER_NOT_AUTHORIZED",
+        hasFailed: false,
+        totalRecordsReceived: 0,
+        totalRecordsPersisted: 0,
+      },
+    };
+
+    // Attach per-module health from sync status.
+    try {
+      const snapshot = await amazonSync.statusSnapshot(clientId);
+      const moduleMap: Record<string, any> = {};
+      for (const m of ["orders", "order-items", "inventory", "listings", "returns"]) {
+        moduleMap[m] = {
+          module: m,
+          status: "REVIEW_PENDING",
+          lastAttemptedAt: null,
+          lastSuccessfulAt: null,
+          httpStatus: null,
+          recordsReceived: 0,
+          recordsProcessed: 0,
+          recordsInserted: 0,
+          recordsUpdated: 0,
+          recordsSkipped: 0,
+          databaseRecordCount: 0,
+          paginationCount: 0,
+          durationMs: null,
+          errorClassification: null,
+          errorMessage: null,
+          errorCode: null,
+          amazonRequestId: null,
+        };
+      }
+      for (const s of snapshot) {
+        moduleMap[s.module] = {
+          module: s.module,
+          status: amazonApplicationStatus.classificationToDashboardStatus(
+            s.errorClassification ? (s.errorClassification as any) : "API_REQUEST_FAILED"
+          ),
+          lastAttemptedAt: s.lastAttemptedAt,
+          lastSuccessfulAt: s.lastSuccessfulAt,
+          httpStatus: s.httpStatus,
+          recordsReceived: s.recordsReceived ?? 0,
+          recordsProcessed: s.recordsProcessed ?? 0,
+          recordsInserted: s.recordsInserted ?? 0,
+          recordsUpdated: s.recordsUpdated ?? 0,
+          recordsSkipped: s.recordsSkipped ?? 0,
+          databaseRecordCount: 0, // filled below
+          paginationCount: s.paginationCount ?? 0,
+          durationMs: s.durationMs,
+          errorClassification: s.errorClassification,
+          errorMessage: s.error,
+          errorCode: s.errorCode,
+          amazonRequestId: s.amazonRequestId,
+        };
+      }
+
+      // DB record counts per module.
+      let dbCounts: Record<string, number> = {};
+      try { const orders = await OrderModel.list(clientId); dbCounts.orders = orders.length; } catch { dbCounts.orders = 0; }
+      try { const inv = await InventoryModel.list(clientId, { limit: 10000 }); dbCounts.inventory = inv.items.length; } catch { dbCounts.inventory = 0; }
+      try { const list = await ListingModel.list(clientId, { limit: 10000 }); dbCounts.listings = list.items.length; } catch { dbCounts.listings = 0; }
+      try { const rets = await ReturnModel.list(clientId); dbCounts.returns = rets.length; } catch { dbCounts.returns = 0; }
+
+      const modules: any[] = [];
+      let totalReceived = 0;
+      let totalPersisted = 0;
+      let allSuccess = true;
+      let hasAccessRestricted = false;
+      let hasFailed = false;
+
+      for (const m of ["orders", "order-items", "inventory", "listings", "returns"]) {
+        const mod = moduleMap[m];
+        mod.databaseRecordCount = dbCounts[m] ?? 0;
+        // Derive dashboard status from stored sync status when classification is absent.
+        const stored = sStatus(snapshot, m);
+        if (!mod.errorClassification && stored) {
+          if (stored.status === "Synchronized") mod.status = "SUCCESS";
+          else if (stored.status === "EMPTY") mod.status = "EMPTY";
+          else if (stored.status === "PARTIAL") mod.status = "PARTIAL";
+          else if (stored.status === "Failed" || stored.status === "AuthenticationError") mod.status = "FAILED";
+          else if (stored.status === "AccessRestricted" || stored.status === "RateLimited") mod.status = "ACCESS_RESTRICTED";
+          else if (stored.status === "Synchronizing") mod.status = "IN_PROGRESS";
+          else if (stored.status === "NotConfigured") mod.status = "FAILED";
+          else mod.status = "REVIEW_PENDING";
+        }
+        totalReceived += mod.recordsReceived;
+        totalPersisted += mod.recordsInserted + mod.recordsUpdated;
+        if (mod.status !== "SUCCESS" && mod.status !== "EMPTY") allSuccess = false;
+        if (mod.status === "ACCESS_RESTRICTED") hasAccessRestricted = true;
+        if (mod.status === "FAILED") hasFailed = true;
+        modules.push(mod);
+      }
+
+      health.modules = modules;
+      health.summary = {
+        allModulesSuccess: allSuccess && modules.length > 0,
+        hasAccessRestricted,
+        hasReviewPending: health.application.overallClassification === "APPLICATION_REVIEW_PENDING"
+          || health.application.overallClassification === "APPLICATION_DRAFT"
+          || health.application.overallClassification === "PRODUCTION_CLIENT_UNAVAILABLE"
+          || health.application.overallClassification === "ROLE_NOT_APPROVED"
+          || health.application.overallClassification === "SELLER_NOT_AUTHORIZED",
+        hasFailed,
+        totalRecordsReceived: totalReceived,
+        totalRecordsPersisted: totalPersisted,
+      };
+    } catch {
+      // module health best-effort
+    }
+
+    res.json({
+      success: true,
+      clientId,
+      traceId: generateTraceId(),
+      application: health.application,
+      modules: health.modules,
+      summary: health.summary,
+      marketplace: {
+        name: mv.marketplaceName ?? null,
+        marketplaceId: mv.marketplaceId,
+        countryCode: mv.countryCode,
+        endpoint: mv.endpoint,
+        signingRegion: mv.signingRegion,
+        configurationValid: mv.valid,
+        configurationErrors: mv.errors,
+        configurationWarnings: mv.warnings,
+      },
+      auth: {
+        lwaConfigured: tokenState.configured,
+        hasAccessToken: tokenState.hasAccessToken,
+        tokenValid: tokenState.tokenValid,
+        refreshCount: tokenState.refreshCount,
+        lastRefreshAt: tokenState.lastRefreshAt,
+        lastRefreshError: tokenState.lastRefreshError,
+        sellerIdConfigured: Boolean(config.amazon.sellerId),
+      },
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+function sStatus(snapshot: any[], module: string): { status: string } | null {
+  const s = snapshot.find((x: any) => x.module === module);
+  return s ? { status: s.status } : null;
+}
 
 /**
  * GET /amazon/sync-status

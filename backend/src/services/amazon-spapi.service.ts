@@ -858,12 +858,25 @@ export class AmazonSpApiService {
       sellerId,
     });
 
+    if (!marketplaceIds || marketplaceIds.length === 0) {
+      const err = new Error("marketplaceIds is required for getListingsItems");
+      log.error({
+        operation: "getListingsItems",
+        endpoint: "/listings/2021-08-01/listings",
+        stage: "error",
+        errorCode: "MissingRequiredParameter",
+        errorMessage: err.message,
+      });
+      throw err;
+    }
+
     log.info({
       operation: "getListingsItems",
       endpoint: "/listings/2021-08-01/listings",
       stage: "before",
       config: {
         marketplaceIdsCount: marketplaceIds.length,
+        marketplaceIdsPresent: Boolean(marketplaceIds && marketplaceIds.length > 0),
         sellerSkusCount: sellerSkus?.length ?? 0,
         asinsCount: asins?.length ?? 0,
         nextToken: nextToken ? "[present]" : null,
@@ -873,11 +886,29 @@ export class AmazonSpApiService {
 
     const query: Record<string, any> = {
       marketplaceIds: marketplaceIds.join(","),
-      MaxResults: String(maxResults),
+      maxResults: String(maxResults),
     };
     if (sellerSkus?.length) query.sellerSkus = sellerSkus.join(",");
     if (asins?.length) query.asins = asins.join(",");
     if (nextToken) query.nextToken = nextToken;
+
+    const url = new URL(`${this.endpoint}/listings/2021-08-01/listings`);
+    for (const [k, v] of Object.entries(query)) {
+      if (v !== undefined && v !== null && v !== "") {
+        url.searchParams.set(k, String(v));
+      }
+    }
+
+    log.info({
+      operation: "getListingsItems",
+      endpoint: "/listings/2021-08-01/listings",
+      stage: "final-request-url",
+      config: {
+        queryKeys: Object.keys(query),
+        queryString: url.searchParams.toString(),
+        url: url.origin + url.pathname,
+      },
+    });
 
     const result = await this.request({
       operation: "getListingsItems",
@@ -957,12 +988,25 @@ export class AmazonSpApiService {
       sellerId,
     });
 
+    if (!marketplaceIds || marketplaceIds.length === 0) {
+      const err = new Error("marketplaceIds is required for getInventorySummaries");
+      log.error({
+        operation: "getInventorySummaries",
+        endpoint: "/fba/inventory/v1/summaries",
+        stage: "error",
+        errorCode: "MissingRequiredParameter",
+        errorMessage: err.message,
+      });
+      throw err;
+    }
+
     log.info({
       operation: "getInventorySummaries",
       endpoint: "/fba/inventory/v1/summaries",
       stage: "before",
       config: {
         marketplaceIdsCount: marketplaceIds.length,
+        marketplaceIdsPresent: Boolean(marketplaceIds && marketplaceIds.length > 0),
         nextToken: nextToken ? "[present]" : null,
         maxResults,
         queryDetails,
@@ -972,9 +1016,27 @@ export class AmazonSpApiService {
     const query: Record<string, any> = {
       marketplaceIds: marketplaceIds.join(","),
       MaxResults: String(maxResults),
-      ...(queryDetails ? { QueryDetails: "true" } : {}),
     };
+    if (queryDetails) query.QueryDetails = "true";
     if (nextToken) query.nextToken = nextToken;
+
+    const url = new URL(`${this.endpoint}/fba/inventory/v1/summaries`);
+    for (const [k, v] of Object.entries(query)) {
+      if (v !== undefined && v !== null && v !== "") {
+        url.searchParams.set(k, String(v));
+      }
+    }
+
+    log.info({
+      operation: "getInventorySummaries",
+      endpoint: "/fba/inventory/v1/summaries",
+      stage: "final-request-url",
+      config: {
+        queryKeys: Object.keys(query),
+        queryString: url.searchParams.toString(),
+        url: url.origin + url.pathname,
+      },
+    });
 
     const result = await this.request({
       operation: "getInventorySummaries",

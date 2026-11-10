@@ -1,0 +1,21 @@
+{
+  "connectorId": "wz-connector-001",
+  "resourceType": "voucher",
+  "payload": {
+    "invoiceId": "inv-550e8400",
+    "invoiceNumber": "INV-2001",
+    "partyName": "Acme Corp",
+    "amount": 1180.00,
+    "tallyDate": "20261110",
+    "voucherType": "Sales",
+    "customerLedgerName": "Acme Corp",
+    "skuCode": "SKU-001",
+    "quantity": 2,
+    "unit": "Nos",
+    "unitPrice": 500.00,
+    "gstRate": 18,
+    "grandTotal": 1180.00,
+    "narration": "Ref: INV-2001"
+  },
+  "idempotencyKey": "sales_invoice:inv-550e8400:1"
+}

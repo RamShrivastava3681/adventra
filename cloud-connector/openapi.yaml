@@ -1,0 +1,371 @@
+openapi: 3.0.3
+info:
+  title: WhizUnik Cloud Connector API
+  version: 1.0.0
+  description: |
+    Bidirectional data connector between the WhizUnik cloud and the Tally
+    desktop connector. Receives (ingests) Tally data from the connector and
+    pushes (syncs) cloud data back to it.
+  contact:
+    name: WhizUnik Platform
+servers:
+  - url: http://localhost:8080
+    description: Local development
+tags:
+  - name: inbound
+    description: Receiving data from the Tally connector (webhooks, polling, batch)
+  - name: outbound
+    description: Pushing data to the Tally connector
+  - name: system
+    description: Health, readiness and metrics
+paths:
+  /webhooks/{connectorId}:
+    post:
+      tags: [inbound]
+      summary: Receive a webhook event from the Tally connector
+      description: |
+        Dedicated receiving endpoint. Verifies the HMAC/SHA256 webhook
+        signature, checks idempotency by event ID, validates and maps the
+        external payload to the internal domain model, persists it, and
+        acknowledges.
+      parameters:
+        - $ref: '#/components/parameters/connectorId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InboundWebhook'
+      responses:
+        '202':
+          description: Accepted for asynchronous processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+        '400':
+          $ref: '#/components/responses/Error400'
+        '401':
+          $ref: '#/components/responses/Error401'
+        '409':
+          $ref: '#/components/responses/Error409'
+  /sync/inbound:
+    get:
+      tags: [inbound]
+      summary: Poll the Tally connector for changes
+      parameters:
+        - $ref: '#/components/parameters/connectorId'
+        - in: query
+          name: cursor
+          schema:
+            type: string
+          description: Last sync cursor/offset
+      responses:
+        '200':
+          description: Inbound changes
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/InboundChanges'
+  /sync/inbound/batch:
+    post:
+      tags: [inbound]
+      summary: Bulk ingest records from the connector
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchIngest'
+      responses:
+        '202':
+          description: Batch accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Ack'
+  /sync/status:
+    get:
+      tags: [system]
+      summary: Sync health and last sync timestamps per connector
+      responses:
+        '200':
+          description: Sync status
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/SyncStatus'
+  /sync/outbound/{resourceType}:
+    post:
+      tags: [outbound]
+      summary: Manually trigger an outbound push for a resource
+      parameters:
+        - $ref: '#/components/parameters/connectorId'
+        - in: path
+          name: resourceType
+          required: true
+          schema:
+            type: string
+            enum: [voucher, master, irn, ewb]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OutboundPush'
+      responses:
+        '202':
+          description: Push job queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboundJob'
+        '400':
+          $ref: '#/components/responses/Error400'
+  /sync/outbound/batch:
+    post:
+      tags: [outbound]
+      summary: Bulk outbound push
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BatchPush'
+      responses:
+        '202':
+          description: Batch push job queued
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboundJob'
+  /sync/outbound/{jobId}:
+    get:
+      tags: [outbound]
+      summary: Check outbound push job status
+      parameters:
+        - in: path
+          name: jobId
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboundJob'
+  /health:
+    get:
+      tags: [system]
+      summary: Liveness probe
+      responses:
+        '200':
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+  /ready:
+    get:
+      tags: [system]
+      summary: Readiness probe (checks DB + connector connectivity)
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          description: Not ready
+  /metrics:
+    get:
+      tags: [system]
+      summary: Prometheus metrics endpoint
+      responses:
+        '200':
+          description: Prometheus text exposition format
+          content:
+            text/plain:
+              schema:
+                type: string
+
+components:
+  parameters:
+    connectorId:
+      in: path
+      name: connectorId
+      required: true
+      schema:
+        type: string
+        example: wz-connector-001
+
+  responses:
+    Error400:
+      description: Validation error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error401:
+      description: Unauthorized (invalid/missing signature or token)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Error409:
+      description: Conflict (duplicate idempotency key)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    InboundWebhook:
+      type: object
+      required: [eventId, connectorId, eventType, payload, timestamp]
+      properties:
+        eventId:
+          type: string
+          example: evt_12345
+        connectorId:
+          type: string
+          example: wz-connector-001
+        eventType:
+          type: string
+          example: company.created
+        timestamp:
+          type: string
+          format: date-time
+        payload:
+          type: object
+          description: External connector payload (Tally XML-derived JSON)
+          example:
+            companyId: whiz-company-1
+            entityType: sales_voucher
+            records: []
+    InboundChanges:
+      type: object
+      properties:
+        connectorId:
+          type: string
+        cursor:
+          type: string
+        changes:
+          type: array
+          items:
+            $ref: '#/components/schemas/InboundWebhook'
+    BatchIngest:
+      type: object
+      required: [connectorId, batchId, records]
+      properties:
+        connectorId:
+          type: string
+        batchId:
+          type: string
+          example: batch_001
+        records:
+          type: array
+          items:
+            type: object
+    Ack:
+      type: object
+      required: [accepted, requestId]
+      properties:
+        accepted:
+          type: boolean
+          example: true
+        requestId:
+          type: string
+          example: req_550e8400
+        summary:
+          type: string
+    SyncStatus:
+      type: object
+      properties:
+        connectorId:
+          type: string
+        direction:
+          type: string
+          enum: [inbound, outbound]
+        lastSyncedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+        pendingCount:
+          type: integer
+    OutboundPush:
+      type: object
+      required: [connectorId, resourceType, payload, idempotencyKey]
+      properties:
+        connectorId:
+          type: string
+        resourceType:
+          type: string
+          example: voucher
+        payload:
+          type: object
+          description: Domain object transformed to the connector schema
+        idempotencyKey:
+          type: string
+    OutboundJob:
+      type: object
+      required: [jobId, status]
+      properties:
+        jobId:
+          type: string
+        status:
+          type: string
+          enum: [queued, running, completed, failed, dead]
+        createdAt:
+          type: string
+          format: date-time
+        processedAt:
+          type: string
+          format: date-time
+        errorMessage:
+          type: string
+    BatchPush:
+      type: object
+      required: [connectorId, items]
+      properties:
+        connectorId:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/OutboundPush'
+    Health:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [up, down]
+        checks:
+          type: object
+          additionalProperties: true
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          properties:
+            code:
+              type: string
+              example: VALIDATION_ERROR
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+            requestId:
+              type: string

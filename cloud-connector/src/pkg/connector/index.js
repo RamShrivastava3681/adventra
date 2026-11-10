@@ -1,0 +1,1 @@
+export { TallyConnectorClient } from './tally';

@@ -1,0 +1,25 @@
+{
+  "eventId": "evt_9f2a1c4d",
+  "connectorId": "wz-connector-001",
+  "eventType": "sales_voucher.created",
+  "timestamp": "2026-11-10T08:30:00Z",
+  "payload": {
+    "companyId": "whiz-company-1",
+    "companyName": "Acme Corp",
+    "entityType": "sales_voucher",
+    "records": [
+      {
+        "sourceObjectId": "sv_001",
+        "sourceVoucherNumber": "INV-1001",
+        "sourceVoucherDate": "2026-11-09",
+        "data": {
+          "invoiceNumber": "INV-1001",
+          "partyName": "Acme Corp",
+          "amount": 1180.00,
+          "tallyDate": "20261109",
+          "gstRate": 18
+        }
+      }
+    ]
+  }
+}

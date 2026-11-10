@@ -32,3 +32,9 @@ Thumbs.db
 logs/
 *.log
 npm-debug.log*
+# Tally Connector Build Files
+tally-connector/installer-test/
+tally-connector/win-unpacked/
+tally-connector/dist/
+*.exe
+*.asar

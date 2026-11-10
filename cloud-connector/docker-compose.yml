@@ -1,0 +1,64 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    image: whizunik/cloud-connector:1.0.0
+    container_name: cloud-connector
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - REPO_DRIVER=postgres
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - connector-net
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: connector-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: connector
+      POSTGRES_PASSWORD: connector_password
+      POSTGRES_DB: connector_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - connector-postgres-data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U connector -d connector_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - connector-net
+
+  redis:
+    image: redis:7-alpine
+    container_name: connector-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks:
+      - connector-net
+
+volumes:
+  connector-postgres-data:
+
+networks:
+  connector-net:
+    driver: bridge

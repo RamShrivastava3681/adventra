@@ -716,6 +716,12 @@ const api = {
       api.get<any>(`/amazon/sync-status${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`).then(
         camelizeResponse,
       ),
+    applicationStatus: (clientId?: string) =>
+      api
+        .get<any>(
+          `/amazon/application-status${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
+        )
+        .then(camelizeResponse),
   },
 
   // Amazon inventory

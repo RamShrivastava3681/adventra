@@ -8,12 +8,19 @@ import * as ReturnModel from "../models/marketplace-amazon-return.js";
 import * as RefundModel from "../models/marketplace-amazon-refund.js";
 import { config } from "../config.js";
 import * as db from "../dynamodb.js";
+import { amazonApplicationStatus, type DashboardStatus } from "../lib/amazon-application-status.js";
 
 type Module = SyncStatusModel.MarketplaceAmazonSyncStatus["module"];
 
 export interface SyncResult {
   module: Module;
   status: SyncStatusModel.SyncStatus;
+  recordsReceived: number;
+  recordsParsed: number;
+  recordsInserted: number;
+  recordsUpdated: number;
+  recordsSkipped: number;
+  recordsRejected: number;
   recordsSynced: number;
   lastCursor: string | null;
   error: string | null;
@@ -21,6 +28,7 @@ export interface SyncResult {
   startTime: string;
   endTime: string | null;
   durationMs: number;
+  paginationCount: number;
 }
 
 type SyncStatus = SyncStatusModel.SyncStatus;
@@ -208,17 +216,36 @@ export class AmazonSyncService {
     const modules: Module[] = ["orders", "order-items", "inventory", "listings", "returns"];
     const results: Record<Module, SyncResult> = {} as any;
     for (const module of modules) {
-      // Order Items depends on Orders - if Orders failed, mark Order Items as BLOCKED
+      // Order Items depends on Orders - if Orders failed/empty, mark Order Items accordingly
       if (module === "order-items") {
         const ordersResult = results["orders"];
-        if (ordersResult && (ordersResult.status === "Failed" || ordersResult.status === "AuthenticationError" || ordersResult.status === "AccessRestricted" || ordersResult.status === "NotConfigured")) {
-          log.warn({
-            operation: "syncAll",
-            stage: "dependency-blocked",
-            config: { module: "order-items", dependency: "orders", dependencyStatus: ordersResult.status, dependencyError: ordersResult.error },
-          });
-          results["order-items"] = this._result("order-items", "Blocked", 0, null, `Orders dependency failed: ${ordersResult.error || "unknown error"}`, "DependencyFailed", nowISO(), nowISO(), 0);
-          continue;
+        if (ordersResult) {
+          if (ordersResult.status === "Failed" || ordersResult.status === "AuthenticationError" || ordersResult.status === "AccessRestricted" || ordersResult.status === "NotConfigured") {
+            log.warn({
+              operation: "syncAll",
+              stage: "dependency-blocked",
+              config: { module: "order-items", dependency: "orders", dependencyStatus: ordersResult.status, dependencyError: ordersResult.error },
+            });
+            results["order-items"] = this._result(
+              "order-items", "Blocked",
+              0, 0, 0, 0, 0, 0, 0, null, `Orders dependency failed: ${ordersResult.error || "unknown error"}`, "DependencyFailed",
+              nowISO(), nowISO(), 0, 0,
+            );
+            continue;
+          }
+          if (ordersResult.status === "EMPTY" && ordersResult.recordsReceived === 0) {
+            log.warn({
+              operation: "syncAll",
+              stage: "dependency-empty",
+              config: { module: "order-items", dependency: "orders", dependencyStatus: ordersResult.status },
+            });
+            results["order-items"] = this._result(
+              "order-items", "EMPTY",
+              0, 0, 0, 0, 0, 0, 0, null, "No orders available to sync items for", "NoOrders",
+              nowISO(), nowISO(), 0, 0,
+            );
+            continue;
+          }
         }
       }
 
@@ -239,9 +266,22 @@ export class AmazonSyncService {
       module: s.module,
       status: s.status,
       lastSync: s.lastSyncAt,
+      lastAttemptedAt: s.lastAttemptedAt,
+      lastSuccessfulAt: s.lastSuccessfulAt,
       records: s.recordsSynced,
+      recordsReceived: s.recordsReceived,
+      recordsProcessed: s.recordsProcessed,
+      recordsInserted: s.recordsInserted,
+      recordsUpdated: s.recordsUpdated,
+      recordsSkipped: s.recordsSkipped,
+      recordsRejected: s.recordsRejected,
       error: s.error,
       errorCode: s.errorCode,
+      errorClassification: s.errorClassification,
+      httpStatus: s.httpStatus,
+      amazonRequestId: s.amazonRequestId,
+      durationMs: s.durationMs,
+      paginationCount: s.paginationCount,
       retries: s.retries,
       cursor: s.lastCursor,
     }));
@@ -255,6 +295,7 @@ export class AmazonSyncService {
     const log = new AmazonDebugLogger({ traceId, clientId }).child({ module: "orders" });
     const startTime = nowISO();
     const startMs = Date.now();
+    const lastAttemptedAt = startTime;
 
     await SyncStatusModel.markSyncing({ clientId, module: "orders" });
     log.info({ operation: "syncOrders", stage: "before", config: { startTime } });
@@ -262,14 +303,25 @@ export class AmazonSyncService {
     if (!config.amazon.isConfigured) {
       const err = new Error("Amazon SP-API is not configured");
       log.error({ operation: "syncOrders", stage: "error", errorCode: "NotConfigured", errorMessage: err.message });
-      await SyncStatusModel.upsert({ clientId, module: "orders", status: "NotConfigured", error: err.message, errorCode: "NotConfigured" });
-      return this._result("orders", "NotConfigured", 0, null, err.message, "NotConfigured", startTime, nowISO(), Date.now() - startMs);
+      await SyncStatusModel.upsert({
+        clientId, module: "orders", status: "NotConfigured",
+        lastAttemptedAt, lastSyncAt: nowISO(),
+        error: err.message, errorCode: "NotConfigured",
+        errorClassification: "CONFIGURATION_ERROR",
+      });
+      return this._result("orders", "NotConfigured", 0, 0, 0, 0, 0, 0, 0, null, err.message, "NotConfigured", startTime, nowISO(), Date.now() - startMs, 0);
     }
 
-    let total = 0;
+    let totalReceived = 0;
+    let totalParsed = 0;
+    let totalInserted = 0;
+    let totalUpdated = 0;
+    let totalSkipped = 0;
+    let totalRejected = 0;
     let nextToken: string | null = null;
     let lastUpdatedAfter = null;
     let pages = 0;
+    let lastHttpStatus: number | null = null;
 
     const existing = await SyncStatusModel.findByClientAndModule(clientId, "orders");
     if (existing?.lastCursor) lastUpdatedAfter = existing.lastCursor;
@@ -305,10 +357,11 @@ export class AmazonSyncService {
 
         const orders = Array.isArray(resp.Orders) ? resp.Orders : [];
         nextToken = resp.NextToken || null;
+        totalReceived += orders.length;
         log.info({
           operation: "syncOrders",
           stage: "pagination.after",
-          config: { page: pages, recordsReceived: orders.length, nextPage: Boolean(nextToken) },
+          config: { page: pages, recordsReceived: orders.length, nextPage: Boolean(nextToken), totalReceived },
         });
 
         let inserted = 0;
@@ -318,6 +371,7 @@ export class AmazonSyncService {
 
         for (const order of orders) {
           try {
+            totalParsed += 1;
             const normalized = normalizeOrder(clientId, order);
             const existingOrder = await OrderModel.findByAmazonOrderId(clientId, normalized.amazonOrderId);
             if (existingOrder) {
@@ -333,8 +387,10 @@ export class AmazonSyncService {
               await OrderModel.create(normalized as any);
               inserted += 1;
             }
-            total += 1;
+            totalInserted += inserted;
+            totalUpdated += updated;
           } catch (err: any) {
+            totalRejected += 1;
             failed += 1;
             log.error({
               operation: "syncOrders",
@@ -346,53 +402,84 @@ export class AmazonSyncService {
           }
         }
 
+        totalSkipped += skipped;
         log.info({
           operation: "syncOrders",
           stage: "db-write.summary",
-          config: { page: pages, inserted, updated, skipped, failed, total },
+          config: { page: pages, inserted, updated, skipped, failed, totalReceived: orders.length },
         });
       } while (nextToken);
 
-      const lastCursor = lastUpdatedAfter || defaultLookback();
       const endMs = Date.now();
+      // Determine status: EMPTY if 0 records received from Amazon, SUCCESS otherwise
+      const status = totalReceived === 0 ? "EMPTY" : "Synchronized";
+      const lastCursor = lastUpdatedAfter || defaultLookback();
+      const dashboardStatus = totalReceived === 0 ? "EMPTY" : "SUCCESS";
       await SyncStatusModel.upsert({
         clientId,
         module: "orders",
-        status: "Synchronized",
+        status,
         lastSyncAt: nowISO(),
-        recordsSynced: total,
-        lastCursor: lastCursor,
+        lastAttemptedAt,
+        lastSuccessfulAt: totalReceived > 0 ? nowISO() : null,
+        recordsSynced: totalInserted + totalUpdated,
+        recordsReceived: totalReceived,
+        recordsProcessed: totalParsed,
+        recordsInserted: totalInserted,
+        recordsUpdated: totalUpdated,
+        recordsSkipped: totalSkipped,
+        recordsRejected: totalRejected,
+        lastCursor,
+        httpStatus: lastHttpStatus,
+        errorClassification: totalReceived === 0 ? "EMPTY_RESPONSE" : "SYNC_SUCCESS",
+        durationMs: endMs - startMs,
+        paginationCount: pages,
       });
       log.info({
         operation: "syncOrders",
         stage: "after",
         durationMs: endMs - startMs,
-        recordsReceived: total,
-        recordsSaved: total,
-        config: { pages, lastCursor },
+        recordsReceived: totalReceived,
+        recordsParsed: totalParsed,
+        recordsInserted: totalInserted,
+        recordsUpdated: totalUpdated,
+        recordsRejected: totalRejected,
+        config: { pages, lastCursor, status, dashboardStatus },
       });
-      return this._result("orders", "Synchronized", total, lastCursor, null, null, startTime, nowISO(), endMs - startMs);
+      return this._result("orders", status, totalReceived, totalParsed, totalInserted, totalUpdated, totalSkipped, totalRejected, totalInserted + totalUpdated, lastCursor, null, null, startTime, nowISO(), endMs - startMs, pages);
     } catch (err: any) {
       const endMs = Date.now();
       const { status, code, message } = classifyError(err);
+      const { classification, dashboardStatus: ds } = amazonApplicationStatus.classifyAmazonError(err, undefined, message);
       log.error({
         operation: "syncOrders",
         stage: "error",
         durationMs: endMs - startMs,
         errorCode: code,
         errorMessage: message,
-        recordsReceived: total,
+        recordsReceived: totalReceived,
+        errorClassification: classification,
       });
       await SyncStatusModel.upsert({
         clientId,
         module: "orders",
         status,
         lastSyncAt: nowISO(),
-        recordsSynced: total,
+        lastAttemptedAt,
+        recordsSynced: totalInserted + totalUpdated,
+        recordsReceived: totalReceived,
+        recordsProcessed: totalParsed,
+        recordsInserted: totalInserted,
+        recordsUpdated: totalUpdated,
+        recordsSkipped: totalSkipped,
+        recordsRejected: totalRejected,
         error: message,
         errorCode: code,
+        errorClassification: classification,
+        durationMs: endMs - startMs,
+        paginationCount: pages,
       });
-      return this._result("orders", status, total, null, message, code, startTime, nowISO(), endMs - startMs);
+      return this._result("orders", status, totalReceived, totalParsed, totalInserted, totalUpdated, totalSkipped, totalRejected, totalInserted + totalUpdated, null, message, code, startTime, nowISO(), endMs - startMs, pages);
     }
   }
 
@@ -400,6 +487,7 @@ export class AmazonSyncService {
     const log = new AmazonDebugLogger({ traceId, clientId }).child({ module: "order-items" });
     const startTime = nowISO();
     const startMs = Date.now();
+    const lastAttemptedAt = startTime;
 
     await SyncStatusModel.markSyncing({ clientId, module: "order-items" });
     log.info({ operation: "syncOrderItems", stage: "before", config: { startTime } });
@@ -411,8 +499,37 @@ export class AmazonSyncService {
       config: { sourceOrders: orders.length },
     });
 
-    let total = 0;
-    let failed = 0;
+    if (orders.length === 0) {
+      const endMs = Date.now();
+      await SyncStatusModel.upsert({
+        clientId,
+        module: "order-items",
+        status: "EMPTY",
+        lastSyncAt: nowISO(),
+        lastAttemptedAt,
+        recordsSynced: 0,
+        error: "No orders available to sync items for",
+        errorCode: "NoOrders",
+        errorClassification: "EMPTY_RESPONSE",
+        durationMs: endMs - startMs,
+        paginationCount: 0,
+      });
+      log.info({
+        operation: "syncOrderItems",
+        stage: "after",
+        durationMs: endMs - startMs,
+        recordsReceived: 0,
+        config: { reason: "no local orders", status: "EMPTY" },
+      });
+      return this._result("order-items", "EMPTY", 0, 0, 0, 0, 0, 0, 0, null, "No orders available to sync items for", "NoOrders", startTime, nowISO(), endMs - startMs, 0);
+    }
+
+    let totalReceived = 0;
+    let totalParsed = 0;
+    let totalInserted = 0;
+    let totalUpdated = 0;
+    let totalSkipped = 0;
+    let totalRejected = 0;
     let processedOrders = 0;
 
     for (const order of orders) {
@@ -420,6 +537,8 @@ export class AmazonSyncService {
       try {
         const resp = await amazonSpApi.getOrderItems({ amazonOrderId: order.amazonOrderId, traceId, clientId, sellerId: config.amazon.sellerId });
         const items = Array.isArray(resp.OrderItems) ? resp.OrderItems : [];
+        totalReceived += items.length;
+        totalParsed += items.length;
         log.debug({
           operation: "syncOrderItems",
           stage: "pagination.after",
@@ -430,7 +549,7 @@ export class AmazonSyncService {
         for (const item of items) {
           try {
             const normalized = normalizeOrderItem(clientId, order.amazonOrderId, item);
-            const id = `${order.amazonOrderId}#${item.LineNumber || item.lineNumber || total}`;
+            const id = `${order.amazonOrderId}#${item.LineNumber || item.lineNumber || totalInserted}`;
             await db.putItem({
               pk: `MARKETPLACE_AMAZON_ORDER_ITEM#${order.amazonOrderId}`,
               sk: `MARKETPLACE_AMAZON_ORDER_ITEM#${id}`,
@@ -444,9 +563,9 @@ export class AmazonSyncService {
               updatedAt: nowISO(),
             } as any);
             inserted += 1;
-            total += 1;
+            totalInserted += 1;
           } catch (err: any) {
-            failed += 1;
+            totalRejected += 1;
             log.error({
               operation: "syncOrderItems",
               stage: "db-write",
@@ -463,7 +582,7 @@ export class AmazonSyncService {
           config: { amazonOrderId: order.amazonOrderId, itemsReceived: items.length, inserted },
         });
       } catch (err: any) {
-        failed += 1;
+        totalRejected += 1;
         log.error({
           operation: "syncOrderItems",
           stage: "error",
@@ -475,42 +594,58 @@ export class AmazonSyncService {
     }
 
     const endMs = Date.now();
-    const status = failed > 0 && total === 0 ? "Failed" : "Synchronized";
+    const hasFailures = totalRejected > 0;
+    const status = totalReceived === 0 ? "EMPTY" : (hasFailures ? "PARTIAL" : "Synchronized");
+    const dashboardStatus = totalReceived === 0 ? "EMPTY" : (hasFailures ? "PARTIAL" : "SUCCESS");
     await SyncStatusModel.upsert({
       clientId,
       module: "order-items",
       status,
       lastSyncAt: nowISO(),
-      recordsSynced: total,
-      error: failed > 0 ? `${failed} order(s) failed to fetch items` : null,
-      errorCode: failed > 0 ? "PartialFailure" : null,
+      lastAttemptedAt,
+      lastSuccessfulAt: totalReceived > 0 ? nowISO() : null,
+      recordsSynced: totalInserted,
+      recordsReceived: totalReceived,
+      recordsProcessed: totalParsed,
+      recordsInserted: totalInserted,
+      recordsUpdated: totalUpdated,
+      recordsSkipped: totalSkipped,
+      recordsRejected: totalRejected,
+      error: totalRejected > 0 ? `${totalRejected} item(s) failed to persist` : null,
+      errorCode: totalRejected > 0 ? "PartialFailure" : null,
+      errorClassification: totalReceived === 0 ? "EMPTY_RESPONSE" : (hasFailures ? "SYNC_PARTIAL" : "SYNC_SUCCESS"),
+      durationMs: endMs - startMs,
+      paginationCount: 1,
     });
     log.info({
       operation: "syncOrderItems",
       stage: "after",
       durationMs: endMs - startMs,
-      recordsReceived: total,
-      recordsSaved: total,
-      recordsFailed: failed,
-      config: { processedOrders, failedOrders: failed },
+      recordsReceived: totalReceived,
+      recordsParsed: totalParsed,
+      recordsInserted: totalInserted,
+      recordsRejected: totalRejected,
+      config: { processedOrders, failedOrders: totalRejected, status, dashboardStatus },
     });
-    return this._result("order-items", status, total, null, failed > 0 ? `${failed} order(s) failed` : null, failed > 0 ? "PartialFailure" : null, startTime, nowISO(), endMs - startMs);
+    return this._result("order-items", status, totalReceived, totalParsed, totalInserted, totalUpdated, totalSkipped, totalRejected, totalInserted, null, totalRejected > 0 ? `${totalRejected} item(s) failed` : null, totalRejected > 0 ? "PartialFailure" : null, startTime, nowISO(), endMs - startMs, 1);
   }
 
   private async syncInventory(clientId: string, traceId?: string): Promise<SyncResult> {
     const log = new AmazonDebugLogger({ traceId, clientId }).child({ module: "inventory" });
     const startTime = nowISO();
     const startMs = Date.now();
+    const lastAttemptedAt = startTime;
 
     await SyncStatusModel.markSyncing({ clientId, module: "inventory" });
     log.info({ operation: "syncInventory", stage: "before", config: { startTime } });
 
     const marketplaceId = config.amazon.marketplaceId || "";
-    let total = 0;
+    let totalReceived = 0;
+    let totalParsed = 0;
+    let totalInserted = 0;
+    let totalUpdated = 0;
     let nextToken: string | null = null;
     let pages = 0;
-    let inserted = 0;
-    let updated = 0;
 
     log.info({
       operation: "syncInventory",
@@ -538,10 +673,12 @@ export class AmazonSyncService {
 
         const summaries = Array.isArray(resp.InventorySummaries) ? resp.InventorySummaries : [];
         nextToken = resp.NextToken || null;
+        totalReceived += summaries.length;
+        totalParsed += summaries.length;
         log.info({
           operation: "syncInventory",
           stage: "pagination.after",
-          config: { page: pages, recordsReceived: summaries.length, nextPage: Boolean(nextToken) },
+          config: { page: pages, recordsReceived: summaries.length, nextPage: Boolean(nextToken), totalReceived },
         });
 
         for (const item of summaries) {
@@ -549,39 +686,45 @@ export class AmazonSyncService {
           const existing = await InventoryModel.findBySku(clientId, normalized.sellerSku);
           if (existing) {
             await InventoryModel.upsert(normalized as any);
-            updated += 1;
+            totalUpdated += 1;
           } else {
             await InventoryModel.upsert(normalized as any);
-            inserted += 1;
+            totalInserted += 1;
           }
-          total += 1;
         }
       } while (nextToken);
 
       const endMs = Date.now();
-      await SyncStatusModel.upsert({ clientId, module: "inventory", status: "Synchronized", lastSyncAt: nowISO(), recordsSynced: total });
+      // Determine status: EMPTY if 0 records received from Amazon
+      const status = totalReceived === 0 ? "EMPTY" : "Synchronized";
+      const dashboardStatus = totalReceived === 0 ? "EMPTY" : "SUCCESS";
+      await SyncStatusModel.upsert({ clientId, module: "inventory", status, lastSyncAt: nowISO(), lastAttemptedAt, lastSuccessfulAt: totalReceived > 0 ? nowISO() : null, recordsSynced: totalInserted + totalUpdated, recordsReceived: totalReceived, recordsProcessed: totalParsed, recordsInserted: totalInserted, recordsUpdated: totalUpdated, recordsSkipped: 0, recordsRejected: 0, errorClassification: totalReceived === 0 ? "EMPTY_RESPONSE" : "SYNC_SUCCESS", durationMs: endMs - startMs, paginationCount: pages });
       log.info({
         operation: "syncInventory",
         stage: "after",
         durationMs: endMs - startMs,
-        recordsReceived: total,
-        recordsSaved: total,
-        config: { pages, inserted, updated },
+        recordsReceived: totalReceived,
+        recordsParsed: totalParsed,
+        recordsInserted: totalInserted,
+        recordsUpdated: totalUpdated,
+        config: { pages, status, dashboardStatus },
       });
-      return this._result("inventory", "Synchronized", total, null, null, null, startTime, nowISO(), endMs - startMs);
+      return this._result("inventory", status, totalReceived, totalParsed, totalInserted, totalUpdated, 0, 0, totalInserted + totalUpdated, null, null, null, startTime, nowISO(), endMs - startMs, pages);
     } catch (err: any) {
       const endMs = Date.now();
       const { status, code, message } = classifyError(err);
+      const { classification } = amazonApplicationStatus.classifyAmazonError(err, undefined, message);
       log.error({
         operation: "syncInventory",
         stage: "error",
         durationMs: endMs - startMs,
         errorCode: code,
         errorMessage: message,
-        recordsReceived: total,
+        recordsReceived: totalReceived,
+        errorClassification: classification,
       });
-      await SyncStatusModel.upsert({ clientId, module: "inventory", status, lastSyncAt: nowISO(), recordsSynced: total, error: message, errorCode: code });
-      return this._result("inventory", status, total, null, message, code, startTime, nowISO(), endMs - startMs);
+      await SyncStatusModel.upsert({ clientId, module: "inventory", status, lastSyncAt: nowISO(), lastAttemptedAt, recordsSynced: totalInserted + totalUpdated, recordsReceived: totalReceived, recordsProcessed: totalParsed, recordsInserted: totalInserted, recordsUpdated: totalUpdated, recordsSkipped: 0, recordsRejected: 0, error: message, errorCode: code, errorClassification: classification, durationMs: endMs - startMs, paginationCount: pages });
+      return this._result("inventory", status, totalReceived, totalParsed, totalInserted, totalUpdated, 0, 0, totalInserted + totalUpdated, null, message, code, startTime, nowISO(), endMs - startMs, pages);
     }
   }
 
@@ -589,12 +732,14 @@ export class AmazonSyncService {
     const log = new AmazonDebugLogger({ traceId, clientId }).child({ module: "listings" });
     const startTime = nowISO();
     const startMs = Date.now();
+    const lastAttemptedAt = startTime;
 
     await SyncStatusModel.markSyncing({ clientId, module: "listings" });
     log.info({ operation: "syncListings", stage: "before", config: { startTime } });
 
     const marketplaceId = config.amazon.marketplaceId || "";
-    let total = 0;
+    let totalReceived = 0;
+    let totalParsed = 0;
     let nextToken: string | null = null;
     let pages = 0;
 
@@ -624,10 +769,12 @@ export class AmazonSyncService {
 
         const listings = Array.isArray(resp.Listings) ? resp.Listings : [];
         nextToken = resp.NextToken || null;
+        totalReceived += listings.length;
+        totalParsed += listings.length;
         log.info({
           operation: "syncListings",
           stage: "pagination.after",
-          config: { page: pages, recordsReceived: listings.length, nextPage: Boolean(nextToken) },
+          config: { page: pages, recordsReceived: listings.length, nextPage: Boolean(nextToken), totalReceived },
         });
 
         for (const listing of listings) {
@@ -664,34 +811,38 @@ export class AmazonSyncService {
             restrictions: null,
             syncStatus: "Synced",
           } as any);
-          total += 1;
         }
       } while (nextToken);
 
       const endMs = Date.now();
-      await SyncStatusModel.upsert({ clientId, module: "listings", status: "Synchronized", lastSyncAt: nowISO(), recordsSynced: total });
+      // Determine status: EMPTY if 0 records received from Amazon
+      const status = totalReceived === 0 ? "EMPTY" : "Synchronized";
+      const dashboardStatus = totalReceived === 0 ? "EMPTY" : "SUCCESS";
+      await SyncStatusModel.upsert({ clientId, module: "listings", status, lastSyncAt: nowISO(), lastAttemptedAt, lastSuccessfulAt: totalReceived > 0 ? nowISO() : null, recordsSynced: totalParsed, recordsReceived: totalReceived, recordsProcessed: totalParsed, recordsInserted: totalParsed, recordsUpdated: 0, recordsSkipped: 0, recordsRejected: 0, errorClassification: totalReceived === 0 ? "EMPTY_RESPONSE" : "SYNC_SUCCESS", durationMs: endMs - startMs, paginationCount: pages });
       log.info({
         operation: "syncListings",
         stage: "after",
         durationMs: endMs - startMs,
-        recordsReceived: total,
-        recordsSaved: total,
-        config: { pages },
+        recordsReceived: totalReceived,
+        recordsParsed: totalParsed,
+        config: { pages, status, dashboardStatus },
       });
-      return this._result("listings", "Synchronized", total, null, null, null, startTime, nowISO(), endMs - startMs);
+      return this._result("listings", status, totalReceived, totalParsed, totalParsed, 0, 0, 0, totalParsed, null, null, null, startTime, nowISO(), endMs - startMs, pages);
     } catch (err: any) {
       const endMs = Date.now();
       const { status, code, message } = classifyError(err);
+      const { classification } = amazonApplicationStatus.classifyAmazonError(err, undefined, message);
       log.error({
         operation: "syncListings",
         stage: "error",
         durationMs: endMs - startMs,
         errorCode: code,
         errorMessage: message,
-        recordsReceived: total,
+        recordsReceived: totalReceived,
+        errorClassification: classification,
       });
-      await SyncStatusModel.upsert({ clientId, module: "listings", status, lastSyncAt: nowISO(), recordsSynced: total, error: message, errorCode: code });
-      return this._result("listings", status, total, null, message, code, startTime, nowISO(), endMs - startMs);
+      await SyncStatusModel.upsert({ clientId, module: "listings", status, lastSyncAt: nowISO(), lastAttemptedAt, recordsSynced: totalParsed, recordsReceived: totalReceived, recordsProcessed: totalParsed, recordsInserted: totalParsed, recordsUpdated: 0, recordsSkipped: 0, recordsRejected: 0, error: message, errorCode: code, errorClassification: classification, durationMs: endMs - startMs, paginationCount: pages });
+      return this._result("listings", status, totalReceived, totalParsed, totalParsed, 0, 0, 0, totalParsed, null, message, code, startTime, nowISO(), endMs - startMs, pages);
     }
   }
 
@@ -699,6 +850,7 @@ export class AmazonSyncService {
     const log = new AmazonDebugLogger({ traceId, clientId }).child({ module: "returns" });
     const startTime = nowISO();
     const startMs = Date.now();
+    const lastAttemptedAt = startTime;
 
     await SyncStatusModel.markSyncing({ clientId, module: "returns" });
     log.info({ operation: "syncReturns", stage: "before", config: { startTime } });
@@ -708,13 +860,10 @@ export class AmazonSyncService {
     // status Canceled / Unshipped / Pending represent potential customer returns.
     // We fetch those orders live from Amazon, then pull each order's items via the
     // Order Items API to build real return records — never from local/mock data.
-    //
-    // NOTE: Amazon Orders API v0 OrderStatuses filter accepts only these enum
-    // values: Unfulfillable, PartiallyShipped, PendingAvailability, Shipped,
-    // Pending, InvoiceUnconfirmed, Canceled, Unshipped. "Refunded", "Returned"
-    // and "Cancelled" (double L) are NOT valid filter values.
     const returnStatuses = ["Canceled", "Unshipped", "Pending"];
-    let total = 0;
+    let totalReceived = 0;
+    let totalParsed = 0;
+    let totalInserted = 0;
     let nextToken: string | null = null;
     let lastUpdatedAfter = null;
     let pages = 0;
@@ -727,7 +876,7 @@ export class AmazonSyncService {
       operation: "syncReturns",
       stage: "before",
       config: { returnStatuses, lookback: lastUpdatedAfter, pageSize: 100 },
-      note: "Returns are derived from Orders API (Refunded/Returned/Cancelled). No standalone Get Returns endpoint for all accounts.",
+      note: "Returns are derived from Orders API. No standalone Get Returns endpoint for all accounts.",
     });
 
     try {
@@ -751,10 +900,11 @@ export class AmazonSyncService {
 
         const orders = Array.isArray(resp.Orders) ? resp.Orders : [];
         nextToken = resp.NextToken || null;
+        totalReceived += orders.length;
         log.info({
           operation: "syncReturns",
           stage: "pagination.after",
-          config: { page: pages, recordsReceived: orders.length, nextPage: Boolean(nextToken) },
+          config: { page: pages, recordsReceived: orders.length, nextPage: Boolean(nextToken), totalReceived },
         });
 
         for (const order of orders) {
@@ -762,6 +912,7 @@ export class AmazonSyncService {
           const existingReturn = await ReturnModel.findByAmazonOrderId(clientId, amazonOrderId);
           if (existingReturn) continue;
 
+          totalParsed += 1;
           let quantityReturned = 0;
           let sku = "";
           let asin: string | null = null;
@@ -792,40 +943,52 @@ export class AmazonSyncService {
             conditionDescription: null,
             refundStatus: order.OrderStatus?.toLowerCase() === "refunded" ? "Processed" : "Pending",
           } as any);
-          total += 1;
+          totalInserted += 1;
         }
       } while (nextToken);
 
       const endMs = Date.now();
-      await SyncStatusModel.upsert({ clientId, module: "returns", status: "Synchronized", lastSyncAt: nowISO(), recordsSynced: total });
+      // Determine status: EMPTY if 0 records received from Amazon
+      const status = totalReceived === 0 ? "EMPTY" : "Synchronized";
+      const dashboardStatus = totalReceived === 0 ? "EMPTY" : "SUCCESS";
+      await SyncStatusModel.upsert({ clientId, module: "returns", status, lastSyncAt: nowISO(), lastAttemptedAt, lastSuccessfulAt: totalReceived > 0 ? nowISO() : null, recordsSynced: totalInserted, recordsReceived: totalReceived, recordsProcessed: totalParsed, recordsInserted: totalInserted, recordsUpdated: 0, recordsSkipped: 0, recordsRejected: 0, errorClassification: totalReceived === 0 ? "EMPTY_RESPONSE" : "SYNC_SUCCESS", durationMs: endMs - startMs, paginationCount: pages });
       log.info({
         operation: "syncReturns",
         stage: "after",
         durationMs: endMs - startMs,
-        recordsReceived: total,
-        recordsSaved: total,
-        config: { pages },
+        recordsReceived: totalReceived,
+        recordsParsed: totalParsed,
+        recordsInserted: totalInserted,
+        config: { pages, status, dashboardStatus },
       });
-      return this._result("returns", "Synchronized", total, null, null, null, startTime, nowISO(), endMs - startMs);
+      return this._result("returns", status, totalReceived, totalParsed, totalInserted, 0, 0, 0, totalInserted, null, null, null, startTime, nowISO(), endMs - startMs, pages);
     } catch (err: any) {
       const endMs = Date.now();
       const { status, code, message } = classifyError(err);
+      const { classification } = amazonApplicationStatus.classifyAmazonError(err, undefined, message);
       log.error({
         operation: "syncReturns",
         stage: "error",
         durationMs: endMs - startMs,
         errorCode: code,
         errorMessage: message,
-        recordsReceived: total,
+        recordsReceived: totalReceived,
+        errorClassification: classification,
       });
-      await SyncStatusModel.upsert({ clientId, module: "returns", status, lastSyncAt: nowISO(), recordsSynced: total, error: message, errorCode: code });
-      return this._result("returns", status, total, null, message, code, startTime, nowISO(), endMs - startMs);
+      await SyncStatusModel.upsert({ clientId, module: "returns", status, lastSyncAt: nowISO(), lastAttemptedAt, recordsSynced: totalInserted, recordsReceived: totalReceived, recordsProcessed: totalParsed, recordsInserted: totalInserted, recordsUpdated: 0, recordsSkipped: 0, recordsRejected: 0, error: message, errorCode: code, errorClassification: classification, durationMs: endMs - startMs, paginationCount: pages });
+      return this._result("returns", status, totalReceived, totalParsed, totalInserted, 0, 0, 0, totalInserted, null, message, code, startTime, nowISO(), endMs - startMs, pages);
     }
   }
 
   private _result(
     module: Module,
     status: SyncStatus,
+    recordsReceived: number,
+    recordsParsed: number,
+    recordsInserted: number,
+    recordsUpdated: number,
+    recordsSkipped: number,
+    recordsRejected: number,
     recordsSynced: number,
     lastCursor: string | null,
     error: string | null,
@@ -833,8 +996,26 @@ export class AmazonSyncService {
     startTime: string,
     endTime: string,
     durationMs: number,
+    paginationCount: number,
   ): SyncResult {
-    return { module, status, recordsSynced, lastCursor, error, errorCode, startTime, endTime, durationMs };
+    return {
+      module,
+      status,
+      recordsReceived,
+      recordsParsed,
+      recordsInserted,
+      recordsUpdated,
+      recordsSkipped,
+      recordsRejected,
+      recordsSynced,
+      lastCursor,
+      error,
+      errorCode,
+      startTime,
+      endTime,
+      durationMs,
+      paginationCount,
+    };
   }
 
   // ──────────────────────────────────────────────────────────────────────────
@@ -879,7 +1060,7 @@ async function processQueue() {
     log.info({ operation: "sync.queue.process", stage: "before", config: { module: item.module, queueRemaining: syncQueue.length } });
     try {
       const result = await amazonSync.run(item.module, item.clientId, item.traceId);
-      log.info({ operation: "sync.queue.process", stage: "after", config: { module: item.module, status: result.status, records: result.recordsSynced } });
+      log.info({ operation: "sync.queue.process", stage: "after", config: { module: item.module, status: result.status, records: result.recordsSynced, recordsReceived: result.recordsReceived } });
       item.resolve(result);
     } catch (err) {
       const e = err as any;

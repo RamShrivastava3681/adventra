@@ -6,6 +6,8 @@ export type SyncStatus =
   | "Connected"
   | "Synchronizing"
   | "Synchronized"
+  | "EMPTY"
+  | "PARTIAL"
   | "Failed"
   | "AuthenticationError"
   | "RateLimited"
@@ -23,10 +25,23 @@ export interface MarketplaceAmazonSyncStatus {
   module: "orders" | "order-items" | "inventory" | "listings" | "returns";
   status: SyncStatus;
   lastSyncAt: string | null;
+  lastAttemptedAt: string | null;
+  lastSuccessfulAt: string | null;
   recordsSynced: number;
+  recordsReceived: number;
+  recordsProcessed: number;
+  recordsInserted: number;
+  recordsUpdated: number;
+  recordsSkipped: number;
+  recordsRejected: number;
   lastCursor: string | null; // pagination token / timestamp cursor
+  httpStatus: number | null;
+  errorClassification: string | null;
   error: string | null;
   errorCode: string | null;
+  amazonRequestId: string | null;
+  durationMs: number | null;
+  paginationCount: number;
   retries: number;
   createdAt: string;
   updatedAt: string;
@@ -62,20 +77,46 @@ export async function upsert({
   module,
   status,
   lastSyncAt,
+  lastAttemptedAt,
+  lastSuccessfulAt,
   recordsSynced,
+  recordsReceived,
+  recordsProcessed,
+  recordsInserted,
+  recordsUpdated,
+  recordsSkipped,
+  recordsRejected,
   lastCursor,
+  httpStatus,
+  errorClassification,
   error,
   errorCode,
+  amazonRequestId,
+  durationMs,
+  paginationCount,
   retries,
 }: {
   clientId: string;
   module: MarketplaceAmazonSyncStatus["module"];
   status: SyncStatus;
   lastSyncAt?: string | null;
+  lastAttemptedAt?: string | null;
+  lastSuccessfulAt?: string | null;
   recordsSynced?: number;
+  recordsReceived?: number;
+  recordsProcessed?: number;
+  recordsInserted?: number;
+  recordsUpdated?: number;
+  recordsSkipped?: number;
+  recordsRejected?: number;
   lastCursor?: string | null;
+  httpStatus?: number | null;
+  errorClassification?: string | null;
   error?: string | null;
   errorCode?: string | null;
+  amazonRequestId?: string | null;
+  durationMs?: number | null;
+  paginationCount?: number;
   retries?: number;
 }) {
   const existing = await findByClientAndModule(clientId, module);
@@ -92,10 +133,23 @@ export async function upsert({
     module,
     status: status ?? "NotConfigured",
     lastSyncAt: lastSyncAt ?? null,
+    lastAttemptedAt: lastAttemptedAt ?? null,
+    lastSuccessfulAt: lastSuccessfulAt ?? null,
     recordsSynced: recordsSynced ?? 0,
+    recordsReceived: recordsReceived ?? 0,
+    recordsProcessed: recordsProcessed ?? 0,
+    recordsInserted: recordsInserted ?? 0,
+    recordsUpdated: recordsUpdated ?? 0,
+    recordsSkipped: recordsSkipped ?? 0,
+    recordsRejected: recordsRejected ?? 0,
     lastCursor: lastCursor ?? null,
+    httpStatus: httpStatus ?? null,
+    errorClassification: errorClassification ?? null,
     error: error ?? null,
     errorCode: errorCode ?? null,
+    amazonRequestId: amazonRequestId ?? null,
+    durationMs: durationMs ?? null,
+    paginationCount: paginationCount ?? 0,
     retries: retries ?? 0,
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
