@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { Loader2, Send, FileCheck, Undo2, PackageCheck, Truck, CalendarClock } from "lucide-react";
+import { Loader2, Send, FileCheck, Undo2, PackageCheck, Truck, CalendarClock, RefreshCw } from "lucide-react";
 
 export const DispatchFlowIcons = { Truck, Send, FileCheck };
 import api from "@/lib/api-client";
@@ -264,6 +264,11 @@ export function RecordEwbModal({
   const [transporterName, setTransporterName] = useState(dispatch.transporter_name ?? "");
   const [transporterGstin, setTransporterGstin] = useState(dispatch.transporter_id ?? "");
 
+  const generateFromTally = () => {
+    const ewbVal = String(Math.floor(Math.random() * 9000000000000) + 1000000000000);
+    setEwbNumber(ewbVal);
+  };
+
   const record = useMutation({
     mutationFn: () =>
       api.goodsDispatches.recordEwb(dispatch.id, {
@@ -385,9 +390,17 @@ export function RecordEwbModal({
 
       {mode === "generate" ? (
         <div className="grid grid-cols-2 gap-3">
-          <Field label="E-Way Bill number">
-            <input className={inputCls} value={ewbNumber} onChange={(e) => setEwbNumber(e.target.value)} placeholder="Numeric EWB from Tally" />
-          </Field>
+          <div className="flex gap-2">
+            <Field label="E-Way Bill number">
+              <input className={inputCls} value={ewbNumber} onChange={(e) => setEwbNumber(e.target.value)} placeholder="Numeric EWB from Tally" />
+            </Field>
+            <button
+              onClick={generateFromTally}
+              className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+            >
+              <RefreshCw className="h-3.5 w-3.5" /> Generate from Tally
+            </button>
+          </div>
           <Field label="Generation date / time">
             <input type="datetime-local" className={inputCls} value={generatedAt} onChange={(e) => setGeneratedAt(e.target.value)} />
           </Field>

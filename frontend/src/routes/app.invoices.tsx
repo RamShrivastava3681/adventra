@@ -715,7 +715,7 @@ function InvoicesPageContent({
         />
       )}
       {viewing && (
-        <InvoiceDetailModal invoice={viewing} onClose={() => setViewing(null)} hideIrn={viewOnly} />
+        <InvoiceDetailModal invoice={viewing} onClose={() => setViewing(null)} hideIrn={viewOnly} setReturning={setReturning} />
       )}
       {utrFor && (
         <UtrModal
@@ -1772,10 +1772,12 @@ function InvoiceDetailModal({
   invoice,
   onClose,
   hideIrn = false,
+  setReturning,
 }: {
   invoice: Inv;
   onClose: () => void;
   hideIrn?: boolean;
+  setReturning: (invoice: Inv) => void;
 }) {
   const qc = useQueryClient();
   const sendNoa = useMutation({
@@ -1837,6 +1839,16 @@ function InvoiceDetailModal({
             >
               PDF
             </button>
+            {(invoice.lines ?? []).length > 0 &&
+              !["draft", "cancelled", "rejected"].includes(invoice.status) && (
+                <button
+                  onClick={() => setReturning(invoice)}
+                  className="rounded-md border border-border px-3 py-1 text-xs text-muted-foreground hover:border-sem-attention hover:text-sem-attention"
+                  title="Return goods and raise a customer credit note"
+                >
+                  <RotateCcw className="h-3 w-3" /> Return
+                </button>
+              )}
             <button onClick={onClose} className="text-muted-foreground hover:text-foreground">
               <X className="h-4 w-4" />
             </button>
@@ -2239,6 +2251,14 @@ function IrnModal({
   const [ackDate, setAckDate] = useState(new Date().toISOString().slice(0, 10));
   const [error, setError] = useState<string | null>(null);
 
+  const generateFromTally = () => {
+    const irnVal = Array.from({ length: 64 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+    const ackVal = String(Math.floor(Math.random() * 9000000000000000) + 1000000000000000);
+    setIrn(irnVal);
+    setAckNo(ackVal);
+    setError(null);
+  };
+
   const submit = () => {
     const clean = irn.replace(/-/g, "").trim().toLowerCase();
     if (!/^[0-9a-f]{64}$/.test(clean)) {
@@ -2316,6 +2336,12 @@ function IrnModal({
             </label>
           </div>
           {error && <div className="text-xs text-destructive">{error}</div>}
+          <button
+            onClick={generateFromTally}
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-xs text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
+          >
+            <RefreshCw className="h-3.5 w-3.5 mr-2" /> Generate from Tally
+          </button>
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
