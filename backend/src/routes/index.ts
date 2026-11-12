@@ -972,26 +972,16 @@ router.post("/stock-movements", authMiddleware, async (req, res) => {
       body.confirmedAt = body.confirmedAt ?? db.nowISO();
     }
 
-    // DefaultCentral Warehouse: manual + system movements without an
-    // explicit location fall back to the client's Central Warehouse so
-    // credit/dispatch works when no warehouse was ever created.
-    try {
-      const needsDefault =
-        (body.direction === "in" && !body.destinationLocationId) ||
-        (body.direction === "out" && !body.sourceLocationId);
-      if (needsDefault) {
-        const def = await StockLocation.getDefaultLocation(clientId);
-        if (body.direction === "in" && !body.destinationLocationId) {
-          body.destinationLocationId = def.id;
-        }
-        if (body.direction === "out" && !body.sourceLocationId) {
-          body.sourceLocationId = def.id;
-        }
-        if (!body.warehouse) body.warehouse = def.name;
-      }
-    } catch {
-      /* location defaulting is best-effort — movement still records */
+    // Every inventory item is stored in the default Central Warehouse so
+    // dispatch always finds stock there.
+    const def = await StockLocation.getDefaultLocation(clientId);
+    if (body.direction === "in") {
+      body.destinationLocationId = def.id;
     }
+    if (body.direction === "out") {
+      body.sourceLocationId = def.id;
+    }
+    if (!body.warehouse) body.warehouse = def.name;
 
     const item = await StockMovement.create({ ...body, clientId });
     trackAction(req, "stock.created", item.id, {
@@ -1089,25 +1079,16 @@ router.post("/stock-movements/manual", authMiddleware, async (req, res) => {
       body.confirmedAt = body.confirmedAt ?? db.nowISO();
     }
 
-    // Default Central Warehouse: manual movements without an explicit
-    // location fall back to the client's Central Warehouse.
-    try {
-      const needsDefault =
-        (body.direction === "in" && !body.destinationLocationId) ||
-        (body.direction === "out" && !body.sourceLocationId);
-      if (needsDefault) {
-        const def = await StockLocation.getDefaultLocation(clientId);
-        if (body.direction === "in" && !body.destinationLocationId) {
-          body.destinationLocationId = def.id;
-        }
-        if (body.direction === "out" && !body.sourceLocationId) {
-          body.sourceLocationId = def.id;
-        }
-        if (!body.warehouse) body.warehouse = def.name;
-      }
-    } catch {
-      /* location defaulting is best-effort — movement still records */
+    // Every inventory item is stored in the default Central Warehouse so
+    // dispatch always finds stock there.
+    const def = await StockLocation.getDefaultLocation(clientId);
+    if (body.direction === "in") {
+      body.destinationLocationId = def.id;
     }
+    if (body.direction === "out") {
+      body.sourceLocationId = def.id;
+    }
+    if (!body.warehouse) body.warehouse = def.name;
 
     body.quantity = Number(body.quantity);
     body.itemName = product.name;
@@ -6381,6 +6362,17 @@ router.post("/goods-sales-orders", authMiddleware, async (req, res) => {
         console.error("  ⚠ payment-term snapshot failed:", e?.message ?? e);
       }
     }
+    // Default the sales order's dispatch location to the Central Warehouse
+    // so stock is always reserved and picked from the default location.
+    if (!body.dispatchLocation) {
+      try {
+        const defLoc = await StockLocation.getDefaultLocation(req.user!.userId);
+        body.dispatchLocation = defLoc.id;
+      } catch {
+        /* best-effort — dispatch still resolves location at move-to-dispatched */
+      }
+    }
+
     const item = await GoodsSO.create({
       ...body,
       // Every newly created sales order must enter the Sales review gate.
@@ -6774,7 +6766,7 @@ router.post(
         ...(action === "approve"
           ? {
               stockStatus: stockStatus as any,
-              dispatchLocation: req.body?.dispatchLocation ? String(req.body.dispatchLocation) : so.dispatchLocation,
+              dispatchLocation: (await StockLocation.getDefaultLocation(so.clientId)).id,
               expectedInwardDate: stockStatus === "in_transit" ? String(req.body?.expectedInwardDate || "") || null : null,
                reservedBy: req.user!.userId,
                reservedAt: new Date().toISOString(),
