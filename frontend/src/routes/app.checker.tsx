@@ -26,6 +26,8 @@ import {
   ChevronLeft,
   ChevronRight,
   CalendarDays,
+  X,
+  Loader2,
 } from "lucide-react";
 import { TableSkeleton, StatSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -178,6 +180,7 @@ function CheckerPage() {
   const PAGE_SIZE = 15;
 
   const [viewInv, setViewInv] = useState<{ kind: "sale" | "purchase"; raw: any } | null>(null);
+  const [viewNote, setViewNote] = useState<{ note: any; selfCreated: boolean } | null>(null);
   const [approveFor, setApproveFor] = useState<{ row: Row; utr: string; amount: string } | null>(null);
   const [viewPf, setViewPf] = useState<any | null>(null);
   const [viewPo, setViewPo] = useState<any | null>(null);
@@ -314,8 +317,14 @@ function CheckerPage() {
           : "Note decision recorded",
       );
     },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
+      onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
   });
+
+  const approveNote = (id: string, purchaseReturnId?: string | null) =>
+    reviewNote.mutate({ id, decision: "approved", purchaseReturnId: purchaseReturnId ?? null });
+
+  const rejectNote = (id: string, purchaseReturnId?: string | null) =>
+    reviewNote.mutate({ id, decision: "rejected", purchaseReturnId: purchaseReturnId ?? null });
 
   // Goods purchase orders awaiting the checker's approval.
   const posQ = useQuery({
@@ -621,7 +630,6 @@ function CheckerPage() {
 
     // Credit / debit notes
     for (const n of (notesQ.data ?? []) as any[]) {
-      const linkedRaw = n.invoice ?? n.purchase ?? null;
       out.push({
         key: `note-${n.id}`,
         type: "note",
@@ -633,11 +641,12 @@ function CheckerPage() {
         summary: `${n.kind === "credit" ? "Credit" : "Debit"} note${n.purchase_return_number ? ` · return ${n.purchase_return_number}` : ""}${n.reason ? ` · ${n.reason}` : ""}`,
         ageDays: ageDaysSince(n.created_at),
         selfCreated: n.client_id === user?.id && !isAdmin,
-        // Notes have no dedicated detail modal — reuse the existing linked
-        // invoice modal when one is attached; otherwise no review view.
-        onReview: linkedRaw
-          ? () => setViewInv({ kind: n.invoice ? "sale" : "purchase", raw: linkedRaw })
-          : null,
+        // Notes open a dedicated read-only detail view where the checker can
+        // approve/reject. Credit notes raised from sales returns appear here.
+        onReview: () => {
+          const sc = n.client_id === user?.id && !isAdmin;
+          setViewNote({ note: n, selfCreated: sc });
+        },
         onApprove: () =>
           reviewNote.mutate({
             id: n.id,
@@ -1334,6 +1343,17 @@ function CheckerPage() {
             }
           />
         )}
+        {viewNote && (
+          <NoteDetailModal
+            note={viewNote.note}
+            selfCreated={viewNote.selfCreated}
+            canReview={canReview}
+            pending={reviewNote.isPending}
+            onClose={() => setViewNote(null)}
+            onApprove={approveNote}
+            onReject={rejectNote}
+          />
+        )}
         {viewPf && <ProformaDetailModal pf={viewPf} onClose={() => setViewPf(null)} />}
         {viewPo && <PurchaseOrderDetailModal po={viewPo} onClose={() => setViewPo(null)} />}
         {viewSo && <SalesOrderDetailModal so={viewSo} onClose={() => setViewSo(null)} />}
@@ -1665,6 +1685,183 @@ function ApproveSaleModal({
             <Check className="h-3.5 w-3.5" />
             Approve & record
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function NoteDetailModal({
+  note,
+  selfCreated,
+  canReview,
+  pending,
+  onClose,
+  onApprove,
+  onReject,
+}: {
+  note: any;
+  selfCreated: boolean;
+  canReview: boolean;
+  pending: boolean;
+  onClose: () => void;
+  onApprove: (id: string, purchaseReturnId?: string | null) => void;
+  onReject: (id: string, purchaseReturnId?: string | null) => void;
+}) {
+  const noteStatusClass = (s: string) => {
+    if (s === "applied") return "bg-primary/15 text-primary border-primary/30";
+    if (s === "approved")
+      return "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]";
+    if (s === "rejected") return "bg-destructive/10 text-destructive border-destructive/30";
+    if (s === "void") return "bg-muted text-muted-foreground border-border";
+    return "bg-sem-attention/10 text-sem-attention border-sem-attention/30";
+  };
+  const statusLabel = (s: string) => ({
+    pending: "Pending checker",
+    issued: "Pending checker",
+    approved: "Approved · awaiting apply",
+    rejected: "Rejected",
+    applied: "Applied",
+    void: "Void",
+  }[s] ?? s);
+  const isPending = note.status === "pending" || note.status === "issued";
+  const canDecide = canReview && !selfCreated && isPending;
+  const lines: any[] = Array.isArray(note.line_items) ? note.line_items : [];
+  const linesTotal = lines.reduce((s, l) => s + Number(l.line_total ?? l.amount ?? 0), 0);
+  const link = note.invoice_id
+    ? `Sales invoice · ${note.invoice_id}`
+    : note.purchase_invoice_id
+      ? `Purchase invoice · ${note.purchase_invoice_id}`
+      : "Unlinked";
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-black/60 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="max-h-[92vh] w-full max-w-lg overflow-y-auto rounded-xl border border-border bg-card shadow-vault"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
+          <h3 className="font-display text-lg">
+            {note.kind === "credit" ? "Credit" : "Debit"} note · {note.note_number}
+          </h3>
+          <button onClick={onClose}>
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="space-y-4 p-5 text-sm">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <div className="text-xs uppercase tracking-widest text-muted-foreground">Source</div>
+              <div className="text-muted-foreground">{note.source ?? "manual"}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-widest text-muted-foreground">Date</div>
+              <div className="text-muted-foreground">{fmtDate(note.note_date ?? note.created_at)}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-widest text-muted-foreground">Amount</div>
+              <div className="num text-foreground">{fmtMoney(note.amount)}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-widest text-muted-foreground">Status</div>
+              <span
+                className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[10px] uppercase tracking-widest ${noteStatusClass(note.status)}`}
+              >
+                {statusLabel(note.status)}
+              </span>
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-widest text-muted-foreground">Linked</div>
+              <div className="text-muted-foreground truncate">{link}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase tracking-widest text-muted-foreground">Counterparty</div>
+              <div className="text-muted-foreground">{note.counterparty ?? "—"}</div>
+            </div>
+          </div>
+          {note.reason && (
+            <div>
+              <div className="mb-1 text-xs uppercase tracking-widest text-muted-foreground">
+                Reason
+              </div>
+              <p className="text-muted-foreground">{note.reason}</p>
+            </div>
+          )}
+          {lines.length > 0 && (
+            <div>
+              <div className="mb-2 text-xs uppercase tracking-widest text-muted-foreground">
+                Line items
+              </div>
+              <div className="overflow-x-auto">
+                <table className="table-premium w-full text-xs">
+                  <thead className="text-muted-foreground">
+                    <tr>
+                      <th className="text-left font-normal">Description</th>
+                      <th className="w-20 text-right font-normal">Qty</th>
+                      <th className="w-24 text-right font-normal">Rate</th>
+                      <th className="w-24 text-right font-normal">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lines.map((l, idx) => (
+                      <tr key={idx} className="border-b border-border/60">
+                        <td className="py-1.5 pr-2 text-muted-foreground truncate max-w-[200px]">
+                          {l.description ?? l.name ?? "—"}
+                        </td>
+                        <td className="py-1.5 pr-2 text-right num text-muted-foreground">
+                          {l.quantity ?? l.qty ?? 0}
+                        </td>
+                        <td className="py-1.5 pr-2 text-right num text-muted-foreground">
+                          {fmtMoney(l.unit_price ?? l.unitPrice ?? 0)}
+                        </td>
+                        <td className="py-1.5 pr-2 text-right num text-muted-foreground">
+                          {fmtMoney(l.line_total ?? l.amount ?? 0)}
+                        </td>
+                      </tr>
+                    ))}
+                    <tr className="border-t border-border pt-1 font-medium">
+                      <td className="py-1.5 pr-2 text-right col-span-3">Lines total</td>
+                      <td className="py-1.5 pr-2 text-right num">{fmtMoney(linesTotal)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+          <div className="flex items-center justify-end gap-2 pt-3 border-t border-border">
+            <button
+              onClick={onClose}
+              className="rounded-md border border-border px-4 py-2 text-sm"
+            >
+              Close
+            </button>
+            {canDecide ? (
+              <>
+                <button
+                  onClick={() => onReject(note.id, note.purchase_return_id ?? null)}
+                  disabled={pending}
+                  className="rounded-md border border-destructive px-4 py-2 text-sm text-destructive disabled:opacity-50"
+                >
+                  {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Reject
+                </button>
+                <button
+                  onClick={() => onApprove(note.id, note.purchase_return_id ?? null)}
+                  disabled={pending}
+                  className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-50"
+                >
+                  {pending ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                  Approve
+                </button>
+              </>
+            ) : (
+              <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
+                {!canReview ? "Checker only" : selfCreated ? "Self-created" : "Already decided"}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>
