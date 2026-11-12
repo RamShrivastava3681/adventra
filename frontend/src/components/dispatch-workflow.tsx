@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 import { toast } from "sonner";
 import { Loader2, Send, FileCheck, Undo2, PackageCheck, Truck, CalendarClock, RefreshCw } from "lucide-react";
 
@@ -84,6 +85,10 @@ export function DispatchPackingModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const transportersQ = useQuery({
+    queryKey: ["transporters"],
+    queryFn: () => api.transporters.list(),
+  });
   const [f, setF] = useState({
     cartonCount: dispatch.carton_count ?? "",
     packageType: dispatch.package_type ?? "",
@@ -95,7 +100,6 @@ export function DispatchPackingModal({
     transportMode: dispatch.transport_mode ?? "Road",
     transporterName: dispatch.transporter_name ?? "",
     transporterId: dispatch.transporter_id ?? "",
-    distanceKm: "",
     vehicleNumber: dispatch.vehicle_number ?? "",
     vehicleType: dispatch.vehicle_type ?? "",
     transportDocType: dispatch.transport_doc_type ?? "",
@@ -180,7 +184,21 @@ export function DispatchPackingModal({
             </select>
           </Field>
           <Field label="Transporter name">
-            <input className={inputCls} value={f.transporterName} onChange={(e) => set("transporterName", e.target.value)} />
+            <SearchableSelect
+              value={f.transporterName}
+              onChange={(v) => set("transporterName", v)}
+              placeholder="Select transporter…"
+              searchPlaceholder="Search transporter…"
+              fullLabel
+              options={[
+                { value: "", label: "Select transporter…" },
+                ...((transportersQ.data ?? []) as any[]).map((t: any) => ({
+                  value: t.name ?? t.id,
+                  label: t.name,
+                  hint: t.gstin ? `GSTIN ${t.gstin}` : undefined,
+                })),
+              ]}
+            />
           </Field>
           <Field label="Transporter ID (if available)">
             <input className={inputCls} value={f.transporterId} onChange={(e) => set("transporterId", e.target.value)} placeholder="GSTIN / transporter ID" />
@@ -588,11 +606,14 @@ export function AwaitingPickupTransportModal({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const transportersQ = useQuery({
+    queryKey: ["transporters-awaiting-pick"],
+    queryFn: () => api.transporters.list(),
+  });
   const [f, setF] = useState({
     transporterName: dispatch.transporter_name ?? "",
     transporterId: dispatch.transporter_id ?? "",
     transportMode: dispatch.transport_mode ?? "Road",
-    distanceKm: "",
     vehicleNumber: dispatch.vehicle_number ?? "",
     vehicleType: dispatch.vehicle_type ?? "",
     transportDocType: dispatch.transport_doc_type ?? "",
@@ -643,7 +664,21 @@ export function AwaitingPickupTransportModal({
     >
       <div className="grid grid-cols-2 gap-3">
         <Field label="Transporter name *">
-          <input className={inputCls} value={f.transporterName} onChange={(e) => set("transporterName", e.target.value)} placeholder="e.g. Safexpress" />
+          <SearchableSelect
+            value={f.transporterName}
+            onChange={(v) => set("transporterName", v)}
+            placeholder="Select transporter…"
+            searchPlaceholder="Search transporter…"
+            fullLabel
+            options={[
+              { value: "", label: "Select transporter…" },
+              ...((transportersQ.data ?? []) as any[]).map((t: any) => ({
+                value: t.name ?? t.id,
+                label: t.name,
+                hint: t.gstin ? `GSTIN ${t.gstin}` : undefined,
+              })),
+            ]}
+          />
         </Field>
         <Field label="Transporter ID / GSTIN">
           <input className={inputCls} value={f.transporterId} onChange={(e) => set("transporterId", e.target.value)} placeholder="e.g. 88AAECS4363H1ZA" />

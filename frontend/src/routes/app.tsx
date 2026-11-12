@@ -30,6 +30,7 @@ import {
   Boxes,
   Tag,
   RotateCcw,
+  Link as LinkIcon,
 } from "lucide-react";
 import { useTheme } from "@/lib/theme";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -204,6 +205,7 @@ function buildNavSections(roles: string[]): NavSection[] {
                 { to: "/app/reminders", label: "Reminders", icon: Mail },
                 { to: "/app/admin", label: "Operations", icon: Shield },
                 { to: "/app/template", label: "Invoice template", icon: Palette },
+                { to: "/app/tally-connector", label: "Tally Connector", icon: LinkIcon },
                 { to: "/app/settings", label: "Settings", icon: Settings },
               ]
             : [{ to: "/app/settings", label: "Settings", icon: Settings }],

@@ -22,6 +22,10 @@ import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { Plus, X, Loader2, ArrowDownToLine, ArrowUpFromLine, Trash2, Check, Ban, Package, Pencil, Boxes, Upload, FileSpreadsheet, AlertTriangle, RefreshCw, Settings, Search, ArrowDownAZ, ArrowUpAZ, LayoutGrid, List, ArrowRightLeft, Filter } from "lucide-react";
 
+function clean(v: unknown): string {
+  return typeof v === "string" ? v.trim() : v != null ? String(v).trim() : "";
+}
+
 export const Route = createFileRoute("/app/inventory")({
   component: InventoryPage,
 });
@@ -805,9 +809,22 @@ export function InventoryPage({
             )}
           </div>
         </div>
-        {openMovement && <MovementModal userId={user!.id} onClose={() => setOpenMovement(false)} />}
+        {openMovement && (
+          <MovementModal
+            userId={user!.id}
+            products={productsQ.data ?? []}
+            stockByProduct={stockByProduct}
+            onClose={() => setOpenMovement(false)}
+          />
+        )}
         {editingMovement && (
-          <MovementModal userId={user!.id} movement={editingMovement} onClose={() => setOpenMovement(false)} />
+          <MovementModal
+            userId={user!.id}
+            movement={editingMovement}
+            products={productsQ.data ?? []}
+            stockByProduct={stockByProduct}
+            onClose={() => setOpenMovement(false)}
+          />
         )}
       </Card>
     );
@@ -885,26 +902,146 @@ export function InventoryPage({
 function MovementModal({
   userId,
   movement,
+  products,
+  stockByProduct,
   onClose,
 }: {
   userId: string;
   movement?: Movement;
+  products: any[];
+  stockByProduct: Map<string, number>;
   onClose: () => void;
 }) {
   const qc = useQueryClient();
-  const [productId, setProductId] = useState(movement?.product_id ?? "");
+  const [draftCategory, setDraftCategory] = useState("");
+  const [draftProductId, setDraftProductId] = useState("");
+  const [draftColor, setDraftColor] = useState("");
+  const [draftSize, setDraftSize] = useState("");
   const [direction, setDirection] = useState<"in" | "out">(movement?.direction ?? "in");
   const [quantity, setQuantity] = useState(String(movement?.quantity ?? 1));
   const [reason, setReason] = useState("");
 
+  const byId = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const p of products) m.set(p.id, p);
+    return m;
+  }, [products]);
+
+  const childrenByParent = useMemo(() => {
+    const m = new Map<string, any[]>();
+    for (const p of products) {
+      if (p.parent_id) {
+        const list = m.get(p.parent_id) ?? [];
+        list.push(p);
+        m.set(p.parent_id, list);
+      }
+    }
+    return m;
+  }, [products]);
+
+  const categoryList = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of products) {
+      const c = clean(p.category);
+      if (c) set.add(c);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [products]);
+
+  const parents = useMemo(() => {
+    return products
+      .filter((p) => !p.parent_id && (!draftCategory || clean(p.category) === draftCategory))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [products, draftCategory]);
+
+  const parent = useMemo(() => (draftProductId ? byId.get(draftProductId) : undefined), [byId, draftProductId]);
+
+  const descendantPool = useMemo(() => {
+    if (!draftProductId) return [];
+    const direct = childrenByParent.get(draftProductId) ?? [];
+    const out: any[] = [];
+    for (const d of direct) {
+      const grand = childrenByParent.get(d.id);
+      if (grand && grand.length > 0) out.push(...grand);
+      else out.push(d);
+    }
+    if (out.length === 0 && parent) out.push(parent);
+    return out;
+  }, [draftProductId, childrenByParent, parent]);
+
+  const availableColors = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of descendantPool) {
+      const c = clean(p.color);
+      if (c) set.add(c);
+    }
+    return Array.from(set).sort();
+  }, [descendantPool]);
+
+  const sizeChildren = useMemo(() => {
+    if (!draftProductId) return [];
+    if (availableColors.length > 0 && draftColor) {
+      return descendantPool.filter((p) => clean(p.color).toLowerCase() === clean(draftColor).toLowerCase());
+    }
+    return descendantPool;
+  }, [descendantPool, availableColors.length, draftColor]);
+
+  const availableSizes = useMemo(() => {
+    const set = new Set<string>();
+    for (const p of sizeChildren) {
+      const s = clean(p.size);
+      if (s) set.add(s);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [sizeChildren]);
+
+  const selectedVariant = useMemo(() => {
+    if (!draftProductId) return undefined;
+    if (availableSizes.length > 0 && draftSize) {
+      return sizeChildren.find((p) => clean(p.size) === draftSize);
+    }
+    if (availableColors.length > 0 && draftColor) {
+      return sizeChildren.find((p) => clean(p.color).toLowerCase() === clean(draftColor).toLowerCase() && !clean(p.size));
+    }
+    if (descendantPool.length > 0) return descendantPool[0];
+    return parent;
+  }, [draftProductId, draftColor, draftSize, availableColors.length, availableSizes.length, sizeChildren, descendantPool, parent]);
+
+  const resolvedProductId = selectedVariant?.id ?? "";
+  const resolvedSku = selectedVariant?.sku ?? null;
+  const resolvedName = selectedVariant?.name ?? "";
+  const availableStock = resolvedProductId ? stockByProduct.get(resolvedProductId) : null;
+
+  useEffect(() => {
+    if (!movement) return;
+    const p = byId.get(movement.product_id ?? "");
+    if (p) {
+      setDraftProductId(p.id);
+      setDraftCategory(clean(p.category) || "");
+      setDraftColor(clean(p.color) || "");
+      setDraftSize(clean(p.size) || "");
+    }
+  }, [movement, byId]);
+
+  const handleProductChange = (productId: string) => {
+    setDraftProductId(productId);
+    setDraftColor("");
+    setDraftSize("");
+  };
+
+  const handleColorChange = (color: string) => {
+    setDraftColor(color);
+    setDraftSize("");
+  };
+
   const save = useMutation({
     mutationFn: async () =>
       api.stockMovements.manual({
-        productId,
+        productId: resolvedProductId,
         quantity: Number(quantity) || 0,
         direction,
-        reason,
-        notes: "Recorded by " + userId,
+        reason: reason || "Manual addition",
+        notes: `Recorded by ${userId} — ${resolvedName} (${resolvedSku ?? "no SKU"})`,
         status: "confirmed",
       }),
     onSuccess: () => {
@@ -929,13 +1066,120 @@ function MovementModal({
         </div>
         <div className="space-y-3 text-xs">
           <label className="block space-y-1">
-            <span className="text-muted-foreground">Product / SKU</span>
-            <input
-              value={productId}
-              onChange={(e) => setProductId(e.target.value)}
-              className={inputBase}
+            <span className="text-muted-foreground">Category</span>
+            {categoryList.length > 0 ? (
+              <SearchableSelect
+                value={draftCategory}
+                onChange={(v) => {
+                  setDraftCategory(v);
+                  setDraftProductId("");
+                  setDraftColor("");
+                  setDraftSize("");
+                }}
+                placeholder="All categories"
+                searchPlaceholder="Search categories…"
+                fullLabel
+                options={[
+                  { value: "", label: "All categories" },
+                  ...categoryList.map((c) => ({ value: c, label: c })),
+                ]}
+              />
+            ) : (
+              <div className="h-10 w-full rounded-md border border-border bg-input px-3 text-sm text-muted-foreground flex items-center">
+                No categories
+              </div>
+            )}
+          </label>
+          <label className="block space-y-1">
+            <span className="text-muted-foreground">Product / Parent SKU</span>
+            <SearchableSelect
+              value={draftProductId}
+              onChange={handleProductChange}
+              disabled={!draftCategory && categoryList.length > 0 ? false : false}
+              placeholder="Select product…"
+              searchPlaceholder="Type product name or SKU…"
+              fullLabel
+              options={parents.map((p) => ({
+                value: p.id,
+                label: p.name,
+                hint: p.sku ? `SKU ${p.sku}` : undefined,
+              }))}
             />
           </label>
+          {draftProductId && (
+            <>
+              <label className="block space-y-1">
+                <span className="text-muted-foreground">Colour</span>
+                {availableColors.length > 0 ? (
+                  <SearchableSelect
+                    value={draftColor}
+                    onChange={handleColorChange}
+                    placeholder="Select colour…"
+                    searchPlaceholder="Type colour…"
+                    fullLabel
+                    options={availableColors.map((c) => ({
+                      value: c,
+                      label: c,
+                      hint: sizeChildren.filter((p) => clean(p.color).toLowerCase() === c.toLowerCase() && clean(p.size)).length > 0
+                        ? "has sizes"
+                        : undefined,
+                    }))}
+                  />
+                ) : (
+                  <div className="h-10 w-full rounded-md border border-border bg-muted/30 px-3 text-xs text-muted-foreground flex items-center">
+                    No colour variants
+                  </div>
+                )}
+              </label>
+              <label className="block space-y-1">
+                <span className="text-muted-foreground">Size</span>
+                {availableSizes.length > 0 ? (
+                  <SearchableSelect
+                    value={draftSize}
+                    onChange={(v) => setDraftSize(v)}
+                    placeholder={!draftColor ? "Select colour first…" : "Select size…"}
+                    disabled={!draftColor && availableColors.length > 0}
+                    searchPlaceholder="Type size…"
+                    fullLabel
+                    options={sizeChildren
+                      .filter((p) => {
+                        if (draftColor && availableColors.length > 0) return clean(p.color).toLowerCase() === clean(draftColor).toLowerCase();
+                        return true;
+                      })
+                      .map((p) => ({
+                        value: clean(p.size),
+                        label: clean(p.size) || "One Size",
+                        hint: p.sku ? `SKU ${p.sku}` : undefined,
+                      }))}
+                  />
+                ) : availableColors.length === 0 ? (
+                  <div className="h-10 w-full rounded-md border border-border bg-muted/30 px-3 text-xs text-muted-foreground flex items-center">
+                    Standard product (no size)
+                  </div>
+                ) : (
+                  <div className="h-10 w-full rounded-md border border-border bg-muted/30 px-3 text-xs text-muted-foreground flex items-center">
+                    Select a colour first
+                  </div>
+                )}
+              </label>
+            </>
+          )}
+          {resolvedProductId && (
+            <div className="flex items-center gap-2 px-2 py-1.5 rounded-md border border-border bg-muted/20 text-[10px]">
+              <span className="font-mono">{resolvedSku ?? "—"}</span>
+              <span className="text-muted-foreground">·</span>
+              <span className="truncate">{resolvedName}</span>
+              <span className="ml-auto">
+                Available stock:{availableStock != null ? (
+                  <span className={`font-medium ${availableStock <= 0 ? "text-destructive" : "text-sem-success"}`}>
+                    {availableStock.toLocaleString()}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">—</span>
+                )}
+              </span>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <label className="block space-y-1">
               <span className="text-muted-foreground">Direction</span>
@@ -966,6 +1210,7 @@ function MovementModal({
               onChange={(e) => setReason(e.target.value)}
               className={textareaBase}
               rows={2}
+              placeholder="Manual addition"
             />
           </label>
         </div>
@@ -975,7 +1220,7 @@ function MovementModal({
           </button>
           <button
             onClick={() => save.mutate()}
-            disabled={save.isPending || !productId}
+            disabled={save.isPending || !resolvedProductId}
             className="rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground disabled:opacity-50"
           >
             {save.isPending ? "Saving…" : "Save movement"}

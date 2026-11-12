@@ -1427,16 +1427,30 @@ function SOModal({
         }
       }
       // Block creation/edit when ordered qty exceeds available inventory.
+      // Only block when stock is KNOWN (key present in the map) and actually
+      // insufficient — an absent key means stock hasn't been computed for that
+      // variant yet, which must not falsely trigger "inventory unavailable".
       const short: string[] = [];
+      const unknown: string[] = [];
       for (const l of payloadLines) {
         if (!l.product_id) continue;
-        const available = stockBalance.get(l.product_id) ?? 0;
+        const available = stockBalance.get(l.product_id);
+        if (available === undefined) {
+          const p = products.find((x) => x.id === l.product_id);
+          unknown.push(l.name ?? p?.name ?? l.product_id);
+          continue;
+        }
         if (l.ordered_qty > 0 && l.ordered_qty > available) {
           const p = products.find((x) => x.id === l.product_id);
           short.push(`${l.name ?? p?.name ?? l.product_id}: ordered ${l.ordered_qty}, available ${available}`);
         }
       }
       if (short.length > 0) throw new Error("Insufficient inventory — " + short.join("; "));
+      if (unknown.length > 0) {
+        toast.warning(
+          `Stock not yet computed for: ${unknown.join(", ")} — quantity check skipped for these lines.`,
+        );
+      }
       if (!f.customer_id) throw new Error("Select a billing customer");
       const sameAsBilling = (f as any).same_as_billing !== false;
       const shipId = sameAsBilling ? f.customer_id : ((f as any).ship_customer_id as string);

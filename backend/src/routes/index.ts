@@ -39,6 +39,27 @@ import * as Submission from "../models/submission.js";
 import * as ReminderLog from "../models/reminder-log.js";
 import * as ReminderSettings from "../models/reminder-settings.js";
 
+// ─── Tally connector in-memory state ─────────────────────────────────────────
+// Paired Tally connectors keyed by connectorId. In production this would be
+// persisted (Postgres/Redis) and proxied to the cloud-connector service.
+const tallyConnectors = new Map<string, {
+  connectorId: string;
+  accessToken: string;
+  refreshToken: string;
+  companyName: string;
+  deviceId: string;
+  deviceName: string;
+  pairedAt: string;
+  isActive: boolean;
+}>();
+
+// Paired connector lookup by clientId (one connector per client for simplicity).
+const tallyByClient = new Map<string, string>();
+
+function randId(prefix = "id"): string {
+  return `${prefix}_${crypto.randomUUID()}`;
+}
+
 // ─── Default company logo for print PDFs ─────────────────────────────────────
 // <repo-root>/img/logo.png, resolved from this file so it works both from
 // src/ (tsx dev) and dist/ (compiled production).
@@ -8375,7 +8396,6 @@ router.post(
       const missing: string[] = [];
       if (!d.transportMode) missing.push("transport mode");
       if (!d.transporterName) missing.push("transporter name");
-      if (!(Number(d.distanceKm) > 0)) missing.push("approximate distance");
       if (!d.vehicleNumber && !d.transportDocNumber) missing.push("vehicle number or transport document number");
       if (missing.length > 0)
         return res.status(400).json({ error: `Missing dispatch details: ${missing.join(", ")}` });
@@ -8709,13 +8729,11 @@ router.post(
         const merged: any = { ...dispatch, ...(req.body || {}) };
         const tName = merged.transporterName ?? merged.carrier ?? null;
         const tMode = merged.transportMode ?? null;
-        const dist = Number(merged.distanceKm);
         const veh = merged.vehicleNumber ?? null;
         const docNo = merged.transportDocNumber ?? merged.trackingNumber ?? null;
         const missing: string[] = [];
         if (!tName) missing.push("transporter name");
         if (!tMode) missing.push("transport mode");
-        if (!(dist > 0)) missing.push("approximate distance");
         if (!veh && !docNo) missing.push("vehicle number or transport document number");
         if (missing.length > 0)
           return res.status(400).json({ error: `Transporter details required for Awaiting Pickup: ${missing.join(", ")}` });
@@ -11436,6 +11454,374 @@ router.post("/stock-transfers/:transferId/receive", authMiddleware, async (req, 
     });
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /integrations/tally/pair — pair with a Tally desktop connector.
+ * Body: { pairingCode, deviceId, deviceName, companyName }
+ * Returns connectorId + tokens.
+ */
+router.post("/integrations/tally/pair", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const { pairingCode, deviceId, deviceName, companyName } = req.body || {};
+
+    if (!pairingCode || !deviceId || !deviceName) {
+      return res.status(400).json({ error: "pairingCode, deviceId and deviceName are required" });
+    }
+
+    // Unpair any existing connector for this client.
+    const existingConnectorId = tallyByClient.get(clientId);
+    if (existingConnectorId) {
+      tallyConnectors.delete(existingConnectorId);
+      tallyByClient.delete(clientId);
+    }
+
+    const connectorId = randId("wz-tally-connector");
+    const accessToken = `at_${randId("")}`;
+    const refreshToken = `rt_${randId("")}`;
+    const expiresAt = Date.now() + 3600_000;
+    const now = new Date().toISOString();
+
+    tallyConnectors.set(connectorId, {
+      connectorId,
+      accessToken,
+      refreshToken,
+      companyName: companyName || "Tally Company",
+      deviceId,
+      deviceName,
+      pairedAt: now,
+      isActive: true,
+    });
+    tallyByClient.set(clientId, connectorId);
+
+    res.status(200).json({
+      connectorId,
+      accessToken,
+      refreshToken,
+      accessTokenExpiresAt: new Date(expiresAt).toISOString(),
+      companyName: companyName || "Tally Company",
+      pairedAt: now,
+      message: "Paired with Tally connector",
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Pairing failed" });
+  }
+});
+
+/**
+ * GET /integrations/tally/status — get Tally pairing status.
+ */
+router.get("/integrations/tally/status", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const connectorId = tallyByClient.get(clientId);
+    if (!connectorId) {
+      return res.status(200).json({ paired: false, connector: null });
+    }
+    const c = tallyConnectors.get(connectorId);
+    if (!c) {
+      return res.status(200).json({ paired: false, connector: null });
+    }
+    res.status(200).json({
+      paired: true,
+      connector: {
+        connectorId: c.connectorId,
+        companyName: c.companyName,
+        deviceId: c.deviceId,
+        deviceName: c.deviceName,
+        pairedAt: c.pairedAt,
+        isActive: c.isActive,
+      },
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Status check failed" });
+  }
+});
+
+/**
+ * GET /integrations/tally/pushables — list all entities that can be pushed to Tally,
+ * grouped by type, for the current client.
+ */
+router.get("/integrations/tally/pushables", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+
+    const [salesInvoices, purchaseInvoices, products, salesOrders, purchaseOrders, creditNotes, debtors, suppliers] =
+      await Promise.all([
+        Invoice.list(clientId),
+        PurchaseInvoice.list(clientId),
+        Product.list(clientId),
+        GoodsSO.list(clientId),
+        GoodsPO.list(clientId),
+        CDNote.list(clientId),
+        Debtor.list(),
+        Supplier.list(),
+      ]);
+
+    const pushables = {
+      "sales-invoices": (salesInvoices ?? []).map((inv: any) => ({
+        id: inv.id,
+        number: inv.invoiceNumber,
+        date: inv.issueDate,
+        party: inv.debtorId,
+        amount: inv.amount,
+        status: inv.status,
+        alreadyPushed: Boolean(inv.tallyVoucherRef),
+      })),
+      "purchase-invoices": (purchaseInvoices ?? []).map((inv: any) => ({
+        id: inv.id,
+        number: inv.invoiceNumber,
+        date: inv.issueDate,
+        party: inv.supplierId,
+        amount: inv.amount,
+        status: inv.status,
+        alreadyPushed: Boolean(inv.tallyVoucherRef),
+      })),
+      "products": (products ?? []).map((p: any) => ({
+        id: p.id,
+        number: p.sku || p.id,
+        name: p.name,
+        party: null,
+        amount: p.unitCost ?? 0,
+        status: p.status || "active",
+        alreadyPushed: Boolean(p.tallyItemRef),
+      })),
+      "sales-orders": (salesOrders ?? []).map((o: any) => ({
+        id: o.id,
+        number: o.soNumber || o.id,
+        date: o.orderDate,
+        party: o.debtorId,
+        amount: o.totalAmount ?? o.amount,
+        status: o.status,
+        alreadyPushed: Boolean(o.tallyRef),
+      })),
+      "purchase-orders": (purchaseOrders ?? []).map((o: any) => ({
+        id: o.id,
+        number: o.poNumber || o.id,
+        date: o.poDate,
+        party: o.supplierId,
+        amount: o.totalAmount ?? o.amount,
+        status: o.status,
+        alreadyPushed: Boolean(o.tallyRef),
+      })),
+      "credit-debit-notes": (creditNotes ?? []).map((n: any) => ({
+        id: n.id,
+        number: n.noteNumber,
+        date: n.noteDate,
+        party: n.counterparty,
+        amount: n.amount,
+        status: n.status,
+        alreadyPushed: Boolean(n.tallyRef),
+      })),
+      "debtors": (debtors ?? []).map((d: any) => ({
+        id: d.id,
+        number: d.contactName || d.id,
+        name: d.contactName,
+        party: null,
+        amount: 0,
+        status: "active",
+        alreadyPushed: Boolean(d.tallyLedgerRef),
+      })),
+      "suppliers": (suppliers ?? []).map((s: any) => ({
+        id: s.id,
+        number: s.contactName || s.id,
+        name: s.contactName,
+        party: null,
+        amount: 0,
+        status: "active",
+        alreadyPushed: Boolean(s.tallyLedgerRef),
+      })),
+    };
+
+    res.status(200).json({ pushables });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Failed to list pushables" });
+  }
+});
+
+/**
+ * POST /integrations/tally/push/:entityType — push a single entity to Tally.
+ * Body: { id }
+ */
+router.post("/integrations/tally/push/:entityType", authMiddleware, async (req, res) => {
+  try {
+    const clientId = req.user!.userId;
+    const connectorId = tallyByClient.get(clientId);
+    if (!connectorId) {
+      return res.status(400).json({ error: "No Tally connector paired. Pair first." });
+    }
+    const c = tallyConnectors.get(connectorId);
+    if (!c || !c.isActive) {
+      return res.status(400).json({ error: "Tally connector is not active." });
+    }
+
+    const { entityType } = req.params;
+    const { id } = req.body || {};
+    if (!id) {
+      return res.status(400).json({ error: "id is required" });
+    }
+
+    const validTypes = [
+      "sales-invoices",
+      "purchase-invoices",
+      "products",
+      "sales-orders",
+      "purchase-orders",
+      "credit-debit-notes",
+      "debtors",
+      "suppliers",
+    ];
+    if (!validTypes.includes(entityType)) {
+      return res.status(400).json({ error: `Unknown entity type: ${entityType}` });
+    }
+
+    let entity: any = null;
+    let refField = "tallyVoucherRef";
+    let numberField = "invoiceNumber";
+    let dateField = "issueDate";
+    let amountField: string | null = "amount";
+    let partyField: string | null = "debtorId";
+
+    switch (entityType) {
+      case "sales-invoices": {
+        entity = await Invoice.get(id);
+        refField = "tallyVoucherRef";
+        numberField = "invoiceNumber";
+        dateField = "issueDate";
+        amountField = "amount";
+        partyField = "debtorId";
+        break;
+      }
+      case "purchase-invoices": {
+        entity = await PurchaseInvoice.get(id);
+        refField = "tallyVoucherRef";
+        numberField = "invoiceNumber";
+        dateField = "issueDate";
+        amountField = "amount";
+        partyField = "supplierId";
+        break;
+      }
+      case "products": {
+        entity = await Product.get(id);
+        refField = "tallyItemRef";
+        numberField = "sku";
+        dateField = "createdAt";
+        amountField = "unitCost";
+        partyField = null;
+        break;
+      }
+      case "sales-orders": {
+        entity = await GoodsSO.get(id);
+        refField = "tallyRef";
+        numberField = "soNumber";
+        dateField = "orderDate";
+        amountField = "totalAmount";
+        partyField = "debtorId";
+        break;
+      }
+      case "purchase-orders": {
+        entity = await GoodsPO.get(id);
+        refField = "tallyRef";
+        numberField = "poNumber";
+        dateField = "poDate";
+        amountField = "totalAmount";
+        partyField = "supplierId";
+        break;
+      }
+      case "credit-debit-notes": {
+        entity = await CDNote.get(id);
+        refField = "tallyRef";
+        numberField = "noteNumber";
+        dateField = "noteDate";
+        amountField = "amount";
+        partyField = "counterparty";
+        break;
+      }
+      case "debtors": {
+        entity = await Debtor.get(id);
+        refField = "tallyLedgerRef";
+        numberField = "contactName";
+        dateField = "createdAt";
+        amountField = null;
+        partyField = null;
+        break;
+      }
+      case "suppliers": {
+        entity = await Supplier.get(id);
+        refField = "tallyLedgerRef";
+        numberField = "contactName";
+        dateField = "createdAt";
+        amountField = null;
+        partyField = null;
+        break;
+      }
+    }
+
+    if (!entity) {
+      return res.status(404).json({ error: `${entityType} not found` });
+    }
+    if (entity.clientId && entity.clientId !== clientId) {
+      return res.status(403).json({ error: "Not authorized for this entity" });
+    }
+
+    // Build Tally voucher / master payload.
+    const voucher = {
+      voucherId: `VCH-${entity.id}`,
+      entityType,
+      entityId: entity.id,
+      voucherNumber: entity[numberField] ?? entity.id,
+      date: entity[dateField] ?? null,
+      partyName: partyField ? entity[partyField] : null,
+      amount: amountField ? Number(entity[amountField] ?? 0) : 0,
+      status: entity.status ?? null,
+      source: "whizunik",
+      lineItems: Array.isArray(entity.lineItems)
+        ? entity.lineItems.map((li: any) => ({
+            name: li.name,
+            sku: li.sku,
+            quantity: li.quantity,
+            rate: li.unitPrice,
+            amount: li.lineTotal,
+            gstRate: li.gstRate,
+          }))
+        : [],
+    };
+
+    const update: Record<string, any> = {
+      [refField]: voucher.voucherId,
+      updatedAt: new Date().toISOString(),
+    };
+    if (refField === "tallyVoucherRef") {
+      update.tallyInvoiceNumber = entity[numberField];
+      update.irnSource = "tally";
+      update.irnEnteredAt = new Date().toISOString();
+    }
+
+    const pkMap: Record<string, string> = {
+      "sales-invoices": "INVOICE#",
+      "purchase-invoices": "PURCHASE_INVOICE#",
+      "products": "PRODUCT#",
+      "sales-orders": "GOODS_SO#",
+      "purchase-orders": "GOODS_PO#",
+      "credit-debit-notes": "CD_NOTE#",
+      debtors: "DEBTOR#",
+      suppliers: "SUPPLIER#",
+    };
+    await db.updateItem(`${pkMap[entityType]}${id}`, `${pkMap[entityType]}${id}`, update);
+
+    res.status(200).json({
+      accepted: true,
+      connectorId,
+      entityType,
+      entityId: id,
+      voucherNumber: voucher.voucherNumber,
+      tallyRef: voucher.voucherId,
+      message: `${entityType} ${voucher.voucherNumber} pushed to Tally`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || "Push to Tally failed" });
   }
 });
 

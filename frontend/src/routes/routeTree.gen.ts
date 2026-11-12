@@ -60,6 +60,7 @@ import { Route as AppSampleDistributionRouteImport } from './app.sample-distribu
 import { Route as AppSettingsRouteImport } from './app.settings'
 import { Route as AppStockAllocationRouteImport } from './app.stock-allocation'
 import { Route as AppSuppliersRouteImport } from './app.suppliers'
+import { Route as AppTallyConnectorRouteImport } from './app.tally-connector'
 import { Route as AppTasksRouteImport } from './app.tasks'
 import { Route as AppTemplateRouteImport } from './app.template'
 import { Route as AppVendorsRouteImport } from './app.vendors'
@@ -331,6 +332,11 @@ const AppSuppliersRoute = AppSuppliersRouteImport.update({
   path: '/suppliers',
   getParentRoute: () => AppRoute,
 } as any)
+const AppTallyConnectorRoute = AppTallyConnectorRouteImport.update({
+  id: '/tally-connector',
+  path: '/tally-connector',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppTasksRoute = AppTasksRouteImport.update({
   id: '/tasks',
   path: '/tasks',
@@ -449,6 +455,7 @@ export interface FileRoutesByFullPath {
   '/app/settings': typeof AppSettingsRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
+  '/app/tally-connector': typeof AppTallyConnectorRoute
   '/app/tasks': typeof AppTasksRoute
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
@@ -514,6 +521,7 @@ export interface FileRoutesByTo {
   '/app/settings': typeof AppSettingsRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
+  '/app/tally-connector': typeof AppTallyConnectorRoute
   '/app/tasks': typeof AppTasksRoute
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
@@ -581,6 +589,7 @@ export interface FileRoutesById {
   '/app/settings': typeof AppSettingsRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
+  '/app/tally-connector': typeof AppTallyConnectorRoute
   '/app/tasks': typeof AppTasksRoute
   '/app/template': typeof AppTemplateRoute
   '/app/vendors': typeof AppVendorsRoute
@@ -649,6 +658,7 @@ export interface FileRouteTypes {
     | '/app/settings'
     | '/app/stock-allocation'
     | '/app/suppliers'
+    | '/app/tally-connector'
     | '/app/tasks'
     | '/app/template'
     | '/app/vendors'
@@ -714,6 +724,7 @@ export interface FileRouteTypes {
     | '/app/settings'
     | '/app/stock-allocation'
     | '/app/suppliers'
+    | '/app/tally-connector'
     | '/app/tasks'
     | '/app/template'
     | '/app/vendors'
@@ -780,6 +791,7 @@ export interface FileRouteTypes {
     | '/app/settings'
     | '/app/stock-allocation'
     | '/app/suppliers'
+    | '/app/tally-connector'
     | '/app/tasks'
     | '/app/template'
     | '/app/vendors'
@@ -1162,6 +1174,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSuppliersRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/tally-connector': {
+      id: '/app/tally-connector'
+      path: '/tally-connector'
+      fullPath: '/app/tally-connector'
+      preLoaderRoute: typeof AppTallyConnectorRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/tasks': {
       id: '/app/tasks'
       path: '/tasks'
@@ -1319,6 +1338,7 @@ interface AppRouteChildren {
   AppSettingsRoute: typeof AppSettingsRoute
   AppStockAllocationRoute: typeof AppStockAllocationRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
+  AppTallyConnectorRoute: typeof AppTallyConnectorRoute
   AppTasksRoute: typeof AppTasksRoute
   AppTemplateRoute: typeof AppTemplateRoute
   AppVendorsRoute: typeof AppVendorsRoute
@@ -1379,6 +1399,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsRoute: AppSettingsRoute,
   AppStockAllocationRoute: AppStockAllocationRoute,
   AppSuppliersRoute: AppSuppliersRoute,
+  AppTallyConnectorRoute: AppTallyConnectorRoute,
   AppTasksRoute: AppTasksRoute,
   AppTemplateRoute: AppTemplateRoute,
   AppVendorsRoute: AppVendorsRoute,

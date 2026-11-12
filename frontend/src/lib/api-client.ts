@@ -915,6 +915,21 @@ const api = {
     update: (data: any) => api.put<any>("/invoice-templates", data),
   },
 
+  // Tally connector — pair with the Tally desktop connector and push entities.
+  tally: {
+    status: () => api.get<any>("/integrations/tally/status"),
+    pair: (data: {
+      pairingCode: string;
+      deviceId: string;
+      deviceName: string;
+      companyName?: string;
+    }) => api.post<any>("/integrations/tally/pair", data),
+    unpair: () => api.post<any>("/integrations/tally/unpair", {}),
+    pushables: () => api.get<any>("/integrations/tally/pushables"),
+    push: (entityType: string, id: string) =>
+      api.post<any>(`/integrations/tally/push/${entityType}`, { id }),
+  },
+
   // CRM
   crm: {
     leads: {

@@ -352,6 +352,22 @@ export function MultiSizeLineCard({
 
   const hasSizedVariants = availableSizes.length > 0;
 
+  // Total available stock across all sizes of the selected colour, for display
+  // in the line header so the user sees availability at a glance.
+  const colorAvailableStock = useMemo(() => {
+    if (!draftColor || !stockBalance) return null;
+    let total = 0;
+    let found = false;
+    for (const p of sizeChildren) {
+      const v = stockBalance.get(p.id);
+      if (v != null) {
+        found = true;
+        total += Math.max(0, v);
+      }
+    }
+    return found ? total : null;
+  }, [draftColor, sizeChildren, stockBalance]);
+
   const selectedSizeValues = useMemo(() => new Set(sizes.map((s) => s.size)), [sizes]);
 
   // Resync when external value changes (draft resume, edit load)
@@ -615,6 +631,11 @@ export function MultiSizeLineCard({
                   {value.color}
                 </span>
               )}
+              {colorAvailableStock != null && (
+                <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-medium font-mono ${colorAvailableStock <= 0 ? "border-destructive/40 bg-destructive/10 text-destructive" : colorAvailableStock <= 5 ? "border-sem-attention/40 bg-sem-attention/10 text-sem-attention" : "border-sem-success/40 bg-sem-success/10 text-sem-success"}`}>
+                  Available: {colorAvailableStock.toLocaleString()}
+                </span>
+              )}
               {sizes.length > 0 && (
                 <span className="inline-flex items-center rounded-full border border-border/60 bg-muted/50 px-2 py-0.5 text-[10px] text-muted-foreground font-mono">
                   {sizes.length} size{sizes.length !== 1 ? "s" : ""} selected
@@ -650,7 +671,10 @@ export function MultiSizeLineCard({
               placeholder="Select category…"
               searchPlaceholder="Search categories…"
               fullLabel
-              options={categoryList.map((c) => ({ value: c, label: c }))}
+              options={[
+                { value: "", label: "All categories", hint: `${parents.length} products` },
+                ...categoryList.map((c) => ({ value: c, label: c })),
+              ]}
             />
           ) : (
             <div className="h-10 w-full rounded-md border border-border bg-input px-3 text-sm text-muted-foreground flex items-center">
