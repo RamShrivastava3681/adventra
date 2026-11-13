@@ -2479,7 +2479,7 @@ router.post("/invoices", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "Add at least one product line" });
     }
     try {
-      body.lines = await validateInvoiceLines(clientId, body.lines);
+      body.lines = await validateInvoiceLines(effectiveListScope(req), body.lines);
     } catch (e: any) {
       return res.status(400).json({ error: e.message });
     }
