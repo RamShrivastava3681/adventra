@@ -6770,9 +6770,9 @@ router.post(
               expectedInwardDate: stockStatus === "in_transit" ? String(req.body?.expectedInwardDate || "") || null : null,
                reservedBy: req.user!.userId,
                reservedAt: new Date().toISOString(),
-               workflowStatus: "sent_to_client",
-               currentOwnerRole: "client",
-               nextRequiredAction: "Accept, reject or request change",
+               workflowStatus: "invoice_pending",
+               currentOwnerRole: "treasury",
+               nextRequiredAction: "Create Sales Invoice",
              }
           : {}),
       });
@@ -6785,44 +6785,37 @@ router.post(
         action === "approve"
           ? `Warehouse ${stockStatus === "in_transit" ? "marked Stock In Transit" : "reserved stock"} at ${req.body?.dispatchLocation || so.dispatchLocation || "warehouse"}${editedLines ? " (line quantities reduced to available stock)" : ""}${req.body?.notes ? ` — ${req.body.notes}` : ""}`
           : `Warehouse put order on hold${req.body?.notes ? `: ${req.body.notes}` : ""}`);
-      // Signed off → confirmed (no checker): auto-send the SO to the client.
+      // Warehouse approved → queue Sales Invoice creation (no client email, no auto-invoice).
+      // Leads treasury to the invoice creation form linked to this sales order.
       if (action === "approve") {
-        let sendNote: string | null = null;
-        try {
-          const sent = await sendDocumentToDebtor("sales_order", { ...so, ...(updated as any) }, so.clientId);
-          await GoodsSO.update(so.id, {
-            debtorApprovalStatus: "pending",
-            debtorApprovalToken: sent.token,
-            debtorApprovalSentAt: db.nowISO(),
-            debtorApprovalRespondedAt: null,
-            debtorApprovalComments: null,
-            debtorApprovalEmail: sent.email,
-          });
-          timelineStatus(req, { clientId: so.clientId, docType: "sales_order", docId: so.id, docNumber: so.soNumber },
-            "confirmed", "sent_to_client", `Warehouse approved — SO emailed to ${sent.email} for client acceptance`);
-        } catch (e: any) {
-          sendNote = e?.message ?? "automatic email failed";
-          timelineStatus(req, { clientId: so.clientId, docType: "sales_order", docId: so.id, docNumber: so.soNumber },
-            "confirmed", "confirmed", `Warehouse approved — auto-email failed (${sendNote}); resend from Sales Orders`);
-        }
         advanceWorkflow(req, {
           workflowType: "sales_order",
-          stage: "client_acceptance",
+          stage: "create_invoice",
           docType: "sales_order",
           docId: so.id,
           docNumber: so.soNumber,
           counterparty: so.customerName,
           docStatus: "confirmed",
-          ownerRole: "client",
-          requiredAction: "Accept, reject or request change",
-          nextAction: "Create Finance task",
+          ownerRole: "treasury",
+          requiredAction: "Create Final Sales Invoice",
+          nextAction: "Send invoice for approval / IRN",
           amount: Number((updated as any)?.grandTotal ?? so.grandTotal) || 0,
           inventoryStatus: (updated as any)?.stockStatus ?? "reserved",
+          linkedDocs: [{ type: "sales_order", id: so.id, number: so.soNumber }],
         }, {
           timelineKind: "system",
-          timelineText: sendNote ? `Awaiting client acceptance (auto-email failed: ${sendNote})` : "Awaiting client acceptance — approval link emailed",
+          timelineText: "Warehouse approved — awaiting Sales Invoice creation",
           docType: "sales_order",
-          appPath: "/app/sales-orders",
+          appPath: "/app/invoices",
+        });
+        // Reminder mail to treasury: open the invoice creation form linked to this SO.
+        notifyPendingQueue(req, {
+          stage: "treasury",
+          kind: "sales_invoice",
+          number: so.soNumber,
+          amount: Number((updated as any)?.grandTotal ?? so.grandTotal) || 0,
+          counterparty: so.customerName,
+          reviewPath: "/app/invoices",
         });
       }
       res.json(updated);

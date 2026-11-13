@@ -85,6 +85,18 @@ export function DocumentUploader({
     onChange(docs.filter((x) => x.path !== d.path));
   };
 
+  const openDoc = async (d: DocMeta) => {
+    const res = await fetch(`${API_URL}/upload/${encodeURIComponent(d.path)}/url`, {
+      credentials: "include",
+    });
+    if (!res.ok) {
+      toast.error("Could not open attachment");
+      return;
+    }
+    const data = await res.json();
+    window.open(data.url ?? data.signedUrl, "_blank", "noopener");
+  };
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
@@ -129,14 +141,23 @@ export function DocumentUploader({
                   {(d.size / 1024).toFixed(0)} KB
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={() => remove(d)}
-                className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive"
-                aria-label="Remove"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => openDoc(d)}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] hover:border-primary hover:text-primary disabled:opacity-60"
+                >
+                  <Download className="h-3 w-3" /> Open
+                </button>
+                <button
+                  type="button"
+                  onClick={() => remove(d)}
+                  className="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive"
+                  aria-label="Remove"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
             </li>
           ))}
         </ul>
