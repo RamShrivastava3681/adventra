@@ -6806,7 +6806,7 @@ router.post(
           timelineKind: "system",
           timelineText: "Warehouse approved — awaiting Sales Invoice creation",
           docType: "sales_order",
-          appPath: "/app/invoices",
+          appPath: `/app/invoices?createFromSo=${encodeURIComponent(so.id)}`,
         });
         // Reminder mail to treasury: open the invoice creation form linked to this SO.
         notifyPendingQueue(req, {
@@ -6815,7 +6815,7 @@ router.post(
           number: so.soNumber,
           amount: Number((updated as any)?.grandTotal ?? so.grandTotal) || 0,
           counterparty: so.customerName,
-          reviewPath: "/app/invoices",
+          reviewPath: `/app/invoices?createFromSo=${encodeURIComponent(so.id)}`,
         });
       }
       res.json(updated);
