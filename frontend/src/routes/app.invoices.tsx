@@ -31,6 +31,7 @@ import {
   ArrowRight,
   Check,
   RotateCcw,
+  Download,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { useFormDraft, DraftResumeBanner } from "@/lib/form-draft";
@@ -524,7 +525,9 @@ function InvoicesPageContent({
                               )}
                             </td>
                             <td className="px-5 py-3">
-                              <div className="font-medium text-base">{i.debtor?.name ?? debtorName(i.debtor_id) ?? "—"}</div>
+                              <div className="font-medium text-base">
+                                {i.debtor?.name ?? debtorName(i.debtor_id) ?? "—"}
+                              </div>
                               {i.debtor?.billing_address && (
                                 <div className="text-[10px] text-muted-foreground">
                                   {i.debtor.billing_address}
@@ -670,6 +673,17 @@ function InvoicesPageContent({
                                       <FileCheck className="h-3 w-3" /> IRN
                                     </button>
                                   )}
+                                {canCreate && i.lines?.length > 0 && (
+                                  <button
+                                    onClick={() =>
+                                      api.invoices.downloadTallyXml(i.id, `${i.invoice_number}.xml`)
+                                    }
+                                    className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] text-muted-foreground hover:border-primary hover:text-primary"
+                                    title="Download Tally XML import"
+                                  >
+                                    <Download className="h-3 w-3" /> XML
+                                  </button>
+                                )}
                                 {canCreate &&
                                   !["draft", "cancelled", "rejected"].includes(i.status) &&
                                   (i.lines ?? []).length > 0 && (
@@ -715,7 +729,12 @@ function InvoicesPageContent({
         />
       )}
       {viewing && (
-        <InvoiceDetailModal invoice={viewing} onClose={() => setViewing(null)} hideIrn={viewOnly} setReturning={setReturning} />
+        <InvoiceDetailModal
+          invoice={viewing}
+          onClose={() => setViewing(null)}
+          hideIrn={viewOnly}
+          setReturning={setReturning}
+        />
       )}
       {utrFor && (
         <UtrModal
@@ -2252,7 +2271,10 @@ function IrnModal({
   const [error, setError] = useState<string | null>(null);
 
   const generateFromTally = () => {
-    const irnVal = Array.from({ length: 64 }, () => "0123456789abcdef"[Math.floor(Math.random() * 16)]).join("");
+    const irnVal = Array.from(
+      { length: 64 },
+      () => "0123456789abcdef"[Math.floor(Math.random() * 16)],
+    ).join("");
     const ackVal = String(Math.floor(Math.random() * 9000000000000000) + 1000000000000000);
     setIrn(irnVal);
     setAckNo(ackVal);

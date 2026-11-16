@@ -300,8 +300,7 @@ const api = {
     update: (id: string, data: any) => api.put<any>(`/suppliers/${id}`, data),
     delete: (id: string) => api.delete(`/suppliers/${id}`),
     // Unapplied supplier debit notes (credit available for a future invoice).
-    credits: (id: string) =>
-      api.get<{ credits: any[]; total: number }>(`/suppliers/${id}/credits`),
+    credits: (id: string) => api.get<{ credits: any[]; total: number }>(`/suppliers/${id}/credits`),
   },
 
   // Transporters
@@ -347,6 +346,38 @@ const api = {
       a.remove();
       URL.revokeObjectURL(url);
     },
+    // Tally ERP 9 XML import download.
+    downloadTallyXml: async (id: string, filename: string) => {
+      const res = await fetch(`${API_URL}/invoices/${id}/tally-xml`, { credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || "Could not download Tally XML");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disp = res.headers.get("content-disposition") || "";
+      const m = disp.match(/filename="?([^"]+)"?/);
+      a.download = m?.[1] ?? `${filename}.xml`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+    // Confirm the invoice was created in Tally (opens the IRN/EWB task next).
+    confirmTally: (id: string) => api.post<any>(`/invoices/${id}/tally-confirm`, {}),
+    // Record the IRN and e-Way Bill number returned by Tally, then advance to dispatch.
+    recordIrnEwb: (
+      id: string,
+      data: {
+        irn: string;
+        ackNo?: string | null;
+        ackDate?: string | null;
+        ewbNumber: string;
+        ewbDate?: string | null;
+      },
+    ) => api.post<any>(`/invoices/${id}/record-irn-ewb`, data),
     recordPayment: (id: string, data: { amountReceived: number; receiptDate?: string }) =>
       api.post<any>(`/invoices/${id}/payment`, data),
     // Email the Notice of Assignment to the buyer with the invoice PDF attached.
@@ -568,20 +599,9 @@ const api = {
       data?: { carrier?: string | null; trackingNumber?: string | null; notes?: string },
     ) => api.post<any>(`/goods-dispatches/${id}/shipping-status`, { status, ...data }),
     // PDF-1 packing + transport handoff: save on draft, submit to Finance,
-    // Finance records the E-Way Bill (or marks it not required), Finance can
-    // send the order back for correction, confirm captures actuals.
+    // Finance can send the order back for correction, confirm captures actuals.
     submitToFinance: (id: string, data: any) =>
       api.post<any>(`/goods-dispatches/${id}/submit-to-finance`, data),
-    recordEwb: (
-      id: string,
-      data: {
-        ewbNumber?: string;
-        generatedAt?: string;
-        validUntil?: string;
-        notRequired?: boolean;
-        reason?: string;
-      },
-    ) => api.post<any>(`/goods-dispatches/${id}/record-ewb`, data),
     sendBack: (id: string, reason: string) =>
       api.post<any>(`/goods-dispatches/${id}/send-back`, { reason }),
     downloadPackingSlip: async (id: string, filename?: string) => {
@@ -621,7 +641,9 @@ const api = {
   amazonSkuMappings: {
     list: (clientId?: string) =>
       api
-        .get<any[]>(`/amazon/sku-mappings${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .get<any[]>(
+          `/amazon/sku-mappings${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
+        )
         .then(camelizeResponse),
     create: (data: any) => api.post<any>("/amazon/sku-mappings", data),
     validate: (amazonSku: string) =>
@@ -632,7 +654,9 @@ const api = {
   amazonInvoices: {
     list: (clientId?: string) =>
       api
-        .get<any[]>(`/amazon/invoices${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .get<any[]>(
+          `/amazon/invoices${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
+        )
         .then(camelizeResponse),
     create: (data: any) => api.post<any>("/amazon/invoices", data),
     updateStatus: (data: { amazonOrderId: string; status: string }) =>
@@ -646,7 +670,9 @@ const api = {
   amazonShipments: {
     list: (clientId?: string) =>
       api
-        .get<any[]>(`/amazon/shipments${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .get<any[]>(
+          `/amazon/shipments${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
+        )
         .then(camelizeResponse),
     createTask: (data: any) => api.post<any>("/amazon/fulfilment/create-task", data),
     dispatch: (data: any) => api.put<any>("/amazon/fulfilment/dispatch", data),
@@ -671,15 +697,16 @@ const api = {
     create: (data: any) => api.post<any>("/amazon/refunds", data),
     updateStatus: (refundId: string, data: any) =>
       api.put<any>(`/amazon/refunds/${refundId}/status`, data),
-    byOrder: (amazonOrderId: string) =>
-      api.get<any>(`/amazon/refunds/order/${amazonOrderId}`),
+    byOrder: (amazonOrderId: string) => api.get<any>(`/amazon/refunds/order/${amazonOrderId}`),
     checkExistence: (amazonOrderId: string) =>
       api.put<any>("/amazon/refunds/check-existence", { amazonOrderId }),
   },
   amazonSettlements: {
     list: (clientId?: string) =>
       api
-        .get<any[]>(`/amazon/settlements${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .get<any[]>(
+          `/amazon/settlements${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
+        )
         .then(camelizeResponse),
     create: (data: any) => api.post<any>("/amazon/settlements", data),
     updateStatus: (settlementId: string, status: string) =>
@@ -696,10 +723,14 @@ const api = {
   amazonExceptions: {
     list: (clientId?: string) =>
       api
-        .get<any[]>(`/amazon/exceptions${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .get<any[]>(
+          `/amazon/exceptions${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
+        )
         .then(camelizeResponse),
     open: (clientId?: string) =>
-      api.get<any[]>(`/amazon/exceptions/open${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`),
+      api.get<any[]>(
+        `/amazon/exceptions/open${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
+      ),
     byReason: (reason: string, clientId?: string) =>
       api.get<any[]>(
         `/amazon/exceptions/reason/${encodeURIComponent(reason)}${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
@@ -711,11 +742,14 @@ const api = {
 
   // Amazon synchronization & health monitoring
   amazonSync: {
-    trigger: (data: { module?: string; traceId?: string } = {}) => api.post<any>("/amazon/sync", data),
+    trigger: (data: { module?: string; traceId?: string } = {}) =>
+      api.post<any>("/amazon/sync", data),
     status: (clientId?: string) =>
-      api.get<any>(`/amazon/sync-status${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`).then(
-        camelizeResponse,
-      ),
+      api
+        .get<any>(
+          `/amazon/sync-status${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
+        )
+        .then(camelizeResponse),
     applicationStatus: (clientId?: string) =>
       api
         .get<any>(
@@ -737,7 +771,9 @@ const api = {
     },
     aggregate: (clientId?: string) =>
       api
-        .get<any>(`/amazon/inventory/aggregate${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .get<any>(
+          `/amazon/inventory/aggregate${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
+        )
         .then(camelizeResponse),
   },
 
@@ -754,14 +790,18 @@ const api = {
     },
     aggregate: (clientId?: string) =>
       api
-        .get<any>(`/amazon/listings/aggregate${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .get<any>(
+          `/amazon/listings/aggregate${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`,
+        )
         .then(camelizeResponse),
   },
 
   // Amazon order items
   amazonOrderItems: {
     byOrder: (amazonOrderId: string) =>
-      api.get<any>(`/amazon/orders/${encodeURIComponent(amazonOrderId)}/items`).then(camelizeResponse),
+      api
+        .get<any>(`/amazon/orders/${encodeURIComponent(amazonOrderId)}/items`)
+        .then(camelizeResponse),
   },
 
   // Amazon Demo Simulator (PDF Developer Note)

@@ -33,7 +33,6 @@ import { useFormDraft, DraftResumeBanner } from "@/lib/form-draft";
 import { DocumentTimelinePanel } from "@/components/document-timeline";
 import {
   DispatchPackingModal,
-  RecordEwbModal,
   ConfirmDispatchModal,
   DispatchFlowHint,
   DispatchStatusTimeline,
@@ -43,10 +42,20 @@ import { TransactionFilters, type TxFiltersConfig } from "@/components/transacti
 
 export const Route = createFileRoute("/app/dispatches")({
   component: DispatchesPage,
-  validateSearch: (search: Record<string, unknown>): { soId?: string; soFilter?: string; createFromInvoice?: string; createFromSO?: string; initialStatus?: string; dispatchId?: string } => ({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): {
+    soId?: string;
+    soFilter?: string;
+    createFromInvoice?: string;
+    createFromSO?: string;
+    initialStatus?: string;
+    dispatchId?: string;
+  } => ({
     soId: typeof search.soId === "string" ? search.soId : undefined,
     soFilter: typeof search.soFilter === "string" ? search.soFilter : undefined,
-    createFromInvoice: typeof search.createFromInvoice === "string" ? search.createFromInvoice : undefined,
+    createFromInvoice:
+      typeof search.createFromInvoice === "string" ? search.createFromInvoice : undefined,
     createFromSO: typeof search.createFromSO === "string" ? search.createFromSO : undefined,
     initialStatus: typeof search.initialStatus === "string" ? search.initialStatus : undefined,
     dispatchId: typeof search.dispatchId === "string" ? search.dispatchId : undefined,
@@ -190,8 +199,7 @@ const DISPATCH_STATUS_TONES: Record<string, string> = {
   draft: "bg-muted/60 text-muted-foreground border-border",
   details_submitted: "bg-sem-attention/10 text-sem-attention border-sem-attention/30",
   ready_for_dispatch: "bg-sem-success/10 text-sem-success border-sem-success/30",
-  confirmed:
-    "bg-sem-info/10 text-sem-info border-sem-info/30",
+  confirmed: "bg-sem-info/10 text-sem-info border-sem-info/30",
   partially_delivered: "bg-sem-attention/10 text-sem-attention border-sem-attention/30",
   delivered: "bg-primary-soft text-[#0a4a8a] border-primary/20 dark:text-[#63baff]",
   cancelled: "bg-destructive/10 text-destructive border-destructive/30",
@@ -390,8 +398,7 @@ export function DispatchesPageContent({
           daysRemaining: Math.max(
             0,
             Math.round(
-              (new Date(target).getTime() - new Date(today).getTime()) /
-                (1000 * 60 * 60 * 24),
+              (new Date(target).getTime() - new Date(today).getTime()) / (1000 * 60 * 60 * 24),
             ),
           ),
         };
@@ -560,13 +567,12 @@ export function DispatchesPageContent({
                                   : "bg-sem-attention/10 text-sem-attention border border-sem-attention/30"
                             }`}
                           >
-                            {inv.daysRemaining === 0
-                              ? "⚠ Due today"
-                              : `${inv.daysRemaining}d`
-                            }
+                            {inv.daysRemaining === 0 ? "⚠ Due today" : `${inv.daysRemaining}d`}
                           </span>
                         ) : (
-                          <span className="text-muted-foreground text-[10px]">{inv.daysRemaining}d</span>
+                          <span className="text-muted-foreground text-[10px]">
+                            {inv.daysRemaining}d
+                          </span>
                         )}
                       </td>
                       <td className="px-5 py-3">
@@ -690,7 +696,9 @@ export function DispatchesPageContent({
                                       );
                                       toast.success("Packing slip downloaded");
                                     } catch (err: any) {
-                                      toast.error(err?.message || "Failed to download packing slip");
+                                      toast.error(
+                                        err?.message || "Failed to download packing slip",
+                                      );
                                     }
                                   }}
                                   title="Download auto-generated Packing Slip PDF"
@@ -780,7 +788,13 @@ type InvoiceData = {
   id: string;
   invoice_number: string;
   debtor_id: string | null;
-  debtor?: { name?: string; contact_email?: string; address_line?: string; city?: string; country?: string } | null;
+  debtor?: {
+    name?: string;
+    contact_email?: string;
+    address_line?: string;
+    city?: string;
+    country?: string;
+  } | null;
   goods_sales_order_id: string | null;
   goods_sales_order_number: string | null;
   expected_dispatch_date: string | null;
@@ -840,14 +854,16 @@ function DispatchCreateModal({
   });
   const debtors = debtorsQ.data ?? [];
   const allInvoices = (invoicesQ.data ?? []) as InvoiceData[];
-  
+
   const qc = useQueryClient();
   const [soId, setSoId] = useState<string>(editing?.goods_sales_order_id ?? preselectSoId ?? "");
-  const [invoiceId, setInvoiceId] = useState<string>(editing?.linked_sales_invoice_id ?? preselectInvoiceId ?? "");
+  const [invoiceId, setInvoiceId] = useState<string>(
+    editing?.linked_sales_invoice_id ?? preselectInvoiceId ?? "",
+  );
   const [createFromInvoiceState, setCreateFromInvoice] = useState(
     // Editing an invoice-linked draft keeps the invoice context; otherwise
     // fall back to the create-mode pre-selection.
-    editing ? !!editing.linked_sales_invoice_id : (createFromInvoice || !!preselectInvoiceId),
+    editing ? !!editing.linked_sales_invoice_id : createFromInvoice || !!preselectInvoiceId,
   );
   const [f, setF] = useState({
     dispatch_date: (editing?.dispatch_date ?? new Date().toISOString().slice(0, 10)).slice(0, 10),
@@ -901,8 +917,7 @@ function DispatchCreateModal({
       ),
     [sos, dispatchedSoIds, soId],
   );
-  const preselectedSoMissing =
-    !!preselectSoId && !sos.some((s) => s.id === preselectSoId);
+  const preselectedSoMissing = !!preselectSoId && !sos.some((s) => s.id === preselectSoId);
 
   // The SO's live invoice (for the IRN gate hint in SO mode).
   const soInvoiceForIrn = useMemo(() => {
@@ -922,16 +937,15 @@ function DispatchCreateModal({
     const invoices = allInvoices.filter(
       (inv) =>
         String(inv.goods_sales_order_id ?? "") === soId &&
-        !["cancelled", "rejected"].includes(String((inv as any).status ?? ""))
+        !["cancelled", "rejected"].includes(String((inv as any).status ?? "")),
     );
     const proformasList = (proformas ?? []).filter(
-      (pf: any) =>
-        pf.side === "sales" &&
-        String(pf.linked_goods_so_id ?? "") === soId
+      (pf: any) => pf.side === "sales" && String(pf.linked_goods_so_id ?? "") === soId,
     );
     // Prefer an invoice if one exists and is not already linked.
     if (invoices.length > 0) {
-      const alreadyLinked = dispatchedInvoiceIds.has(invoices[0].id) ||
+      const alreadyLinked =
+        dispatchedInvoiceIds.has(invoices[0].id) ||
         (invoiceId && invoiceId !== invoices[0].id && dispatchedSoIds.has(soId));
       if (!alreadyLinked) {
         setInvoiceId(invoices[0].id);
@@ -979,9 +993,7 @@ function DispatchCreateModal({
           unit: l.unit,
           ordered_qty: l.ordered_qty,
           // Pre-fill the pending quantity — user can still edit down.
-          dispatched_qty: String(
-            Math.max(0, l.ordered_qty - (l.dispatched_qty ?? 0)),
-          ),
+          dispatched_qty: String(Math.max(0, l.ordered_qty - (l.dispatched_qty ?? 0))),
           unit_price: String(l.unit_price),
         })),
     );
@@ -996,7 +1008,8 @@ function DispatchCreateModal({
     if (inv) {
       // Invoice carries the SO shipping address at creation; fall back to the
       // linked SO's shipping address when the invoice has none stored.
-      const soShip = sos.find((s) => s.id === (inv as any).goods_sales_order_id)?.delivery_address ?? null;
+      const soShip =
+        sos.find((s) => s.id === (inv as any).goods_sales_order_id)?.delivery_address ?? null;
       setF((prev) => ({
         ...prev,
         linked_sales_invoice_id: inv.id,
@@ -1047,7 +1060,10 @@ function DispatchCreateModal({
           setF((prev) => ({
             ...prev,
             linked_sales_invoice_id: inv.id,
-            delivery_address: inv.delivery_address ?? sos.find((s) => s.id === (inv as any).goods_sales_order_id)?.delivery_address ?? prev.delivery_address,
+            delivery_address:
+              inv.delivery_address ??
+              sos.find((s) => s.id === (inv as any).goods_sales_order_id)?.delivery_address ??
+              prev.delivery_address,
           }));
           setLines(
             (inv.lines ?? [])
@@ -1155,7 +1171,9 @@ function DispatchCreateModal({
       tracking_number: f.tracking_number.trim() || null,
       delivery_challan_number: f.delivery_challan_number.trim() || null,
       linked_customer_proforma_id: f.linked_customer_proforma_id || null,
-      linked_sales_invoice_id: createFromInvoiceState ? invoiceId : f.linked_sales_invoice_id || null,
+      linked_sales_invoice_id: createFromInvoiceState
+        ? invoiceId
+        : f.linked_sales_invoice_id || null,
       notes: f.notes.trim() || null,
       lines: payloadLines,
       dispatch_type: f.dispatch_type || null,
@@ -1240,7 +1258,12 @@ function DispatchCreateModal({
       }
 
       const sourceId = createFromInvoice ? invoiceId : soId;
-      if (!sourceId) throw new Error(createFromInvoice ? "Select an invoice to dispatch against" : "Select a sales order to dispatch against");
+      if (!sourceId)
+        throw new Error(
+          createFromInvoice
+            ? "Select an invoice to dispatch against"
+            : "Select a sales order to dispatch against",
+        );
       // IRN & Finance approval gate (sale dispatches): goods move only against a
       // Finance-approved invoice with IRN recorded — mirror of the server check.
       const saleTypes = ["customer_sale", "marketplace_sale", "pos_sale"];
@@ -1287,7 +1310,7 @@ function DispatchCreateModal({
           `Sales order ${dup} already has a dispatch — one sales order can create only one dispatch`,
         );
       }
-      
+
       // Validate against SO if creating from SO
       if (!createFromInvoice) {
         for (const l of payloadLines) {
@@ -1298,12 +1321,12 @@ function DispatchCreateModal({
           }
         }
       }
-      
+
       // Resolve the SO ID: from invoice's linked SO, or from selected SO
-      const soIdForDispatch = createFromInvoice 
+      const soIdForDispatch = createFromInvoice
         ? (selectedInvoice?.goods_sales_order_id ?? null)
         : soId;
-      
+
       const created = await api.goodsDispatches.create({
         goods_sales_order_id: soIdForDispatch || undefined,
         dispatch_date: f.dispatch_date,
@@ -1312,7 +1335,7 @@ function DispatchCreateModal({
         tracking_number: f.tracking_number.trim() || null,
         delivery_challan_number: f.delivery_challan_number.trim() || null,
         linked_customer_proforma_id: f.linked_customer_proforma_id || null,
-        linked_sales_invoice_id: createFromInvoice ? invoiceId : (f.linked_sales_invoice_id || null),
+        linked_sales_invoice_id: createFromInvoice ? invoiceId : f.linked_sales_invoice_id || null,
         notes: f.notes.trim() || null,
         lines: payloadLines,
         dispatch_type: f.dispatch_type || null,
@@ -1321,7 +1344,7 @@ function DispatchCreateModal({
         channel: f.channel || null,
         delivery_address: f.delivery_address.trim() || null,
       });
-      
+
       // If an initial status was specified, confirm first (the pipeline
       // starts on confirmed dispatches) and then set it. New dispatches
       // already start at Picking, so that move is a no-op. Only the move to
@@ -1329,7 +1352,8 @@ function DispatchCreateModal({
       if (initialStatus && created?.id) {
         try {
           await api.goodsDispatches.confirm(created.id, {});
-          const currentShip = (created as any).shipping_status ?? (created as any).shippingStatus ?? null;
+          const currentShip =
+            (created as any).shipping_status ?? (created as any).shippingStatus ?? null;
           if (!currentShip || currentShip !== initialStatus) {
             try {
               await api.goodsDispatches.shippingStatus(created.id, initialStatus as any, {});
@@ -1416,14 +1440,16 @@ function DispatchCreateModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card px-5 py-3">
-            <div>
-              <h3 className="font-display text-lg">{isEdit ? `Edit draft ${editing?.dispatch_number ?? ""}` : "New dispatch"}</h3>
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                {isEdit
-                  ? "Sales order locked — inventory is debited only when the status moves to Dispatched."
-                  : "Creates a draft — inventory is debited only when the status moves to Dispatched."}
-              </div>
+          <div>
+            <h3 className="font-display text-lg">
+              {isEdit ? `Edit draft ${editing?.dispatch_number ?? ""}` : "New dispatch"}
+            </h3>
+            <div className="text-[10px] uppercase tracking-widest text-muted-foreground">
+              {isEdit
+                ? "Sales order locked — inventory is debited only when the status moves to Dispatched."
+                : "Creates a draft — inventory is debited only when the status moves to Dispatched."}
             </div>
+          </div>
           <button onClick={onClose}>
             <X className="h-4 w-4" />
           </button>
@@ -1460,7 +1486,11 @@ function DispatchCreateModal({
               <button
                 type="button"
                 disabled={isEdit}
-                onClick={() => { setCreateFromInvoice(false); setInvoiceId(""); setSoId(preselectSoId ?? ""); }}
+                onClick={() => {
+                  setCreateFromInvoice(false);
+                  setInvoiceId("");
+                  setSoId(preselectSoId ?? "");
+                }}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   !createFromInvoice
                     ? "bg-primary text-primary-foreground"
@@ -1472,7 +1502,11 @@ function DispatchCreateModal({
               <button
                 type="button"
                 disabled={isEdit}
-                onClick={() => { setCreateFromInvoice(true); setSoId(""); setInvoiceId(preselectInvoiceId ?? ""); }}
+                onClick={() => {
+                  setCreateFromInvoice(true);
+                  setSoId("");
+                  setInvoiceId(preselectInvoiceId ?? "");
+                }}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
                   createFromInvoice
                     ? "bg-primary text-primary-foreground"
@@ -1490,7 +1524,8 @@ function DispatchCreateModal({
             <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
               {preselectSoId && preselectedSoMissing && !createFromInvoiceState ? (
                 <div className="col-span-2 rounded-md border border-sem-attention/40 bg-sem-attention/10 p-2 text-xs text-sem-attention md:col-span-3">
-                  Pre-selected sales order is still loading or not dispatchable yet — lines will appear automatically once it loads.
+                  Pre-selected sales order is still loading or not dispatchable yet — lines will
+                  appear automatically once it loads.
                 </div>
               ) : null}
               {createFromInvoice ? (
@@ -1503,12 +1538,13 @@ function DispatchCreateModal({
                     options={[
                       { value: "", label: "Select invoice…" },
                       ...allInvoices
-                        .filter((inv: any) =>
-                          !["paid", "cancelled", "rejected"].includes(inv.status) &&
-                          !dispatchedInvoiceIds.has(inv.id) &&
-                          (inv.id === invoiceId ||
-                            inv.expected_dispatch_date ||
-                            inv.goods_sales_order_id)
+                        .filter(
+                          (inv: any) =>
+                            !["paid", "cancelled", "rejected"].includes(inv.status) &&
+                            !dispatchedInvoiceIds.has(inv.id) &&
+                            (inv.id === invoiceId ||
+                              inv.expected_dispatch_date ||
+                              inv.goods_sales_order_id),
                         )
                         .map((inv: any) => ({
                           value: inv.id,
@@ -1519,7 +1555,8 @@ function DispatchCreateModal({
                   />
                   {invoiceId && !selectedInvoice?.irn && (
                     <div className="mt-1 text-[10px] text-destructive">
-                      No IRN uploaded on this invoice — dispatch is blocked until the IRN is recorded.
+                      No IRN uploaded on this invoice — dispatch is blocked until the IRN is
+                      recorded.
                     </div>
                   )}
                 </L>
@@ -1536,12 +1573,11 @@ function DispatchCreateModal({
                       ...[
                         ...sos.filter((s) => s.id === soId),
                         ...dispatchableSos.filter((s) => s.id !== soId),
-                      ]
-                        .map((s) => ({
-                          value: s.id,
-                          label: `${s.so_number}${["confirmed", "partially_dispatched"].includes(s.status) ? "" : ` (${s.status})`}`,
-                          hint: s.customer_name ?? undefined,
-                        })),
+                      ].map((s) => ({
+                        value: s.id,
+                        label: `${s.so_number}${["confirmed", "partially_dispatched"].includes(s.status) ? "" : ` (${s.status})`}`,
+                        hint: s.customer_name ?? undefined,
+                      })),
                     ]}
                   />
                   {soId && !soInvoiceForIrn?.irn && (
@@ -1591,7 +1627,8 @@ function DispatchCreateModal({
                     <option value="">Select destination…</option>
                     {stockLocations.map((loc: any) => (
                       <option key={loc.id} value={loc.id}>
-                        {loc.name}{loc.channel ? ` (${loc.channel})` : ""}
+                        {loc.name}
+                        {loc.channel ? ` (${loc.channel})` : ""}
                       </option>
                     ))}
                   </select>
@@ -1617,11 +1654,13 @@ function DispatchCreateModal({
                   <select
                     className="inp"
                     value={f.destination_location_id}
-                    onChange={(e) => setF({ ...f, destination_location_id: e.target.value })}>
+                    onChange={(e) => setF({ ...f, destination_location_id: e.target.value })}
+                  >
                     <option value="">Select destination…</option>
                     {stockLocations.map((loc: any) => (
                       <option key={loc.id} value={loc.id}>
-                        {loc.name}{loc.channel ? ` (${loc.channel})` : ""}
+                        {loc.name}
+                        {loc.channel ? ` (${loc.channel})` : ""}
                       </option>
                     ))}
                   </select>
@@ -1692,7 +1731,15 @@ function DispatchCreateModal({
               </L>
               <div className="col-span-2 md:col-span-1">
                 <L label="Customer">
-                  <input className="inp" value={createFromInvoice ? (selectedInvoice?.debtor?.name ?? "") : (so?.customer_name ?? "")} disabled />
+                  <input
+                    className="inp"
+                    value={
+                      createFromInvoice
+                        ? (selectedInvoice?.debtor?.name ?? "")
+                        : (so?.customer_name ?? "")
+                    }
+                    disabled
+                  />
                 </L>
               </div>
             </div>
@@ -1700,11 +1747,17 @@ function DispatchCreateModal({
               <div className="mt-3 rounded-lg border border-border/60 p-3">
                 <div className="grid grid-cols-2 gap-3 text-sm">
                   <div>
-                    <div className="text-xs uppercase tracking-widest text-muted-foreground">PAN</div>
-                    <div className="font-mono text-xs">{selectedDebtor.panCardNo ?? selectedDebtor.pan_card_no ?? "—"}</div>
+                    <div className="text-xs uppercase tracking-widest text-muted-foreground">
+                      PAN
+                    </div>
+                    <div className="font-mono text-xs">
+                      {selectedDebtor.panCardNo ?? selectedDebtor.pan_card_no ?? "—"}
+                    </div>
                   </div>
                   <div>
-                    <div className="text-xs uppercase tracking-widest text-muted-foreground">GSTIN</div>
+                    <div className="text-xs uppercase tracking-widest text-muted-foreground">
+                      GSTIN
+                    </div>
                     <div className="font-mono text-xs">{selectedDebtor.gstin ?? "—"}</div>
                   </div>
                 </div>
@@ -1717,13 +1770,19 @@ function DispatchCreateModal({
                   className="inp resize-y"
                   value={f.delivery_address}
                   onChange={(e) => setF({ ...f, delivery_address: e.target.value })}
-                  placeholder={createFromInvoice ? "Auto-filled from invoice shipping address" : "Auto-filled from sales order shipping address"}
+                  placeholder={
+                    createFromInvoice
+                      ? "Auto-filled from invoice shipping address"
+                      : "Auto-filled from sales order shipping address"
+                  }
                 />
                 {createFromInvoice && selectedInvoice?.delivery_address && (
                   <div className="mt-1 flex flex-wrap gap-1">
                     <button
                       type="button"
-                      onClick={() => setF({ ...f, delivery_address: selectedInvoice.delivery_address ?? "" })}
+                      onClick={() =>
+                        setF({ ...f, delivery_address: selectedInvoice.delivery_address ?? "" })
+                      }
                       className="rounded text-[10px] border border-border px-2 py-0.5 hover:border-primary hover:text-primary"
                     >
                       Use invoice shipping address
@@ -1960,7 +2019,6 @@ function DispatchDetailModal({
   const [deliverOpen, setDeliverOpen] = useState(false);
   const [returnOpen, setReturnOpen] = useState(false);
   const [packingOpen, setPackingOpen] = useState(false);
-  const [ewbOpen, setEwbOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
 
@@ -1993,7 +2051,9 @@ function DispatchDetailModal({
         toast.warning("Dispatch confirmed — released for picking (stock debits on Dispatched)");
         warnings.forEach((w) => toast.warning(w));
       } else {
-        toast.success("Dispatch confirmed — released for picking. Move to Dispatched to debit stock");
+        toast.success(
+          "Dispatch confirmed — released for picking. Move to Dispatched to debit stock",
+        );
       }
     },
     onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
@@ -2085,7 +2145,10 @@ function DispatchDetailModal({
               <D label="Transporter ID" value={(d as any).transporter_id ?? "—"} />
               <D label="Transport mode" value={(d as any).transport_mode ?? "—"} />
               <D label="Vehicle" value={(d as any).vehicle_number ?? "—"} />
-              <D label="Transport doc" value={(d as any).transport_doc_number ?? d.tracking_number ?? "—"} />
+              <D
+                label="Transport doc"
+                value={(d as any).transport_doc_number ?? d.tracking_number ?? "—"}
+              />
               <D label="E-Way Bill" value={(d as any).eway_bill_number ?? "—"} />
               <D label="Tracking / AWB" value={d.tracking_number ?? "—"} />
               <D label="Delivery challan" value={d.delivery_challan_number ?? "—"} />
@@ -2098,7 +2161,10 @@ function DispatchDetailModal({
               <D label="Linked proforma" value={d.linked_customer_proforma_number ?? "—"} />
               <D label="Linked sales invoice" value={d.linked_sales_invoice_number ?? "—"} />
               <D label="Created by" value={d.dispatched_by ?? "—"} />
-              <D label="Stock debited by" value={d.stock_debited ? (d.debited_by ?? "—") : "Not yet — debits on Dispatched"} />
+              <D
+                label="Stock debited by"
+                value={d.stock_debited ? (d.debited_by ?? "—") : "Not yet — debits on Dispatched"}
+              />
             </div>
 
             {/* Date-wise status journey — dates come from the status-change
@@ -2197,14 +2263,6 @@ function DispatchDetailModal({
                   <Truck className="h-3.5 w-3.5" /> Prepare dispatch order
                 </button>
               )}
-              {canWrite && isNewFlow && d.status === "details_submitted" && (
-                <button
-                  onClick={() => setEwbOpen(true)}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10"
-                >
-                  <FileCheck className="h-3.5 w-3.5" /> Record E-Way Bill
-                </button>
-              )}
               {canWrite && isNewFlow && d.status === "ready_for_dispatch" && (
                 <button
                   onClick={() => setConfirmOpen(true)}
@@ -2228,24 +2286,28 @@ function DispatchDetailModal({
                   Confirm dispatch
                 </button>
               )}
-              {canWrite && d.stock_debited && ["confirmed", "partially_delivered"].includes(d.status) && (
-                <button
-                  onClick={() => setDeliverOpen(true)}
-                  disabled={!!busy}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
-                >
-                  <CheckCircle2 className="h-3.5 w-3.5" /> Mark delivered
-                </button>
-              )}
-              {canWrite && d.stock_debited && ["confirmed", "partially_delivered", "delivered"].includes(d.status) && (
-                <button
-                  onClick={() => setReturnOpen(true)}
-                  disabled={!!busy}
-                  className="inline-flex items-center gap-1.5 rounded-md border border-sem-attention/40 px-3 py-1.5 text-xs font-medium text-sem-attention hover:bg-sem-attention/10 disabled:opacity-50"
-                >
-                  <Undo2 className="h-3.5 w-3.5" /> Record return
-                </button>
-              )}
+              {canWrite &&
+                d.stock_debited &&
+                ["confirmed", "partially_delivered"].includes(d.status) && (
+                  <button
+                    onClick={() => setDeliverOpen(true)}
+                    disabled={!!busy}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/10 disabled:opacity-50"
+                  >
+                    <CheckCircle2 className="h-3.5 w-3.5" /> Mark delivered
+                  </button>
+                )}
+              {canWrite &&
+                d.stock_debited &&
+                ["confirmed", "partially_delivered", "delivered"].includes(d.status) && (
+                  <button
+                    onClick={() => setReturnOpen(true)}
+                    disabled={!!busy}
+                    className="inline-flex items-center gap-1.5 rounded-md border border-sem-attention/40 px-3 py-1.5 text-xs font-medium text-sem-attention hover:bg-sem-attention/10 disabled:opacity-50"
+                  >
+                    <Undo2 className="h-3.5 w-3.5" /> Record return
+                  </button>
+                )}
               <Link
                 to="/app/challan/$dispatchId"
                 params={{ dispatchId: d.id }}
@@ -2272,7 +2334,14 @@ function DispatchDetailModal({
                 <FileText className="h-3.5 w-3.5" /> Packing slip PDF
               </button>
               {canWrite &&
-                ["draft", "details_submitted", "ready_for_dispatch", "confirmed", "partially_delivered", "delivered"].includes(d.status) && (
+                [
+                  "draft",
+                  "details_submitted",
+                  "ready_for_dispatch",
+                  "confirmed",
+                  "partially_delivered",
+                  "delivered",
+                ].includes(d.status) && (
                   <button
                     onClick={() => run("cancel")}
                     disabled={!!busy}
@@ -2336,13 +2405,6 @@ function DispatchDetailModal({
           onDone={invalidate}
         />
       )}
-      {ewbOpen && (
-        <RecordEwbModal
-          dispatch={d}
-          onClose={() => setEwbOpen(false)}
-          onDone={invalidate}
-        />
-      )}
       {confirmOpen && (
         <ConfirmDispatchModal
           dispatch={d}
@@ -2352,11 +2414,7 @@ function DispatchDetailModal({
       )}
 
       {/* Activity timeline (PDF-3 §2) — same view for every team */}
-      <DocumentTimelinePanel
-        docType="dispatch"
-        docId={d.id}
-        docNumber={d.dispatch_number}
-      />
+      <DocumentTimelinePanel docType="dispatch" docId={d.id} docNumber={d.dispatch_number} />
 
       {deliverOpen && (
         <DeliverModal
@@ -2823,8 +2881,8 @@ function EwbSection({
         <div className="rounded-md border border-border/40 p-3 text-xs text-muted-foreground">
           {requiresEwb ? (
             <span>
-              Taxable value <strong>{fmtMoney(taxableValue)}</strong> exceeds ₹50,000 threshold — E-Way Bill
-              required.
+              Taxable value <strong>{fmtMoney(taxableValue)}</strong> exceeds ₹50,000 threshold —
+              E-Way Bill required.
             </span>
           ) : (
             <span>Taxable value below ₹50,000 — E-Way Bill not required.</span>
@@ -2844,11 +2902,7 @@ function EwbSection({
           </div>
 
           {/* Action buttons */}
-          {canWrite && [
-            "generated",
-            "vehicle_updated",
-            "extended",
-          ].includes(ewb.status) && (
+          {canWrite && ["generated", "vehicle_updated", "extended"].includes(ewb.status) && (
             <div className="flex flex-wrap gap-2 border-t border-border pt-3">
               {!showVehicleForm && (
                 <button
@@ -2910,12 +2964,19 @@ function EwbSection({
                 disabled={updatingVehicle || !vehicleNo}
                 className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-xs font-medium text-primary-foreground disabled:opacity-50"
               >
-                {updatingVehicle ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Truck className="h-3.5 w-3.5" />}
+                {updatingVehicle ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Truck className="h-3.5 w-3.5" />
+                )}
                 Update
               </button>
               <button
                 type="button"
-                onClick={() => { setShowVehicleForm(false); setVehicleNo(""); }}
+                onClick={() => {
+                  setShowVehicleForm(false);
+                  setVehicleNo("");
+                }}
                 className="rounded-md border border-border px-3 py-2 text-xs"
               >
                 Cancel

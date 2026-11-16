@@ -2362,6 +2362,153 @@ router.get("/invoices/:id/pdf", authMiddleware, async (req, res) => {
   }
 });
 
+/** GET /invoices/:id/tally-xml — download the invoice in Tally ERP 9 XML import format. */
+router.get("/invoices/:id/tally-xml", authMiddleware, async (req, res) => {
+  try {
+    const inv = await Invoice.get(req.params.id);
+    if (!inv || (inv.clientId !== req.user!.userId && !isStaffAccount(req.user?.roles))) {
+      return res.status(404).json({ error: "Invoice not found" });
+    }
+    const { xml, number } = buildTallyXml(inv);
+    const filename = `${(number || "invoice").replace(/[^A-Za-z0-9-_]/g, "_")}.xml`;
+    res.setHeader("Content-Type", "application/xml; charset=utf-8");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(xml);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /invoices/:id/tally-confirm — confirm the invoice was created in Tally.
+ * Closes the tally_create_invoice task and opens the record_irn_ewb task.
+ */
+router.post("/invoices/:id/tally-confirm", authMiddleware, async (req, res) => {
+  try {
+    const roles: string[] = req.user!.roles || [];
+    const allowed = roles.some((r) =>
+      ["factor_admin", "checker", "treasury", "super_admin", "finance"].includes(r),
+    );
+    if (!allowed) {
+      return res.status(403).json({ error: "Only finance/checker/admin can confirm Tally creation" });
+    }
+    const inv = await Invoice.get(req.params.id);
+    if (!inv) return res.status(404).json({ error: "Invoice not found" });
+
+    // Close the "create invoice in Tally" task.
+    await WorkflowTask.closeTaskStage("sales_invoice", inv.id, "tally_create_invoice", req.user, "Invoice created in Tally");
+
+    // Open the next task: record IRN and e-Way Bill from Tally.
+    const { task: opened } = await WorkflowTask.openTask({
+      clientId: inv.clientId,
+      workflowType: "sales_invoice",
+      stage: "record_irn_ewb",
+      docType: "sales_invoice",
+      docId: inv.id,
+      docNumber: inv.invoiceNumber,
+      counterparty: inv.debtorId ? (await Debtor.get(inv.debtorId))?.name ?? null : null,
+      docStatus: inv.status,
+      ownerRole: "finance",
+      requiredAction: "Record IRN and e-Way Bill number from Tally",
+      nextAction: "Dispatch workflow",
+      amount: inv.amount,
+      priority: "normal",
+    }, { userId: req.user!.userId, email: req.user!.email });
+
+    await DocTimeline.addEntry({
+      clientId: inv.clientId,
+      docType: "sales_invoice",
+      docId: inv.id,
+      docNumber: inv.invoiceNumber,
+      kind: "system",
+      actorId: req.user!.userId,
+      actorEmail: req.user!.email,
+      actorRoles: req.user!.roles ?? [],
+      text: "Tally import confirmed — pending IRN / e-Way Bill from Tally",
+      prevStatus: inv.status,
+      newStatus: inv.status,
+    }).catch(() => {});
+
+    trackAction(req, "invoice.tally_confirmed", inv.id, {
+      entityType: "invoice",
+      entityRef: inv.invoiceNumber,
+      taskId: opened.id,
+    });
+
+    res.json({ success: true, task: opened, message: "Tally creation confirmed — next: record IRN and e-Way Bill from Tally" });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /invoices/:id/record-irn-ewb — record the IRN and e-Way Bill number
+ * returned by Tally, then advance to the dispatch workflow.
+ */
+router.post("/invoices/:id/record-irn-ewb", authMiddleware, async (req, res) => {
+  try {
+    const roles: string[] = req.user!.roles || [];
+    const allowed = roles.some((r) =>
+      ["factor_admin", "checker", "treasury", "super_admin", "finance"].includes(r),
+    );
+    if (!allowed) {
+      return res.status(403).json({ error: "Only finance/checker/admin can record IRN / e-Way Bill" });
+    }
+    const inv = await Invoice.get(req.params.id);
+    if (!inv) return res.status(404).json({ error: "Invoice not found" });
+    if (inv.irn) {
+      return res.status(409).json({ error: "IRN is already recorded on this invoice" });
+    }
+
+    const { irn, ackNo, ackDate, ewbNumber, ewbDate } = req.body || {};
+    if (!irn || !String(irn).trim()) {
+      return res.status(400).json({ error: "IRN from Tally is required" });
+    }
+    if (!ewbNumber || !String(ewbNumber).trim()) {
+      return res.status(400).json({ error: "e-Way Bill number from Tally is required" });
+    }
+
+    const normalizedIrn = Invoice.normalizeIrn(irn);
+    if (!normalizedIrn) {
+      return res.status(400).json({ error: "IRN must be the 64-character hex string from Tally" });
+    }
+
+    // Record the IRN (source = tally).
+    const updated = await Invoice.recordIrn(req.params.id, {
+      irn: normalizedIrn,
+      ackNo: ackNo ?? null,
+      ackDate: ackDate ?? null,
+      enteredBy: req.user!.email,
+      source: "tally",
+    });
+
+    // Mirror the e-Way Bill number onto the invoice.
+    await Invoice.update(req.params.id, {
+      ewbNumber: String(ewbNumber).trim(),
+      ewbDate: ewbDate ? String(ewbDate).slice(0, 10) : null,
+      ewbGeneratedAt: new Date().toISOString(),
+    });
+
+    // Close the record_irn_ewb task.
+    await WorkflowTask.closeTaskStage("sales_invoice", inv.id, "record_irn_ewb", req.user, "IRN and e-Way Bill recorded from Tally");
+
+    trackAction(req, "invoice.irn_ewb_recorded", updated.id, {
+      entityType: "invoice",
+      entityRef: updated.invoiceNumber,
+      irn: String(updated.irn).slice(0, 12),
+      ewbNumber: String(updated.ewbNumber),
+    });
+
+    res.json({
+      success: true,
+      invoice: updated,
+      message: "IRN and e-Way Bill recorded from Tally — dispatch workflow next",
+    });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /**
  * POST /invoices/:id/send-noa — email the Notice of Assignment to the buyer
  * (debtor) with the invoice PDF attached, then mark the NOA as sent.
@@ -2616,6 +2763,30 @@ router.post("/invoices", authMiddleware, async (req, res) => {
       const { autoSendReminderOnChange } = await import("../invoice-reminder.js");
       void autoSendReminderOnChange(item.id, "sales");
     }
+    // Open the Tally creation task: after creating the sales invoice, the
+    // next queue step is to create the invoice in Tally (XML import).
+    (async () => {
+      try {
+        const debtor = item.debtorId ? await Debtor.get(item.debtorId).catch(() => null) : null;
+        await WorkflowTask.openTask({
+          clientId,
+          workflowType: "sales_invoice",
+          stage: "tally_create_invoice",
+          docType: "sales_invoice",
+          docId: item.id,
+          docNumber: item.invoiceNumber,
+          counterparty: debtor?.name ?? null,
+          docStatus: item.status,
+          ownerRole: "finance",
+          requiredAction: "Create invoice in Tally",
+          nextAction: "Record IRN and e-Way Bill from Tally",
+          amount: item.amount,
+          priority: "normal",
+        }, { userId: req.user!.userId, email: req.user!.email });
+      } catch (err: any) {
+        console.error("  ⚠ Failed to open tally_create_invoice task:", err?.message ?? err);
+      }
+    })();
     res.status(201).json(item);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
@@ -7188,6 +7359,123 @@ async function buildGoodsPOTallyBuffer(
 }
 
 /**
+ * Build Tally ERP 9 XML import for a sales invoice.
+ * Follows Tally's standard ENVELOPE → BODY → IMPORTDATA → REQUESTDATA →
+ * TALLYMESSAGE → VOUCHER schema so the file can be imported into Tally.
+ */
+function buildTallyXml(inv: any): { xml: string; number: string } {
+  const esc = (s: any) => {
+    if (s === null || s === undefined) return "";
+    return String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;");
+  };
+  const number = esc(inv.invoiceNumber || inv.invoice_number || "INVOICE");
+  const issueDate = String(inv.issueDate || inv.issue_date || new Date().toISOString().slice(0, 10)).replace(/-/g, "");
+  const partyName = esc(inv.debtor?.name || inv.debtorName || inv.partyName || "Customer");
+  const ref = esc(inv.goodsSalesOrderNumber || inv.soNumber || inv.poNumber || "");
+  const placeOfSupply = esc(inv.placeOfSupply || inv.buyerState || "");
+
+  const lines: any[] = Array.isArray(inv.lines) ? inv.lines : [];
+  let inventoryEntries = "";
+  let taxableTotal = 0;
+  let gstTotal = 0;
+
+  for (const l of lines) {
+    const qty = Number(l.quantity || 0);
+    const rate = Number((l.rateInclTax ?? l.unitPrice) || 0);
+    const amount = Number((l.lineTotal ?? qty * rate) || 0);
+    taxableTotal += amount;
+    const gstRate = Number(l.gstRate || 0);
+    const gstAmt = Math.round(amount * gstRate / 100 * 100) / 100;
+    gstTotal += gstAmt;
+
+    const itemName = esc(l.name || "Item");
+    const hsn = esc(l.hsnCode || l.hsn_code || "");
+    const unit = esc(l.unit || "unit");
+
+    inventoryEntries += `
+            <ALLINVENTORYENTRIES.LIST>
+              <STOCKITEMNAME>${itemName}</STOCKITEMNAME>
+              <RATE>${rate.toFixed(2)}</RATE>
+              <AMOUNT>${amount.toFixed(2)}</AMOUNT>
+              <ACTUALQTY>${qty}</ACTUALQTY>
+              <BILLEDQTY>${qty}</BILLEDQTY>
+              <HSNCODE>${hsn}</HSNCODE>
+              <UNIT>${unit}</UNIT>
+              <GSTRATE>${gstRate}</GSTRATE>
+            </ALLINVENTORYENTRIES.LIST>`;
+  }
+
+  const grandTotal = Number(inv.grandTotal || inv.grand_total || taxableTotal + gstTotal || inv.amount || 0);
+  const irn = esc(inv.irn || "");
+  const ewbNo = esc(inv.ewbNumber || inv.ewb_number || "");
+  const vehicle = esc(inv.vehicleNumber || inv.vehicle_number || "");
+  const lr = esc(inv.lrRef || inv.lr_ref || "");
+
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Adventra Company</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TALLYUDF">
+          <VOUCHER REMOTEID="${number}" VCHTYPE="Sales" ACTION="Create" OBJVIEW="Accounting Voucher View">
+            <DATE>${issueDate}</DATE>
+            <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+            <VOUCHERNUMBER>${number}</VOUCHERNUMBER>
+            <REFERENCE>${ref}</REFERENCE>
+            <DATE>${issueDate}</DATE>
+            <PARTYLEDGERNAME>${partyName}</PARTYLEDGERNAME>
+            <BILLWISEDETAILS.LIST>
+              <NAME>New Ref</NAME>
+              <BILLTYPE>New Ref</BILLTYPE>
+              <AMOUNT>${grandTotal.toFixed(2)}</AMOUNT>
+            </BILLWISEDETAILS.LIST>
+            <VOUCHERKEY>${number}</VOUCHERKEY>
+            <PLACEOFSUPPLY>${placeOfSupply}</PLACEOFSUPPLY>
+            <IRN>${irn}</IRN>
+            <EWBNUMBER>${ewbNo}</EWBNUMBER>
+            <VEHICLENO>${vehicle}</VEHICLENO>
+            <LRREF>${lr}</LRREF>
+${inventoryEntries}
+            <ACCOUNTINGENTRIES.LIST>
+              <LEDGERNAME>Sales</LEDGERNAME>
+              <AMOUNT>${taxableTotal.toFixed(2)}</AMOUNT>
+            </ACCOUNTINGENTRIES.LIST>
+${gstTotal > 0 ? `
+            <ACCOUNTINGENTRIES.LIST>
+              <LEDGERNAME>CGST @ 9%</LEDGERNAME>
+              <AMOUNT>${(gstTotal / 2).toFixed(2)}</AMOUNT>
+            </ACCOUNTINGENTRIES.LIST>
+            <ACCOUNTINGENTRIES.LIST>
+              <LEDGERNAME>SGST @ 9%</LEDGERNAME>
+              <AMOUNT>${(gstTotal / 2).toFixed(2)}</AMOUNT>
+            </ACCOUNTINGENTRIES.LIST>` : ""}
+            <ACCOUNTINGENTRIES.LIST>
+              <LEDGERNAME>${partyName}</LEDGERNAME>
+              <AMOUNT>-${grandTotal.toFixed(2)}</AMOUNT>
+            </ACCOUNTINGENTRIES.LIST>
+          </VOUCHER>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>`;
+
+  return { xml, number };
+}
+
+/**
  * Build the Tally-style tax-invoice PDF (+ e-Way Bill section when data is
  * present) for an invoice record. Shared by download + NOA email.
  * QR encodes the signed QR payload when pasted, else the IRN.
@@ -8489,113 +8777,6 @@ router.post(
         nextAction: "Submit Dispatch Details to Finance",
         amount: (dispatch as any).invoicedValue ?? null,
       }, { timelineKind: "rejection", timelineText: reason, emailKind: "rejection", docType: "dispatch", appPath: "/app/dispatches" });
-      res.json(updated);
-    } catch (err: any) {
-      res.status(500).json({ error: err.message });
-    }
-  },
-);
-
-/**
- * POST /goods-dispatches/:id/record-ewb — Finance records the EWB (manual
- * number from Tally, or the number returned by the NIC generate call).
- * Saves on dispatch + linked invoice. New-flow orders (draft/submitted) move
- * to ready_for_dispatch; legacy confirmed orders keep their status so the
- * shipping pipeline is undisturbed.
- */
-router.post(
-  "/goods-dispatches/:id/record-ewb",
-  authMiddleware,
-  requireRole("treasury", "factor_admin"),
-  async (req, res) => {
-    try {
-      const dispatch = await GoodsDispatch.get(req.params.id);
-      if (!dispatch) return res.status(404).json({ error: "Dispatch note not found" });
-      if (!["details_submitted", "draft", "confirmed"].includes(dispatch.status))
-        return res.status(400).json({ error: "E-Way Bill can only be recorded on a draft, submitted or confirmed dispatch order" });
-      const body = req.body || {};
-      // "EWB Not Required" path with authorised reason (PDF-2 §9).
-      if (body.notRequired === true) {
-        const reason = String(body.reason ?? "").trim();
-        if (!reason) return res.status(400).json({ error: "An authorised reason is required when no e-way bill is needed" });
-        const updated = await GoodsDispatch.update(dispatch.id, {
-          ewbNotRequired: true, ewbNotRequiredReason: reason, status: "ready_for_dispatch" as any,
-        });
-        timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
-          dispatch.status, "ready_for_dispatch", `E-Way Bill not required: ${reason} (by ${req.user!.email})`);
-        advanceWorkflow(req, {
-          workflowType: "dispatch",
-          stage: "confirm_dispatch",
-          docType: "dispatch",
-          docId: dispatch.id,
-          docNumber: dispatch.dispatchNumber,
-          counterparty: dispatch.customerName,
-          docStatus: "ready_for_dispatch",
-          ownerRole: "operations",
-          requiredAction: "Confirm Physical Dispatch",
-          nextAction: "Debit inventory",
-          amount: (dispatch as any).invoicedValue ?? null,
-        }, { timelineKind: "system", docType: "dispatch", appPath: "/app/warehouse" });
-        return res.json(updated);
-      }
-      const ewbNumber = String(body.ewbNumber ?? "").trim();
-      if (!/^\d{8,16}$/.test(ewbNumber))
-        return res.status(400).json({ error: "Enter the numeric E-Way Bill number from Tally" });
-      // New-flow orders advance to ready_for_dispatch; legacy confirmed
-      // orders keep their status (their shipping pipeline drives progress).
-      const moveToReady = ["details_submitted", "draft"].includes(dispatch.status);
-      const updated = await GoodsDispatch.update(dispatch.id, {
-        ewayBillNumber: ewbNumber,
-        ewayBillStatus: "generated",
-        ewayBillGeneratedAt: body.generatedAt || db.nowISO(),
-        ewayBillValidUntil: body.validUntil || null,
-        ...(moveToReady ? { status: "ready_for_dispatch" as any } : {}),
-      });
-      // Fire-and-forget domain event (log-only, deduped).
-      void writeEvent({
-        clientId: dispatch.clientId,
-        name: "eway_bill_recorded",
-        docType: "dispatch",
-        docId: dispatch.id,
-        docNumber: dispatch.dispatchNumber ?? null,
-        actorId: req.user!.userId,
-        payload: { ewbNumber },
-      }).catch(() => {});
-      // Mirror onto the linked invoice (final-invoice flow or the classic
-      // SO→invoice link) so the downloaded invoice PDF prints the EWB section.
-      const invoiceId = (dispatch as any).finalInvoiceId ?? (dispatch as any).linkedSalesInvoiceId ?? null;
-      if (invoiceId) {
-        try {
-          await Invoice.update(invoiceId, {
-            ewbNumber,
-            ewbGeneratedAt: body.generatedAt || db.nowISO(),
-            ewbValidUntil: body.validUntil || null,
-            transporter: dispatch.transporterName,
-            vehicleNumber: (dispatch as any).vehicleNumber ?? null,
-            lrRef: (dispatch as any).transportDocNumber ?? null,
-          } as any);
-        } catch (e) { console.error("  ⚠ Invoice EWB mirror failed:", e); }
-      }
-      if (moveToReady) {
-        timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
-          dispatch.status, "ready_for_dispatch", `E-Way Bill ${ewbNumber} recorded — ready for physical dispatch`);
-        advanceWorkflow(req, {
-          workflowType: "dispatch",
-          stage: "confirm_dispatch",
-          docType: "dispatch",
-          docId: dispatch.id,
-          docNumber: dispatch.dispatchNumber,
-          counterparty: dispatch.customerName,
-          docStatus: "ready_for_dispatch",
-          ownerRole: "operations",
-          requiredAction: "Confirm Physical Dispatch",
-          nextAction: "Debit inventory",
-          amount: (dispatch as any).invoicedValue ?? null,
-        }, { timelineKind: "system", docType: "dispatch", appPath: "/app/warehouse" });
-      } else {
-        timelineStatus(req, { clientId: dispatch.clientId, docType: "dispatch", docId: dispatch.id, docNumber: dispatch.dispatchNumber },
-          dispatch.status, dispatch.status, `E-Way Bill ${ewbNumber} recorded`);
-      }
       res.json(updated);
     } catch (err: any) {
       res.status(500).json({ error: err.message });

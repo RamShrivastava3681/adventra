@@ -1,25 +1,24 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api-client";
 import { Card, fmtMoney, fmtDate, StatusPill } from "@/components/ledger-ui";
 import { TableSkeleton } from "@/components/skeletons";
-import { RecordEwbModal } from "@/components/dispatch-workflow";
-import { Truck, FileCheck, Printer } from "lucide-react";
+import { Truck, Printer } from "lucide-react";
 import { toast } from "sonner";
 
 /**
  * Finance → Dispatch Orders tab.
  * Read-only register over the existing dispatches + invoices endpoints.
  * Transporter/upload details saved on the Awaiting Pickup handoff and the
- * E-Way Bill recorded from the IRN invoice flow are both visible here.
+ * E-Way Bill recorded on the invoice (IRN + EWB flow) are both visible here.
  */
-export function FinanceDispatchOrdersPanel(
-  { openDispatch, onOpenHandled }: { openDispatch?: string; onOpenHandled?: () => void } = {},
-) {
+export function FinanceDispatchOrdersPanel({
+  openDispatch,
+  onOpenHandled,
+}: { openDispatch?: string; onOpenHandled?: () => void } = {}) {
   const qc = useQueryClient();
   const [q, setQ] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [ewbFor, setEwbFor] = useState<any | null>(null);
 
   const dispatchesQ = useQuery({
     queryKey: ["finance-dispatch-orders"],
@@ -41,8 +40,7 @@ export function FinanceDispatchOrdersPanel(
     return ((dispatchesQ.data ?? []) as any[])
       .map((d) => ({
         ...d,
-        invoice:
-          invoiceById.get(d.final_invoice_id ?? d.linked_sales_invoice_id ?? "") ?? null,
+        invoice: invoiceById.get(d.final_invoice_id ?? d.linked_sales_invoice_id ?? "") ?? null,
       }))
       .filter((d) => (statusFilter === "all" ? true : d.status === statusFilter))
       .filter((d) => {
@@ -71,18 +69,6 @@ export function FinanceDispatchOrdersPanel(
       );
   }, [dispatchesQ.data, invoiceById, q, statusFilter]);
 
-  // Deep link: finance workbench task → open that dispatch's E-Way Bill modal.
-  useEffect(() => {
-    if (!openDispatch) return;
-    const found = ((dispatchesQ.data ?? []) as any[]).find((d) => d.id === openDispatch);
-    if (!found) return; // list still loading — retries when data arrives
-    // The E-Way Bill form is the only action this register offers; skip it
-    // for dispatches that already have one or don't need it.
-    if (!found.eway_bill_number && !found.ewb_not_required) setEwbFor(found);
-    onOpenHandled?.();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openDispatch, dispatchesQ.data]);
-
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ["finance-dispatch-orders"] });
     qc.invalidateQueries({ queryKey: ["finance-dispatch-orders-invoices"] });
@@ -90,21 +76,12 @@ export function FinanceDispatchOrdersPanel(
     qc.invalidateQueries({ queryKey: ["wh_dispatches"] });
   };
 
-  const awaitingEwb = rows.filter(
-    (d) => d.status === "details_submitted" && !d.eway_bill_number && !d.ewb_not_required,
-  ).length;
-
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-2 text-sm">
           <Truck className="h-4 w-4 text-primary" />
           <span className="font-medium">{rows.length} dispatch orders</span>
-          {awaitingEwb > 0 && (
-            <span className="rounded-full border border-sem-attention/30 bg-sem-attention/10 px-2 py-0.5 text-[11px] text-sem-attention">
-              {awaitingEwb} awaiting E-Way Bill
-            </span>
-          )}
         </div>
         <div className="ml-auto flex flex-wrap items-center gap-2">
           <input
@@ -145,7 +122,9 @@ export function FinanceDispatchOrdersPanel(
                 <tr className="border-b border-border">
                   <th className="px-5 py-2 text-left font-normal">Dispatch</th>
                   <th className="px-5 py-2 text-left font-normal">Invoice / IRN</th>
-                  <th className="px-5 py-2 text-left font-normal">Transporter (from Awaiting Pickup)</th>
+                  <th className="px-5 py-2 text-left font-normal">
+                    Transporter (from Awaiting Pickup)
+                  </th>
                   <th className="px-5 py-2 text-left font-normal">Vehicle / Doc</th>
                   <th className="px-5 py-2 text-right font-normal">Value</th>
                   <th className="px-5 py-2 text-left font-normal">E-Way Bill</th>
@@ -169,7 +148,10 @@ export function FinanceDispatchOrdersPanel(
                     </td>
                     <td className="px-5 py-3">
                       <div className="font-mono text-xs">
-                        {d.invoice?.invoice_number ?? d.final_invoice_number ?? d.linked_sales_invoice_number ?? "—"}
+                        {d.invoice?.invoice_number ??
+                          d.final_invoice_number ??
+                          d.linked_sales_invoice_number ??
+                          "—"}
                       </div>
                       {d.invoice?.irn || d.irn_snapshot ? (
                         <div
@@ -205,7 +187,9 @@ export function FinanceDispatchOrdersPanel(
                         <div>
                           <div className="font-mono text-xs">{d.eway_bill_number}</div>
                           <div className="text-[10px] text-muted-foreground">
-                            {d.eway_bill_valid_until ? `valid to ${fmtDate(d.eway_bill_valid_until)}` : d.eway_bill_status ?? "generated"}
+                            {d.eway_bill_valid_until
+                              ? `valid to ${fmtDate(d.eway_bill_valid_until)}`
+                              : (d.eway_bill_status ?? "generated")}
                           </div>
                         </div>
                       ) : d.ewb_not_required ? (
@@ -221,15 +205,6 @@ export function FinanceDispatchOrdersPanel(
                     </td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex justify-end gap-1.5">
-                        {!d.eway_bill_number && !d.ewb_not_required &&
-                          ["draft", "details_submitted", "confirmed"].includes(d.status) && (
-                            <button
-                              onClick={() => setEwbFor(d)}
-                              className="inline-flex items-center gap-1 rounded-md border border-primary/50 px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/10"
-                            >
-                              <FileCheck className="h-3 w-3" /> EWB
-                            </button>
-                          )}
                         <a
                           href={`/app/invoice-preview/${d.final_invoice_id ?? d.linked_sales_invoice_id ?? ""}`}
                           onClick={(e) => {
@@ -251,15 +226,6 @@ export function FinanceDispatchOrdersPanel(
           </div>
         )}
       </Card>
-
-      {ewbFor && (
-        <RecordEwbModal
-          dispatch={ewbFor}
-          invoice={rows.find((r) => r.id === ewbFor.id)?.invoice ?? null}
-          onClose={() => setEwbFor(null)}
-          onDone={refresh}
-        />
-      )}
     </div>
   );
 }

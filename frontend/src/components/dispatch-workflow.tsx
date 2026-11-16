@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { toast } from "sonner";
-import { Loader2, Send, FileCheck, Undo2, PackageCheck, Truck, CalendarClock, RefreshCw } from "lucide-react";
+import { Loader2, Send, FileCheck, PackageCheck, Truck, CalendarClock } from "lucide-react";
 
 export const DispatchFlowIcons = { Truck, Send, FileCheck };
 import api from "@/lib/api-client";
@@ -11,9 +11,6 @@ import api from "@/lib/api-client";
  * Dispatch workflow forms (PDF-1):
  *  - DispatchPackingModal: warehouse fills packing + transport details and
  *    submits them to Finance ("Submit Dispatch Details to Finance").
- *  - RecordEwbModal: Finance enters the E-Way Bill number from Tally,
- *    generates it via the NIC API, or marks it "not required" with an
- *    authorised reason.
  *  - ConfirmDispatchModal: warehouse confirms the physical dispatch with
  *    actuals (date/time, vehicle, packed qty, LR number) — released for
  *    picking; inventory debits only when the status moves to Dispatched.
@@ -144,15 +141,34 @@ export function DispatchPackingModal({
         </h4>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Packed quantity / cartons">
-            <input className={inputCls} value={f.cartonCount} onChange={(e) => set("cartonCount", e.target.value)} placeholder="Number of cartons / packages" />
+            <input
+              className={inputCls}
+              value={f.cartonCount}
+              onChange={(e) => set("cartonCount", e.target.value)}
+              placeholder="Number of cartons / packages"
+            />
           </Field>
           <Field label="Package type (if relevant)">
-            <input className={inputCls} value={f.packageType} onChange={(e) => set("packageType", e.target.value)} placeholder="Carton / pallet / bag…" />
+            <input
+              className={inputCls}
+              value={f.packageType}
+              onChange={(e) => set("packageType", e.target.value)}
+              placeholder="Carton / pallet / bag…"
+            />
           </Field>
           <Field label="Gross weight (if relevant)">
             <div className="flex gap-2">
-              <input className={inputCls} value={f.grossWeight} onChange={(e) => set("grossWeight", e.target.value)} placeholder="Weight" />
-              <select className={inputCls} value={f.grossWeightUnit} onChange={(e) => set("grossWeightUnit", e.target.value)}>
+              <input
+                className={inputCls}
+                value={f.grossWeight}
+                onChange={(e) => set("grossWeight", e.target.value)}
+                placeholder="Weight"
+              />
+              <select
+                className={inputCls}
+                value={f.grossWeightUnit}
+                onChange={(e) => set("grossWeightUnit", e.target.value)}
+              >
                 <option value="kg">kg</option>
                 <option value="quintal">quintal</option>
                 <option value="tonne">tonne</option>
@@ -160,13 +176,27 @@ export function DispatchPackingModal({
             </div>
           </Field>
           <Field label="Planned dispatch date / time">
-            <input type="datetime-local" className={inputCls} value={f.plannedDispatchAt} onChange={(e) => set("plannedDispatchAt", e.target.value)} />
+            <input
+              type="datetime-local"
+              className={inputCls}
+              value={f.plannedDispatchAt}
+              onChange={(e) => set("plannedDispatchAt", e.target.value)}
+            />
           </Field>
           <Field label="Special handling instructions" wide>
-            <input className={inputCls} value={f.handlingInstructions} onChange={(e) => set("handlingInstructions", e.target.value)} placeholder="Fragile, keep dry…" />
+            <input
+              className={inputCls}
+              value={f.handlingInstructions}
+              onChange={(e) => set("handlingInstructions", e.target.value)}
+              placeholder="Fragile, keep dry…"
+            />
           </Field>
           <Field label="Internal dispatch notes" wide>
-            <input className={inputCls} value={f.internalDispatchNotes} onChange={(e) => set("internalDispatchNotes", e.target.value)} />
+            <input
+              className={inputCls}
+              value={f.internalDispatchNotes}
+              onChange={(e) => set("internalDispatchNotes", e.target.value)}
+            />
           </Field>
         </div>
       </div>
@@ -177,9 +207,15 @@ export function DispatchPackingModal({
         </h4>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Transport mode">
-            <select className={inputCls} value={f.transportMode} onChange={(e) => set("transportMode", e.target.value)}>
+            <select
+              className={inputCls}
+              value={f.transportMode}
+              onChange={(e) => set("transportMode", e.target.value)}
+            >
               {TRANSPORT_MODES.map((m) => (
-                <option key={m} value={m}>{m}</option>
+                <option key={m} value={m}>
+                  {m}
+                </option>
               ))}
             </select>
           </Field>
@@ -201,32 +237,72 @@ export function DispatchPackingModal({
             />
           </Field>
           <Field label="Transporter ID (if available)">
-            <input className={inputCls} value={f.transporterId} onChange={(e) => set("transporterId", e.target.value)} placeholder="GSTIN / transporter ID" />
+            <input
+              className={inputCls}
+              value={f.transporterId}
+              onChange={(e) => set("transporterId", e.target.value)}
+              placeholder="GSTIN / transporter ID"
+            />
           </Field>
           <Field label="Vehicle number">
-            <input className={inputCls} value={f.vehicleNumber} onChange={(e) => set("vehicleNumber", e.target.value)} placeholder="Or transport document below" />
+            <input
+              className={inputCls}
+              value={f.vehicleNumber}
+              onChange={(e) => set("vehicleNumber", e.target.value)}
+              placeholder="Or transport document below"
+            />
           </Field>
           <Field label="Vehicle type (if relevant)">
-            <input className={inputCls} value={f.vehicleType} onChange={(e) => set("vehicleType", e.target.value)} />
+            <input
+              className={inputCls}
+              value={f.vehicleType}
+              onChange={(e) => set("vehicleType", e.target.value)}
+            />
           </Field>
           <Field label="Transport document type">
-            <select className={inputCls} value={f.transportDocType} onChange={(e) => set("transportDocType", e.target.value)}>
+            <select
+              className={inputCls}
+              value={f.transportDocType}
+              onChange={(e) => set("transportDocType", e.target.value)}
+            >
               <option value="">—</option>
               {TRANSPORT_DOC_TYPES.map((t) => (
-                <option key={t} value={t}>{t}</option>
+                <option key={t} value={t}>
+                  {t}
+                </option>
               ))}
             </select>
           </Field>
           <Field label="Transport document number">
-            <input className={inputCls} value={f.transportDocNumber} onChange={(e) => set("transportDocNumber", e.target.value)} placeholder="Required when no vehicle number" />
+            <input
+              className={inputCls}
+              value={f.transportDocNumber}
+              onChange={(e) => set("transportDocNumber", e.target.value)}
+              placeholder="Required when no vehicle number"
+            />
           </Field>
           <Field label="Transport document date">
-            <input type="date" className={inputCls} value={f.transportDocDate} onChange={(e) => set("transportDocDate", e.target.value)} />
+            <input
+              type="date"
+              className={inputCls}
+              value={f.transportDocDate}
+              onChange={(e) => set("transportDocDate", e.target.value)}
+            />
           </Field>
           <Field label="Driver name / mobile (if available)">
             <div className="flex gap-2">
-              <input className={inputCls} value={f.driverName} onChange={(e) => set("driverName", e.target.value)} placeholder="Name" />
-              <input className={inputCls} value={f.driverMobile} onChange={(e) => set("driverMobile", e.target.value)} placeholder="Mobile" />
+              <input
+                className={inputCls}
+                value={f.driverName}
+                onChange={(e) => set("driverName", e.target.value)}
+                placeholder="Name"
+              />
+              <input
+                className={inputCls}
+                value={f.driverMobile}
+                onChange={(e) => set("driverMobile", e.target.value)}
+                placeholder="Mobile"
+              />
             </div>
           </Field>
         </div>
@@ -238,7 +314,11 @@ export function DispatchPackingModal({
           disabled={save.isPending}
           className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10 disabled:opacity-50"
         >
-          {save.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
+          {save.isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Send className="h-3.5 w-3.5" />
+          )}
           Submit Dispatch Details to Finance
         </button>
         <button
@@ -252,272 +332,6 @@ export function DispatchPackingModal({
     </ModalShell>
   );
 }
-
-// ─── Record E-Way Bill (Finance) ────────────────────────────────────────────
-export function RecordEwbModal({
-  dispatch,
-  invoice,
-  onClose,
-  onDone,
-}: {
-  dispatch: any;
-  /** Linked sales invoice (optional) — pre-fills the recipient GSTIN for API generation. */
-  invoice?: any;
-  onClose: () => void;
-  onDone: () => void;
-}) {
-  const [mode, setMode] = useState<"generate" | "api" | "notRequired">("generate");
-  const [ewbNumber, setEwbNumber] = useState(dispatch.eway_bill_number ?? "");
-  const [generatedAt, setGeneratedAt] = useState("");
-  const [validUntil, setValidUntil] = useState(dispatch.eway_bill_valid_until?.slice(0, 10) ?? "");
-  const [notRequiredReason, setNotRequiredReason] = useState("");
-  const [sendBackOpen, setSendBackOpen] = useState(false);
-  const [sendBackReason, setSendBackReason] = useState("");
-  // API-generation inputs (NIC E-Way Bill API via stored credentials).
-  const [supplierGstin, setSupplierGstin] = useState("");
-  const [recipientGstin, setRecipientGstin] = useState(
-    invoice?.buyer_gstin ?? invoice?.buyerGstin ?? "",
-  );
-  const [vehicleNumber, setVehicleNumber] = useState(dispatch.vehicle_number ?? "");
-  const [transporterName, setTransporterName] = useState(dispatch.transporter_name ?? "");
-  const [transporterGstin, setTransporterGstin] = useState(dispatch.transporter_id ?? "");
-
-  const generateFromTally = () => {
-    const ewbVal = String(Math.floor(Math.random() * 9000000000000) + 1000000000000);
-    setEwbNumber(ewbVal);
-  };
-
-  const record = useMutation({
-    mutationFn: () =>
-      api.goodsDispatches.recordEwb(dispatch.id, {
-        ewbNumber: ewbNumber.trim(),
-        generatedAt: generatedAt || undefined,
-        validUntil: validUntil || undefined,
-      }),
-    onSuccess: () => {
-      toast.success("E-Way Bill recorded — dispatch is ready for physical dispatch");
-      onDone();
-      onClose();
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  const markNotRequired = useMutation({
-    mutationFn: () =>
-      api.goodsDispatches.recordEwb(dispatch.id, {
-        notRequired: true,
-        reason: notRequiredReason.trim(),
-      }),
-    onSuccess: () => {
-      toast.success("Marked E-Way Bill not required (reason recorded)");
-      onDone();
-      onClose();
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  // Generate via the NIC E-Way Bill API, then record the returned number
-  // through the standard path so dispatch status + invoice mirroring apply.
-  // The API requires a confirmed (non-draft) dispatch.
-  const [generating, setGenerating] = useState(false);
-  const generateViaApi = async () => {
-    if (!supplierGstin.trim() || !recipientGstin.trim()) {
-      toast.error("Enter both supplier and recipient GSTINs to generate via API");
-      return;
-    }
-    setGenerating(true);
-    try {
-      const res: any = await api.ewayBill.generate({
-        dispatchId: dispatch.id,
-        supplierGstin: supplierGstin.trim(),
-        recipientGstin: recipientGstin.trim(),
-        distance: undefined,
-        transportMode: String(dispatch.transport_mode || "road").toLowerCase(),
-        vehicleNumber: vehicleNumber.trim() || undefined,
-        transporterGstin: transporterGstin.trim() || undefined,
-        transporterName: transporterName.trim() || undefined,
-      });
-      const ewbNo = String(res?.ewayBill?.ewbNumber ?? res?.gspResult?.ewbNo ?? "").trim();
-      if (!/^\d{8,16}$/.test(ewbNo)) throw new Error("API did not return an E-Way Bill number");
-      await api.goodsDispatches.recordEwb(dispatch.id, { ewbNumber: ewbNo });
-      toast.success(`E-Way Bill ${ewbNo} generated — dispatch is ready for physical dispatch`);
-      onDone();
-      onClose();
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Failed");
-    } finally {
-      setGenerating(false);
-    }
-  };
-
-  const sendBack = useMutation({
-    mutationFn: () => api.goodsDispatches.sendBack(dispatch.id, sendBackReason.trim()),
-    onSuccess: () => {
-      toast.success("Sent back to Warehouse for correction");
-      onDone();
-      onClose();
-    },
-    onError: (e) => toast.error(e instanceof Error ? e.message : "Failed"),
-  });
-
-  return (
-    <ModalShell
-      title="Generate E-Way Bill"
-      subtitle={`Invoice, IRN and warehouse dispatch details for ${dispatch.dispatch_number} are pre-filled — record the EWB number returned by Tally.`}
-      onClose={onClose}
-    >
-      <div className="mb-3 grid grid-cols-2 gap-3 rounded-md border border-border/60 p-3 text-xs">
-        <div>
-          <span className="text-muted-foreground">Invoice:</span>{" "}
-          {dispatch.linked_sales_invoice_number ?? "—"}
-        </div>
-        <div>
-          <span className="text-muted-foreground">Transporter:</span>{" "}
-          {dispatch.transporter_name ?? "—"}
-        </div>
-        <div>
-          <span className="text-muted-foreground">Mode:</span>{" "}
-          {dispatch.transport_mode ?? "—"}
-        </div>
-        <div>
-          <span className="text-muted-foreground">Vehicle / doc:</span>{" "}
-          {dispatch.vehicle_number || dispatch.transport_doc_number || "—"}
-        </div>
-      </div>
-
-      <div className="flex flex-wrap gap-2">
-        <button
-          onClick={() => setMode("generate")}
-          className={`rounded-md border px-3 py-1.5 text-xs ${mode === "generate" ? "border-primary text-primary" : "border-border"}`}
-        >
-          Enter EWB number
-        </button>
-        <button
-          onClick={() => setMode("api")}
-          className={`rounded-md border px-3 py-1.5 text-xs ${mode === "api" ? "border-primary text-primary" : "border-border"}`}
-        >
-          Generate via API
-        </button>
-        <button
-          onClick={() => setMode("notRequired")}
-          className={`rounded-md border px-3 py-1.5 text-xs ${mode === "notRequired" ? "border-primary text-primary" : "border-border"}`}
-        >
-          EWB not required
-        </button>
-      </div>
-
-      {mode === "generate" ? (
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex gap-2">
-            <Field label="E-Way Bill number">
-              <input className={inputCls} value={ewbNumber} onChange={(e) => setEwbNumber(e.target.value)} placeholder="Numeric EWB from Tally" />
-            </Field>
-            <button
-              onClick={generateFromTally}
-              className="rounded-md border border-border bg-background px-3 py-1.5 text-xs text-sm font-medium text-muted-foreground hover:bg-muted transition-colors"
-            >
-              <RefreshCw className="h-3.5 w-3.5" /> Generate from Tally
-            </button>
-          </div>
-          <Field label="Generation date / time">
-            <input type="datetime-local" className={inputCls} value={generatedAt} onChange={(e) => setGeneratedAt(e.target.value)} />
-          </Field>
-          <Field label="Validity until" wide>
-            <input type="date" className={inputCls} value={validUntil} onChange={(e) => setValidUntil(e.target.value)} />
-          </Field>
-        </div>
-      ) : mode === "api" ? (
-        <div className="grid grid-cols-2 gap-3">
-          {dispatch.status === "draft" ? (
-            <p className="col-span-2 rounded-md border border-sem-attention/40 bg-sem-attention/10 p-2 text-[11px] text-sem-attention">
-              Confirm the dispatch first — the NIC API generates E-Way Bills only for confirmed dispatches.
-            </p>
-          ) : (
-            <p className="col-span-2 text-[11px] text-muted-foreground">
-              Generates the E-Way Bill on the NIC portal using your stored API credentials, then records the
-              number on the dispatch and the linked invoice (the downloaded invoice PDF prints it).
-            </p>
-          )}
-          <Field label="Supplier GSTIN *">
-            <input className={inputCls} value={supplierGstin} onChange={(e) => setSupplierGstin(e.target.value)} placeholder="Your 15-digit GSTIN" maxLength={15} />
-          </Field>
-          <Field label="Recipient GSTIN *">
-            <input className={inputCls} value={recipientGstin} onChange={(e) => setRecipientGstin(e.target.value)} placeholder="Buyer 15-digit GSTIN" maxLength={15} />
-          </Field>
-          <Field label="Vehicle number">
-            <input className={inputCls} value={vehicleNumber} onChange={(e) => setVehicleNumber(e.target.value)} placeholder="KA01AB1234" />
-          </Field>
-          <Field label="Transporter name">
-            <input className={inputCls} value={transporterName} onChange={(e) => setTransporterName(e.target.value)} placeholder="Transporter" />
-          </Field>
-          <Field label="Transporter GSTIN / TRANSIN">
-            <input className={inputCls} value={transporterGstin} onChange={(e) => setTransporterGstin(e.target.value)} placeholder="Optional" maxLength={15} />
-          </Field>
-        </div>
-      ) : (
-        <Field label="Authorised reason (required)" wide>
-          <input className={inputCls} value={notRequiredReason} onChange={(e) => setNotRequiredReason(e.target.value)} placeholder="e.g. consignment value below threshold / exempt goods" />
-        </Field>
-      )}
-
-      <div className="flex flex-wrap gap-2 border-t border-border pt-3">
-        {mode === "api" ? (
-          <button
-            onClick={generateViaApi}
-            disabled={generating || dispatch.status === "draft"}
-            className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10 disabled:opacity-50"
-          >
-            {generating ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <FileCheck className="h-3.5 w-3.5" />
-            )}
-            Generate E-Way Bill
-          </button>
-        ) : (
-          <button
-            onClick={() => (mode === "generate" ? record.mutate() : markNotRequired.mutate())}
-            disabled={record.isPending || markNotRequired.isPending}
-            className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10 disabled:opacity-50"
-          >
-            {record.isPending || markNotRequired.isPending ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <FileCheck className="h-3.5 w-3.5" />
-            )}
-            {mode === "generate" ? "Record E-Way Bill" : "Mark Not Required"}
-          </button>
-        )}
-        <button
-          onClick={() => setSendBackOpen((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-md border border-sem-attention/40 px-3 py-1.5 text-xs font-medium text-sem-attention hover:bg-sem-attention/10"
-        >
-          <Undo2 className="h-3.5 w-3.5" /> Send back for correction
-        </button>
-        {sendBackOpen && (
-          <div className="flex w-full gap-2">
-            <input
-              className={inputCls}
-              value={sendBackReason}
-              onChange={(e) => setSendBackReason(e.target.value)}
-              placeholder="What must Warehouse correct? (required)"
-            />
-            <button
-              onClick={() => {
-                if (sendBackReason.trim()) sendBack.mutate();
-              }}
-              disabled={sendBack.isPending || !sendBackReason.trim()}
-              className="shrink-0 rounded-md border border-sem-attention/40 px-3 py-1.5 text-xs font-medium text-sem-attention disabled:opacity-50"
-            >
-              {sendBack.isPending ? "Sending…" : "Confirm send-back"}
-            </button>
-          </div>
-        )}
-      </div>
-    </ModalShell>
-  );
-}
-
 // ─── Confirm physical dispatch with actuals ────────────────────────────────
 export function ConfirmDispatchModal({
   dispatch,
@@ -564,16 +378,35 @@ export function ConfirmDispatchModal({
     >
       <div className="grid grid-cols-2 gap-3">
         <Field label="Actual dispatch date / time" wide>
-          <input type="datetime-local" className={inputCls} value={actualDispatchedAt} onChange={(e) => setActualDispatchedAt(e.target.value)} />
+          <input
+            type="datetime-local"
+            className={inputCls}
+            value={actualDispatchedAt}
+            onChange={(e) => setActualDispatchedAt(e.target.value)}
+          />
         </Field>
         <Field label="Actual vehicle number (if changed)">
-          <input className={inputCls} value={actualVehicleNumber} onChange={(e) => setActualVehicleNumber(e.target.value)} />
+          <input
+            className={inputCls}
+            value={actualVehicleNumber}
+            onChange={(e) => setActualVehicleNumber(e.target.value)}
+          />
         </Field>
         <Field label="Actual packed quantity handed to transporter">
-          <input type="number" min="0" className={inputCls} value={actualPackedQty} onChange={(e) => setActualPackedQty(e.target.value)} />
+          <input
+            type="number"
+            min="0"
+            className={inputCls}
+            value={actualPackedQty}
+            onChange={(e) => setActualPackedQty(e.target.value)}
+          />
         </Field>
         <Field label="LR / GR / AWB number (if applicable)" wide>
-          <input className={inputCls} value={lrNumber} onChange={(e) => setLrNumber(e.target.value)} />
+          <input
+            className={inputCls}
+            value={lrNumber}
+            onChange={(e) => setLrNumber(e.target.value)}
+          />
         </Field>
       </div>
       <div className="flex gap-2 border-t border-border pt-3">
@@ -681,46 +514,102 @@ export function AwaitingPickupTransportModal({
           />
         </Field>
         <Field label="Transporter ID / GSTIN">
-          <input className={inputCls} value={f.transporterId} onChange={(e) => set("transporterId", e.target.value)} placeholder="e.g. 88AAECS4363H1ZA" />
+          <input
+            className={inputCls}
+            value={f.transporterId}
+            onChange={(e) => set("transporterId", e.target.value)}
+            placeholder="e.g. 88AAECS4363H1ZA"
+          />
         </Field>
         <Field label="Transport mode *">
-          <select className={inputCls} value={f.transportMode} onChange={(e) => set("transportMode", e.target.value)}>
+          <select
+            className={inputCls}
+            value={f.transportMode}
+            onChange={(e) => set("transportMode", e.target.value)}
+          >
             {TRANSPORT_MODES.map((m) => (
-              <option key={m} value={m}>{m}</option>
+              <option key={m} value={m}>
+                {m}
+              </option>
             ))}
           </select>
         </Field>
         <Field label="Vehicle number">
-          <input className={inputCls} value={f.vehicleNumber} onChange={(e) => set("vehicleNumber", e.target.value)} placeholder="Or transport document below" />
+          <input
+            className={inputCls}
+            value={f.vehicleNumber}
+            onChange={(e) => set("vehicleNumber", e.target.value)}
+            placeholder="Or transport document below"
+          />
         </Field>
         <Field label="Vehicle type">
-          <input className={inputCls} value={f.vehicleType} onChange={(e) => set("vehicleType", e.target.value)} />
+          <input
+            className={inputCls}
+            value={f.vehicleType}
+            onChange={(e) => set("vehicleType", e.target.value)}
+          />
         </Field>
         <Field label="Transport document type">
-          <select className={inputCls} value={f.transportDocType} onChange={(e) => set("transportDocType", e.target.value)}>
+          <select
+            className={inputCls}
+            value={f.transportDocType}
+            onChange={(e) => set("transportDocType", e.target.value)}
+          >
             <option value="">—</option>
             {TRANSPORT_DOC_TYPES.map((t) => (
-              <option key={t} value={t}>{t}</option>
+              <option key={t} value={t}>
+                {t}
+              </option>
             ))}
           </select>
         </Field>
         <Field label="Transport document number">
-          <input className={inputCls} value={f.transportDocNumber} onChange={(e) => set("transportDocNumber", e.target.value)} placeholder="LR / GR / AWB number" />
+          <input
+            className={inputCls}
+            value={f.transportDocNumber}
+            onChange={(e) => set("transportDocNumber", e.target.value)}
+            placeholder="LR / GR / AWB number"
+          />
         </Field>
         <Field label="Transport document date">
-          <input type="date" className={inputCls} value={f.transportDocDate} onChange={(e) => set("transportDocDate", e.target.value)} />
+          <input
+            type="date"
+            className={inputCls}
+            value={f.transportDocDate}
+            onChange={(e) => set("transportDocDate", e.target.value)}
+          />
         </Field>
         <Field label="Planned pickup date / time">
-          <input type="datetime-local" className={inputCls} value={f.plannedDispatchAt} onChange={(e) => set("plannedDispatchAt", e.target.value)} />
+          <input
+            type="datetime-local"
+            className={inputCls}
+            value={f.plannedDispatchAt}
+            onChange={(e) => set("plannedDispatchAt", e.target.value)}
+          />
         </Field>
         <Field label="Driver name / mobile">
           <div className="flex gap-2">
-            <input className={inputCls} value={f.driverName} onChange={(e) => set("driverName", e.target.value)} placeholder="Name" />
-            <input className={inputCls} value={f.driverMobile} onChange={(e) => set("driverMobile", e.target.value)} placeholder="Mobile" />
+            <input
+              className={inputCls}
+              value={f.driverName}
+              onChange={(e) => set("driverName", e.target.value)}
+              placeholder="Name"
+            />
+            <input
+              className={inputCls}
+              value={f.driverMobile}
+              onChange={(e) => set("driverMobile", e.target.value)}
+              placeholder="Mobile"
+            />
           </div>
         </Field>
         <Field label="Note for Finance">
-          <input className={inputCls} value={f.notes} onChange={(e) => set("notes", e.target.value)} placeholder="Optional" />
+          <input
+            className={inputCls}
+            value={f.notes}
+            onChange={(e) => set("notes", e.target.value)}
+            placeholder="Optional"
+          />
         </Field>
       </div>
       <div className="flex gap-2 border-t border-border pt-3">
@@ -729,7 +618,11 @@ export function AwaitingPickupTransportModal({
           disabled={save.isPending}
           className="inline-flex items-center gap-1.5 rounded-md border border-sem-success/50 px-3 py-1.5 text-xs font-medium text-sem-success hover:bg-sem-success/10 disabled:opacity-50"
         >
-          {save.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Truck className="h-3.5 w-3.5" />}
+          {save.isPending ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Truck className="h-3.5 w-3.5" />
+          )}
           Save & move to Awaiting Pickup
         </button>
       </div>
@@ -784,8 +677,7 @@ export function DispatchStatusTimeline({ dispatch }: { dispatch: any }) {
     }
   }
 
-  const ship: string | null =
-    d.shipping_status ?? d.shippingStatus ?? d.shippingstatus ?? null;
+  const ship: string | null = d.shipping_status ?? d.shippingStatus ?? d.shippingstatus ?? null;
   const order = JOURNEY_STAGES.map((s) => s.key);
   let currentIdx = ship ? order.indexOf(String(ship).toLowerCase() as any) : -1;
   if (currentIdx < 0 && !ship) {
@@ -801,8 +693,7 @@ export function DispatchStatusTimeline({ dispatch }: { dispatch: any }) {
   const terminalKind = ["cancelled", "returned"].includes(String(d.status ?? "").toLowerCase())
     ? String(d.status).toLowerCase()
     : null;
-  const terminalEntry =
-    (terminalKind && latestByStatus.get(terminalKind)) || null;
+  const terminalEntry = (terminalKind && latestByStatus.get(terminalKind)) || null;
   const terminalAt =
     terminalEntry?.created_at ??
     (terminalKind === "cancelled"
@@ -871,11 +762,12 @@ export function DispatchStatusTimeline({ dispatch }: { dispatch: any }) {
                 {r.at ? `on ${fmtJourneyDateTime(r.at)}` : "— pending"}
               </span>
             </div>
-            {r.at && r.by && (
-              <div className="text-[10px] text-muted-foreground">by {r.by}</div>
-            )}
+            {r.at && r.by && <div className="text-[10px] text-muted-foreground">by {r.by}</div>}
             {r.at && r.note && (
-              <div className="mt-0.5 max-w-full truncate text-[10px] text-muted-foreground" title={r.note}>
+              <div
+                className="mt-0.5 max-w-full truncate text-[10px] text-muted-foreground"
+                title={r.note}
+              >
                 {r.note}
               </div>
             )}
@@ -909,10 +801,29 @@ export function DispatchFlowHint({ dispatch }: { dispatch: any }) {
   const d = dispatch;
   const steps = [
     { key: "draft", label: "Draft", done: d.status !== "draft" },
-    { key: "details", label: "Details submitted", done: ["details_submitted", "ready_for_dispatch", "confirmed", "partially_delivered", "delivered"].includes(d.status) },
-    { key: "ewb", label: d.ewb_not_required ? "EWB not required" : "E-Way Bill", done: !!(d.eway_bill_number || d.ewb_not_required) },
-    { key: "ready", label: "Ready", done: ["ready_for_dispatch", "confirmed", "partially_delivered", "delivered"].includes(d.status) },
-    { key: "dispatched", label: "Dispatched", done: ["confirmed", "partially_delivered", "delivered"].includes(d.status) },
+    {
+      key: "details",
+      label: "Details submitted",
+      done: [
+        "details_submitted",
+        "ready_for_dispatch",
+        "confirmed",
+        "partially_delivered",
+        "delivered",
+      ].includes(d.status),
+    },
+    {
+      key: "ready",
+      label: "Ready",
+      done: ["ready_for_dispatch", "confirmed", "partially_delivered", "delivered"].includes(
+        d.status,
+      ),
+    },
+    {
+      key: "dispatched",
+      label: "Dispatched",
+      done: ["confirmed", "partially_delivered", "delivered"].includes(d.status),
+    },
   ];
   return (
     <div className="flex flex-wrap items-center gap-1.5 text-[10px]">
@@ -921,9 +832,7 @@ export function DispatchFlowHint({ dispatch }: { dispatch: any }) {
           {i > 0 && <span className="text-muted-foreground">→</span>}
           <span
             className={`rounded px-1.5 py-0.5 ${
-              s.done
-                ? "bg-sem-success/10 text-sem-success"
-                : "bg-muted/60 text-muted-foreground"
+              s.done ? "bg-sem-success/10 text-sem-success" : "bg-muted/60 text-muted-foreground"
             }`}
           >
             {s.label}
