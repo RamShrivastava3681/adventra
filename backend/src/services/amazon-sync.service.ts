@@ -1,4 +1,4 @@
-import { amazonSpApi, generateTraceId } from "./amazon-spapi.service.js";
+import { amazonSpApi, generateTraceId, spApiBody, spApiNextToken } from "./amazon-spapi.service.js";
 import { AmazonDebugLogger } from "./amazon-spapi.service.js";
 import * as OrderModel from "../models/marketplace-amazon-order.js";
 import * as SyncStatusModel from "../models/marketplace-amazon-sync-status.js";
@@ -76,9 +76,20 @@ function normalizeOrder(clientId: string, order: any): Partial<OrderModel.Market
   const firstItem = items[0] ?? {};
   const sku = firstItem.SellerSKU || order.PurchaseOrderNumber || "";
   const productName = firstItem.Title || "";
-  const quantity = items.reduce((sum: number, it: any) => sum + Number(it.Quantity || 0), 0) || Number(order.NumberOfItems || 1);
-  const price = Number(firstItem.ItemPrice?.Amount || firstItem.UnitPrice?.Amount || 0);
-  const currency = firstItem.ItemPrice?.CurrencyCode || order.MarketplaceTaxInfo?.[0]?.CurrencyCode || "INR";
+  // Orders v0 getOrders has no OrderItems: units come from NumberOfItemsShipped + NumberOfItemsUnshipped
+  // and the value from OrderTotal. ItemPrice (when items are present) is the line total.
+  const quantity =
+    items.reduce((sum: number, it: any) => sum + Number(it.QuantityOrdered ?? it.Quantity ?? 0), 0) ||
+    Number(order.NumberOfItemsShipped || 0) + Number(order.NumberOfItemsUnshipped || 0) ||
+    Number(order.NumberOfItems || 1);
+  const firstItemQty = Number(firstItem.QuantityOrdered ?? firstItem.Quantity ?? 0);
+  const orderTotal = Number(order.OrderTotal?.Amount);
+  const price = firstItem.ItemPrice?.Amount && firstItemQty > 0
+    ? Number(firstItem.ItemPrice.Amount) / firstItemQty
+    : Number.isFinite(orderTotal) && quantity > 0
+      ? orderTotal / quantity
+      : Number(firstItem.UnitPrice?.Amount || 0);
+  const currency = firstItem.ItemPrice?.CurrencyCode || order.OrderTotal?.CurrencyCode || order.MarketplaceTaxInfo?.[0]?.CurrencyCode || "INR";
   const fulfilment = order.FulfillmentChannel || "FBM";
   const fulfilmentType = fulfilment === "AFN" ? "FBA" : fulfilment === "MFN" ? "SellerFlex" : "FBM";
 
@@ -145,8 +156,12 @@ function normalizeOrderItem(clientId: string, amazonOrderId: string, item: any) 
     sellerSku: item.SellerSKU || "",
     asin: item.ASIN || null,
     productName: item.Title || null,
-    quantity: Number(item.Quantity || 0),
-    unitPrice: Number(item.ItemPrice?.Amount || 0),
+    // Orders v0: QuantityOrdered; ItemPrice is the line total (unit price × quantity).
+    quantity: Number(item.QuantityOrdered ?? item.Quantity ?? 0),
+    unitPrice:
+      Number(item.QuantityOrdered ?? item.Quantity ?? 0) > 0
+        ? Number(item.ItemPrice?.Amount || 0) / Number(item.QuantityOrdered ?? item.Quantity)
+        : Number(item.ItemPrice?.Amount || 0),
     currency: item.ItemPrice?.CurrencyCode || "INR",
     productTax: Number(item.ItemTax?.Amount || 0),
     shippingTax: Number(item.ShippingTax?.Amount || 0),
@@ -159,13 +174,19 @@ function normalizeOrderItem(clientId: string, amazonOrderId: string, item: any) 
 function normalizeInventory(clientId: string, marketplaceId: string, item: any) {
   const sku = item.SellerSKU || item.sellerSku || "";
   const asin = item.ASIN || item.asin || null;
-  const fnsku = item.FNSKU || item.fnsku || null;
-  const fulfilment = item.FulfilmentChannel || item.fulfilmentChannel || null;
+  const fnsku = item.FNSKU || item.fnSku || item.fnsku || null;
+  // FBA Inventory v1 summaries are always Amazon-fulfilled.
+  const fulfilment = item.FulfilmentChannel || item.fulfilmentChannel || (item.inventoryDetails || item.fnSku ? "AFN" : null);
   const fulfilmentChannel = fulfilment === "AFN" ? "FBA" : fulfilment === "MFN" ? "FBM" : null;
-  const available = Number(item.Quantity?.AvailableQuantity ?? item.Quantity?.availableQuantity ?? 0);
-  const reserved = Number(item.Quantity?.ReservedQuantity ?? item.Quantity?.reservedQuantity ?? 0);
-  const inbound = Number(item.Quantity?.InboundQuantity ?? item.Quantity?.inboundQuantity ?? 0);
-  const unfulfillable = Number(item.Quantity?.UnfulfillableQuantity ?? item.Quantity?.unfulfillableQuantity ?? 0);
+  // FBA Inventory v1 (details=true): inventoryDetails.{fulfillableQuantity, inbound*Quantity,
+  // reservedQuantity.totalReservedQuantity, unfulfillableQuantity.totalUnfulfillableQuantity}.
+  const d = item.inventoryDetails;
+  const available = Number(d?.fulfillableQuantity ?? item.Quantity?.AvailableQuantity ?? item.Quantity?.availableQuantity ?? 0);
+  const reserved = Number(d?.reservedQuantity?.totalReservedQuantity ?? item.Quantity?.ReservedQuantity ?? item.Quantity?.reservedQuantity ?? 0);
+  const inbound = d
+    ? Number(d.inboundWorkingQuantity ?? 0) + Number(d.inboundShippedQuantity ?? 0) + Number(d.inboundReceivingQuantity ?? 0)
+    : Number(item.Quantity?.InboundQuantity ?? item.Quantity?.inboundQuantity ?? 0);
+  const unfulfillable = Number(d?.unfulfillableQuantity?.totalUnfulfillableQuantity ?? item.Quantity?.UnfulfillableQuantity ?? item.Quantity?.unfulfillableQuantity ?? 0);
   const total = available + reserved + inbound + unfulfillable;
   let stockStatus: InventoryModel.StockStatus = "InStock";
   if (total === 0) stockStatus = "OutOfStock";
@@ -355,8 +376,10 @@ export class AmazonSyncService {
           sellerId: config.amazon.sellerId,
         });
 
-        const orders = Array.isArray(resp.Orders) ? resp.Orders : [];
-        nextToken = resp.NextToken || null;
+        // Orders API v0 returns { payload: { Orders, NextToken } }.
+        const body = spApiBody(resp);
+        const orders = Array.isArray(body.Orders) ? body.Orders : [];
+        nextToken = spApiNextToken(resp);
         totalReceived += orders.length;
         log.info({
           operation: "syncOrders",
@@ -387,8 +410,6 @@ export class AmazonSyncService {
               await OrderModel.create(normalized as any);
               inserted += 1;
             }
-            totalInserted += inserted;
-            totalUpdated += updated;
           } catch (err: any) {
             totalRejected += 1;
             failed += 1;
@@ -402,6 +423,8 @@ export class AmazonSyncService {
           }
         }
 
+        totalInserted += inserted;
+        totalUpdated += updated;
         totalSkipped += skipped;
         log.info({
           operation: "syncOrders",
@@ -536,7 +559,8 @@ export class AmazonSyncService {
       processedOrders += 1;
       try {
         const resp = await amazonSpApi.getOrderItems({ amazonOrderId: order.amazonOrderId, traceId, clientId, sellerId: config.amazon.sellerId });
-        const items = Array.isArray(resp.OrderItems) ? resp.OrderItems : [];
+        const orderItems = spApiBody(resp).OrderItems;
+        const items = Array.isArray(orderItems) ? orderItems : [];
         totalReceived += items.length;
         totalParsed += items.length;
         log.debug({
@@ -671,8 +695,10 @@ export class AmazonSyncService {
           sellerId: marketplaceId,
         });
 
-        const summaries = Array.isArray(resp.InventorySummaries) ? resp.InventorySummaries : [];
-        nextToken = resp.NextToken || null;
+        // FBA Inventory v1 returns { payload: { inventorySummaries }, pagination: { nextToken } }.
+        const inventoryList = spApiBody(resp).inventorySummaries ?? spApiBody(resp).InventorySummaries;
+        const summaries = Array.isArray(inventoryList) ? inventoryList : [];
+        nextToken = spApiNextToken(resp);
         totalReceived += summaries.length;
         totalParsed += summaries.length;
         log.info({
@@ -758,17 +784,20 @@ export class AmazonSyncService {
           config: { page: pages, nextToken: nextToken ? "[present]" : null },
         });
 
+        // searchListingsItems: path needs the Merchant Token (AMAZON_SELLER_ID); max 20 per page.
         const resp = await amazonSpApi.getListingsItems({
           marketplaceIds: marketplaceId ? [marketplaceId] : [],
-          maxResults: 100,
+          maxResults: 20,
           nextToken: nextToken || undefined,
           traceId,
           clientId,
-          sellerId: marketplaceId,
+          sellerId: config.amazon.sellerId,
         });
 
-        const listings = Array.isArray(resp.Listings) ? resp.Listings : [];
-        nextToken = resp.NextToken || null;
+        // Listings Items 2021-08-01 returns { items, pagination: { nextToken } } (no payload wrapper).
+        const listingItems = resp?.items ?? spApiBody(resp).Listings;
+        const listings = Array.isArray(listingItems) ? listingItems : [];
+        nextToken = spApiNextToken(resp);
         totalReceived += listings.length;
         totalParsed += listings.length;
         log.info({
@@ -778,36 +807,47 @@ export class AmazonSyncService {
         });
 
         for (const listing of listings) {
-          const sellerSku = listing.SellerSKU || listing.sellerSKU || "";
-          const asin = listing.Asin || listing.asin || null;
-          const attributes = listing.Attributes || {};
+          // Item shape: { sku, summaries[{ marketplaceId, asin, itemName, productType, status[] }],
+          // attributes{ name: [{ value }] }, offers[{ price }], fulfillmentAvailability[], issues[] }.
+          const summaries: any[] = Array.isArray(listing.summaries) ? listing.summaries : [];
+          const summary = summaries.find((x) => x.marketplaceId === marketplaceId) ?? summaries[0] ?? {};
+          const sellerSku = listing.sku || listing.SellerSKU || listing.sellerSKU || "";
+          const asin = summary.asin || listing.Asin || listing.asin || null;
+          const attributes = listing.attributes || listing.Attributes || {};
           const getAttr = (name: string) => {
             const v = attributes[name];
+            if (Array.isArray(v)) return v[0]?.value ?? null;
             return v && typeof v === "object" && "values" in v ? v.values?.[0]?.value : null;
           };
+          const statuses: string[] = Array.isArray(summary.status) ? summary.status : [];
+          const issues: any[] = Array.isArray(listing.issues) ? listing.issues : [];
           const statusRaw = String(listing.ListingStatus || listing.listingStatus || "").toLowerCase();
           let listingStatus: ListingModel.ListingStatus = "Inactive";
-          if (statusRaw === "active") listingStatus = "Active";
+          if (statuses.includes("BUYABLE") || statusRaw === "active") listingStatus = "Active";
           else if (statusRaw === "suppressed") listingStatus = "Suppressed";
           else if (statusRaw === "incomplete") listingStatus = "Incomplete";
           else if (statusRaw === "outofstock") listingStatus = "OutOfStock";
-          else if (statusRaw === "error") listingStatus = "Error";
+          else if (statusRaw === "error" || issues.some((i) => i.severity === "ERROR")) listingStatus = "Error";
+          const offer = (Array.isArray(listing.offers) ? listing.offers : []).find((o: any) => o.marketplaceId === marketplaceId) ?? listing.offers?.[0];
+          const money = offer?.price ?? listing.Money;
+          const availability: any[] = Array.isArray(listing.fulfillmentAvailability) ? listing.fulfillmentAvailability : [];
+          const merchantStock = availability.find((f) => f.fulfillmentChannelCode === "DEFAULT");
 
           await ListingModel.upsert({
             clientId,
             marketplaceId,
             sellerSku,
             asin,
-            productTitle: getAttr("item_name") || null,
-            productType: getAttr("product_type") || null,
+            productTitle: summary.itemName || getAttr("item_name") || null,
+            productType: summary.productType || getAttr("product_type") || null,
             brand: getAttr("brand") || null,
             listingStatus,
-            fulfilmentChannel: null,
-            price: listing.Money?.amount ? Number(listing.Money.amount) : null,
-            currency: listing.Money?.currencyCode || "INR",
-            availableInventory: null,
+            fulfilmentChannel: merchantStock ? "FBM" : availability.length > 0 ? "FBA" : null,
+            price: money?.amount != null ? Number(money.amount) : null,
+            currency: money?.currencyCode || "INR",
+            availableInventory: merchantStock?.quantity != null ? Number(merchantStock.quantity) : null,
             lastUpdated: nowISO(),
-            listingIssues: listing.ListingIssues?.map?.((i: any) => i.errorCode) ?? null,
+            listingIssues: issues.length ? issues.map((i) => i.code) : listing.ListingIssues?.map?.((i: any) => i.errorCode) ?? null,
             restrictions: null,
             syncStatus: "Synced",
           } as any);
@@ -898,8 +938,10 @@ export class AmazonSyncService {
           sellerId: config.amazon.sellerId,
         });
 
-        const orders = Array.isArray(resp.Orders) ? resp.Orders : [];
-        nextToken = resp.NextToken || null;
+        // Orders API v0 returns { payload: { Orders, NextToken } }.
+        const body = spApiBody(resp);
+        const orders = Array.isArray(body.Orders) ? body.Orders : [];
+        nextToken = spApiNextToken(resp);
         totalReceived += orders.length;
         log.info({
           operation: "syncReturns",
@@ -919,8 +961,9 @@ export class AmazonSyncService {
           let productName = "";
           try {
             const itemsResp = await amazonSpApi.getOrderItems({ amazonOrderId, traceId, clientId, sellerId: config.amazon.sellerId });
-            const items = Array.isArray(itemsResp.OrderItems) ? itemsResp.OrderItems : [];
-            quantityReturned = items.reduce((sum: number, it: any) => sum + Number(it.Quantity || 0), 0);
+            const orderItems = spApiBody(itemsResp).OrderItems;
+            const items = Array.isArray(orderItems) ? orderItems : [];
+            quantityReturned = items.reduce((sum: number, it: any) => sum + Number(it.QuantityOrdered ?? it.Quantity ?? 0), 0);
             const first = items[0] ?? {};
             sku = first.SellerSKU || "";
             asin = first.ASIN || null;

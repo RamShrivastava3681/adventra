@@ -47,6 +47,27 @@ function getMarketplaceValidation() {
 }
 
 /**
+ * SP-API response helpers. Orders v0 and FBA Inventory v1 wrap their data in `payload`
+ * ({ payload: { Orders, NextToken } }); Listings Items 2021-08-01 returns it at the top level
+ * ({ items, pagination }). Always read responses through these.
+ */
+export function spApiBody(resp: any): any {
+  return resp?.payload ?? resp ?? {};
+}
+
+/** Next-page token wherever the API puts it (payload.NextToken, pagination.nextToken, …). */
+export function spApiNextToken(resp: any): string | null {
+  return resp?.payload?.NextToken ?? resp?.NextToken ?? resp?.pagination?.nextToken ?? resp?.nextToken ?? null;
+}
+
+/** The record list of any SP-API response shape (orders, order items, inventory, listings). */
+export function spApiRecords(resp: any): any[] {
+  const body = spApiBody(resp);
+  const list = body.Orders ?? body.OrderItems ?? body.inventorySummaries ?? body.InventorySummaries ?? resp?.items ?? body.Listings;
+  return Array.isArray(list) ? list : [];
+}
+
+/**
  * Amazon Selling Partner API (SP-API) client.
  *
  * Authenticates via Login with Amazon (LWA) using the refresh_token grant.
@@ -594,9 +615,8 @@ export class AmazonSpApiService {
         let paginationToken: string | null = null;
         let nextPage = false;
         if (result && typeof result === "object" && !Array.isArray(result) && typeof result !== "string") {
-          const orders = result.Orders ?? result.InventorySummaries ?? result.Listings ?? result.OrderItems ?? [];
-          recordsReceived = Array.isArray(orders) ? orders.length : 0;
-          paginationToken = result.NextToken ?? result.nextToken ?? null;
+          recordsReceived = spApiRecords(result).length;
+          paginationToken = spApiNextToken(result);
           nextPage = Boolean(paginationToken);
         }
 
@@ -778,7 +798,7 @@ export class AmazonSpApiService {
       endpoint: "/orders/v0/orders",
       stage: "after",
       config: {
-        nextToken: result.NextToken ? "[present]" : null,
+        nextToken: spApiNextToken(result) ? "[present]" : null,
       },
     });
 
@@ -833,12 +853,17 @@ export class AmazonSpApiService {
   // Listings Items API (instrumented)
   // ──────────────────────────────────────────────────────────────────────────
 
+  /**
+   * Listings Items API v2021-08-01 — searchListingsItems:
+   * GET /listings/2021-08-01/items/{sellerId}. `sellerId` is the seller's Merchant Token
+   * (AMAZON_SELLER_ID), not the marketplace ID. Returns { numberOfResults, pagination: { nextToken }, items }.
+   */
   async getListingsItems({
     marketplaceIds = this.requireMarketplaceIds(),
     sellerSkus,
     asins,
     nextToken,
-    maxResults = 100,
+    maxResults = 20,
     traceId,
     clientId,
     sellerId,
@@ -857,12 +882,17 @@ export class AmazonSpApiService {
       clientId,
       sellerId,
     });
+    const endpoint = "/listings/2021-08-01/items/{sellerId}";
 
-    if (!marketplaceIds || marketplaceIds.length === 0) {
-      const err = new Error("marketplaceIds is required for getListingsItems");
+    if (!marketplaceIds || marketplaceIds.length === 0 || !sellerId) {
+      const err = new Error(
+        !sellerId
+          ? "AMAZON_SELLER_ID (the seller's Merchant Token) is required for getListingsItems"
+          : "marketplaceIds is required for getListingsItems",
+      );
       log.error({
         operation: "getListingsItems",
-        endpoint: "/listings/2021-08-01/listings",
+        endpoint,
         stage: "error",
         errorCode: "MissingRequiredParameter",
         errorMessage: err.message,
@@ -870,9 +900,11 @@ export class AmazonSpApiService {
       throw err;
     }
 
+    // searchListingsItems allows at most 20 items per page.
+    const pageSize = Math.min(Math.max(1, maxResults), 20);
     log.info({
       operation: "getListingsItems",
-      endpoint: "/listings/2021-08-01/listings",
+      endpoint,
       stage: "before",
       config: {
         marketplaceIdsCount: marketplaceIds.length,
@@ -880,19 +912,26 @@ export class AmazonSpApiService {
         sellerSkusCount: sellerSkus?.length ?? 0,
         asinsCount: asins?.length ?? 0,
         nextToken: nextToken ? "[present]" : null,
-        maxResults,
+        pageSize,
       },
     });
 
     const query: Record<string, any> = {
       marketplaceIds: marketplaceIds.join(","),
-      maxResults: String(maxResults),
+      includedData: "summaries,attributes,offers,fulfillmentAvailability,issues",
+      pageSize: String(pageSize),
     };
-    if (sellerSkus?.length) query.sellerSkus = sellerSkus.join(",");
-    if (asins?.length) query.asins = asins.join(",");
-    if (nextToken) query.nextToken = nextToken;
+    if (sellerSkus?.length) {
+      query.identifiers = sellerSkus.join(",");
+      query.identifiersType = "SKU";
+    } else if (asins?.length) {
+      query.identifiers = asins.join(",");
+      query.identifiersType = "ASIN";
+    }
+    if (nextToken) query.pageToken = nextToken;
 
-    const url = new URL(`${this.endpoint}/listings/2021-08-01/listings`);
+    const path = `/listings/2021-08-01/items/${encodeURIComponent(sellerId)}`;
+    const url = new URL(`${this.endpoint}${path}`);
     for (const [k, v] of Object.entries(query)) {
       if (v !== undefined && v !== null && v !== "") {
         url.searchParams.set(k, String(v));
@@ -901,18 +940,18 @@ export class AmazonSpApiService {
 
     log.info({
       operation: "getListingsItems",
-      endpoint: "/listings/2021-08-01/listings",
+      endpoint,
       stage: "final-request-url",
       config: {
         queryKeys: Object.keys(query),
         queryString: url.searchParams.toString(),
-        url: url.origin + url.pathname,
+        url: url.origin + endpoint,
       },
     });
 
     const result = await this.request({
       operation: "getListingsItems",
-      path: "/listings/2021-08-01/listings",
+      path,
       query,
       traceId,
       clientId,
@@ -922,9 +961,9 @@ export class AmazonSpApiService {
 
     log.info({
       operation: "getListingsItems",
-      endpoint: "/listings/2021-08-01/listings",
+      endpoint,
       stage: "after",
-      config: { nextToken: result.NextToken ? "[present]" : null },
+      config: { nextToken: spApiNextToken(result) ? "[present]" : null },
     });
 
     return result;
@@ -969,7 +1008,7 @@ export class AmazonSpApiService {
     marketplaceIds = this.requireMarketplaceIds(),
     nextToken,
     maxResults = 100,
-    queryDetails = false,
+    queryDetails = true,
     traceId,
     clientId,
     sellerId,
@@ -1013,11 +1052,14 @@ export class AmazonSpApiService {
       },
     });
 
+    // FBA Inventory v1 requires granularityType + granularityId; `details=true` returns the
+    // fulfillable / reserved / inbound / unfulfillable quantities. (It has no page-size parameter.)
     const query: Record<string, any> = {
+      granularityType: "Marketplace",
+      granularityId: marketplaceIds[0],
       marketplaceIds: marketplaceIds.join(","),
-      MaxResults: String(maxResults),
     };
-    if (queryDetails) query.QueryDetails = "true";
+    if (queryDetails) query.details = "true";
     if (nextToken) query.nextToken = nextToken;
 
     const url = new URL(`${this.endpoint}/fba/inventory/v1/summaries`);
@@ -1052,7 +1094,7 @@ export class AmazonSpApiService {
       operation: "getInventorySummaries",
       endpoint: "/fba/inventory/v1/summaries",
       stage: "after",
-      config: { nextToken: result.NextToken ? "[present]" : null },
+      config: { nextToken: spApiNextToken(result) ? "[present]" : null },
     });
 
     return result;

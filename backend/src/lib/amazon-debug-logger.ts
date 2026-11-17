@@ -190,9 +190,11 @@ export class AmazonDebugLogger {
       let nextPage = false;
       if (result && typeof result === "object") {
         const r = result as any;
-        const orders = r.Orders ?? r.InventorySummaries ?? r.Listings ?? r.OrderItems ?? [];
+        // Orders / FBA Inventory wrap data in `payload`; Listings returns { items, pagination }.
+        const body = r.payload ?? r;
+        const orders = body.Orders ?? body.OrderItems ?? body.inventorySummaries ?? body.InventorySummaries ?? r.items ?? body.Listings ?? [];
         recordsReceived = Array.isArray(orders) ? orders.length : 0;
-        paginationToken = r.NextToken ?? r.nextToken ?? null;
+        paginationToken = body.NextToken ?? r.pagination?.nextToken ?? r.NextToken ?? r.nextToken ?? null;
         nextPage = Boolean(paginationToken);
       }
 

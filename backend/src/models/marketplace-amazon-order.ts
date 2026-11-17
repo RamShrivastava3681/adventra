@@ -129,8 +129,8 @@ export async function create(
     shippingMethod: data.shippingMethod,
     fulfilmentType: data.fulfilmentType || "FBA",
     expectedDispatchDate: data.expectedDispatchDate ?? null,
-    amazonOrderStatus: "Pending",
-    invoiceStatus: "Pending",
+    amazonOrderStatus: data.amazonOrderStatus || "Pending",
+    invoiceStatus: data.invoiceStatus || "Pending",
     createdAt: now,
     updatedAt: now,
   };
