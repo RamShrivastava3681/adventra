@@ -394,6 +394,25 @@ const api = {
     // Apply an existing supplier debit note to an open invoice.
     applyCredit: (id: string, data: { noteId: string; amount?: number | null }) =>
       api.post<any>(`/purchase-invoices/${id}/apply-credit`, data),
+    // Purchase-invoice PDF download.
+    downloadPdf: async (id: string, filename: string) => {
+      const res = await fetch(`${API_URL}/purchase-invoices/${id}/pdf`, { credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || "Could not download PDF");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disp = res.headers.get("content-disposition") || "";
+      const m = disp.match(/filename="?([^"]+)"?/);
+      a.download = m?.[1] ?? `${filename}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
   },
 
   // Purchase Returns — goods returned to a supplier against a purchase invoice.

@@ -3862,4 +3862,437 @@ export function buildPackingSlipPdf(data: PackingSlipPdfData): Promise<Buffer> {
 }
 
 
+// ══════════════════════════════════════════════════════════════════════════════
+// PURCHASE INVOICE PDF (supplier invoice received)
+// ── White background · company name · supplier (bill-from) + bill-to blocks ·
+//    item table (product / ordered / GRN recv / invoice qty / rate / GST % / total) ·
+//    totals (subtotal / GST / freight / advance / net / paid / balance) ·
+//    difference notes · signature · footer.
+// ══════════════════════════════════════════════════════════════════════════════
+
+export interface PurchaseInvoicePdfLine {
+  sku: string | null;
+  name: string;
+  unit: string;
+  orderedQty: number;
+  grnReceivedQty: number;
+  invoiceQty: number;
+  unitPrice: number;
+  poUnitPrice: number | null;
+  gstRate: number | null;
+  lineTotal: number;
+}
+
+export interface PurchaseInvoicePdfData {
+  number: string;
+  date: string;
+  dueDate: string | null;
+  poNumber: string | null;
+  grnNumber: string | null;
+  supplierName: string | null;
+  supplierAddress: string | null;
+  supplierContact: string | null;
+  billToName: string | null;
+  billToContactPerson: string | null;
+  billToAddress: string | null;
+  paymentTerms: string | null;
+  lines: PurchaseInvoicePdfLine[];
+  subtotal: number;
+  gstTotal: number;
+  freight: number;
+  grandTotal: number;
+  advanceDeducted: number;
+  netAmount: number;
+  amountPaid: number;
+  creditAdjusted: number;
+  balanceDue: number;
+  differenceNotes: string | null;
+  notes: string | null;
+  companyName: string;
+  companyContact?: string | null;
+}
+
+export function buildPurchaseInvoicePdf(data: PurchaseInvoicePdfData): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({
+      size: "A4",
+      margin: PAGE.margin,
+      bufferPages: true,
+      info: {
+        Title: `Purchase Invoice ${data.number}`,
+        Author: data.companyName || "Adventra",
+        Subject: `Purchase Invoice ${data.number} from ${data.supplierName || "supplier"}`,
+      },
+    });
+
+    const chunks: Buffer[] = [];
+    doc.on("data", (c: Buffer) => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    // ── Header: company block (left) + document label (right) ──
+    doc.font("Helvetica-Bold").fontSize(18).fillColor(INV_INK.slate900);
+    doc.text(truncate(data.companyName || "Adventra", 42), PAGE.margin, PAGE.margin, {
+      width: CONTENT_WIDTH * 0.55,
+    });
+    let y = PAGE.margin + 22;
+    if (data.companyContact) {
+      doc.font("Helvetica").fontSize(9).fillColor(INV_INK.slate600);
+      doc.text(truncate(data.companyContact, 70), PAGE.margin, y, {
+        width: CONTENT_WIDTH * 0.55,
+      });
+      y += 12;
+    }
+
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(20)
+      .fillColor(INV_INK.slate900)
+      .text("PURCHASE INVOICE", PAGE.margin, PAGE.margin, { width: CONTENT_WIDTH, align: "right" });
+    doc
+      .font("Helvetica")
+      .fontSize(9)
+      .fillColor(INV_INK.slate500)
+      .text(`No. ${data.number}`, PAGE.margin, PAGE.margin + 24, {
+        width: CONTENT_WIDTH,
+        align: "right",
+      });
+
+    // Accent underline
+    doc.save();
+    doc.rect(PAGE.margin, y + 10, CONTENT_WIDTH, 2.5).fill("#0f766e");
+    doc.restore();
+    y += 26;
+
+    // ── Meta row: dates + references (right) ──
+    doc.font("Helvetica").fontSize(9).fillColor(INV_INK.slate600);
+    const meta: Array<[string, string]> = [
+      ["Invoice date", fmtDate(data.date)],
+      ["Due date", data.dueDate ? fmtDate(data.dueDate) : "—"],
+    ];
+    if (data.poNumber) meta.push(["Purchase order", data.poNumber]);
+    if (data.grnNumber) meta.push(["Goods receipt", data.grnNumber]);
+    if (data.paymentTerms) meta.push(["Payment terms", data.paymentTerms]);
+    for (const [k, v] of meta) {
+      doc.text(`${k}: `, PAGE.margin + CONTENT_WIDTH - 210, y, { width: 48 });
+      doc
+        .font("Helvetica-Bold")
+        .fillColor(INV_INK.slate900)
+        .text(v, PAGE.margin + CONTENT_WIDTH - 162, y, { width: 162, align: "right" });
+      doc.font("Helvetica").fillColor(INV_INK.slate600);
+      y += 13;
+    }
+    y += 10;
+
+    // ── Bill-from (supplier) ──
+    const colW = CONTENT_WIDTH * 0.55;
+    doc.font("Helvetica-Bold").fontSize(8).fillColor(INV_INK.slate500);
+    doc.text("BILL FROM (SUPPLIER)", PAGE.margin, y);
+    y += 14;
+    doc.font("Helvetica-Bold").fontSize(11).fillColor(INV_INK.slate900);
+    doc.text(truncate(data.supplierName || "—", 40), PAGE.margin, y, { width: colW });
+    y += 15;
+    doc.font("Helvetica").fontSize(9).fillColor(INV_INK.slate600);
+    const supplierLines: Array<[string, string | null]> = [
+      ["Address", data.supplierAddress],
+      ["Contact", data.supplierContact],
+    ];
+    for (const [label, value] of supplierLines) {
+      if (!value) continue;
+      doc.font("Helvetica-Bold").fontSize(8).fillColor(INV_INK.slate500).text(label, PAGE.margin, y, {
+        width: 62,
+      });
+      doc
+        .font("Helvetica")
+        .fontSize(9)
+        .fillColor(INV_INK.slate700)
+        .text(truncate(value, 60), PAGE.margin + 66, y, { width: colW - 66 });
+      y += 13;
+    }
+
+    // ── Bill-to (billing party) ──
+    y += 8;
+    doc.font("Helvetica-Bold").fontSize(8).fillColor(INV_INK.slate500);
+    doc.text("BILL TO", PAGE.margin, y);
+    y += 14;
+    doc.font("Helvetica-Bold").fontSize(11).fillColor(INV_INK.slate900);
+    doc.text(truncate(data.billToName || "—", 40), PAGE.margin, y, { width: colW });
+    y += 15;
+    doc.font("Helvetica").fontSize(9).fillColor(INV_INK.slate600);
+    const billToLines: Array<[string, string | null]> = [
+      ["Contact", data.billToContactPerson],
+      ["Address", data.billToAddress],
+    ];
+    for (const [label, value] of billToLines) {
+      if (!value) continue;
+      doc.font("Helvetica-Bold").fontSize(8).fillColor(INV_INK.slate500).text(label, PAGE.margin, y, {
+        width: 62,
+      });
+      doc
+        .font("Helvetica")
+        .fontSize(9)
+        .fillColor(INV_INK.slate700)
+        .text(truncate(value, 60), PAGE.margin + 66, y, { width: colW - 66 });
+      y += 13;
+    }
+    y += 12;
+
+    // ── Line items table ──
+    const LCOLS = {
+      item: { x: PAGE.margin, w: 130 },
+      ordered: { x: PAGE.margin + 130, w: 52 },
+      grn: { x: PAGE.margin + 182, w: 52 },
+      invQty: { x: PAGE.margin + 234, w: 52 },
+      rate: { x: PAGE.margin + 286, w: 70 },
+      gst: { x: PAGE.margin + 356, w: 44 },
+      amount: { x: PAGE.margin + 400, w: 102 },
+    };
+
+    doc.font("Helvetica-Bold").fontSize(8).fillColor(INV_INK.slate500).text("LINE ITEMS", PAGE.margin, y);
+    y += 15;
+
+    const drawPiTableHeader = (ty: number) => {
+      doc.save();
+      doc.rect(PAGE.margin, ty, CONTENT_WIDTH, 20).fill(INV_INK.headBg);
+      doc.font("Helvetica-Bold").fontSize(8).fillColor(INV_INK.slate700);
+      doc.text("DESCRIPTION", LCOLS.item.x, ty + 6, { width: LCOLS.item.w });
+      doc.text("ORDERED", LCOLS.ordered.x, ty + 6, { width: LCOLS.ordered.w, align: "right" });
+      doc.text("GRN", LCOLS.grn.x, ty + 6, { width: LCOLS.grn.w, align: "right" });
+      doc.text("INV QTY", LCOLS.invQty.x, ty + 6, { width: LCOLS.invQty.w, align: "right" });
+      doc.text("RATE", LCOLS.rate.x, ty + 6, { width: LCOLS.rate.w, align: "right" });
+      doc.text("GST%", LCOLS.gst.x, ty + 6, { width: LCOLS.gst.w, align: "right" });
+      doc.text("AMOUNT", LCOLS.amount.x, ty + 6, { width: LCOLS.amount.w, align: "right" });
+      doc.restore();
+    };
+    drawPiTableHeader(y);
+    y += 20;
+
+    const rows = data.lines.length
+      ? data.lines
+      : [{
+          name: data.notes || "Goods/services received",
+          sku: null,
+          unit: "unit",
+          orderedQty: 1,
+          grnReceivedQty: 0,
+          invoiceQty: 1,
+          unitPrice: data.subtotal,
+          poUnitPrice: null,
+          gstRate: null,
+          lineTotal: data.subtotal,
+        }];
+    for (const l of rows) {
+      const itemW = LCOLS.item.w;
+      const nameH = doc.heightOfString(l.name || "Item", { width: itemW - 4 });
+      const rowH = Math.max(22, nameH + 10);
+      if (y + rowH > PAGE.height - PAGE.margin) {
+        doc.addPage();
+        drawPiTableHeader(PAGE.margin);
+        y = PAGE.margin + 20 + 4;
+      }
+      doc.font("Helvetica-Bold").fontSize(9).fillColor(INV_INK.slate900);
+      doc.text(l.name || "Item", LCOLS.item.x, y + 5, { width: itemW - 4 });
+      if (l.sku) {
+        doc.font("Helvetica").fontSize(7.5).fillColor(INV_INK.slate500);
+        doc.text(l.sku, LCOLS.item.x, y + 5 + nameH + 1, { width: itemW - 4 });
+      }
+      const cell = (value: string, col: { x: number; w: number }, bold = false) => {
+        doc.font(bold ? "Helvetica-Bold" : "Helvetica").fontSize(9).fillColor(INV_INK.slate700);
+        doc.text(value, col.x, y + rowH / 2 - 5, { width: col.w, align: "right" });
+      };
+      cell(String(Number(l.orderedQty) || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ","), LCOLS.ordered);
+      cell(String(Number(l.grnReceivedQty) || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ","), LCOLS.grn);
+      cell(String(Number(l.invoiceQty) || 0).replace(/\B(?=(\d{3})+(?!\d))/g, ","), LCOLS.invQty);
+      cell(money(l.unitPrice), LCOLS.rate);
+      cell(l.gstRate != null ? String(l.gstRate) : "—", LCOLS.gst);
+      cell(money(l.lineTotal), LCOLS.amount, true);
+      doc
+        .moveTo(PAGE.margin, y + rowH)
+        .lineTo(PAGE.margin + CONTENT_WIDTH, y + rowH)
+        .strokeColor(INV_INK.border)
+        .lineWidth(0.5)
+        .stroke();
+      y += rowH;
+    }
+    y += 8;
+
+    // ── Totals ──
+    if (y > PAGE.height - 200) {
+      doc.addPage();
+      y = PAGE.margin;
+    }
+    const boxW = 200;
+    const boxX = PAGE.width - PAGE.margin - boxW;
+    const totalRows: Array<[string, string, boolean]> = [
+      ["Subtotal (ex-GST)", money(data.subtotal), false],
+    ];
+    if (data.gstTotal > 0) totalRows.push(["GST total", money(data.gstTotal), false]);
+    if (data.freight > 0) totalRows.push(["Freight / charges", money(data.freight), false]);
+    const net = data.netAmount;
+    totalRows.push(["Net payable", money(net), true]);
+    if (data.advanceDeducted > 0) totalRows.push(["Less: advance paid", `-${money(data.advanceDeducted)}`, false]);
+    if (data.creditAdjusted > 0) totalRows.push(["Less: supplier debit notes", `-${money(data.creditAdjusted)}`, false]);
+    let ry = y;
+    for (const [label, value, bold] of totalRows) {
+      doc.font("Helvetica").fontSize(9).fillColor(bold ? INV_INK.slate900 : INV_INK.slate600);
+      doc.font(bold ? "Helvetica-Bold" : "Helvetica");
+      doc.text(label, boxX, ry, { width: boxW * 0.55 });
+      doc.text(value, boxX + boxW * 0.45, ry, { width: boxW * 0.55, align: "right" });
+      ry += 14;
+    }
+    doc.save();
+    doc.rect(boxX - 8, ry - 2, boxW + 16, 26).fill(INV_INK.slate900);
+    doc.font("Helvetica-Bold").fontSize(10).fillColor(INV_INK.white);
+    doc.text("BALANCE DUE", boxX, ry + 4, { width: boxW * 0.55 });
+    doc.text(money(data.balanceDue), boxX + boxW * 0.45, ry + 4, {
+      width: boxW * 0.55,
+      align: "right",
+    });
+    doc.restore();
+    ry += 30;
+    if (data.amountPaid > 0) {
+      doc.font("Helvetica").fontSize(9).fillColor(INV_INK.slate600);
+      doc.text("Amount paid", boxX, ry, { width: boxW * 0.55 });
+      doc.text(money(data.amountPaid), boxX + boxW * 0.45, ry, {
+        width: boxW * 0.55,
+        align: "right",
+      });
+      ry += 14;
+    }
+
+    // ── Difference notes ──
+    if (data.differenceNotes) {
+      if (ry > PAGE.height - 140) {
+        doc.addPage();
+        ry = PAGE.margin;
+      }
+      doc.font("Helvetica-Bold").fontSize(8).fillColor(INV_INK.slate500).text("QUANTITY / PRICE DIFFERENCES", PAGE.margin, ry);
+      ry += 14;
+      const h = doc.heightOfString(data.differenceNotes, { width: CONTENT_WIDTH });
+      doc
+        .font("Helvetica")
+        .fontSize(9)
+        .fillColor(INV_INK.slate600)
+        .text(data.differenceNotes, PAGE.margin, ry, { width: CONTENT_WIDTH });
+      ry += h + 14;
+    }
+
+    // ── Notes ──
+    if (data.notes) {
+      if (ry > PAGE.height - 140) {
+        doc.addPage();
+        ry = PAGE.margin;
+      }
+      doc.font("Helvetica-Bold").fontSize(8).fillColor(INV_INK.slate500).text("NOTES", PAGE.margin, ry);
+      const h = doc.heightOfString(data.notes, { width: CONTENT_WIDTH });
+      doc
+        .font("Helvetica")
+        .fontSize(9)
+        .fillColor(INV_INK.slate600)
+        .text(data.notes, PAGE.margin, ry + 13, { width: CONTENT_WIDTH });
+      ry += 13 + h + 14;
+    }
+
+    // ── Signature ──
+    const sigY = Math.max(ry + 10, PAGE.height - 130);
+    const lineW = 190;
+    doc
+      .moveTo(PAGE.width - PAGE.margin - lineW, sigY)
+      .lineTo(PAGE.width - PAGE.margin, sigY)
+      .strokeColor(INV_INK.border)
+      .lineWidth(1)
+      .stroke();
+    doc.font("Helvetica").fontSize(8).fillColor(INV_INK.slate500);
+    doc.text("Authorised signatory", PAGE.width - PAGE.margin - lineW, sigY + 6, {
+      width: lineW,
+      align: "center",
+    });
+    doc.font("Helvetica-Bold").fontSize(9).fillColor(INV_INK.slate700);
+    doc.text(data.companyName || "Adventra", PAGE.width - PAGE.margin - lineW, sigY + 20, {
+      width: lineW,
+      align: "center",
+    });
+
+    // ── Footer (every page) ──
+    const range = doc.bufferedPageRange();
+    for (let i = range.start; i < range.start + range.count; i++) {
+      doc.switchToPage(i);
+      doc.save();
+      doc.font("Helvetica").fontSize(7.5).fillColor(INV_INK.slate400);
+      doc.text(
+        "This is a computer-generated purchase invoice from " + (data.companyName || "Adventra") + ".",
+        PAGE.margin,
+        PAGE.height - 40,
+        { width: CONTENT_WIDTH * 0.7 },
+      );
+      doc.text(
+        `Page ${i + 1} of ${range.count}`,
+        PAGE.margin,
+        PAGE.height - 40,
+        { width: CONTENT_WIDTH, align: "right" },
+      );
+      doc.restore();
+    }
+
+    doc.end();
+  });
+}
+
+/** Map a purchase invoice record onto the purchase-invoice PDF data shape. */
+export function purchaseInvoiceToPdfData(
+  inv: any,
+  companyName: string,
+  companyContact?: string | null,
+): PurchaseInvoicePdfData {
+  const lines: PurchaseInvoicePdfLine[] = (inv.lines ?? []).map((l: any) => ({
+    sku: l.sku ?? null,
+    name: l.name ?? l.description ?? "Item",
+    unit: l.unit ?? "unit",
+    orderedQty: Number(l.orderedQty ?? l.ordered_qty ?? 0),
+    grnReceivedQty: Number(l.grnReceivedQty ?? l.grn_received_qty ?? 0),
+    invoiceQty: Number(l.invoiceQty ?? l.invoice_qty ?? 0),
+    unitPrice: Number(l.unitPrice ?? l.unit_price ?? 0),
+    poUnitPrice: l.poUnitPrice ?? l.po_unit_price ?? null,
+    gstRate: l.gstRate ?? l.gst_rate ?? null,
+    lineTotal: Number(l.lineTotal ?? l.line_total ?? 0),
+  }));
+  const grandTotal = Number(inv.grandTotal ?? inv.grand_total ?? 0);
+  const advanceDeducted = Number(inv.advanceDeducted ?? inv.advance_deducted ?? 0);
+  const netAmount = Number(inv.amount ?? Math.max(0, grandTotal - advanceDeducted));
+  const amountPaid = Number(inv.amountPaid ?? inv.amount_paid ?? 0);
+  const creditAdjusted = Number(inv.creditAdjusted ?? inv.credit_adjusted ?? 0);
+  const subtotal = Number(inv.subtotalGoods ?? inv.subtotal_goods ?? inv.subtotal ?? 0);
+  const gstTotal = Number(inv.gstTotal ?? inv.gst_total ?? inv.taxAmount ?? 0);
+  const freight = Number(inv.freight ?? 0);
+  const balanceDue = Number(inv.balanceDue ?? inv.balance_due ?? Math.max(0, netAmount - amountPaid - creditAdjusted));
+  return {
+    number: inv.invoiceNumber || inv.invoice_number || "—",
+    date: inv.issueDate || inv.issue_date || "",
+    dueDate: inv.dueDate || inv.due_date || null,
+    poNumber: inv.poNumber || inv.po_number || inv.goodsPoNumber || inv.goods_po_number || null,
+    grnNumber: inv.linkedGoodsReceiptNumber || inv.linked_goods_receipt_number || null,
+    supplierName: inv.supplierName || inv.supplier_name || null,
+    supplierAddress: inv.billToAddress || inv.bill_to_address || null,
+    supplierContact: inv.billToContactPerson || inv.bill_to_contact_person || null,
+    billToName: inv.billToName || inv.bill_to_name || null,
+    billToContactPerson: inv.billToContactPerson || inv.bill_to_contact_person || null,
+    billToAddress: inv.billToAddress || inv.bill_to_address || null,
+    paymentTerms: inv.paymentTermsType || inv.payment_terms_type || null,
+    lines,
+    subtotal,
+    gstTotal,
+    freight,
+    grandTotal,
+    advanceDeducted,
+    netAmount,
+    amountPaid,
+    creditAdjusted,
+    balanceDue,
+    differenceNotes: inv.differenceNotes || inv.difference_notes || null,
+    notes: inv.notes || null,
+    companyName,
+    companyContact,
+  };
+}
+
 

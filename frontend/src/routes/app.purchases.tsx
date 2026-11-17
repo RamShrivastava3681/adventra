@@ -24,6 +24,7 @@ import {
   ShoppingCart,
   Sparkles,
   RotateCcw,
+  Download,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -1903,6 +1904,7 @@ function PurchaseDetailModal({
   grn: GRNFragment | null;
   onClose: () => void;
 }) {
+  const [downloading, setDownloading] = useState(false);
   const lines = invoice?.lines ?? [];
   const subtotal = Number(invoice?.subtotal) || 0;
   const gstTotal = Number(invoice?.gst_total) || 0;
@@ -2144,7 +2146,32 @@ function PurchaseDetailModal({
             </div>
           )}
 
-          <div className="flex justify-end border-t border-border pt-3">
+          <div className="flex justify-end border-t border-border pt-3 gap-2">
+            <button
+              onClick={async () => {
+                setDownloading(true);
+                try {
+                  await api.purchaseInvoices.downloadPdf(
+                    invoice.id,
+                    invoice.invoice_number || "purchase-invoice",
+                  );
+                  toast.success("PDF downloaded");
+                } catch (e) {
+                  toast.error(e instanceof Error ? e.message : "Could not download PDF");
+                } finally {
+                  setDownloading(false);
+                }
+              }}
+              disabled={downloading}
+              className="rounded-md border border-border px-4 py-2 text-sm disabled:opacity-50"
+            >
+              {downloading ? (
+                <Loader2 className="h-3 w-3 mr-2 animate-spin" />
+              ) : (
+                <Download className="h-3 w-3 mr-2" />
+              )}
+              Download PDF
+            </button>
             <button onClick={onClose} className="rounded-md border border-border px-4 py-2 text-sm">
               Close
             </button>

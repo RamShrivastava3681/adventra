@@ -2362,6 +2362,23 @@ router.get("/invoices/:id/pdf", authMiddleware, async (req, res) => {
   }
 });
 
+/** GET /purchase-invoices/:id/pdf — download the purchase invoice PDF. */
+router.get("/purchase-invoices/:id/pdf", authMiddleware, async (req, res) => {
+  try {
+    const inv = await PurchaseInvoice.get(req.params.id);
+    if (!inv || (inv.clientId !== req.user!.userId && !isStaffAccount(req.user?.roles))) {
+      return res.status(404).json({ error: "Purchase invoice not found" });
+    }
+    const { pdf, number } = await buildPurchaseInvoiceBuffer(inv);
+    const filename = `${(number || "purchase-invoice").replace(/[^A-Za-z0-9-_]/g, "_")}.pdf`;
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+    res.send(pdf);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 /** GET /invoices/:id/tally-xml — download the invoice in Tally ERP 9 XML import format. */
 router.get("/invoices/:id/tally-xml", authMiddleware, async (req, res) => {
   try {
@@ -7506,6 +7523,23 @@ async function buildInvoiceTallyBuffer(
   });
   const pdf = await buildInvoiceTallyPdf(data);
   return { pdf, number: data.number, grandTotal: data.grandTotal };
+}
+
+/**
+ * Build the purchase-invoice PDF buffer for download. Resolves the seller
+ * (company) parts for the header, maps the purchase invoice onto the PDF data
+ * shape, and renders via buildPurchaseInvoicePdf.
+ */
+async function buildPurchaseInvoiceBuffer(
+  inv: any,
+): Promise<{ pdf: Buffer; number: string }> {
+  const {
+    buildPurchaseInvoicePdf,
+    purchaseInvoiceToPdfData,
+  } = await import("../lib/document-pdf.js");
+  const data = purchaseInvoiceToPdfData(inv, "Adventra", null);
+  const pdf = await buildPurchaseInvoicePdf(data);
+  return { pdf, number: data.number };
 }
 
 /**
