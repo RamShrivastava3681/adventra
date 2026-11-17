@@ -30,10 +30,22 @@ export interface ClassifiedError {
   retryable: boolean;
 }
 
-/** Extract the Amazon Request-ID from a response, if present. */
-function extractRequestId(headers: { get(name: string): string | null } | null | undefined): string | null {
+type HeaderSource = { get(name: string): string | null } | Record<string, unknown> | null | undefined;
+
+/**
+ * Extract the Amazon Request-ID from response headers, if present. Callers pass a fetch
+ * `Headers` object, a plain header map, or nothing at all (most sync error paths), so this
+ * must never assume `.get()` exists.
+ */
+function extractRequestId(headers: HeaderSource): string | null {
   if (!headers) return null;
-  return headers.get("x-amzn-RequestId") ?? headers.get("x-amzn-requestid") ?? null;
+  if (typeof (headers as { get?: unknown }).get === "function") {
+    const h = headers as { get(name: string): string | null };
+    return h.get("x-amzn-RequestId") ?? h.get("x-amzn-requestid") ?? null;
+  }
+  const map = headers as Record<string, unknown>;
+  const value = map["x-amzn-RequestId"] ?? map["x-amzn-requestid"];
+  return typeof value === "string" ? value : null;
 }
 
 /**
@@ -45,12 +57,13 @@ function extractRequestId(headers: { get(name: string): string | null } | null |
  */
 export function classifyError(
   err: any,
-  headers?: { get(name: string): string | null },
+  headers?: HeaderSource,
   bodySnippet?: string,
 ): ClassifiedError {
   const httpStatus = err?.status ?? err?.httpStatus ?? null;
   const amazonErrorCode = err?.code ?? null;
-  const amazonRequestId = extractRequestId(headers ?? ({} as any));
+  const amazonRequestId =
+    extractRequestId(headers) ?? (typeof err?.amazonRequestId === "string" ? err.amazonRequestId : null);
   const rawMessage = err?.message ?? String(err ?? "");
 
   // Redact the message: strip anything that looks like a token or secret.
