@@ -1025,8 +1025,10 @@ export async function validateRecords(clientId: string, exportType: TallyExportT
     for (const rec of prepared) {
       const prev = map.get(`${exportType}|${rec.sourceId}`);
       if (prev && ["Exported", "Downloaded", "Imported"].includes(prev.status) && prev.contentHash === rec.contentHash) {
-        rec.errors.push(`Already exported in batch ${prev.lastBatchId || "(unknown)"} - no changes since then.`);
-        rec.status = "Validation Failed";
+        rec.warnings.push(`Already exported in batch ${prev.lastBatchId || "(unknown)"} - no changes since then. Re-exported on request.`);
+        rec.exportedStatus = prev.status;
+        rec.lastBatchId = prev.lastBatchId;
+        rec.exportedAt = prev.exportedAt;
         rec.exportedStatus = prev.status;
         rec.lastBatchId = prev.lastBatchId;
         rec.exportedAt = prev.exportedAt;
@@ -1042,20 +1044,24 @@ export async function validateRecords(clientId: string, exportType: TallyExportT
 export function configProblems(config: TallyConfig, exportType?: TallyExportType): string[] {
   const problems: string[] = [];
   if (!config.companyName) problems.push("Tally company name is not configured. Open Configuration & Mapping and enter the exact company name shown in Tally.");
-  if (!config.homeState) problems.push("Home state is required (used to decide CGST/SGST vs IGST).");
   const m = config.mappings || Tally.EMPTY_MAPPING;
-  if (!m.salesLedger) problems.push("Sales ledger is not configured.");
-  if (!m.purchaseLedger) problems.push("Purchase ledger is not configured.");
-  if (!m.debtorsGroup) problems.push("Customer ledger group is not configured.");
-  if (!m.creditorsGroup) problems.push("Supplier ledger group is not configured.");
-  if (!m.cgstOutputLedger || !m.sgstOutputLedger || !m.igstOutputLedger) {
+  const needsSales = !exportType || ["sales", "credit-notes"].includes(exportType);
+  const needsPurchases = !exportType || ["purchases", "debit-notes"].includes(exportType);
+  const needsOutputTax = needsSales;
+  const needsInputTax = needsPurchases;
+  if (needsSales && !config.homeState) problems.push("Home state is required for sales vouchers (used to decide CGST/SGST vs IGST).");
+  if (needsSales && !m.salesLedger) problems.push("Sales ledger is not configured.");
+  if (needsPurchases && !m.purchaseLedger) problems.push("Purchase ledger is not configured.");
+  if ((exportType === "customers" || !exportType) && !m.debtorsGroup) problems.push("Customer ledger group is not configured.");
+  if ((exportType === "suppliers" || !exportType) && !m.creditorsGroup) problems.push("Supplier ledger group is not configured.");
+  if (needsOutputTax && (!m.cgstOutputLedger || !m.sgstOutputLedger || !m.igstOutputLedger)) {
     problems.push("GST output ledgers (CGST, SGST/UTGST, and IGST) are not fully configured.");
   }
-  if (!m.cgstInputLedger || !m.sgstInputLedger || !m.igstInputLedger) {
+  if (needsInputTax && (!m.cgstInputLedger || !m.sgstInputLedger || !m.igstInputLedger)) {
     problems.push("GST input ledgers (CGST, SGST/UTGST, and IGST) are not fully configured.");
   }
-  if (!m.roundOffLedger) problems.push("Round-off ledger is not configured.");
-  if (!config.gstApplicableFrom) problems.push("GST applicable-from migration date is not configured.");
+  if ((needsSales || needsPurchases) && !m.roundOffLedger) problems.push("Round-off ledger is not configured.");
+  if ((exportType === "stock-items" || needsSales || needsPurchases) && !config.gstApplicableFrom) problems.push("GST applicable-from migration date is not configured.");
   // Godown is only needed for inventory / voucher exports, not for simple ledger or unit masters.
   const needsGodown = !exportType ||
     ["stock-items", "sales", "purchases", "credit-notes", "debit-notes"].includes(exportType);
@@ -1086,8 +1092,10 @@ export async function generateBatch(opts: GenerateOptions) {
     for (const rec of prepared) {
       const prev = map.get(`${opts.exportType}|${rec.sourceId}`);
       if (prev && ["Exported", "Downloaded", "Imported"].includes(prev.status) && prev.contentHash === rec.contentHash) {
-        rec.errors.push(`Already exported in batch ${prev.lastBatchId || "(unknown)"} - no changes since then.`);
-        rec.status = "Validation Failed";
+        rec.warnings.push(`Already exported in batch ${prev.lastBatchId || "(unknown)"} - no changes since then. Re-exported on request.`);
+        rec.exportedStatus = prev.status;
+        rec.lastBatchId = prev.lastBatchId;
+        rec.exportedAt = prev.exportedAt;
       } else if (prev && ["Exported", "Downloaded", "Imported"].includes(prev.status) && prev.contentHash !== rec.contentHash) {
         rec.warnings.push(`Source record changed since last exported (batch ${prev.lastBatchId || "(unknown)"}).`);
         rec.status = rec.errors.length ? "Validation Failed" : "Needs Review";

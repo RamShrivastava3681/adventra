@@ -1253,7 +1253,7 @@ function ExportWorkflowDialog({
         .filter((r: any) => r.errors?.length === 0)
         .map((r: any) => r.sourceId);
       if (!recordsToExport.length) {
-        throw new Error("No valid records are available for export.");
+        throw new Error("No exportable records are available. Resolve the listed data issues first.");
       }
       return api.tally.export({ exportType, ids: recordsToExport, force });
     },
