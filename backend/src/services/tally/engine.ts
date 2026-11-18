@@ -144,6 +144,17 @@ export const STANDARD_UNITS: { name: string; originalName: string; decimalPlaces
   { name: "dozen", originalName: "Dozens", decimalPlaces: 0 },
 ];
 
+// The application exposes a shared business portfolio to staff. Tally source
+// lists must therefore use the shared entity scans; GSI client partitions can
+// differ from the currently signed-in staff member.
+const sharedInvoiceRows = () => Invoice.list().catch(() => [] as any[]);
+const sharedPurchaseInvoiceRows = () => PurchaseInvoice.list().catch(() => [] as any[]);
+const sharedProducts = () => Product.list().catch(() => [] as any[]);
+const sharedVendors = () => Vendor.list().catch(() => [] as any[]);
+const sharedReceipts = () => PaymentReceipt.list().catch(() => [] as any[]);
+const sharedNotes = () => CreditDebitNote.list().catch(() => [] as any[]);
+const sharedMovements = () => StockMovement.list().catch(() => [] as any[]);
+
 export function stateNameFromCode(code: string | null | undefined): string | null {
   if (!code) return null;
   const digits = String(code).trim().slice(0, 2).padStart(2, "0");
@@ -318,13 +329,12 @@ export async function loadContext(clientId: string, config: TallyConfig): Promis
   const [debtors, suppliers, vendors, products, movements] = await Promise.all([
     Debtor.list().catch(() => [] as any[]),
     Supplier.list().catch(() => [] as any[]),
-    Vendor.list(clientId).catch(() => [] as any[]),
-    Product.list(clientId).catch(() => [] as any[]),
-    StockMovement.list(clientId).catch(() => [] as any[]),
+    sharedVendors(),
+    sharedProducts(),
+    sharedMovements(),
   ]);
   const debtorsById = new Map<string, any>();
   for (const d of debtors as any[]) {
-    if (d.clientId && d.clientId !== clientId) continue;
     debtorsById.set(d.id, d);
   }
   const suppliersById = new Map<string, any>();
@@ -385,12 +395,11 @@ const TYPE_LABEL: Record<TallyExportType, string> = {
 
 export async function listSelectable(clientId: string, exportType: TallyExportType): Promise<SelectableRecord[]> {
   const out: SelectableRecord[] = [];
-  const config = await Tally.getConfig(clientId);
+  const config = (await Tally.getConfig(clientId)) || (await Tally.getConfig("shared"));
 
   if (exportType === "customers") {
     const rows = await Debtor.list().catch(() => [] as any[]);
     for (const d of rows as any[]) {
-      if (d.clientId && d.clientId !== clientId) continue;
       const missing: string[] = [];
       if (!d.gstin) missing.push("GSTIN missing");
       if (!d.state) missing.push("State missing");
@@ -410,7 +419,7 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
   } else if (exportType === "suppliers") {
     const [supplierRows, vendorRows] = await Promise.all([
       Supplier.list().catch(() => [] as any[]),
-      Vendor.list(clientId).catch(() => [] as any[]),
+      sharedVendors(),
     ]);
     const rows = [
       ...supplierRows,
@@ -421,7 +430,6 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       })),
     ];
     for (const s of rows as any[]) {
-      if (s.clientId && s.clientId !== clientId) continue;
       const missing: string[] = [];
       if (!s.gstin) missing.push("GSTIN missing");
       if (!s.state && !s.stateCode) missing.push("State missing");
@@ -438,7 +446,7 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       });
     }
   } else if (exportType === "stock-items") {
-    const rows = await Product.list(clientId).catch(() => [] as any[]);
+    const rows = await sharedProducts();
     for (const p of rows as any[]) {
       const missing: string[] = [];
       if (!p.hsnCode) missing.push("HSN missing");
@@ -502,11 +510,10 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       });
     }
   } else if (exportType === "sales") {
-    const rows = await Invoice.list(clientId).catch(() => [] as any[]);
+    const rows = await sharedInvoiceRows();
     const debtors = await Debtor.list().catch(() => [] as any[]);
     const debtorById = new Map<string, any>();
     for (const d of debtors as any[]) {
-      if (d.clientId && d.clientId !== clientId) continue;
       debtorById.set(d.id, d);
     }
     for (const i of rows as any[]) {
@@ -530,10 +537,10 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       });
     }
   } else if (exportType === "purchases") {
-    const rows = await PurchaseInvoice.list(clientId).catch(() => [] as any[]);
+    const rows = await sharedPurchaseInvoiceRows();
     const [supplierRows, vendorRows] = await Promise.all([
       Supplier.list().catch(() => [] as any[]),
-      Vendor.list(clientId).catch(() => [] as any[]),
+      sharedVendors(),
     ]);
     const supplierById = new Map<string, any>();
     for (const s of supplierRows as any[]) supplierById.set(s.id, s);
@@ -561,9 +568,9 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       });
     }
   } else if (exportType === "receipts") {
-    const rows = await PaymentReceipt.list(clientId).catch(() => [] as any[]);
+    const rows = await sharedReceipts();
     const [invoices, debtors] = await Promise.all([
-      Invoice.list(clientId).catch(() => [] as any[]),
+      sharedInvoiceRows(),
       Debtor.list().catch(() => [] as any[]),
     ]);
     const invoiceById = new Map<string, any>();
@@ -590,10 +597,10 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       });
     }
   } else if (exportType === "payments") {
-    const rows = await PurchaseInvoice.list(clientId).catch(() => [] as any[]);
+    const rows = await sharedPurchaseInvoiceRows();
     const [supplierRows, vendorRows] = await Promise.all([
       Supplier.list().catch(() => [] as any[]),
-      Vendor.list(clientId).catch(() => [] as any[]),
+      sharedVendors(),
     ]);
     const supplierById = new Map<string, any>();
     for (const s of supplierRows as any[]) supplierById.set(s.id, s);
@@ -619,14 +626,14 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       });
     }
   } else if (exportType === "credit-notes" || exportType === "debit-notes") {
-    const rows = await CreditDebitNote.list(clientId).catch(() => [] as any[]);
+    const rows = await sharedNotes();
     const want = exportType === "credit-notes" ? "credit" : "debit";
     const [invoices, purchases, debtors, suppliers, vendors] = await Promise.all([
-      Invoice.list(clientId).catch(() => [] as any[]),
-      PurchaseInvoice.list(clientId).catch(() => [] as any[]),
+      sharedInvoiceRows(),
+      sharedPurchaseInvoiceRows(),
       Debtor.list().catch(() => [] as any[]),
       Supplier.list().catch(() => [] as any[]),
-      Vendor.list(clientId).catch(() => [] as any[]),
+      sharedVendors(),
     ]);
     const invoiceById = new Map<string, any>();
     for (const i of invoices as any[]) invoiceById.set(i.id, i);
@@ -698,7 +705,7 @@ export async function buildRecords(
     } else {
       const [suppliers, vendors] = await Promise.all([
         Supplier.list().catch(() => [] as any[]),
-        Vendor.list(clientId).catch(() => [] as any[]),
+        sharedVendors(),
       ]);
       rows = [
         ...suppliers,
@@ -710,7 +717,6 @@ export async function buildRecords(
       ];
     }
     for (const row of rows as any[]) {
-      if (row.clientId && row.clientId !== clientId) continue;
       if (idSet && !idSet.has(row.id)) continue;
       const errors: string[] = [];
       const warnings: string[] = [];
@@ -757,7 +763,7 @@ export async function buildRecords(
   }
 
   if (exportType === "stock-items") {
-    const rows = await Product.list(clientId);
+    const rows = await sharedProducts();
     for (const row of rows as any[]) {
       if (idSet && !idSet.has(row.id)) continue;
       const errors: string[] = [];
@@ -870,10 +876,10 @@ export async function buildRecords(
   // Transactions
   const needsNotes = exportType === "credit-notes" || exportType === "debit-notes";
   const [invoices, purchases, receipts, notes] = await Promise.all([
-    exportType === "receipts" || needsNotes ? Invoice.list(clientId) : Promise.resolve([] as any[]),
-    needsNotes ? PurchaseInvoice.list(clientId) : Promise.resolve([] as any[]),
-    exportType === "receipts" ? PaymentReceipt.list(clientId) : Promise.resolve([] as any[]),
-    needsNotes ? CreditDebitNote.list(clientId) : Promise.resolve([] as any[]),
+    exportType === "receipts" || needsNotes ? sharedInvoiceRows() : Promise.resolve([] as any[]),
+    needsNotes ? sharedPurchaseInvoiceRows() : Promise.resolve([] as any[]),
+    exportType === "receipts" ? sharedReceipts() : Promise.resolve([] as any[]),
+    needsNotes ? sharedNotes() : Promise.resolve([] as any[]),
   ]);
   const invoicesById = new Map<string, any>();
   for (const i of invoices as any[]) invoicesById.set(i.id, i);
@@ -896,7 +902,7 @@ export async function buildRecords(
   };
 
   if (exportType === "sales") {
-    const rows = await Invoice.list(clientId);
+    const rows = await sharedInvoiceRows();
     for (const row of rows as any[]) {
       if (idSet && !idSet.has(row.id)) continue;
       const res = serializeSalesVoucher(row, sharedVoucherCtx);
@@ -918,7 +924,7 @@ export async function buildRecords(
       });
     }
   } else if (exportType === "purchases") {
-    const rows = await PurchaseInvoice.list(clientId);
+    const rows = await sharedPurchaseInvoiceRows();
     for (const row of rows as any[]) {
       if (idSet && !idSet.has(row.id)) continue;
       const res = serializePurchaseVoucher(row, sharedVoucherCtx);
@@ -962,7 +968,7 @@ export async function buildRecords(
       });
     }
   } else if (exportType === "payments") {
-    const rows = await PurchaseInvoice.list(clientId);
+    const rows = await sharedPurchaseInvoiceRows();
     for (const row of rows as any[]) {
       if (!(Number(row.amountPaid) > 0)) continue;
       if (idSet && !idSet.has(row.id)) continue;
@@ -1362,7 +1368,7 @@ export function manifestCsv(batch: Tally.TallyBatch): string {
 }
 
 export async function getDashboardOverview(clientId: string) {
-  const config = await Tally.getConfig(clientId);
+  const config = (await Tally.getConfig(clientId)) || (await Tally.getConfig("shared"));
   const [batches, exportRecords] = await Promise.all([
     Tally.listBatches(clientId).catch(() => []),
     Tally.listExportRecords(clientId).catch(() => []),
