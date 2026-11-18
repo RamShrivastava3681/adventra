@@ -268,7 +268,6 @@ function TallyIntegrationPage() {
 
           <TabsContent value="config">
             <ConfigTab
-              key={configQuery.data?.config?.updatedAt ?? "new"}
               data={configQuery.data}
               loading={configQuery.isLoading}
               onSaved={() => {
@@ -2115,7 +2114,23 @@ function ConfigTab({
           ]),
         ),
       }),
-    onSuccess: () => {
+    onSuccess: (savedResponse) => {
+      const saved = savedResponse?.config ?? null;
+      if (saved) {
+        setForm({
+          companyName: saved.companyName ?? "",
+          homeState: saved.homeState ?? "",
+          gstin: saved.gstin ?? "",
+          gstRegistrationType: saved.gstRegistrationType ?? "Regular",
+          godownName: saved.godownName ?? "",
+          defaultUnit: saved.defaultUnit ?? "pics",
+          stockGroup: saved.stockGroup ?? "Primary",
+          batchName: saved.batchName ?? "Primary Batch",
+          gstApplicableFrom: saved.gstApplicableFrom ?? "2026-10-01",
+          allowDuplicateReExport: !!saved.allowDuplicateReExport,
+          mappings: { ...(data?.suggested ?? {}), ...(saved.mappings ?? {}) },
+        });
+      }
       toast.success("Tally Configuration Saved", {
         description: "Company details and ledger mappings updated.",
       });

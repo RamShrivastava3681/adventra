@@ -169,8 +169,13 @@ export async function saveConfig(
     ...(data.mappings ?? {}),
   };
   Object.keys(mappings).forEach((key) => {
+    const requested = data.mappings?.[key as keyof TallyLedgerMapping];
+    const normalizedRequested = normalize(requested);
+    const existingValue = normalize(existing?.mappings?.[key as keyof TallyLedgerMapping]);
     mappings[key as keyof TallyLedgerMapping] =
-      normalize(mappings[key as keyof TallyLedgerMapping]) as never;
+      (requested === undefined
+        ? normalize(mappings[key as keyof TallyLedgerMapping]) || existingValue
+        : normalizedRequested || existingValue) as never;
   });
   const item: TallyConfig = {
     pk,
