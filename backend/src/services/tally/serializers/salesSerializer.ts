@@ -23,7 +23,13 @@ export function serializeSalesVoucher(inv: any, ctx: SalesBuildContext) {
   const errors: string[] = [];
   const warnings: string[] = [];
   const debtor = ctx.debtorsById.get(inv.debtorId);
-  const party = debtor?.name || inv.customerName || null;
+  const party =
+    debtor?.name ||
+    inv.customerName ||
+    inv.customer_name ||
+    inv.consigneeName ||
+    inv.billToName ||
+    null;
   const lines: any[] = inv.lines || inv.lineItems || [];
   const partyState = ctx.partyStateForInvoice(inv);
   const intra = ctx.normState(partyState) === ctx.normState(config.homeState) || !partyState;

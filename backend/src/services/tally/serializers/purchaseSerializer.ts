@@ -23,7 +23,13 @@ export function serializePurchaseVoucher(pi: any, ctx: PurchaseBuildContext) {
   const errors: string[] = [];
   const warnings: string[] = [];
   const supplier = ctx.suppliersById.get(pi.vendorId) || ctx.suppliersById.get(pi.billToSupplierId);
-  const party = pi.supplierName || supplier?.companyName || pi.billToName || null;
+  const party =
+    pi.supplierName ||
+    supplier?.companyName ||
+    supplier?.name ||
+    pi.billToName ||
+    pi.vendorName ||
+    null;
   const lines: any[] = pi.lines || [];
   const supplierState = ctx.partyStateForPurchase(pi);
   const intra = ctx.normState(supplierState) === ctx.normState(config.homeState) || !supplierState;

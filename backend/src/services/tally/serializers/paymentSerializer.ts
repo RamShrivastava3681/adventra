@@ -13,7 +13,13 @@ export function serializePaymentVoucher(pi: any, ctx: PaymentBuildContext) {
   const errors: string[] = [];
   const warnings: string[] = [];
   const supplier = ctx.suppliersById.get(pi.vendorId) || ctx.suppliersById.get(pi.billToSupplierId);
-  const party = pi.supplierName || supplier?.companyName || null;
+  const party =
+    pi.supplierName ||
+    supplier?.companyName ||
+    supplier?.name ||
+    pi.billToName ||
+    pi.vendorName ||
+    null;
   const amount = round2(Number(pi.amountPaid) || 0);
 
   if (!config.mappings.bankLedger) errors.push("Bank ledger is not configured.");

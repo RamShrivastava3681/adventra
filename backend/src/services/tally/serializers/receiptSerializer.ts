@@ -14,7 +14,13 @@ export function serializeReceiptVoucher(receipt: any, ctx: ReceiptBuildContext, 
   const warnings: string[] = [];
   const inv = receipt.invoiceId ? invoicesById.get(receipt.invoiceId) : null;
   const debtor = inv ? ctx.debtorsById.get(inv.debtorId) : null;
-  const party = debtor?.name || receipt.customerName || null;
+  const party =
+    debtor?.name ||
+    receipt.customerName ||
+    receipt.customer_name ||
+    inv?.customerName ||
+    inv?.consigneeName ||
+    null;
   const amount = round2(Number(receipt.amount) || 0);
 
   if (!config.mappings.bankLedger) errors.push("Bank ledger is not configured.");

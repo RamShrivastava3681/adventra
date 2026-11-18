@@ -6,6 +6,7 @@ import * as Invoice from "../../models/invoice.js";
 import * as PurchaseInvoice from "../../models/purchase-invoice.js";
 import * as Debtor from "../../models/debtor.js";
 import * as Supplier from "../../models/supplier.js";
+import * as Vendor from "../../models/vendor.js";
 import * as Product from "../../models/product.js";
 import * as PaymentReceipt from "../../models/payment-receipt.js";
 import * as CreditDebitNote from "../../models/credit-debit-note.js";
@@ -293,9 +294,10 @@ export function partyStateForPurchase(pi: any, ctx: BuildContext): string | null
 }
 
 export async function loadContext(clientId: string, config: TallyConfig): Promise<BuildContext> {
-  const [debtors, suppliers, products, movements] = await Promise.all([
+  const [debtors, suppliers, vendors, products, movements] = await Promise.all([
     Debtor.list().catch(() => [] as any[]),
     Supplier.list().catch(() => [] as any[]),
+    Vendor.list(clientId).catch(() => [] as any[]),
     Product.list(clientId).catch(() => [] as any[]),
     StockMovement.list(clientId).catch(() => [] as any[]),
   ]);
@@ -306,6 +308,14 @@ export async function loadContext(clientId: string, config: TallyConfig): Promis
   }
   const suppliersById = new Map<string, any>();
   for (const s of suppliers as any[]) suppliersById.set(s.id, s);
+  for (const v of vendors as any[]) {
+    suppliersById.set(v.id, {
+      ...v,
+      companyName: v.companyName || v.name,
+      stateCode: v.stateCode || null,
+      state: v.state || null,
+    });
+  }
   const productsById = new Map<string, any>();
   for (const p of products as any[]) productsById.set(p.id, p);
   const openingByProduct = new Map<string, { qty: number; value: number }>();
@@ -377,8 +387,20 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       });
     }
   } else if (exportType === "suppliers") {
-    const rows = await Supplier.list().catch(() => [] as any[]);
+    const [supplierRows, vendorRows] = await Promise.all([
+      Supplier.list().catch(() => [] as any[]),
+      Vendor.list(clientId).catch(() => [] as any[]),
+    ]);
+    const rows = [
+      ...supplierRows,
+      ...vendorRows.map((v: any) => ({
+        ...v,
+        companyName: v.companyName || v.name,
+        supplierCode: v.vendorCode || v.supplierCode,
+      })),
+    ];
     for (const s of rows as any[]) {
+      if (s.clientId && s.clientId !== clientId) continue;
       const missing: string[] = [];
       if (!s.gstin) missing.push("GSTIN missing");
       if (!s.state && !s.stateCode) missing.push("State missing");
@@ -460,16 +482,24 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
     }
   } else if (exportType === "sales") {
     const rows = await Invoice.list(clientId).catch(() => [] as any[]);
+    const debtors = await Debtor.list().catch(() => [] as any[]);
+    const debtorById = new Map<string, any>();
+    for (const d of debtors as any[]) {
+      if (d.clientId && d.clientId !== clientId) continue;
+      debtorById.set(d.id, d);
+    }
     for (const i of rows as any[]) {
+      const debtor = debtorById.get(i.debtorId);
+      const customerName = debtor?.name || i.customerName || i.customer_name || null;
       const missing: string[] = [];
-      if (!i.customerName && !i.debtorId) missing.push("Customer missing");
+      if (!customerName && !i.debtorId) missing.push("Customer missing");
       if (!i.invoiceNumber) missing.push("Invoice # missing");
       out.push({
         sourceId: i.id,
         label: i.invoiceNumber,
         docNumber: i.invoiceNumber,
         date: i.issueDate,
-        party: i.customerName || null,
+        party: customerName,
         amount: Number(i.grandTotal) || Number(i.amount) || 0,
         taxAmount: Number(i.gstTotal) || Number(i.taxAmount) || 0,
         paymentStatus: i.paymentStatus || i.status,
@@ -480,16 +510,27 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
     }
   } else if (exportType === "purchases") {
     const rows = await PurchaseInvoice.list(clientId).catch(() => [] as any[]);
+    const [supplierRows, vendorRows] = await Promise.all([
+      Supplier.list().catch(() => [] as any[]),
+      Vendor.list(clientId).catch(() => [] as any[]),
+    ]);
+    const supplierById = new Map<string, any>();
+    for (const s of supplierRows as any[]) supplierById.set(s.id, s);
+    for (const v of vendorRows as any[]) supplierById.set(v.id, { ...v, companyName: v.companyName || v.name });
     for (const p of rows as any[]) {
+      const supplier =
+        supplierById.get(p.vendorId) ||
+        supplierById.get(p.billToSupplierId);
+      const supplierName = p.supplierName || supplier?.companyName || supplier?.name || p.billToName || null;
       const missing: string[] = [];
-      if (!p.supplierName && !p.vendorId && !p.billToSupplierId) missing.push("Supplier missing");
+      if (!supplierName && !p.vendorId && !p.billToSupplierId) missing.push("Supplier missing");
       if (!p.invoiceNumber) missing.push("Invoice # missing");
       out.push({
         sourceId: p.id,
         label: p.invoiceNumber,
         docNumber: p.invoiceNumber,
         date: p.issueDate,
-        party: p.supplierName || null,
+        party: supplierName,
         amount: Number(p.grandTotal) || Number(p.amount) || 0,
         taxAmount: Number(p.gstTotal) || 0,
         paymentStatus: p.paymentStatus || p.status,
@@ -500,14 +541,25 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
     }
   } else if (exportType === "receipts") {
     const rows = await PaymentReceipt.list(clientId).catch(() => [] as any[]);
+    const [invoices, debtors] = await Promise.all([
+      Invoice.list(clientId).catch(() => [] as any[]),
+      Debtor.list().catch(() => [] as any[]),
+    ]);
+    const invoiceById = new Map<string, any>();
+    for (const i of invoices as any[]) invoiceById.set(i.id, i);
+    const debtorById = new Map<string, any>();
+    for (const d of debtors as any[]) debtorById.set(d.id, d);
     for (const r of rows as any[]) {
       if (r.status !== "verified" || !r.invoiceId) continue;
+      const invoice = invoiceById.get(r.invoiceId);
+      const debtor = invoice ? debtorById.get(invoice.debtorId) : null;
+      const customerName = debtor?.name || r.customerName || r.customer_name || invoice?.customerName || null;
       out.push({
         sourceId: r.id,
         label: r.utr || r.id.slice(0, 8),
         docNumber: r.invoiceNumber || r.id.slice(0, 8),
         date: r.receiptDate || r.submittedAt,
-        party: r.customerName || null,
+        party: customerName,
         amount: Number(r.amount) || 0,
         taxAmount: 0,
         paymentStatus: r.status,
@@ -518,14 +570,25 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
     }
   } else if (exportType === "payments") {
     const rows = await PurchaseInvoice.list(clientId).catch(() => [] as any[]);
+    const [supplierRows, vendorRows] = await Promise.all([
+      Supplier.list().catch(() => [] as any[]),
+      Vendor.list(clientId).catch(() => [] as any[]),
+    ]);
+    const supplierById = new Map<string, any>();
+    for (const s of supplierRows as any[]) supplierById.set(s.id, s);
+    for (const v of vendorRows as any[]) supplierById.set(v.id, { ...v, companyName: v.companyName || v.name });
     for (const p of rows as any[]) {
       if (!(Number(p.amountPaid) > 0)) continue;
+      const supplier =
+        supplierById.get(p.vendorId) ||
+        supplierById.get(p.billToSupplierId);
+      const supplierName = p.supplierName || supplier?.companyName || supplier?.name || p.billToName || null;
       out.push({
         sourceId: p.id,
         label: p.invoiceNumber,
         docNumber: p.invoiceNumber,
         date: p.paidDate || p.issueDate,
-        party: p.supplierName || null,
+        party: supplierName,
         amount: Number(p.amountPaid) || 0,
         taxAmount: 0,
         paymentStatus: p.status,
@@ -537,14 +600,39 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
   } else if (exportType === "credit-notes" || exportType === "debit-notes") {
     const rows = await CreditDebitNote.list(clientId).catch(() => [] as any[]);
     const want = exportType === "credit-notes" ? "credit" : "debit";
+    const [invoices, purchases, debtors, suppliers, vendors] = await Promise.all([
+      Invoice.list(clientId).catch(() => [] as any[]),
+      PurchaseInvoice.list(clientId).catch(() => [] as any[]),
+      Debtor.list().catch(() => [] as any[]),
+      Supplier.list().catch(() => [] as any[]),
+      Vendor.list(clientId).catch(() => [] as any[]),
+    ]);
+    const invoiceById = new Map<string, any>();
+    for (const i of invoices as any[]) invoiceById.set(i.id, i);
+    const purchaseById = new Map<string, any>();
+    for (const p of purchases as any[]) purchaseById.set(p.id, p);
+    const debtorById = new Map<string, any>();
+    for (const d of debtors as any[]) debtorById.set(d.id, d);
+    const supplierById = new Map<string, any>();
+    for (const s of suppliers as any[]) supplierById.set(s.id, s);
+    for (const v of vendors as any[]) supplierById.set(v.id, { ...v, companyName: v.companyName || v.name });
     for (const n of rows as any[]) {
       if (n.kind !== want) continue;
+      let party = n.counterparty || null;
+      if (want === "credit") {
+        const source = n.sourceInvoiceId ? invoiceById.get(n.sourceInvoiceId) : null;
+        party = party || (source ? debtorById.get(source.debtorId)?.name : null) || source?.customerName || null;
+      } else {
+        const source = n.sourcePurchaseInvoiceId ? purchaseById.get(n.sourcePurchaseInvoiceId) : null;
+        const supplier = source ? supplierById.get(source.vendorId) || supplierById.get(source.billToSupplierId) : null;
+        party = party || supplier?.companyName || supplier?.name || source?.supplierName || null;
+      }
       out.push({
         sourceId: n.id,
         label: n.noteNumber,
         docNumber: n.noteNumber,
         date: n.noteDate,
-        party: n.counterparty || null,
+        party,
         amount: Number(n.amount) || 0,
         taxAmount: Number(n.taxAmount) || 0,
         paymentStatus: n.status,
@@ -583,7 +671,23 @@ export async function buildRecords(
 
   // Masters
   if (exportType === "customers" || exportType === "suppliers") {
-    const rows = exportType === "customers" ? await Debtor.list() : await Supplier.list();
+    let rows: any[];
+    if (exportType === "customers") {
+      rows = await Debtor.list();
+    } else {
+      const [suppliers, vendors] = await Promise.all([
+        Supplier.list().catch(() => [] as any[]),
+        Vendor.list(clientId).catch(() => [] as any[]),
+      ]);
+      rows = [
+        ...suppliers,
+        ...vendors.map((v: any) => ({
+          ...v,
+          companyName: v.companyName || v.name,
+          supplierCode: v.vendorCode || v.supplierCode,
+        })),
+      ];
+    }
     for (const row of rows as any[]) {
       if (row.clientId && row.clientId !== clientId) continue;
       if (idSet && !idSet.has(row.id)) continue;
