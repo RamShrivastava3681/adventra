@@ -63,7 +63,20 @@ export function serializeDebitNoteVoucher(
       taxableTotal = round2(taxableTotal + split.taxableValue);
       gstTotal = round2(gstTotal + split.gstAmount);
       const product = ctx.productsById.get(line.productId);
+      const stockItem = product?.name
+        ? String(product.name).replace(/\s+/g, " ").trim()
+        : String(line.name || "").replace(/\s+/g, " ").trim();
+      if (!product) {
+        errors.push(`Referenced master missing — stock item "${line.name || line.sku || "unknown"}".`);
+      }
+      if (!stockItem) errors.push("SKU name is missing.");
       const unit = ctx.unitFor(line.unit || product?.unitOfMeasure, config.defaultUnit);
+      if (!line.unit && !product?.unitOfMeasure) {
+        errors.push(`Unit of measure is missing for stock item "${stockItem}".`);
+      }
+      if (rateValue > 0 && !(line.hsnCode || product?.hsnCode)) {
+        errors.push(`HSN code is missing for stock item "${stockItem}".`);
+      }
 
       const rateDetails = intra
         ? [
@@ -73,7 +86,7 @@ export function serializeDebitNoteVoucher(
         : [{ head: "IGST", rate: rateValue }];
 
       b.addInventory({
-        stockItem: product?.name || line.name,
+        stockItem,
         hsn: line.hsnCode || product?.hsnCode || null,
         amount: split.taxableValue,
         quantity: qtyValue,

@@ -15,16 +15,17 @@ export function serializeReceiptVoucher(receipt: any, ctx: ReceiptBuildContext, 
   const inv = receipt.invoiceId ? invoicesById.get(receipt.invoiceId) : null;
   const debtor = inv ? ctx.debtorsById.get(inv.debtorId) : null;
   const party =
-    debtor?.name ||
+    (debtor?.name ||
     receipt.customerName ||
     receipt.customer_name ||
     inv?.customerName ||
     inv?.consigneeName ||
-    null;
+    null)?.toString().replace(/\s+/g, " ").trim();
   const amount = round2(Number(receipt.amount) || 0);
 
   if (!config.mappings.bankLedger) errors.push("Bank ledger is not configured.");
   if (!party) errors.push("Receipt is not linked to an invoice / customer ledger.");
+  if (!inv || (inv.debtorId && !debtor)) errors.push("Referenced master missing — customer ledger.");
   if (!(amount > 0)) errors.push("Receipt amount must be positive.");
 
   const b = new ctx.VoucherBuilder();

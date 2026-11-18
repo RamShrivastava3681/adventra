@@ -14,16 +14,19 @@ export function serializePaymentVoucher(pi: any, ctx: PaymentBuildContext) {
   const warnings: string[] = [];
   const supplier = ctx.suppliersById.get(pi.vendorId) || ctx.suppliersById.get(pi.billToSupplierId);
   const party =
-    pi.supplierName ||
+    (pi.supplierName ||
     supplier?.companyName ||
     supplier?.name ||
     pi.billToName ||
     pi.vendorName ||
-    null;
+    null)?.toString().replace(/\s+/g, " ").trim();
   const amount = round2(Number(pi.amountPaid) || 0);
 
   if (!config.mappings.bankLedger) errors.push("Bank ledger is not configured.");
   if (!party) errors.push("Supplier ledger name is missing (vendor not found).");
+  if (!supplier && (pi.vendorId || pi.billToSupplierId)) {
+    errors.push("Referenced master missing — supplier ledger.");
+  }
   if (!(amount > 0)) errors.push("Payment amount must be positive.");
   if (amount > (Number(pi.grandTotal) || 0) + 0.05) {
     warnings.push(`Payment (${amount.toFixed(2)}) exceeds purchase invoice total (${(Number(pi.grandTotal) || 0).toFixed(2)}).`);

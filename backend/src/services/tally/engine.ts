@@ -20,6 +20,7 @@ import {
   inventoryEntry,
   message,
   tallyDate,
+  validateXml1,
 } from "./xml.js";
 import {
   serializeCustomerMaster,
@@ -157,6 +158,19 @@ export function normState(s: string | null | undefined): string {
     .replace(/\s+/g, " ");
 }
 
+export function normalizeName(value: unknown): string {
+  return String(value ?? "")
+    .replace(/[\u0000-\u001F\uFFFE\uFFFF]/g, "")
+    .replace(/&#(?:x0*[0-8BbCcEeEfF]|0*4);?/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function isValidGstin(value: unknown): boolean {
+  const gstin = normalizeName(value).toUpperCase();
+  return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z][Z][0-9A-Z]$/.test(gstin);
+}
+
 export function unitFor(value: string | null | undefined, fallback: string): string {
   if (!value) return fallback;
   const key = String(value).trim().toLowerCase();
@@ -250,10 +264,14 @@ export class VoucherBuilder {
 
   finish(roundOffLedger: string, label: string, log: { errors: string[]; warnings: string[] }) {
     const diff = round2(-this.sumSigned);
-    if (Math.abs(diff) > 0.005) {
+    if (Math.abs(diff) > 0.01) {
+      log.errors.push(
+        `Voucher blocked: debit and credit do not match. Difference: ₹${diff.toFixed(2)}.`,
+      );
+    } else if (Math.abs(diff) > 0.005) {
       if (!roundOffLedger) {
-        log.warnings.push(
-          `${label}: voucher needs a round-off of ${diff.toFixed(2)} but no round-off ledger is configured.`,
+        log.errors.push(
+          `Voucher blocked: debit and credit do not match. Difference: ₹${diff.toFixed(2)}. Round-off ledger is not configured.`,
         );
       } else {
         this.entries.push(
@@ -698,6 +716,12 @@ export async function buildRecords(
       const warnings: string[] = [];
       const name = exportType === "customers" ? row.name : row.companyName;
       if (!name) errors.push("Ledger name is missing.");
+      const gstin = exportType === "customers" ? row.gstin : row.gstin;
+      if (gstin && !isValidGstin(gstin)) {
+        errors.push(exportType === "customers"
+          ? "Invalid customer GSTIN. Leave it blank for demo data or enter a valid 15-character GSTIN."
+          : "Invalid supplier GSTIN. Leave it blank for demo data or enter a valid 15-character GSTIN.");
+      }
       if (exportType === "customers") {
         if (!row.state && !row.stateCode) errors.push("Customer state or state code is missing.");
         if (!row.billingAddress) errors.push("Customer billing address is missing.");
@@ -1061,6 +1085,31 @@ export async function generateBatch(opts: GenerateOptions) {
     }
   }
 
+  const transactionTypes = new Set(["Sales", "Purchase", "Receipt", "Payment", "Credit Note", "Debit Note"]);
+  for (const rec of prepared) {
+    if (transactionTypes.has(rec.voucherType)) {
+      if (!rec.docNumber || !normalizeName(rec.docNumber)) {
+        rec.errors.push("Invoice / reference number is missing.");
+      }
+      if (!rec.date || tallyDate(rec.date) === "00000000") {
+        rec.errors.push("Document date is missing or invalid.");
+      }
+      if (rec.errors.length) rec.status = "Validation Failed";
+    }
+  }
+  const seenRefs = new Map<string, string>();
+  for (const rec of prepared) {
+    if (!transactionTypes.has(rec.voucherType) || !rec.docNumber) continue;
+    const ref = normalizeName(rec.docNumber).toUpperCase();
+    const previous = seenRefs.get(ref);
+    if (previous) {
+      rec.errors.push(`Invoice / reference number is duplicated with ${previous}.`);
+      rec.status = "Validation Failed";
+    } else {
+      seenRefs.set(ref, rec.sourceId);
+    }
+  }
+
   const invalid = prepared.filter((r) => r.errors.length);
   const valid = prepared.filter((r) => r.errors.length === 0);
   if (!valid.length) {
@@ -1080,6 +1129,13 @@ export async function generateBatch(opts: GenerateOptions) {
     companyName: config.companyName,
     messages,
   });
+  const xmlErrors = validateXml1(xml);
+  if (xmlErrors.length) {
+    throw Object.assign(
+      new Error(`Generated XML failed validation: ${xmlErrors.join(" ")}`),
+      { status: 422 },
+    );
+  }
 
   const sha = sha256(xml);
   const bytes = Buffer.byteLength(xml, "utf8");
@@ -1260,7 +1316,15 @@ export async function retryFailedRecords(clientId: string, batchId: string, user
 export async function readBatchXml(batch: Tally.TallyBatch): Promise<Buffer> {
   if (!batch.xmlPath) throw Object.assign(new Error("This batch has no stored XML file."), { status: 404 });
   try {
-    return await fs.readFile(batch.xmlPath);
+    const content = await fs.readFile(batch.xmlPath);
+    const xmlErrors = validateXml1(content.toString("utf8"));
+    if (xmlErrors.length) {
+      throw Object.assign(
+        new Error(`XML validation failed: ${xmlErrors.join(" ")}`),
+        { status: 422 },
+      );
+    }
+    return content;
   } catch {
     throw Object.assign(
       new Error("The stored XML file is no longer available on this server. Regenerate the batch."),

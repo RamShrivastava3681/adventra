@@ -24,12 +24,11 @@ export function serializeSalesVoucher(inv: any, ctx: SalesBuildContext) {
   const warnings: string[] = [];
   const debtor = ctx.debtorsById.get(inv.debtorId);
   const party =
-    debtor?.name ||
-    inv.customerName ||
+    (debtor?.name || inv.customerName ||
     inv.customer_name ||
     inv.consigneeName ||
     inv.billToName ||
-    null;
+    null)?.toString().replace(/\s+/g, " ").trim();
   const lines: any[] = inv.lines || inv.lineItems || [];
   const partyState = ctx.partyStateForInvoice(inv);
   const intra = ctx.normState(partyState) === ctx.normState(config.homeState) || !partyState;
@@ -37,6 +36,7 @@ export function serializeSalesVoucher(inv: any, ctx: SalesBuildContext) {
   const heads = ctx.gstHeadNames(config, intra, ut, "output");
 
   if (!party) errors.push("Customer ledger name is missing (debtor not found).");
+  if (!debtor && inv.debtorId) errors.push("Referenced master missing — customer ledger.");
   if (!lines.length) errors.push("Invoice has no line items.");
   if (!config.mappings.salesLedger) errors.push("Sales ledger is not configured.");
   if (!config.godownName) errors.push("Tally godown / warehouse is not configured.");
@@ -74,8 +74,20 @@ export function serializeSalesVoucher(inv: any, ctx: SalesBuildContext) {
     byRate.set(rateValue, bucket);
 
     const product = ctx.productsById.get(line.productId);
-    const stockItem = product?.name || line.name;
-    if (!product) warnings.push(`Line "${line.name || line.sku}" does not match a catalogue SKU; using snapshot name.`);
+    const stockItem = product?.name
+      ? String(product.name).replace(/\s+/g, " ").trim()
+      : "";
+    if (!product) {
+      errors.push(`Referenced master missing — stock item "${line.name || line.sku || "unknown"}".`);
+    } else if (!stockItem) {
+      errors.push("SKU name is missing.");
+    }
+    if (rateValue > 0 && !(product?.hsnCode || line.hsnCode)) {
+      errors.push(`HSN code is missing for stock item "${stockItem || line.name || line.sku || "unknown"}".`);
+    }
+    if (!line.unit && !product?.unitOfMeasure) {
+      errors.push(`Unit of measure is missing for stock item "${stockItem || line.name || "unknown"}".`);
+    }
     const unit = ctx.unitFor(line.unit || product?.unitOfMeasure, config.defaultUnit);
     const exUnit = round2(split.taxableValue / qtyValue);
 

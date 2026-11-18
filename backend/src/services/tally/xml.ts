@@ -8,6 +8,9 @@
 export function esc(value: unknown): string {
   if (value === null || value === undefined) return "";
   return String(value)
+    .replace(/&#(?:x0*[0-8BbCcEeEfF]|0*4);?/gi, "")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/g, "")
+    .replace(/^[\s]+|[\s]+$/g, "")
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
@@ -81,6 +84,45 @@ export function envelope({ reportName, companyName, messages }: EnvelopeOptions)
     "</BODY>",
     "</ENVELOPE>",
   ].join("");
+}
+
+export function validateXml1(input: string): string[] {
+  const errors: string[] = [];
+  if (!input || !input.includes("<ENVELOPE>")) errors.push("XML envelope is empty.");
+  if (/[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]/.test(input)) {
+    errors.push("XML contains characters that are invalid in XML 1.0.");
+  }
+  if (/&#(?:x0*[0-8BbCcEeEfF]|0*4);?/i.test(input)) {
+    errors.push("XML contains an invalid control-character reference.");
+  }
+  if (!/<REQUESTDATA>[\s\S]*<TALLYMESSAGE[\s\S]*>/.test(input)) {
+    errors.push("XML contains no generated Tally records.");
+  }
+
+  const stack: string[] = [];
+  const tokens = input.match(/<\/?[^>]+>/g) || [];
+  for (const token of tokens) {
+    if (token.startsWith("<?")) continue;
+    if (/^<!--/.test(token)) continue;
+    if (token.startsWith("</")) {
+      const name = token.slice(2, -1).trim();
+      const top = stack.pop();
+      if (top !== name) {
+        errors.push(`XML structure is mismatched at closing tag </${name}>.`);
+        break;
+      }
+    } else if (!token.endsWith("/>")) {
+      const name = token.slice(1, -1).split(/\s+/)[0];
+      stack.push(name);
+    }
+  }
+  if (stack.length) errors.push("XML contains unclosed elements.");
+
+  const stockNames = [...input.matchAll(/<STOCKITEMNAME>([\s\S]*?)<\/STOCKITEMNAME>/gi)];
+  for (const match of stockNames) {
+    if (!match[1].trim()) errors.push("XML contains an empty stock item name.");
+  }
+  return [...new Set(errors)];
 }
 
 /**

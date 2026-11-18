@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { esc, tallyDate, envelope, message } from "../tally/xml.js";
+import { esc, tallyDate, envelope, message, validateXml1 } from "../tally/xml.js";
 import {
   serializeCustomerMaster,
   serializeSupplierMaster,
@@ -69,6 +69,20 @@ describe("Tally XML Primitives & Escaping", () => {
   it("converts dates to Tally YYYYMMDD format", () => {
     expect(tallyDate("2026-10-01")).toBe("20261001");
     expect(tallyDate("2026-11-18T10:30:00.000Z")).toBe("20261118");
+  });
+
+  it("removes XML-invalid control characters and control references", () => {
+    expect(esc("&#4; Any")).toBe("Any");
+    expect(esc("Name\u0004")).toBe("Name");
+  });
+
+  it("rejects XML with empty stock item names", () => {
+    const xml = envelope({
+      reportName: "Vouchers",
+      companyName: "Test Company",
+      messages: [message('<VOUCHER><ALLINVENTORYENTRIES.LIST><STOCKITEMNAME></STOCKITEMNAME></ALLINVENTORYENTRIES.LIST></VOUCHER>')],
+    });
+    expect(validateXml1(xml)).toContain("XML contains an empty stock item name.");
   });
 });
 

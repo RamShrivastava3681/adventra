@@ -24,12 +24,12 @@ export function serializePurchaseVoucher(pi: any, ctx: PurchaseBuildContext) {
   const warnings: string[] = [];
   const supplier = ctx.suppliersById.get(pi.vendorId) || ctx.suppliersById.get(pi.billToSupplierId);
   const party =
-    pi.supplierName ||
+    (pi.supplierName ||
     supplier?.companyName ||
     supplier?.name ||
     pi.billToName ||
     pi.vendorName ||
-    null;
+    null)?.toString().replace(/\s+/g, " ").trim();
   const lines: any[] = pi.lines || [];
   const supplierState = ctx.partyStateForPurchase(pi);
   const intra = ctx.normState(supplierState) === ctx.normState(config.homeState) || !supplierState;
@@ -37,6 +37,9 @@ export function serializePurchaseVoucher(pi: any, ctx: PurchaseBuildContext) {
   const heads = ctx.gstHeadNames(config, intra, ut, "input");
 
   if (!party) errors.push("Supplier ledger name is missing (vendor not found).");
+  if (!supplier && (pi.vendorId || pi.billToSupplierId)) {
+    errors.push("Referenced master missing — supplier ledger.");
+  }
   if (!lines.length) errors.push("Purchase invoice has no line items.");
   if (!config.mappings.purchaseLedger) errors.push("Purchase ledger is not configured.");
   if (!config.godownName) errors.push("Tally godown / warehouse is not configured.");
@@ -74,7 +77,20 @@ export function serializePurchaseVoucher(pi: any, ctx: PurchaseBuildContext) {
     byRate.set(rateValue, bucket);
 
     const product = ctx.productsById.get(line.productId);
-    if (!product) warnings.push(`Line "${line.name || line.sku}" does not match a catalogue SKU; using snapshot name.`);
+    const stockItem = product?.name
+      ? String(product.name).replace(/\s+/g, " ").trim()
+      : "";
+    if (!product) {
+      errors.push(`Referenced master missing — stock item "${line.name || line.sku || "unknown"}".`);
+    } else if (!stockItem) {
+      errors.push("SKU name is missing.");
+    }
+    if (rateValue > 0 && !(product?.hsnCode || line.hsnCode)) {
+      errors.push(`HSN code is missing for stock item "${stockItem || line.name || line.sku || "unknown"}".`);
+    }
+    if (!line.unit && !product?.unitOfMeasure) {
+      errors.push(`Unit of measure is missing for stock item "${stockItem || line.name || "unknown"}".`);
+    }
     const unit = ctx.unitFor(line.unit || product?.unitOfMeasure, config.defaultUnit);
 
     const rateDetails = intra
@@ -85,7 +101,7 @@ export function serializePurchaseVoucher(pi: any, ctx: PurchaseBuildContext) {
       : [{ head: "IGST", rate: rateValue }];
 
     b.addInventory({
-      stockItem: product?.name || line.name,
+      stockItem,
       hsn: product?.hsnCode || line.hsnCode || null,
       amount: -split.taxableValue,
       quantity: qtyValue,
