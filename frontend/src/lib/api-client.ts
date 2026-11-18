@@ -871,6 +871,66 @@ const api = {
     };
   })(),
 
+  // Flipkart marketplace integration
+  flipkartOrders: {
+    list: (clientId?: string) =>
+      api
+        .get<any>(`/flipkart/orders${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
+    get: (orderId: string) =>
+      api.get<any>(`/flipkart/orders/${orderId}`).then(camelizeResponse),
+  },
+  flipkartInventory: {
+    list: (clientId?: string, params?: { limit?: number; startKey?: string }) => {
+      const qs = new URLSearchParams();
+      if (clientId) qs.set("clientId", clientId);
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.startKey) qs.set("startKey", params.startKey);
+      return api
+        .get<any>(`/flipkart/inventory${qs.toString() ? `?${qs.toString()}` : ""}`)
+        .then(camelizeResponse);
+    },
+    aggregate: (clientId?: string) =>
+      api
+        .get<any>(`/flipkart/inventory/aggregate${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
+  },
+  flipkartListings: {
+    list: (clientId?: string, params?: { limit?: number; startKey?: string }) => {
+      const qs = new URLSearchParams();
+      if (clientId) qs.set("clientId", clientId);
+      if (params?.limit) qs.set("limit", String(params.limit));
+      if (params?.startKey) qs.set("startKey", params.startKey);
+      return api
+        .get<any>(`/flipkart/listings${qs.toString() ? `?${qs.toString()}` : ""}`)
+        .then(camelizeResponse);
+    },
+    aggregate: (clientId?: string) =>
+      api
+        .get<any>(`/flipkart/listings/aggregate${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
+  },
+  flipkartReturns: {
+    list: (clientId?: string) =>
+      api
+        .get<any>(`/flipkart/returns${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
+  },
+  flipkartSync: {
+    status: (clientId?: string) =>
+      api
+        .get<any>(`/flipkart/sync-status${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
+    applicationStatus: (clientId?: string) =>
+      api
+        .get<any>(`/flipkart/application-status${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ""}`)
+        .then(camelizeResponse),
+    trigger: (data: any = {}) =>
+      api.post<any>("/flipkart/sync", data).then(camelizeResponse),
+    seedDemo: () =>
+      api.post<any>("/flipkart/demo-seed", {}).then(camelizeResponse),
+  },
+
   // Unified workflow queue (PDF-3) — tasks, per-doc timelines, settings
   workflowTasks: {
     list: (opts?: { scope?: "all"; status?: "open" | "done" }) => {

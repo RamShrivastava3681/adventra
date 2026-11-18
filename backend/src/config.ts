@@ -138,6 +138,16 @@ export const config = {
     isConfigured: Boolean(process.env.AMAZON_CLIENT_ID && process.env.AMAZON_CLIENT_SECRET && process.env.AMAZON_REFRESH_TOKEN),
   },
 
+  // ── Flipkart Marketplace API ──────────────────────────────────────────────
+  flipkart: {
+    appId: process.env.FLIPKART_APP_ID || "",
+    appSecret: process.env.FLIPKART_APP_SECRET || "",
+    sellerId: process.env.FLIPKART_SELLER_ID || "",
+    apiEndpoint: process.env.FLIPKART_API_ENDPOINT || "https://api.flipkart.net/sellers",
+    sandbox: process.env.FLIPKART_SANDBOX === "true",
+    isConfigured: Boolean(process.env.FLIPKART_APP_ID && process.env.FLIPKART_APP_SECRET),
+  },
+
   smtp: {
     host: process.env.SMTP_HOST || "",
     port: parseInt(process.env.SMTP_PORT || "587", 10),

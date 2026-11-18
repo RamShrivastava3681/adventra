@@ -37,6 +37,7 @@ import { Route as AppFinanceProformasRouteImport } from './app.finance-proformas
 import { Route as AppFinancePurchasesRouteImport } from './app.finance-purchases'
 import { Route as AppFinanceSalesOrdersRouteImport } from './app.finance-sales-orders'
 import { Route as AppFinanceWorkbenchRouteImport } from './app.finance-workbench'
+import { Route as AppFlipkartDashboardRouteImport } from './app.flipkart-dashboard'
 import { Route as AppForecastRouteImport } from './app.forecast'
 import { Route as AppGrnRouteImport } from './app.grn'
 import { Route as AppInventoryRouteImport } from './app.inventory'
@@ -215,6 +216,11 @@ const AppFinanceSalesOrdersRoute = AppFinanceSalesOrdersRouteImport.update({
 const AppFinanceWorkbenchRoute = AppFinanceWorkbenchRouteImport.update({
   id: '/finance-workbench',
   path: '/finance-workbench',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppFlipkartDashboardRoute = AppFlipkartDashboardRouteImport.update({
+  id: '/flipkart-dashboard',
+  path: '/flipkart-dashboard',
   getParentRoute: () => AppRoute,
 } as any)
 const AppForecastRoute = AppForecastRouteImport.update({
@@ -432,6 +438,7 @@ export interface FileRoutesByFullPath {
   '/app/finance-purchases': typeof AppFinancePurchasesRoute
   '/app/finance-sales-orders': typeof AppFinanceSalesOrdersRoute
   '/app/finance-workbench': typeof AppFinanceWorkbenchRoute
+  '/app/flipkart-dashboard': typeof AppFlipkartDashboardRoute
   '/app/forecast': typeof AppForecastRoute
   '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
@@ -499,6 +506,7 @@ export interface FileRoutesByTo {
   '/app/finance-purchases': typeof AppFinancePurchasesRoute
   '/app/finance-sales-orders': typeof AppFinanceSalesOrdersRoute
   '/app/finance-workbench': typeof AppFinanceWorkbenchRoute
+  '/app/flipkart-dashboard': typeof AppFlipkartDashboardRoute
   '/app/forecast': typeof AppForecastRoute
   '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
@@ -566,6 +574,7 @@ export interface FileRoutesById {
   '/app/finance-purchases': typeof AppFinancePurchasesRoute
   '/app/finance-sales-orders': typeof AppFinanceSalesOrdersRoute
   '/app/finance-workbench': typeof AppFinanceWorkbenchRoute
+  '/app/flipkart-dashboard': typeof AppFlipkartDashboardRoute
   '/app/forecast': typeof AppForecastRoute
   '/app/grn': typeof AppGrnRoute
   '/app/inventory': typeof AppInventoryRoute
@@ -635,6 +644,7 @@ export interface FileRouteTypes {
     | '/app/finance-purchases'
     | '/app/finance-sales-orders'
     | '/app/finance-workbench'
+    | '/app/flipkart-dashboard'
     | '/app/forecast'
     | '/app/grn'
     | '/app/inventory'
@@ -702,6 +712,7 @@ export interface FileRouteTypes {
     | '/app/finance-purchases'
     | '/app/finance-sales-orders'
     | '/app/finance-workbench'
+    | '/app/flipkart-dashboard'
     | '/app/forecast'
     | '/app/grn'
     | '/app/inventory'
@@ -768,6 +779,7 @@ export interface FileRouteTypes {
     | '/app/finance-purchases'
     | '/app/finance-sales-orders'
     | '/app/finance-workbench'
+    | '/app/flipkart-dashboard'
     | '/app/forecast'
     | '/app/grn'
     | '/app/inventory'
@@ -1011,6 +1023,13 @@ declare module '@tanstack/react-router' {
       path: '/finance-workbench'
       fullPath: '/app/finance-workbench'
       preLoaderRoute: typeof AppFinanceWorkbenchRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/flipkart-dashboard': {
+      id: '/app/flipkart-dashboard'
+      path: '/flipkart-dashboard'
+      fullPath: '/app/flipkart-dashboard'
+      preLoaderRoute: typeof AppFlipkartDashboardRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/forecast': {
@@ -1315,6 +1334,7 @@ interface AppRouteChildren {
   AppFinancePurchasesRoute: typeof AppFinancePurchasesRoute
   AppFinanceSalesOrdersRoute: typeof AppFinanceSalesOrdersRoute
   AppFinanceWorkbenchRoute: typeof AppFinanceWorkbenchRoute
+  AppFlipkartDashboardRoute: typeof AppFlipkartDashboardRoute
   AppForecastRoute: typeof AppForecastRoute
   AppGrnRoute: typeof AppGrnRoute
   AppInventoryRoute: typeof AppInventoryRoute
@@ -1376,6 +1396,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppFinancePurchasesRoute: AppFinancePurchasesRoute,
   AppFinanceSalesOrdersRoute: AppFinanceSalesOrdersRoute,
   AppFinanceWorkbenchRoute: AppFinanceWorkbenchRoute,
+  AppFlipkartDashboardRoute: AppFlipkartDashboardRoute,
   AppForecastRoute: AppForecastRoute,
   AppGrnRoute: AppGrnRoute,
   AppInventoryRoute: AppInventoryRoute,
