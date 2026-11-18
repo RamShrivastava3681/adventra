@@ -148,6 +148,29 @@ export const config = {
     isConfigured: Boolean(process.env.FLIPKART_APP_ID && process.env.FLIPKART_APP_SECRET),
   },
 
+  // ── Myntra Seller API V4 (Pretr OMS) ──────────────────────────────────────
+  // Test system (Neo-Mockify): http://pretrtest-neo.myntapi.com — needs our
+  // server IP whitelisted by Myntra. Production domain is shared by Myntra
+  // after OMS onboarding.
+  myntra: {
+    merchantId: process.env.MYNTRA_MERCHANT_ID || "",
+    secretKey: process.env.MYNTRA_SECRET_KEY || "",
+    apiDomain: (process.env.MYNTRA_API_DOMAIN || "http://pretrtest-neo.myntapi.com").replace(/\/+$/, ""),
+    partnerStore: process.env.MYNTRA_PARTNER_STORE || "Myntra",
+    // Header Myntra asks for during stage (Mockify) testing only.
+    mockingPartnerName: process.env.MYNTRA_MOCKING_PARTNER_NAME || "",
+    // Token Myntra must send in the `access_token` header when it calls our
+    // outbound endpoints (create order, order update, returns, invoice).
+    outboundToken: process.env.MYNTRA_OUTBOUND_TOKEN || "",
+    // Public base URL of our outbound endpoints, e.g. https://adventra.whizunikhub.com/api/myntra
+    sellerDomain: (process.env.MYNTRA_SELLER_DOMAIN || "").replace(/\/+$/, ""),
+    // Local testing only: where Mockify should push events when our own
+    // outbound URLs are not public (e.g. the sample run.mocky.io URL from
+    // Myntra's sheet). Leave empty on the server.
+    mockPushUrl: process.env.MYNTRA_MOCK_PUSH_URL || "",
+    isConfigured: Boolean(process.env.MYNTRA_MERCHANT_ID && process.env.MYNTRA_SECRET_KEY),
+  },
+
   smtp: {
     host: process.env.SMTP_HOST || "",
     port: parseInt(process.env.SMTP_PORT || "587", 10),
