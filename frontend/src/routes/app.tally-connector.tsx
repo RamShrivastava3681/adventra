@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -2079,8 +2079,42 @@ function ConfigTab({
     mappings: { ...(data?.suggested ?? {}), ...(config.mappings ?? {}) },
   }));
 
+  useEffect(() => {
+    if (loading) return;
+    const latest = data?.config ?? {};
+    setForm({
+      companyName: latest.companyName ?? "",
+      homeState: latest.homeState ?? "",
+      gstin: latest.gstin ?? "",
+      gstRegistrationType: latest.gstRegistrationType ?? "Regular",
+      godownName: latest.godownName ?? "",
+      defaultUnit: latest.defaultUnit ?? "pics",
+      stockGroup: latest.stockGroup ?? "Primary",
+      batchName: latest.batchName ?? "Primary Batch",
+      gstApplicableFrom: latest.gstApplicableFrom ?? new Date().toISOString().slice(0, 10),
+      allowDuplicateReExport: !!latest.allowDuplicateReExport,
+      mappings: { ...(data?.suggested ?? {}), ...(latest.mappings ?? {}) },
+    });
+  }, [data, loading]);
+
   const saveMutation = useMutation({
-    mutationFn: () => api.tally.saveConfig(form),
+    mutationFn: () =>
+      api.tally.saveConfig({
+        ...form,
+        companyName: String(form.companyName || "").replace(/\s+/g, " ").trim(),
+        homeState: String(form.homeState || "").replace(/\s+/g, " ").trim(),
+        gstin: String(form.gstin || "").replace(/\s+/g, "").trim().toUpperCase(),
+        godownName: String(form.godownName || "").replace(/\s+/g, " ").trim(),
+        defaultUnit: String(form.defaultUnit || "").replace(/\s+/g, " ").trim(),
+        stockGroup: String(form.stockGroup || "").replace(/\s+/g, " ").trim(),
+        batchName: String(form.batchName || "").replace(/\s+/g, " ").trim(),
+        mappings: Object.fromEntries(
+          Object.entries(form.mappings || {}).map(([key, value]) => [
+            key,
+            String(value ?? "").replace(/\s+/g, " ").trim(),
+          ]),
+        ),
+      }),
     onSuccess: () => {
       toast.success("Tally Configuration Saved", {
         description: "Company details and ledger mappings updated.",

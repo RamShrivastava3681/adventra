@@ -161,28 +161,35 @@ export async function saveConfig(
   const { pk, sk } = configKey(clientId);
   const existing = await getConfig(clientId);
   const now = db.nowISO();
+  const normalize = (value: unknown) =>
+    String(value ?? "").replace(/\s+/g, " ").trim();
+  const mappings = {
+    ...EMPTY_MAPPING,
+    ...(existing?.mappings ?? {}),
+    ...(data.mappings ?? {}),
+  };
+  Object.keys(mappings).forEach((key) => {
+    mappings[key as keyof TallyLedgerMapping] =
+      normalize(mappings[key as keyof TallyLedgerMapping]) as never;
+  });
   const item: TallyConfig = {
     pk,
     sk,
     entityType: "TallyConfig",
     clientId,
-    companyName: (data.companyName ?? existing?.companyName ?? "").trim(),
-    homeState: (data.homeState ?? existing?.homeState ?? "").trim(),
-    gstin: (data.gstin ?? existing?.gstin ?? "").trim(),
+    companyName: normalize(data.companyName ?? existing?.companyName),
+    homeState: normalize(data.homeState ?? existing?.homeState),
+    gstin: normalize(data.gstin ?? existing?.gstin).toUpperCase(),
     gstRegistrationType:
       data.gstRegistrationType ?? existing?.gstRegistrationType ?? "Regular",
-    godownName: (data.godownName ?? existing?.godownName ?? "").trim(),
+    godownName: normalize(data.godownName ?? existing?.godownName),
     defaultUnit: (data.defaultUnit ?? existing?.defaultUnit ?? "pics").trim() || "pics",
     stockGroup: (data.stockGroup ?? existing?.stockGroup ?? "").trim(),
     batchName: (data.batchName ?? existing?.batchName ?? "Primary Batch").trim() || "Primary Batch",
     gstApplicableFrom:
       (data.gstApplicableFrom ?? existing?.gstApplicableFrom ?? "").trim() ||
       new Date().toISOString().slice(0, 10),
-    mappings: {
-      ...EMPTY_MAPPING,
-      ...(existing?.mappings ?? {}),
-      ...(data.mappings ?? {}),
-    },
+    mappings,
     allowDuplicateReExport:
       data.allowDuplicateReExport ?? existing?.allowDuplicateReExport ?? false,
     updatedAt: now,
