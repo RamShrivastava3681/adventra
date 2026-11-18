@@ -89,7 +89,16 @@ app.use(cors({
 app.use(cookieParser());
 
 // ─── Request limits ──────────────────────────────────────────────────────────
-app.use(express.json({ limit: config.security.jsonBodyLimit }));
+app.use(express.json({
+  limit: config.security.jsonBodyLimit,
+  // Myntra's outbound calls are stored exactly as received; the global
+  // snake_case → camelCase body transform would otherwise rename their keys.
+  verify: (req, _res, buf) => {
+    if (req.url?.startsWith("/api/myntra/storefront/") || req.url?.startsWith("/api/myntra/failureinventory/")) {
+      (req as any).rawBody = buf.toString("utf8");
+    }
+  },
+}));
 app.use(express.urlencoded({ extended: true, limit: config.security.urlencodedLimit }));
 
 // ─── Access log + input sanitization ────────────────────────────────────────

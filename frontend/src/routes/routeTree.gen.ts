@@ -43,6 +43,7 @@ import { Route as AppGrnRouteImport } from './app.grn'
 import { Route as AppInventoryRouteImport } from './app.inventory'
 import { Route as AppInvoicesRouteImport } from './app.invoices'
 import { Route as AppMarketplaceRouteImport } from './app.marketplace'
+import { Route as AppMyntraDashboardRouteImport } from './app.myntra-dashboard'
 import { Route as AppNotesRouteImport } from './app.notes'
 import { Route as AppProcurementWorkbenchRouteImport } from './app.procurement-workbench'
 import { Route as AppProductsRouteImport } from './app.products'
@@ -248,6 +249,11 @@ const AppMarketplaceRoute = AppMarketplaceRouteImport.update({
   path: '/marketplace',
   getParentRoute: () => AppRoute,
 } as any)
+const AppMyntraDashboardRoute = AppMyntraDashboardRouteImport.update({
+  id: '/myntra-dashboard',
+  path: '/myntra-dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppNotesRoute = AppNotesRouteImport.update({
   id: '/notes',
   path: '/notes',
@@ -444,6 +450,7 @@ export interface FileRoutesByFullPath {
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/marketplace': typeof AppMarketplaceRoute
+  '/app/myntra-dashboard': typeof AppMyntraDashboardRoute
   '/app/notes': typeof AppNotesRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
@@ -512,6 +519,7 @@ export interface FileRoutesByTo {
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/marketplace': typeof AppMarketplaceRoute
+  '/app/myntra-dashboard': typeof AppMyntraDashboardRoute
   '/app/notes': typeof AppNotesRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
@@ -580,6 +588,7 @@ export interface FileRoutesById {
   '/app/inventory': typeof AppInventoryRoute
   '/app/invoices': typeof AppInvoicesRoute
   '/app/marketplace': typeof AppMarketplaceRoute
+  '/app/myntra-dashboard': typeof AppMyntraDashboardRoute
   '/app/notes': typeof AppNotesRoute
   '/app/procurement-workbench': typeof AppProcurementWorkbenchRoute
   '/app/products': typeof AppProductsRoute
@@ -650,6 +659,7 @@ export interface FileRouteTypes {
     | '/app/inventory'
     | '/app/invoices'
     | '/app/marketplace'
+    | '/app/myntra-dashboard'
     | '/app/notes'
     | '/app/procurement-workbench'
     | '/app/products'
@@ -718,6 +728,7 @@ export interface FileRouteTypes {
     | '/app/inventory'
     | '/app/invoices'
     | '/app/marketplace'
+    | '/app/myntra-dashboard'
     | '/app/notes'
     | '/app/procurement-workbench'
     | '/app/products'
@@ -785,6 +796,7 @@ export interface FileRouteTypes {
     | '/app/inventory'
     | '/app/invoices'
     | '/app/marketplace'
+    | '/app/myntra-dashboard'
     | '/app/notes'
     | '/app/procurement-workbench'
     | '/app/products'
@@ -1067,6 +1079,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppMarketplaceRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/myntra-dashboard': {
+      id: '/app/myntra-dashboard'
+      path: '/myntra-dashboard'
+      fullPath: '/app/myntra-dashboard'
+      preLoaderRoute: typeof AppMyntraDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/notes': {
       id: '/app/notes'
       path: '/notes'
@@ -1340,6 +1359,7 @@ interface AppRouteChildren {
   AppInventoryRoute: typeof AppInventoryRoute
   AppInvoicesRoute: typeof AppInvoicesRoute
   AppMarketplaceRoute: typeof AppMarketplaceRoute
+  AppMyntraDashboardRoute: typeof AppMyntraDashboardRoute
   AppNotesRoute: typeof AppNotesRoute
   AppProcurementWorkbenchRoute: typeof AppProcurementWorkbenchRoute
   AppProductsRoute: typeof AppProductsRoute
@@ -1402,6 +1422,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppInventoryRoute: AppInventoryRoute,
   AppInvoicesRoute: AppInvoicesRoute,
   AppMarketplaceRoute: AppMarketplaceRoute,
+  AppMyntraDashboardRoute: AppMyntraDashboardRoute,
   AppNotesRoute: AppNotesRoute,
   AppProcurementWorkbenchRoute: AppProcurementWorkbenchRoute,
   AppProductsRoute: AppProductsRoute,
