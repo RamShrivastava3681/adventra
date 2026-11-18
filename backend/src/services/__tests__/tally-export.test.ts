@@ -138,7 +138,7 @@ describe("Master Serializers", () => {
     const openingByProduct = new Map([["prod-001", { qty: 100, value: 50000 }]]);
     const xml = serializeStockItemMaster(product, { config: mockConfig, openingByProduct }, unitFor);
 
-    expect(xml).toContain('<STOCKITEM NAME="Demo Latex Gloves Blue" ACTION="Alter">');
+    expect(xml).toContain('<STOCKITEM NAME="Demo Latex Gloves Blue" ACTION="Create">');
     expect(xml).toContain("<BASEUNITS>pair</BASEUNITS>");
     expect(xml).toContain("<OPENINGBALANCE>100.00 pair</OPENINGBALANCE>");
     expect(xml).toContain("<OPENINGVALUE>-50000.00</OPENINGVALUE>");
@@ -151,7 +151,9 @@ describe("Master Serializers", () => {
     expect(xml).toContain("<GSTRATE>9</GSTRATE>");
     expect(xml).toContain("<GSTRATEDUTYHEAD>IGST</GSTRATEDUTYHEAD>");
     expect(xml).toContain("<GSTRATE>18</GSTRATE>");
-    expect(xml).toContain("<GODOWNNAME>Main Warehouse</GODOWNNAME>");
+    expect(xml).toContain("<ISBATCHWISEON>No</ISBATCHWISEON>");
+    expect(xml).not.toContain("<BATCHALLOCATIONS.LIST>");
+    expect(xml).toContain("<APPLICABLEFROM>20260401</APPLICABLEFROM>");
   });
 
   it("exports Unit master with decimal places", () => {

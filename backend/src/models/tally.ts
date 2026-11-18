@@ -188,7 +188,7 @@ export async function saveConfig(
     batchName: (data.batchName ?? existing?.batchName ?? "Primary Batch").trim() || "Primary Batch",
     gstApplicableFrom:
       (data.gstApplicableFrom ?? existing?.gstApplicableFrom ?? "").trim() ||
-      new Date().toISOString().slice(0, 10),
+      "2026-10-01",
     mappings,
     allowDuplicateReExport:
       data.allowDuplicateReExport ?? existing?.allowDuplicateReExport ?? false,

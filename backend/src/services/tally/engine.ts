@@ -769,9 +769,18 @@ export async function buildRecords(
       if (row.gstRate === undefined || row.gstRate === null || row.gstRate === "") {
         errors.push("GST rate is missing.");
       }
+      const opening = ctx.openingByProduct.get(row.id) || { qty: 0, value: 0 };
+      if (opening.qty > 0 && !(Math.abs(opening.value) > 0.005)) {
+        warnings.push("Opening quantity exists, but opening value/rate is missing.");
+      }
       if (row.skuLevel === "parent") warnings.push("Parent product exported as a stock item; variants export separately.");
 
-      const masterXml = serializeStockItemMaster(row, ctx, unitFor);
+      const existingExport = await Tally.findExportRecord(clientId, "stock-items", row.id).catch(() => null);
+      const action =
+        existingExport && ["Exported", "Downloaded", "Imported"].includes(existingExport.status)
+          ? "Alter"
+          : "Create";
+      const masterXml = serializeStockItemMaster(row, ctx, unitFor, action);
       const xml = message(masterXml);
       prepared.push({
         sourceId: row.id,
@@ -1046,6 +1055,7 @@ export function configProblems(config: TallyConfig, exportType?: TallyExportType
     problems.push("GST input ledgers (CGST, SGST/UTGST, and IGST) are not fully configured.");
   }
   if (!m.roundOffLedger) problems.push("Round-off ledger is not configured.");
+  if (!config.gstApplicableFrom) problems.push("GST applicable-from migration date is not configured.");
   // Godown is only needed for inventory / voucher exports, not for simple ledger or unit masters.
   const needsGodown = !exportType ||
     ["stock-items", "sales", "purchases", "credit-notes", "debit-notes"].includes(exportType);

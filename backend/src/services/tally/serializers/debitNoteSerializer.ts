@@ -28,7 +28,7 @@ export function serializeDebitNoteVoucher(
   const warnings: string[] = [];
   const sourceDoc = note.purchaseInvoiceId ? purchasesById.get(note.purchaseInvoiceId) : null;
   const supplier = (note.supplierId && ctx.suppliersById.get(note.supplierId)) || (sourceDoc?.vendorId && ctx.suppliersById.get(sourceDoc.vendorId));
-  const party = (supplier && supplier.companyName) || note.counterparty || sourceDoc?.supplierName || null;
+  const party = String((supplier && supplier.companyName) || note.counterparty || sourceDoc?.supplierName || "").replace(/\s+/g, " ").trim() || null;
   const amount = round2(Number(note.amount) || 0);
 
   const partyState = sourceDoc ? ctx.partyStateForPurchase(sourceDoc) : null;
@@ -38,6 +38,10 @@ export function serializeDebitNoteVoucher(
   const lines: any[] = note.lineItems || [];
 
   if (!party) errors.push("Supplier ledger name is missing on debit note.");
+  if (!sourceDoc) errors.push("Referenced bill missing — original purchase invoice for debit note.");
+  if (!note.appliedInvoiceNumber && !sourceDoc?.invoiceNumber) {
+    errors.push("Debit note bill reference is missing.");
+  }
   if (!(amount > 0)) errors.push("Debit note amount must be positive.");
   if (!config.mappings.purchaseLedger) errors.push("Purchase ledger is not configured.");
 

@@ -28,7 +28,7 @@ export function serializeCreditNoteVoucher(
   const warnings: string[] = [];
   const sourceDoc = note.invoiceId ? invoicesById.get(note.invoiceId) : null;
   const debtor = sourceDoc ? ctx.debtorsById.get(sourceDoc.debtorId) : null;
-  const party = (debtor && debtor.name) || note.counterparty || null;
+  const party = String((debtor && debtor.name) || note.counterparty || "").replace(/\s+/g, " ").trim() || null;
   const amount = round2(Number(note.amount) || 0);
 
   const partyState = sourceDoc ? ctx.partyStateForInvoice(sourceDoc) : null;
@@ -38,6 +38,10 @@ export function serializeCreditNoteVoucher(
   const lines: any[] = note.lineItems || [];
 
   if (!party) errors.push("Customer ledger name is missing on credit note.");
+  if (!sourceDoc) errors.push("Referenced bill missing — original invoice for credit note.");
+  if (!note.appliedInvoiceNumber && !sourceDoc?.invoiceNumber) {
+    errors.push("Credit note bill reference is missing.");
+  }
   if (!(amount > 0)) errors.push("Credit note amount must be positive.");
   if (!config.mappings.salesLedger) errors.push("Sales ledger is not configured.");
 

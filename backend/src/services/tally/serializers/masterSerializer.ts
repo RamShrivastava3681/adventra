@@ -49,7 +49,12 @@ export function serializeSupplierMaster(supplier: any, config: TallyConfig, stat
   });
 }
 
-export function serializeStockItemMaster(product: any, ctx: MasterBuildContext, unitFor: (val: string | null | undefined, fallback: string) => string): string {
+export function serializeStockItemMaster(
+  product: any,
+  ctx: MasterBuildContext,
+  unitFor: (val: string | null | undefined, fallback: string) => string,
+  action: "Create" | "Alter" = "Create",
+): string {
   const config = ctx.config;
   const unit = unitFor(product.unitOfMeasure, config.defaultUnit);
   const rateValue = Number(product.gstRate) || 0;
@@ -58,6 +63,8 @@ export function serializeStockItemMaster(product: any, ctx: MasterBuildContext, 
   // In Tally stock-item master, opening value is negative
   const openValue = round2(-openValueMagnitude);
   const openRate = opening.qty > 0 ? round2(openValueMagnitude / opening.qty) : round2(Number(product.unitCost) || 0);
+  const hasOpeningValuation = opening.qty > 0 && openValueMagnitude > 0.005;
+  const gstApplicableFrom = tallyDate(config.gstApplicableFrom);
   const gstRate = num(rateValue, 2).replace(/\.00$/, "");
   const halfGstRate = num(rateValue / 2, 2).replace(/\.00$/, "");
 
@@ -70,11 +77,12 @@ export function serializeStockItemMaster(product: any, ctx: MasterBuildContext, 
     tag("ISBATCHWISEON", "No"),
     tag("ISPERISHABLEON", "No"),
     tag("OPENINGBALANCE", qty(opening.qty, unit)),
-    tag("OPENINGVALUE", num(openValue)),
-    tag("OPENINGRATE", rate(openRate, unit)),
+    ...(hasOpeningValuation
+      ? [tag("OPENINGVALUE", num(openValue)), tag("OPENINGRATE", rate(openRate, unit))]
+      : []),
     list(
       "GSTDETAILS",
-      tag("APPLICABLEFROM", tallyDate(config.gstApplicableFrom || new Date().toISOString())) +
+      tag("APPLICABLEFROM", gstApplicableFrom) +
         tag("TAXABILITY", "Taxable") +
         tag("SRCOFGSTDETAILS", "Specify Details Here") +
         list(
@@ -102,21 +110,13 @@ export function serializeStockItemMaster(product: any, ctx: MasterBuildContext, 
     ),
     list(
       "HSNDETAILS",
-      tag("APPLICABLEFROM", tallyDate(config.gstApplicableFrom || new Date().toISOString())) +
+      tag("APPLICABLEFROM", gstApplicableFrom) +
         tag("HSNCODE", product.hsnCode || "") +
         tag("SRCOFHSNDETAILS", "Specify Details Here"),
     ),
-    list(
-      "BATCHALLOCATIONS",
-      tag("GODOWNNAME", config.godownName || "Main Warehouse") +
-        tag("BATCHNAME", config.batchName || "Primary Batch") +
-        tag("OPENINGBALANCE", qty(opening.qty, unit)) +
-        tag("OPENINGVALUE", num(openValue)) +
-        tag("OPENINGRATE", rate(openRate, unit)),
-    ),
   ];
 
-  return `<STOCKITEM NAME="${esc(product.name)}" ACTION="Alter">${parts.join("")}</STOCKITEM>`;
+  return `<STOCKITEM NAME="${esc(product.name)}" ACTION="${action}">${parts.join("")}</STOCKITEM>`;
 }
 
 export function serializeUnitMaster(name: string, originalName: string, decimalPlaces = 0): string {

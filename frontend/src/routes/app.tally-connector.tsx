@@ -2074,7 +2074,7 @@ function ConfigTab({
     defaultUnit: config.defaultUnit ?? "pics",
     stockGroup: config.stockGroup ?? "Primary",
     batchName: config.batchName ?? "Primary Batch",
-    gstApplicableFrom: config.gstApplicableFrom ?? new Date().toISOString().slice(0, 10),
+    gstApplicableFrom: config.gstApplicableFrom ?? "2026-10-01",
     allowDuplicateReExport: !!config.allowDuplicateReExport,
     mappings: { ...(data?.suggested ?? {}), ...(config.mappings ?? {}) },
   }));
@@ -2091,7 +2091,7 @@ function ConfigTab({
       defaultUnit: latest.defaultUnit ?? "pics",
       stockGroup: latest.stockGroup ?? "Primary",
       batchName: latest.batchName ?? "Primary Batch",
-      gstApplicableFrom: latest.gstApplicableFrom ?? new Date().toISOString().slice(0, 10),
+      gstApplicableFrom: latest.gstApplicableFrom ?? "2026-10-01",
       allowDuplicateReExport: !!latest.allowDuplicateReExport,
       mappings: { ...(data?.suggested ?? {}), ...(latest.mappings ?? {}) },
     });
