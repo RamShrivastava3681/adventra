@@ -79,7 +79,7 @@ export function serializeStockItemMaster(product: any, ctx: MasterBuildContext, 
         tag("SRCOFGSTDETAILS", "Specify Details Here") +
         list(
           "STATEWISEDETAILS",
-          "<STATENAME>&#4; Any</STATENAME>" +
+          "<STATENAME>Any</STATENAME>" +
             list(
               "RATEDETAILS",
               tag("GSTRATEDUTYHEAD", "CGST") +
