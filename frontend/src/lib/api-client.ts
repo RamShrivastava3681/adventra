@@ -931,6 +931,43 @@ const api = {
       api.post<any>("/flipkart/demo-seed", {}).then(camelizeResponse),
   },
 
+  // Myntra Seller API V4 integration (real data only: Myntra pushes + our calls)
+  myntra: {
+    status: () => api.get<any>("/myntra/status").then(camelizeResponse),
+    orders: () => api.get<any>("/myntra/orders").then(camelizeResponse),
+    returns: () => api.get<any>("/myntra/returns").then(camelizeResponse),
+    inventory: () => api.get<any>("/myntra/inventory").then(camelizeResponse),
+    events: () => api.get<any>("/myntra/events").then(camelizeResponse),
+    pushInventory: (entries: { sku: string; storeCode: string; quantity: number; processingSla: number }[]) =>
+      api.post<any>("/myntra/inventory/push", { entries }).then(camelizeResponse),
+    searchInventory: (skus: string[]) => api.post<any>("/myntra/inventory/search", { skus }).then(camelizeResponse),
+    acceptOrder: (id: string) => api.post<any>(`/myntra/orders/${encodeURIComponent(id)}/accept`, {}).then(camelizeResponse),
+    rejectOrder: (id: string, reasonId: number) =>
+      api.post<any>(`/myntra/orders/${encodeURIComponent(id)}/reject`, { reasonId }).then(camelizeResponse),
+    readyToDispatch: (id: string) =>
+      api.post<any>(`/myntra/orders/${encodeURIComponent(id)}/ready-to-dispatch`, {}).then(camelizeResponse),
+    refreshOrder: (id: string) => api.post<any>(`/myntra/orders/${encodeURIComponent(id)}/refresh`, {}).then(camelizeResponse),
+    // Invoice / shipping label PDFs from Myntra (available after Ready To Dispatch).
+    downloadDocument: async (id: string, kind: "invoice" | "shipping-label") => {
+      const res = await fetch(`${API_URL}/myntra/orders/${encodeURIComponent(id)}/${kind}`, { credentials: "include" });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || `Could not download the ${kind.replace("-", " ")}`);
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disp = res.headers.get("content-disposition") || "";
+      const m = disp.match(/filename="?([^"]+)"?/);
+      a.download = m?.[1] ?? `${kind}-${id}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+  },
+
   // Unified workflow queue (PDF-3) — tasks, per-doc timelines, settings
   workflowTasks: {
     list: (opts?: { scope?: "all"; status?: "open" | "done" }) => {

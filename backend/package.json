@@ -7,6 +7,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit",
+    "myntra:mockify": "tsx scripts/myntra-mockify.ts",
     "start": "node dist/server.js"
   },
   "dependencies": {

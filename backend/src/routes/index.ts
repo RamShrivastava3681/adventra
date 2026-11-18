@@ -167,6 +167,7 @@ import * as WorkflowSettings from "../models/workflow-settings.js";
 import AmazonIntegration from "./amazon-integration.js";
 import TallyIntegration from "./tally.js";
 import FlipkartIntegration from "./flipkart-integration.js";
+import MyntraIntegration from "./myntra-integration.js";
 import * as db from "../dynamodb.js";
 import * as AuditLog from "../models/audit-log.js";
 
@@ -11093,6 +11094,9 @@ router.use(amazonLiveWorkflowRoutes);
 
 // ===================== FLIPKART INTEGRATION =====================
 router.use(FlipkartIntegration);
+
+// ===================== MYNTRA INTEGRATION =====================
+router.use(MyntraIntegration);
 
 // ===================== CASH FLOW & TREASURY =====================
 import cashFlowRoutes from "./cash-flow.js";
