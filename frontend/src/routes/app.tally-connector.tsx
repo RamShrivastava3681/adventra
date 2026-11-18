@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useMemo, useState } from "react";
 import {
@@ -1238,8 +1238,8 @@ function ExportWorkflowDialog({
 }) {
   const [step, setStep] = useState<"validate" | "summary" | "result">("validate");
   const [force, setForce] = useState(false);
-  const [onlyValid, setOnlyValid] = useState(false);
   const [batchResult, setBatchResult] = useState<any | null>(null);
+  const navigate = useNavigate();
 
   const validateQuery = useQuery({
     queryKey: ["tally-validate", exportType, ids],
@@ -1248,9 +1248,12 @@ function ExportWorkflowDialog({
 
   const exportMutation = useMutation({
     mutationFn: () => {
-      const recordsToExport = onlyValid
-        ? (validateQuery.data?.records || []).filter((r: any) => r.errors?.length === 0).map((r: any) => r.sourceId)
-        : ids;
+      const recordsToExport = (validateQuery.data?.records || [])
+        .filter((r: any) => r.errors?.length === 0)
+        .map((r: any) => r.sourceId);
+      if (!recordsToExport.length) {
+        throw new Error("No valid records are available for export.");
+      }
       return api.tally.export({ exportType, ids: recordsToExport, force });
     },
     onSuccess: (data) => {
@@ -1268,6 +1271,26 @@ function ExportWorkflowDialog({
 
   const valData = validateQuery.data;
   const isPending = validateQuery.isLoading || exportMutation.isPending;
+
+  const openSourceRecord = (record: any) => {
+    const routes: Record<string, string> = {
+      customers: "/app/debtors",
+      suppliers: "/app/suppliers",
+      "stock-items": "/app/products",
+      units: "/app/tally-connector",
+      ledgers: "/app/tally-connector",
+      sales: "/app/invoices",
+      purchases: "/app/purchases",
+      receipts: "/app/invoices",
+      payments: "/app/purchases",
+      "credit-notes": "/app/credit-debit-notes-workbench",
+      "debit-notes": "/app/credit-debit-notes-workbench",
+    };
+    navigate({
+      to: routes[exportType] || "/app/tally-connector",
+      search: { sourceId: record.sourceId },
+    } as any);
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
@@ -1373,6 +1396,15 @@ function ExportWorkflowDialog({
                               • {e}
                             </div>
                           ))}
+                          <div className="mt-2 flex items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => openSourceRecord(r)}
+                            >
+                              Open record
+                            </Button>
+                          </div>
                         </div>
                       ))}
                   </div>
@@ -1382,18 +1414,6 @@ function ExportWorkflowDialog({
                     All {valData.totalCount} selected records passed pre-export validation and balance perfectly!
                   </div>
                 ) : null}
-
-                {valData?.errorCount > 0 && (
-                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <input
-                      type="checkbox"
-                      checked={onlyValid}
-                      onChange={(e) => setOnlyValid(e.target.checked)}
-                      disabled={valData?.validCount === 0}
-                    />
-                    Export only valid records ({valData?.validCount} records) and skip records with errors.
-                  </label>
-                )}
 
                 <div className="flex items-center justify-between pt-3">
                   <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -1405,13 +1425,22 @@ function ExportWorkflowDialog({
                     <Button variant="outline" onClick={onClose}>
                       Cancel
                     </Button>
+                    {valData?.errorCount > 0 && (
+                      <Button
+                        variant="outline"
+                        onClick={() => validateQuery.refetch()}
+                        disabled={validateQuery.isFetching}
+                      >
+                        <RefreshCw className={`mr-1.5 h-4 w-4 ${validateQuery.isFetching ? "animate-spin" : ""}`} />
+                        Re-run validation
+                      </Button>
+                    )}
                     <Button
                       onClick={() => exportMutation.mutate()}
                       disabled={
                         isPending ||
                         (valData?.totalCount === 0) ||
-                      (valData?.errorCount > 0 && !onlyValid && !force) ||
-                        (onlyValid && valData?.validCount === 0)
+                        (valData?.validCount === 0)
                       }
                     >
                       {exportMutation.isPending ? (
@@ -1441,6 +1470,17 @@ function ExportWorkflowDialog({
                 company <strong>{batchResult.batch.companyName}</strong>.
               </p>
             </div>
+
+            {batchResult?.partialExport && batchResult.blockedCount > 0 && (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-xs text-amber-950 dark:bg-amber-950/40 dark:text-amber-100">
+                <div className="font-bold">
+                  Partial export: {batchResult.blockedCount} record(s) moved to the correction queue.
+                </div>
+                <div className="mt-1">
+                  Only valid records are included in this XML. Download the validation report to correct blocked records and re-run validation.
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 text-xs">
               <div className="rounded-lg border border-border p-2.5">

@@ -162,6 +162,9 @@ router.post("/tally/masters/export", authMiddleware, CAN_EXPORT, async (req, res
     res.status(201).json({
       batch: result.batch,
       preview: result.xml.slice(0, 15000),
+      partialExport: result.partialExport,
+      blockedCount: result.blockedCount,
+      blockedRecords: result.blockedRecords.map(publicRecord),
     });
   } catch (err) {
     handleError(res, err, "Failed to export masters");

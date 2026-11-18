@@ -695,6 +695,13 @@ export async function buildRecords(
       const warnings: string[] = [];
       const name = exportType === "customers" ? row.name : row.companyName;
       if (!name) errors.push("Ledger name is missing.");
+      if (exportType === "customers") {
+        if (!row.state && !row.stateCode) errors.push("Customer state or state code is missing.");
+        if (!row.billingAddress) errors.push("Customer billing address is missing.");
+      } else {
+        if (!row.state && !row.stateCode) errors.push("Supplier state or state code is missing.");
+        if (!row.addressLine && !row.address) errors.push("Supplier address is missing.");
+      }
       if (!(exportType === "customers" ? config.mappings.debtorsGroup : config.mappings.creditorsGroup)) {
         errors.push("Ledger group is not configured.");
       }
@@ -730,8 +737,12 @@ export async function buildRecords(
       const warnings: string[] = [];
       if (!row.name) errors.push("Stock item name is missing.");
       if (!config.godownName) errors.push("Tally godown / warehouse is not configured.");
+      if (!row.unitOfMeasure) errors.push("Unit of measure is missing.");
+      if (!row.hsnCode) errors.push("HSN code is missing.");
+      if (row.gstRate === undefined || row.gstRate === null || row.gstRate === "") {
+        errors.push("GST rate is missing.");
+      }
       if (row.skuLevel === "parent") warnings.push("Parent product exported as a stock item; variants export separately.");
-      if (!row.hsnCode) warnings.push("HSN code is missing on this SKU.");
 
       const masterXml = serializeStockItemMaster(row, ctx, unitFor);
       const xml = message(masterXml);
@@ -853,6 +864,7 @@ export async function buildRecords(
     for (const row of rows as any[]) {
       if (idSet && !idSet.has(row.id)) continue;
       const res = serializeSalesVoucher(row, sharedVoucherCtx);
+      if (!row.invoiceNumber) res.errors.push("Invoice number is missing.");
       prepared.push({
         sourceId: row.id,
         sourceLabel: `${row.invoiceNumber} - ${res.party || "Customer"}`,
@@ -874,6 +886,7 @@ export async function buildRecords(
     for (const row of rows as any[]) {
       if (idSet && !idSet.has(row.id)) continue;
       const res = serializePurchaseVoucher(row, sharedVoucherCtx);
+      if (!row.invoiceNumber) res.errors.push("Purchase invoice number is missing.");
       prepared.push({
         sourceId: row.id,
         sourceLabel: `${row.invoiceNumber} - ${res.party || "Supplier"}`,
@@ -1031,16 +1044,19 @@ export async function generateBatch(opts: GenerateOptions) {
   }
 
   const invalid = prepared.filter((r) => r.errors.length);
-  if (invalid.length) {
+  const valid = prepared.filter((r) => r.errors.length === 0);
+  if (!valid.length) {
     return {
       validationFailed: true as const,
       records: prepared,
       errors: invalid.flatMap((r) => r.errors.map((e) => `${r.sourceLabel}: ${e}`)),
     };
   }
+  const partialExport = invalid.length > 0;
+  const exportPrepared = valid;
 
   // Each record is wrapped in its own TALLYMESSAGE block
-  const messages = prepared.map((r) => (reportName === "Vouchers" ? message(r.xml) : r.xml));
+  const messages = exportPrepared.map((r) => (reportName === "Vouchers" ? message(r.xml) : r.xml));
   const xml = envelope({
     reportName,
     companyName: config.companyName,
@@ -1055,7 +1071,7 @@ export async function generateBatch(opts: GenerateOptions) {
   const file = path.join(dir, `${id}.xml`);
   await fs.writeFile(file, xml, "utf8");
 
-  const totals = prepared.reduce(
+  const totals = exportPrepared.reduce(
     (acc, r) => ({
       taxable: round2(acc.taxable + r.totals.taxable),
       gst: round2(acc.gst + r.totals.gst),
@@ -1064,7 +1080,8 @@ export async function generateBatch(opts: GenerateOptions) {
     { taxable: 0, gst: 0, grandTotal: 0 },
   );
 
-  const batchRecords: TallyBatchRecord[] = prepared.map((r) => ({
+  const batchRecords: TallyBatchRecord[] = [
+    ...exportPrepared.map((r) => ({
     sourceId: r.sourceId,
     sourceLabel: r.sourceLabel,
     docNumber: r.docNumber,
@@ -1076,7 +1093,21 @@ export async function generateBatch(opts: GenerateOptions) {
     status: r.status,
     errors: r.errors,
     warnings: r.warnings,
-  }));
+    })),
+    ...invalid.map((r) => ({
+      sourceId: r.sourceId,
+      sourceLabel: r.sourceLabel,
+      docNumber: r.docNumber,
+      date: r.date,
+      party: r.party,
+      amount: r.amount,
+      voucherType: r.voucherType,
+      contentHash: r.contentHash,
+      status: r.status,
+      errors: r.errors,
+      warnings: r.warnings,
+    })),
+  ];
 
   const generatedAt = new Date().toISOString();
   const batch = await Tally.createBatch({
@@ -1090,10 +1121,10 @@ export async function generateBatch(opts: GenerateOptions) {
     xmlPath: file,
     xmlSha256: sha,
     xmlBytes: bytes,
-    recordCount: prepared.length,
-    validCount: prepared.length,
-    errorCount: 0,
-    warningCount: prepared.reduce((n, r) => n + r.warnings.length, 0),
+    recordCount: exportPrepared.length,
+    validCount: exportPrepared.length,
+    errorCount: invalid.length,
+    warningCount: exportPrepared.reduce((n, r) => n + r.warnings.length, 0),
     totals,
     generatedAt,
     generatedBy: opts.generatedBy ?? null,
@@ -1105,7 +1136,7 @@ export async function generateBatch(opts: GenerateOptions) {
     records: batchRecords,
   });
 
-  for (const rec of prepared) {
+  for (const rec of exportPrepared) {
     await Tally.upsertExportRecord(opts.clientId, {
       exportType: opts.exportType,
       sourceId: rec.sourceId,
@@ -1121,7 +1152,14 @@ export async function generateBatch(opts: GenerateOptions) {
     });
   }
 
-  return { validationFailed: false as const, batch, xml };
+  return {
+    validationFailed: false as const,
+    partialExport,
+    blockedCount: invalid.length,
+    blockedRecords: invalid,
+    batch,
+    xml,
+  };
 }
 
 export async function markDownloaded(clientId: string, batchId: string, user: string | null) {
