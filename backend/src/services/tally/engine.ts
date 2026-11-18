@@ -1004,6 +1004,18 @@ export function configProblems(config: TallyConfig, exportType?: TallyExportType
   const problems: string[] = [];
   if (!config.companyName) problems.push("Tally company name is required.");
   if (!config.homeState) problems.push("Home state is required (used to decide CGST/SGST vs IGST).");
+  const m = config.mappings || Tally.EMPTY_MAPPING;
+  if (!m.salesLedger) problems.push("Sales ledger is not configured.");
+  if (!m.purchaseLedger) problems.push("Purchase ledger is not configured.");
+  if (!m.debtorsGroup) problems.push("Customer ledger group is not configured.");
+  if (!m.creditorsGroup) problems.push("Supplier ledger group is not configured.");
+  if (!m.cgstOutputLedger || !m.sgstOutputLedger || !m.igstOutputLedger) {
+    problems.push("GST output ledgers (CGST, SGST/UTGST, and IGST) are not fully configured.");
+  }
+  if (!m.cgstInputLedger || !m.sgstInputLedger || !m.igstInputLedger) {
+    problems.push("GST input ledgers (CGST, SGST/UTGST, and IGST) are not fully configured.");
+  }
+  if (!m.roundOffLedger) problems.push("Round-off ledger is not configured.");
   // Godown is only needed for inventory / voucher exports, not for simple ledger or unit masters.
   const needsGodown = !exportType ||
     ["stock-items", "sales", "purchases", "credit-notes", "debit-notes"].includes(exportType);
