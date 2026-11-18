@@ -1034,19 +1034,86 @@ const api = {
     update: (data: any) => api.put<any>("/invoice-templates", data),
   },
 
-  // Tally connector — pair with the Tally desktop connector and push entities.
+  // TallyPrime XML export / import workbench.
   tally: {
-    status: () => api.get<any>("/integrations/tally/status"),
-    pair: (data: {
-      pairingCode: string;
-      deviceId: string;
-      deviceName: string;
-      companyName?: string;
-    }) => api.post<any>("/integrations/tally/pair", data),
-    unpair: () => api.post<any>("/integrations/tally/unpair", {}),
-    pushables: () => api.get<any>("/integrations/tally/pushables"),
-    push: (entityType: string, id: string) =>
-      api.post<any>(`/integrations/tally/push/${entityType}`, { id }),
+    getConfig: () => api.get<any>("/tally/config"),
+    saveConfig: (data: any) => api.put<any>("/tally/config", data),
+    overview: () => api.get<any>("/tally/overview"),
+    records: (exportType: string) => api.get<any>(`/tally/records/${exportType}`),
+    validate: (data: { exportType: string; ids?: string[] }) =>
+      api.post<any>("/tally/validate", data),
+    export: (data: { exportType: string; ids?: string[]; force?: boolean }) =>
+      api.post<any>("/tally/export", data),
+    batches: () => api.get<any>("/tally/batches"),
+    batch: (id: string) => api.get<any>(`/tally/batches/${id}`),
+    batchXmlUrl: (id: string) => `${API_URL}/tally/batches/${id}/xml`,
+    downloadBatch: async (id: string, filename: string) => {
+      const res = await fetch(`${API_URL}/tally/batches/${id}/download`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || "Could not download Tally XML");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disp = res.headers.get("content-disposition") || "";
+      const m = disp.match(/filename="?([^"]+)"?/);
+      a.download = m?.[1] ?? filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+    downloadManifest: async (id: string, filename: string) => {
+      const res = await fetch(`${API_URL}/tally/batches/${id}/manifest`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || "Could not download manifest");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disp = res.headers.get("content-disposition") || "";
+      const m = disp.match(/filename="?([^"]+)"?/);
+      a.download = m?.[1] ?? filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+    downloadErrors: async (id: string, filename: string) => {
+      const res = await fetch(`${API_URL}/tally/batches/${id}/errors`, {
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error((err as any).error || "Could not download error report");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const disp = res.headers.get("content-disposition") || "";
+      const m = disp.match(/filename="?([^"]+)"?/);
+      a.download = m?.[1] ?? filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    },
+    confirmImport: (
+      id: string,
+      data: { created: number; altered: number; skipped: number; failed: number; notes?: string },
+    ) => api.post<any>(`/tally/batches/${id}/confirm-import`, data),
+    retryBatch: (id: string) => api.post<any>(`/tally/batches/${id}/retry`, {}),
+    reverseImportParse: (xml: string) => api.post<any>("/tally/reverse-import/parse", { xml }),
+    instructions: () => api.get<any>("/tally/instructions"),
   },
 
   // CRM

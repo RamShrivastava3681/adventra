@@ -128,6 +128,17 @@ function buildNavSections(roles: string[]): NavSection[] {
         }
       : null;
 
+  // Tally Integration — dedicated ERP / TallyPrime XML export & import workbench
+  const tallySection: NavSection | null =
+    (isTreasury || isOperations || isChecker || isAdmin)
+      ? {
+          type: "single",
+          label: "Tally Integration",
+          icon: LinkIcon,
+          to: "/app/tally-connector",
+        }
+      : null;
+
   // Procurement — visible to operations + admin (single Workbench link)
   const procurementSection: NavSection | null =
     (isOperations || isAdmin)
@@ -205,7 +216,7 @@ function buildNavSections(roles: string[]): NavSection[] {
                 { to: "/app/reminders", label: "Reminders", icon: Mail },
                 { to: "/app/admin", label: "Operations", icon: Shield },
                 { to: "/app/template", label: "Invoice template", icon: Palette },
-                { to: "/app/tally-connector", label: "Tally Connector", icon: LinkIcon },
+                { to: "/app/tally-connector", label: "Tally Integration", icon: LinkIcon },
                 { to: "/app/settings", label: "Settings", icon: Settings },
               ]
             : [{ to: "/app/settings", label: "Settings", icon: Settings }],
@@ -243,6 +254,7 @@ function buildNavSections(roles: string[]): NavSection[] {
     workspaceSection,
     checkerSection,
     financeSection,
+    tallySection,
     procurementSection,
     salesSection,
     marketplaceSection,

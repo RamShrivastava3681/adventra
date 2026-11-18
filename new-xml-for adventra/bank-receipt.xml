@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>Vouchers</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Whizunik</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <VOUCHER VCHTYPE="Receipt" ACTION="Create">
+            <DATE>20261001</DATE>
+            <VOUCHERTYPENAME>Receipt</VOUCHERTYPENAME>
+            <PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>
+            <REFERENCE>RCT-TEST-001</REFERENCE>
+            <NARRATION>WhizUnik Ref: RCT-TEST-001 | UTR: UTR-DEMO-001</NARRATION>
+            <LEDGERENTRIES.LIST>
+              <LEDGERNAME>Bank - Demo</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+              <AMOUNT>-5000.00</AMOUNT>
+            </LEDGERENTRIES.LIST>
+            <LEDGERENTRIES.LIST>
+              <LEDGERNAME>ABC Customer</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+              <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+              <AMOUNT>5000.00</AMOUNT>
+            </LEDGERENTRIES.LIST>
+          </VOUCHER>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>

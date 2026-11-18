@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>Vouchers</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Whizunik</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <VOUCHER VCHTYPE="Payment" ACTION="Create">
+            <DATE>20261001</DATE>
+            <VOUCHERTYPENAME>Payment</VOUCHERTYPENAME>
+            <PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>
+            <REFERENCE>PAY-TEST-001</REFERENCE>
+            <NARRATION>WhizUnik Ref: PAY-TEST-001 | UTR: UTR-DEMO-002</NARRATION>
+            <LEDGERENTRIES.LIST>
+              <LEDGERNAME>Bank - Demo</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+              <AMOUNT>3000.00</AMOUNT>
+            </LEDGERENTRIES.LIST>
+            <LEDGERENTRIES.LIST>
+              <LEDGERNAME>Demo Supplier</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+              <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+              <AMOUNT>-3000.00</AMOUNT>
+            </LEDGERENTRIES.LIST>
+          </VOUCHER>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>

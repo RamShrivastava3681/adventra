@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>All Masters</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Whizunik</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <LEDGER NAME="Sunrise Traders" ACTION="Create">
+            <NAME>Sunrise Traders</NAME>
+            <PARENT>Sundry Debtors</PARENT>
+            <ISBILLWISEON>Yes</ISBILLWISEON>
+            <OPENINGBALANCE>0</OPENINGBALANCE>
+          </LEDGER>
+          <LEDGER NAME="Metro Retail" ACTION="Create">
+            <NAME>Metro Retail</NAME>
+            <PARENT>Sundry Debtors</PARENT>
+            <ISBILLWISEON>Yes</ISBILLWISEON>
+            <OPENINGBALANCE>0</OPENINGBALANCE>
+          </LEDGER>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>

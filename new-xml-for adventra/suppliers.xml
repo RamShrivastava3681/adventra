@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>All Masters</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Whizunik</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <LEDGER NAME="Pacific Components" ACTION="Create">
+            <NAME>Pacific Components</NAME>
+            <PARENT>Sundry Creditors</PARENT>
+            <ISBILLWISEON>Yes</ISBILLWISEON>
+            <OPENINGBALANCE>0</OPENINGBALANCE>
+          </LEDGER>
+          <LEDGER NAME="Greenfield Supplies" ACTION="Create">
+            <NAME>Greenfield Supplies</NAME>
+            <PARENT>Sundry Creditors</PARENT>
+            <ISBILLWISEON>Yes</ISBILLWISEON>
+            <OPENINGBALANCE>0</OPENINGBALANCE>
+          </LEDGER>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>

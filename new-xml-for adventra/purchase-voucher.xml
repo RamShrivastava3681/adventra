@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ENVELOPE>
+  <HEADER>
+    <TALLYREQUEST>Import Data</TALLYREQUEST>
+  </HEADER>
+  <BODY>
+    <IMPORTDATA>
+      <REQUESTDESC>
+        <REPORTNAME>Vouchers</REPORTNAME>
+        <STATICVARIABLES>
+          <SVCURRENTCOMPANY>Whizunik</SVCURRENTCOMPANY>
+        </STATICVARIABLES>
+      </REQUESTDESC>
+      <REQUESTDATA>
+        <TALLYMESSAGE xmlns:UDF="TallyUDF">
+          <VOUCHER VCHTYPE="Purchase" ACTION="Create">
+            <DATE>20261001</DATE>
+            <VOUCHERTYPENAME>Purchase</VOUCHERTYPENAME>
+            <PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>
+            <ISINVOICE>No</ISINVOICE>
+            <REFERENCE>PUR-TEST-001</REFERENCE>
+            <NARRATION>WhizUnik Ref: PUR-TEST-001</NARRATION>
+            <LEDGERENTRIES.LIST>
+              <LEDGERNAME>Demo Supplier</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+              <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+              <AMOUNT>5900.00</AMOUNT>
+            </LEDGERENTRIES.LIST>
+            <LEDGERENTRIES.LIST>
+              <LEDGERNAME>Purchase</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+              <ISPARTYLEDGER>No</ISPARTYLEDGER>
+              <AMOUNT>-5900.00</AMOUNT>
+            </LEDGERENTRIES.LIST>
+          </VOUCHER>
+        </TALLYMESSAGE>
+      </REQUESTDATA>
+    </IMPORTDATA>
+  </BODY>
+</ENVELOPE>
