@@ -1248,7 +1248,9 @@ function ExportWorkflowDialog({
 
   const exportMutation = useMutation({
     mutationFn: () => {
-      const recordsToExport = (validateQuery.data?.records || [])
+      const recordsToExport = force
+        ? ids
+        : (validateQuery.data?.records || [])
         .filter((r: any) => r.errors?.length === 0)
         .map((r: any) => r.sourceId);
       if (!recordsToExport.length) {
@@ -1271,6 +1273,18 @@ function ExportWorkflowDialog({
 
   const valData = validateQuery.data;
   const isPending = validateQuery.isLoading || exportMutation.isPending;
+  const totalRecords = valData?.totalRecords ?? valData?.totalCount ?? ids.length;
+  const validRecords = valData?.validRecords ?? valData?.validCount ?? 0;
+  const errorRecords = valData?.errorCount ?? 0;
+  const warningRecords = valData?.warningCount ?? 0;
+  const forceDuplicateEligible =
+    force &&
+    Array.isArray(valData?.records) &&
+    valData.records.some((r: any) => r.lastBatchId) &&
+    valData.records.every((r: any) =>
+      r.errors?.length === 0 ||
+      r.errors?.some((error: string) => error.toLowerCase().includes("already exported")),
+    );
 
   const openSourceRecord = (record: any) => {
     const routes: Record<string, string> = {
@@ -1352,27 +1366,39 @@ function ExportWorkflowDialog({
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <div className="rounded-xl border border-border p-3">
                     <div className="text-[11px] text-muted-foreground">Total Records</div>
-                    <div className="text-xl font-bold">{valData?.totalCount ?? ids.length}</div>
+                    <div className="text-xl font-bold">{totalRecords}</div>
                   </div>
                   <div className="rounded-xl border border-emerald-300 bg-emerald-50/50 p-3 dark:bg-emerald-950/20">
                     <div className="text-[11px] text-emerald-800 dark:text-emerald-300">Valid Records</div>
                     <div className="text-xl font-bold text-emerald-700 dark:text-emerald-400">
-                      {valData?.validCount ?? 0}
+                      {validRecords}
                     </div>
                   </div>
                   <div className="rounded-xl border border-rose-300 bg-rose-50/50 p-3 dark:bg-rose-950/20">
                     <div className="text-[11px] text-rose-800 dark:text-rose-300">Errors</div>
                     <div className="text-xl font-bold text-rose-700 dark:text-rose-400">
-                      {valData?.errorCount ?? 0}
+                      {errorRecords}
                     </div>
                   </div>
                   <div className="rounded-xl border border-amber-300 bg-amber-50/50 p-3 dark:bg-amber-950/20">
                     <div className="text-[11px] text-amber-800 dark:text-amber-300">Warnings</div>
                     <div className="text-xl font-bold text-amber-700 dark:text-amber-400">
-                      {valData?.warningCount ?? 0}
+                      {warningRecords}
                     </div>
                   </div>
                 </div>
+
+                {valData?.configError && (
+                  <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+                    <div className="flex items-start gap-2">
+                      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
+                      <div>
+                        <div className="font-bold">Export blocked: Tally configuration is incomplete</div>
+                        <div className="mt-1 text-xs">{valData.configError}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
 
                 {valData?.totalCount === 0 && (
                   <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
@@ -1391,6 +1417,12 @@ function ExportWorkflowDialog({
                       .map((r: any) => (
                         <div key={r.sourceId} className="rounded-lg border border-rose-200 bg-card p-2.5 text-xs">
                           <div className="font-semibold text-foreground">{r.sourceLabel || r.docNumber}</div>
+                          {r.exportedStatus && r.lastBatchId && (
+                            <div className="mt-1 text-amber-700 dark:text-amber-300">
+                              Status: Already Exported · Previous batch: {r.lastBatchId}
+                              {r.exportedAt ? ` · Previous export date: ${r.exportedAt}` : ""}
+                            </div>
+                          )}
                           {(r.errors ?? []).map((e: string, i: number) => (
                             <div key={i} className="text-rose-600">
                               • {e}
@@ -1404,6 +1436,15 @@ function ExportWorkflowDialog({
                             >
                               Open record
                             </Button>
+                            {r.lastBatchId && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => navigate({ to: "/app/tally-connector", search: { batchId: r.lastBatchId } } as any)}
+                              >
+                                Open previous batch
+                              </Button>
+                            )}
                           </div>
                         </div>
                       ))}
@@ -1439,8 +1480,9 @@ function ExportWorkflowDialog({
                       onClick={() => exportMutation.mutate()}
                       disabled={
                         isPending ||
-                        (valData?.totalCount === 0) ||
-                        (valData?.validCount === 0)
+                        totalRecords === 0 ||
+                        !!valData?.configError ||
+                        (validRecords === 0 && !forceDuplicateEligible)
                       }
                     >
                       {exportMutation.isPending ? (

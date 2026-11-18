@@ -50,6 +50,9 @@ export interface PreparedRecord {
   warnings: string[];
   totals: { taxable: number; gst: number; grandTotal: number };
   xml: string;
+  exportedStatus?: Tally.TallyRecordStatus | null;
+  lastBatchId?: string | null;
+  exportedAt?: string | null;
 }
 
 export interface PreparedBatch {
@@ -979,7 +982,7 @@ export async function buildRecords(
 
 export async function validateRecords(clientId: string, exportType: TallyExportType, ids?: string[]) {
   const config = await Tally.getConfig(clientId);
-  if (!config) return { configError: "Tally configuration has not been set up yet. Please open Configuration & Mapping to set up.", records: [] as PreparedRecord[] };
+  if (!config) return { configError: "Tally company name is not configured. Open Configuration & Mapping and enter the exact company name shown in Tally.", records: [] as PreparedRecord[] };
   const problems = configProblems(config, exportType);
   if (problems.length) return { configError: problems.join(" "), records: [] as PreparedRecord[] };
   const { prepared } = await buildRecords(clientId, exportType, config, ids);
@@ -991,6 +994,9 @@ export async function validateRecords(clientId: string, exportType: TallyExportT
       if (prev && ["Exported", "Downloaded", "Imported"].includes(prev.status) && prev.contentHash === rec.contentHash) {
         rec.errors.push(`Already exported in batch ${prev.lastBatchId || "(unknown)"} - no changes since then.`);
         rec.status = "Validation Failed";
+        rec.exportedStatus = prev.status;
+        rec.lastBatchId = prev.lastBatchId;
+        rec.exportedAt = prev.exportedAt;
       } else if (prev && ["Exported", "Downloaded", "Imported"].includes(prev.status) && prev.contentHash !== rec.contentHash) {
         rec.warnings.push(`Source record changed since last exported (batch ${prev.lastBatchId || "(unknown)"}).`);
         rec.status = rec.errors.length ? "Validation Failed" : "Needs Review";
@@ -1002,7 +1008,7 @@ export async function validateRecords(clientId: string, exportType: TallyExportT
 
 export function configProblems(config: TallyConfig, exportType?: TallyExportType): string[] {
   const problems: string[] = [];
-  if (!config.companyName) problems.push("Tally company name is required.");
+  if (!config.companyName) problems.push("Tally company name is not configured. Open Configuration & Mapping and enter the exact company name shown in Tally.");
   if (!config.homeState) problems.push("Home state is required (used to decide CGST/SGST vs IGST).");
   const m = config.mappings || Tally.EMPTY_MAPPING;
   if (!m.salesLedger) problems.push("Sales ledger is not configured.");

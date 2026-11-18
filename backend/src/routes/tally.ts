@@ -51,6 +51,9 @@ function publicRecord(rec: engine.PreparedRecord) {
     warnings: rec.warnings,
     totals: rec.totals,
     contentHash: rec.contentHash,
+    exportedStatus: rec.exportedStatus ?? null,
+    lastBatchId: rec.lastBatchId ?? null,
+    exportedAt: rec.exportedAt ?? null,
   };
 }
 
@@ -275,12 +278,70 @@ router.post("/tally/validate", authMiddleware, CAN_EXPORT, async (req, res) => {
     const { exportType, ids } = req.body ?? {};
     if (!isExportType(exportType)) return res.status(400).json({ error: "Unknown export type" });
     const result = await engine.validateRecords(clientId(req), exportType, Array.isArray(ids) ? ids : undefined);
-    if (result.configError) return res.status(400).json({ error: result.configError });
     const records = result.records.map(publicRecord);
     const errors = records.flatMap((r) => r.errors.map((e) => `${r.sourceLabel}: ${e}`));
+    if (result.configError) {
+      const selectedIds = Array.isArray(ids) && ids.length ? ids : [];
+      const configRecords =
+        selectedIds.length > 0
+          ? selectedIds.map((sourceId) => ({
+              sourceId,
+              sourceLabel: sourceId,
+              docNumber: null,
+              date: null,
+              party: null,
+              voucherType: exportType,
+              amount: 0,
+              status: "Validation Failed",
+              errors: [result.configError],
+              warnings: [],
+              totals: { taxable: 0, gst: 0, grandTotal: 0 },
+              contentHash: "",
+            }))
+          : [];
+      const configErrorRecords = configRecords.map((r) => ({
+        sourceId: r.sourceId,
+        sourceLabel: r.sourceLabel,
+        docNumber: r.docNumber,
+        date: r.date,
+        party: r.party,
+        voucherType: r.voucherType,
+        amount: r.amount,
+        status: r.status,
+        errors: r.errors,
+        warnings: r.warnings,
+        totals: r.totals,
+        contentHash: r.contentHash,
+        exportedStatus: null,
+        lastBatchId: null,
+        exportedAt: null,
+      }));
+      const configErrors = configErrorRecords.flatMap((r) =>
+        r.errors.map((e) => `${r.sourceLabel}: ${e}`),
+      );
+      return res.json({
+        exportType,
+        totalRecords: configRecords.length,
+        validRecords: 0,
+        valid: false,
+        canGenerate: false,
+        configError: result.configError,
+        totalCount: configRecords.length,
+        validCount: 0,
+        errorCount: configRecords.length,
+        warningCount: 0,
+        totalValue: 0,
+        errors: configErrors,
+        records: configErrorRecords,
+      });
+    }
     res.json({
       exportType,
+      totalRecords: records.length,
+      validRecords: records.filter((r) => r.errors.length === 0).length,
       valid: errors.length === 0,
+      canGenerate: records.some((r) => r.errors.length === 0),
+      configError: null,
       totalCount: records.length,
       validCount: records.filter((r) => r.errors.length === 0).length,
       errorCount: records.filter((r) => r.errors.length > 0).length,
