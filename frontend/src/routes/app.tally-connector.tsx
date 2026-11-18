@@ -1226,6 +1226,7 @@ function ExportWorkflowDialog({
   targetCompany,
   onClose,
   onSuccess,
+  onGoConfig,
 }: {
   exportType: ExportType;
   ids: string[];
@@ -1233,6 +1234,7 @@ function ExportWorkflowDialog({
   targetCompany: string;
   onClose: () => void;
   onSuccess: () => void;
+  onGoConfig?: () => void;
 }) {
   const [step, setStep] = useState<"validate" | "summary" | "result">("validate");
   const [force, setForce] = useState(false);
@@ -1305,9 +1307,22 @@ function ExportWorkflowDialog({
                 </p>
               </div>
             ) : validateQuery.isError ? (
-              <div className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
-                <ShieldAlert className="mb-2 h-5 w-5 text-rose-600" />
-                <strong>Validation Error:</strong> {(validateQuery.error as any)?.message || "Failed to validate."}
+              <div className="space-y-3">
+                <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                  <div className="flex items-start gap-2">
+                    <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
+                    <div>
+                      <div className="font-semibold">Configuration Required</div>
+                      <div className="mt-1 text-xs">{(validateQuery.error as any)?.message || "Failed to validate. Please check your Tally configuration."}</div>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-2">
+                  <Button variant="outline" onClick={onClose}>Cancel</Button>
+                  <Button onClick={() => { onClose(); onGoConfig?.(); }} variant="secondary">
+                    <Settings2 className="mr-1.5 h-4 w-4" /> Open Configuration
+                  </Button>
+                </div>
               </div>
             ) : (
               <>
@@ -1336,17 +1351,24 @@ function ExportWorkflowDialog({
                   </div>
                 </div>
 
+                {valData?.totalCount === 0 && (
+                  <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                    <AlertTriangle className="mb-1 h-4 w-4" />
+                    No records found for export. The selected records may not exist in the database or may have been filtered out.
+                  </div>
+                )}
+
                 {valData?.errorCount > 0 ? (
                   <div className="max-h-60 space-y-2 overflow-auto rounded-xl border border-rose-200 bg-rose-50/30 p-3">
                     <div className="flex items-center gap-1.5 text-xs font-bold text-rose-800">
                       <XCircle className="h-4 w-4" /> Issues preventing direct export:
                     </div>
                     {valData?.records
-                      ?.filter((r: any) => r.errors?.length > 0)
+                      ?.filter((r: any) => (r.errors?.length ?? 0) > 0)
                       .map((r: any) => (
                         <div key={r.sourceId} className="rounded-lg border border-rose-200 bg-card p-2.5 text-xs">
-                          <div className="font-semibold text-foreground">{r.sourceLabel}</div>
-                          {r.errors.map((e: string, i: number) => (
+                          <div className="font-semibold text-foreground">{r.sourceLabel || r.docNumber}</div>
+                          {(r.errors ?? []).map((e: string, i: number) => (
                             <div key={i} className="text-rose-600">
                               • {e}
                             </div>
@@ -1354,12 +1376,12 @@ function ExportWorkflowDialog({
                         </div>
                       ))}
                   </div>
-                ) : (
+                ) : valData?.totalCount > 0 ? (
                   <div className="flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
                     <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                    All {ids.length} selected records passed pre-export validation and balance perfectly!
+                    All {valData.totalCount} selected records passed pre-export validation and balance perfectly!
                   </div>
-                )}
+                ) : null}
 
                 {valData?.errorCount > 0 && (
                   <label className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -1387,7 +1409,8 @@ function ExportWorkflowDialog({
                       onClick={() => exportMutation.mutate()}
                       disabled={
                         isPending ||
-                        (valData?.errorCount > 0 && !onlyValid) ||
+                        (valData?.totalCount === 0) ||
+                      (valData?.errorCount > 0 && !onlyValid && !force) ||
                         (onlyValid && valData?.validCount === 0)
                       }
                     >

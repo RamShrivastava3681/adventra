@@ -862,16 +862,35 @@ export async function buildRecords(
 
 export async function validateRecords(clientId: string, exportType: TallyExportType, ids?: string[]) {
   const config = await Tally.getConfig(clientId);
-  if (!config) return { configError: "Tally configuration has not been set up yet.", records: [] as PreparedRecord[] };
+  if (!config) return { configError: "Tally configuration has not been set up yet. Please open Configuration & Mapping to set up.", records: [] as PreparedRecord[] };
+  const problems = configProblems(config, exportType);
+  if (problems.length) return { configError: problems.join(" "), records: [] as PreparedRecord[] };
   const { prepared } = await buildRecords(clientId, exportType, config, ids);
+  if (!config.allowDuplicateReExport) {
+    const existing = await Tally.listExportRecords(clientId).catch(() => [] as any[]);
+    const map = new Map(existing.map((r) => [`${r.exportType}|${r.sourceId}`, r]));
+    for (const rec of prepared) {
+      const prev = map.get(`${exportType}|${rec.sourceId}`);
+      if (prev && ["Exported", "Downloaded", "Imported"].includes(prev.status) && prev.contentHash === rec.contentHash) {
+        rec.errors.push(`Already exported in batch ${prev.lastBatchId || "(unknown)"} - no changes since then.`);
+        rec.status = "Validation Failed";
+      } else if (prev && ["Exported", "Downloaded", "Imported"].includes(prev.status) && prev.contentHash !== rec.contentHash) {
+        rec.warnings.push(`Source record changed since last exported (batch ${prev.lastBatchId || "(unknown)"}).`);
+        rec.status = rec.errors.length ? "Validation Failed" : "Needs Review";
+      }
+    }
+  }
   return { configError: null, records: prepared };
 }
 
-export function configProblems(config: TallyConfig): string[] {
+export function configProblems(config: TallyConfig, exportType?: TallyExportType): string[] {
   const problems: string[] = [];
   if (!config.companyName) problems.push("Tally company name is required.");
   if (!config.homeState) problems.push("Home state is required (used to decide CGST/SGST vs IGST).");
-  if (!config.godownName) problems.push("Godown / warehouse name is required.");
+  // Godown is only needed for inventory / voucher exports, not for simple ledger or unit masters.
+  const needsGodown = !exportType ||
+    ["stock-items", "sales", "purchases", "credit-notes", "debit-notes"].includes(exportType);
+  if (needsGodown && !config.godownName) problems.push("Godown / warehouse name is required for this export type.");
   return problems;
 }
 
@@ -886,7 +905,7 @@ export interface GenerateOptions {
 export async function generateBatch(opts: GenerateOptions) {
   const config = await Tally.getConfig(opts.clientId);
   if (!config) throw Object.assign(new Error("Tally configuration has not been set up yet."), { status: 400 });
-  const problems = configProblems(config);
+  const problems = configProblems(config, opts.exportType);
   if (problems.length) throw Object.assign(new Error(problems.join(" ")), { status: 400 });
 
   const { reportName, prepared } = await buildRecords(opts.clientId, opts.exportType, config, opts.ids);
