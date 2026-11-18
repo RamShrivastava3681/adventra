@@ -1294,31 +1294,6 @@ function ExportWorkflowDialog({
               </div>
             )}
             <>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                  <div className="rounded-xl border border-border p-3">
-                    <div className="text-[11px] text-muted-foreground">Total Records</div>
-                    <div className="text-xl font-bold">{totalRecords}</div>
-                  </div>
-                  <div className="rounded-xl border border-emerald-300 bg-emerald-50/50 p-3 dark:bg-emerald-950/20">
-                    <div className="text-[11px] text-emerald-800 dark:text-emerald-300">Valid Records</div>
-                    <div className="text-xl font-bold text-emerald-700 dark:text-emerald-400">
-                      {validRecords}
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-rose-300 bg-rose-50/50 p-3 dark:bg-rose-950/20">
-                    <div className="text-[11px] text-rose-800 dark:text-rose-300">Errors</div>
-                    <div className="text-xl font-bold text-rose-700 dark:text-rose-400">
-                      {errorRecords}
-                    </div>
-                  </div>
-                  <div className="rounded-xl border border-amber-300 bg-amber-50/50 p-3 dark:bg-amber-950/20">
-                    <div className="text-[11px] text-amber-800 dark:text-amber-300">Warnings</div>
-                    <div className="text-xl font-bold text-amber-700 dark:text-amber-400">
-                      {warningRecords}
-                    </div>
-                  </div>
-                </div>
-
                 <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
                   <FileCode2 className="h-5 w-5" />
                   Generate a Tally XML file for {ids.length} selected record(s). Any configuration or record errors will be shown if generation fails.
@@ -1914,6 +1889,7 @@ function ConfigTab({
   onSaved: () => void;
 }) {
   const config = data?.config ?? {};
+  const [editing, setEditing] = useState(!data?.configured);
   const [form, setForm] = useState<any>(() => ({
     companyName: config.companyName ?? "",
     homeState: config.homeState ?? "",
@@ -1946,6 +1922,10 @@ function ConfigTab({
     });
   }, [data, loading]);
 
+  useEffect(() => {
+    if (!loading) setEditing(!data?.configured);
+  }, [data?.configured, loading]);
+
   const saveMutation = useMutation({
     mutationFn: () =>
       api.tally.saveConfig({
@@ -1970,6 +1950,7 @@ function ConfigTab({
         // Update the source of truth used by the page and export dialog at once;
         // this avoids showing "Not Configured" until a later refetch completes.
         onSaved();
+        setEditing(false);
         setForm({
           companyName: saved.companyName ?? "",
           homeState: saved.homeState ?? "",
@@ -2003,6 +1984,51 @@ function ConfigTab({
   }
 
   const sections = Array.from(new Set(MAPPING_FIELDS.map((f) => f.section)));
+
+  if (!editing && data?.configured) {
+    const summaryFields = [
+      ["Target Tally Company", config.companyName],
+      ["Company GST Home State", config.homeState],
+      ["Tally Godown / Warehouse", config.godownName],
+      ["Company GSTIN", config.gstin],
+      ["Default Unit", config.defaultUnit],
+      ["Stock Group", config.stockGroup],
+      ["Default Stock Batch", config.batchName],
+      ["GST / HSN Applicable Date", config.gstApplicableFrom],
+    ].filter((entry) => entry[1]);
+    return (
+      <div className="space-y-6">
+        <Card
+          title="Saved Tally Configuration"
+          action={<Button onClick={() => setEditing(true)}><Settings2 className="mr-2 h-4 w-4" /> Edit Configuration</Button>}
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {summaryFields.map(([label, value]) => (
+              <div key={label} className="rounded-lg border border-border p-3">
+                <div className="text-xs text-muted-foreground">{label}</div>
+                <div className="mt-1 font-medium">{value}</div>
+              </div>
+            ))}
+          </div>
+        </Card>
+        {sections.map((section) => (
+          <Card key={section} title={section}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              {MAPPING_FIELDS.filter((field) => field.section === section && config.mappings?.[field.key]).map((field) => (
+                <div key={field.key} className="rounded-lg border border-border p-3">
+                  <div className="text-xs text-muted-foreground">{field.label}</div>
+                  <div className="mt-1 font-medium">{config.mappings[field.key]}</div>
+                </div>
+              ))}
+              {!MAPPING_FIELDS.some((field) => field.section === section && config.mappings?.[field.key]) && (
+                <div className="text-sm text-muted-foreground">No mappings saved in this section.</div>
+              )}
+            </div>
+          </Card>
+        ))}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -2166,6 +2192,7 @@ function ConfigTab({
       ))}
 
       <div className="flex justify-end pt-2">
+        {data?.configured && <Button variant="outline" className="mr-2" onClick={() => setEditing(false)} disabled={saveMutation.isPending}>Cancel</Button>}
         <Button onClick={() => saveMutation.mutate()} disabled={saveMutation.isPending} size="lg">
           {saveMutation.isPending ? (
             <Loader2 className="mr-2 h-4 w-4 animate-spin" />

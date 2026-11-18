@@ -1014,7 +1014,7 @@ export async function buildRecords(
 }
 
 export async function validateRecords(clientId: string, exportType: TallyExportType, ids?: string[]) {
-  const config = await Tally.getConfig(clientId);
+  const config = await getTallyConfig(clientId);
   if (!config) return { configError: "Tally company name is not configured. Open Configuration & Mapping and enter the exact company name shown in Tally.", records: [] as PreparedRecord[] };
   const problems = configProblems(config, exportType);
   if (problems.length) return { configError: problems.join(" "), records: [] as PreparedRecord[] };
@@ -1069,6 +1069,12 @@ export function configProblems(config: TallyConfig, exportType?: TallyExportType
   return problems;
 }
 
+async function getTallyConfig(clientId: string): Promise<TallyConfig | null> {
+  // Prefer per-user config for backward compatibility, then fall back to the
+  // shared company config used by current installations.
+  return (await Tally.getConfig(clientId)) || (await Tally.getConfig("shared"));
+}
+
 export interface GenerateOptions {
   clientId: string;
   exportType: TallyExportType;
@@ -1078,7 +1084,7 @@ export interface GenerateOptions {
 }
 
 export async function generateBatch(opts: GenerateOptions) {
-  const config = await Tally.getConfig(opts.clientId);
+  const config = await getTallyConfig(opts.clientId);
   if (!config) throw Object.assign(new Error("Tally configuration has not been set up yet."), { status: 400 });
   const problems = configProblems(config, opts.exportType);
   if (problems.length) throw Object.assign(new Error(problems.join(" ")), { status: 400 });

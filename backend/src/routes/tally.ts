@@ -24,9 +24,11 @@ const EXPORT_TYPES: Tally.TallyExportType[] = [
 const CAN_EXPORT = requireRole("factor_admin", "super_admin", "operations", "treasury", "checker");
 
 function clientId(req: Request): string {
-  // The application uses a shared company dataset across authenticated users.
-  // Keep Tally configuration and export history in that same shared scope so
-  // a setup saved by an admin is available to users exporting shared invoices.
+  return req.user!.userId;
+}
+
+function configClientId(_req: Request): string {
+  // Tally setup is shared across staff; business records remain user scoped.
   return "shared";
 }
 
@@ -64,7 +66,7 @@ function publicRecord(rec: engine.PreparedRecord) {
 
 router.get("/tally/config", authMiddleware, async (req, res) => {
   try {
-    const config = await Tally.getConfig(clientId(req));
+    const config = await Tally.getConfig(configClientId(req));
     res.json({
       configured: !!config?.companyName,
       config: config ?? null,
@@ -79,7 +81,7 @@ router.get("/tally/config", authMiddleware, async (req, res) => {
 router.put("/tally/config", authMiddleware, CAN_EXPORT, async (req, res) => {
   try {
     const body = req.body ?? {};
-    const config = await Tally.saveConfig(clientId(req), body, req.user?.email ?? null);
+    const config = await Tally.saveConfig(configClientId(req), body, req.user?.email ?? null);
     res.json({ config });
   } catch (err) {
     handleError(res, err, "Failed to save Tally configuration");
