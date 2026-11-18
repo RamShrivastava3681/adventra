@@ -24,7 +24,10 @@ const EXPORT_TYPES: Tally.TallyExportType[] = [
 const CAN_EXPORT = requireRole("factor_admin", "super_admin", "operations", "treasury", "checker");
 
 function clientId(req: Request): string {
-  return req.user!.userId;
+  // The application uses a shared company dataset across authenticated users.
+  // Keep Tally configuration and export history in that same shared scope so
+  // a setup saved by an admin is available to users exporting shared invoices.
+  return "shared";
 }
 
 function isExportType(value: unknown): value is Tally.TallyExportType {

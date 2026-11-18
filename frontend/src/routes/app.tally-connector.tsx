@@ -271,7 +271,8 @@ function TallyIntegrationPage() {
               data={configQuery.data}
               loading={configQuery.isLoading}
               onSaved={() => {
-                configQuery.refetch();
+                void configQuery.refetch();
+                qc.invalidateQueries({ queryKey: ["tally-config"] });
                 qc.invalidateQueries({ queryKey: ["tally-overview"] });
               }}
             />
@@ -1236,27 +1237,10 @@ function ExportWorkflowDialog({
   onGoConfig?: () => void;
 }) {
   const [step, setStep] = useState<"validate" | "summary" | "result">("validate");
-  const [force, setForce] = useState(false);
   const [batchResult, setBatchResult] = useState<any | null>(null);
-  const navigate = useNavigate();
-
-  const validateQuery = useQuery({
-    queryKey: ["tally-validate", exportType, ids],
-    queryFn: () => api.tally.validate({ exportType, ids }),
-  });
 
   const exportMutation = useMutation({
-    mutationFn: () => {
-      const recordsToExport = force
-        ? ids
-        : (validateQuery.data?.records || [])
-        .filter((r: any) => r.errors?.length === 0)
-        .map((r: any) => r.sourceId);
-      if (!recordsToExport.length) {
-        throw new Error("No exportable records are available. Resolve the listed data issues first.");
-      }
-      return api.tally.export({ exportType, ids: recordsToExport, force });
-    },
+    mutationFn: () => api.tally.export({ exportType, ids, force: true }),
     onSuccess: (data) => {
       setBatchResult(data);
       setStep("result");
@@ -1270,40 +1254,7 @@ function ExportWorkflowDialog({
     },
   });
 
-  const valData = validateQuery.data;
-  const isPending = validateQuery.isLoading || exportMutation.isPending;
-  const totalRecords = valData?.totalRecords ?? valData?.totalCount ?? ids.length;
-  const validRecords = valData?.validRecords ?? valData?.validCount ?? 0;
-  const errorRecords = valData?.errorCount ?? 0;
-  const warningRecords = valData?.warningCount ?? 0;
-  const forceDuplicateEligible =
-    force &&
-    Array.isArray(valData?.records) &&
-    valData.records.some((r: any) => r.lastBatchId) &&
-    valData.records.every((r: any) =>
-      r.errors?.length === 0 ||
-      r.errors?.some((error: string) => error.toLowerCase().includes("already exported")),
-    );
-
-  const openSourceRecord = (record: any) => {
-    const routes: Record<string, string> = {
-      customers: "/app/debtors",
-      suppliers: "/app/suppliers",
-      "stock-items": "/app/products",
-      units: "/app/tally-connector",
-      ledgers: "/app/tally-connector",
-      sales: "/app/invoices",
-      purchases: "/app/purchases",
-      receipts: "/app/invoices",
-      payments: "/app/purchases",
-      "credit-notes": "/app/credit-debit-notes-workbench",
-      "debit-notes": "/app/credit-debit-notes-workbench",
-    };
-    navigate({
-      to: routes[exportType] || "/app/tally-connector",
-      search: { sourceId: record.sourceId },
-    } as any);
-  };
+  const isPending = exportMutation.isPending;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
@@ -1325,43 +1276,24 @@ function ExportWorkflowDialog({
 
         {/* Step Indicator */}
         <div className="mb-5 flex items-center justify-between text-xs font-semibold text-muted-foreground border-b border-border pb-3">
-          <span className={step === "validate" ? "text-primary font-bold" : ""}>1. Pre-Export Validation</span>
+          <span className={step === "validate" ? "text-primary font-bold" : ""}>1. Generate XML</span>
           <span>→</span>
           <span className={step === "summary" ? "text-primary font-bold" : ""}>2. Batch Summary & Preview</span>
           <span>→</span>
           <span className={step === "result" ? "text-emerald-600 font-bold" : ""}>3. Generated XML & Downloads</span>
         </div>
 
-        {/* Step 1: Validation */}
+        {/* Generate XML directly for the selected records; validation is not a prerequisite. */}
         {step === "validate" && (
           <div className="space-y-4">
-            {validateQuery.isLoading ? (
-              <div className="flex flex-col items-center justify-center py-12">
-                <Loader2 className="h-8 w-8 animate-spin text-primary" />
-                <p className="mt-3 text-sm text-muted-foreground">
-                  Validating masters, ledgers, inventory, GST allocations, and voucher balances...
-                </p>
+            {exportMutation.isError && (
+              <div className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
+                <div className="font-semibold">XML generation failed</div>
+                <div className="mt-1 text-xs">{(exportMutation.error as any)?.message || "The selected records could not be exported."}</div>
+                <Button className="mt-3" size="sm" variant="outline" onClick={() => exportMutation.mutate()} disabled={isPending}>Try again</Button>
               </div>
-            ) : validateQuery.isError ? (
-              <div className="space-y-3">
-                <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-                  <div className="flex items-start gap-2">
-                    <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
-                    <div>
-                      <div className="font-semibold">Configuration Required</div>
-                      <div className="mt-1 text-xs">{(validateQuery.error as any)?.message || "Failed to validate. Please check your Tally configuration."}</div>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={onClose}>Cancel</Button>
-                  <Button onClick={() => { onClose(); onGoConfig?.(); }} variant="secondary">
-                    <Settings2 className="mr-1.5 h-4 w-4" /> Open Configuration
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <>
+            )}
+            <>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
                   <div className="rounded-xl border border-border p-3">
                     <div className="text-[11px] text-muted-foreground">Total Records</div>
@@ -1387,102 +1319,21 @@ function ExportWorkflowDialog({
                   </div>
                 </div>
 
-                {valData?.configError && (
-                  <div className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-sm text-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
-                    <div className="flex items-start gap-2">
-                      <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-                      <div>
-                        <div className="font-bold">Export blocked: Tally configuration is incomplete</div>
-                        <div className="mt-1 text-xs">{valData.configError}</div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {valData?.totalCount === 0 && (
-                  <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-                    <AlertTriangle className="mb-1 h-4 w-4" />
-                    No records found for export. The selected records may not exist in the database or may have been filtered out.
-                  </div>
-                )}
-
-                {valData?.errorCount > 0 ? (
-                  <div className="max-h-60 space-y-2 overflow-auto rounded-xl border border-rose-200 bg-rose-50/30 p-3">
-                    <div className="flex items-center gap-1.5 text-xs font-bold text-rose-800">
-                      <XCircle className="h-4 w-4" /> Issues preventing direct export:
-                    </div>
-                    {valData?.records
-                      ?.filter((r: any) => (r.errors?.length ?? 0) > 0)
-                      .map((r: any) => (
-                        <div key={r.sourceId} className="rounded-lg border border-rose-200 bg-card p-2.5 text-xs">
-                          <div className="font-semibold text-foreground">{r.sourceLabel || r.docNumber}</div>
-                          {r.exportedStatus && r.lastBatchId && (
-                            <div className="mt-1 text-amber-700 dark:text-amber-300">
-                              Status: Already Exported · Previous batch: {r.lastBatchId}
-                              {r.exportedAt ? ` · Previous export date: ${r.exportedAt}` : ""}
-                            </div>
-                          )}
-                          {(r.errors ?? []).map((e: string, i: number) => (
-                            <div key={i} className="text-rose-600">
-                              • {e}
-                            </div>
-                          ))}
-                          <div className="mt-2 flex items-center gap-2">
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              onClick={() => openSourceRecord(r)}
-                            >
-                              Open record
-                            </Button>
-                            {r.lastBatchId && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => navigate({ to: "/app/tally-connector", search: { batchId: r.lastBatchId } } as any)}
-                              >
-                                Open previous batch
-                              </Button>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                  </div>
-                ) : valData?.totalCount > 0 ? (
-                  <div className="flex items-center gap-2 rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200">
-                    <CheckCircle2 className="h-5 w-5 text-emerald-600" />
-                    All {valData.totalCount} selected records passed pre-export validation and balance perfectly!
-                  </div>
-                ) : null}
+                <div className="flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900 dark:bg-blue-950/40 dark:text-blue-200">
+                  <FileCode2 className="h-5 w-5" />
+                  Generate a Tally XML file for {ids.length} selected record(s). Any configuration or record errors will be shown if generation fails.
+                </div>
 
                 <div className="flex items-center justify-between pt-3">
-                  <label className="flex items-center gap-2 text-xs text-muted-foreground">
-                    <input type="checkbox" checked={force} onChange={(e) => setForce(e.target.checked)} />
-                    Force re-export (bypass idempotency check)
-                  </label>
+                  <span className="text-xs text-muted-foreground">XML will be generated for the selected records.</span>
 
                   <div className="flex gap-2">
                     <Button variant="outline" onClick={onClose}>
                       Cancel
                     </Button>
-                    {valData?.errorCount > 0 && (
-                      <Button
-                        variant="outline"
-                        onClick={() => validateQuery.refetch()}
-                        disabled={validateQuery.isFetching}
-                      >
-                        <RefreshCw className={`mr-1.5 h-4 w-4 ${validateQuery.isFetching ? "animate-spin" : ""}`} />
-                        Re-run validation
-                      </Button>
-                    )}
                     <Button
                       onClick={() => exportMutation.mutate()}
-                      disabled={
-                        isPending ||
-                        totalRecords === 0 ||
-                        !!valData?.configError ||
-                        (validRecords === 0 && !forceDuplicateEligible)
-                      }
+                      disabled={isPending || ids.length === 0}
                     >
                       {exportMutation.isPending ? (
                         <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
@@ -1493,8 +1344,7 @@ function ExportWorkflowDialog({
                     </Button>
                   </div>
                 </div>
-              </>
-            )}
+            </>
           </div>
         )}
 
@@ -2117,6 +1967,9 @@ function ConfigTab({
     onSuccess: (savedResponse) => {
       const saved = savedResponse?.config ?? null;
       if (saved) {
+        // Update the source of truth used by the page and export dialog at once;
+        // this avoids showing "Not Configured" until a later refetch completes.
+        onSaved();
         setForm({
           companyName: saved.companyName ?? "",
           homeState: saved.homeState ?? "",
@@ -2134,7 +1987,6 @@ function ConfigTab({
       toast.success("Tally Configuration Saved", {
         description: "Company details and ledger mappings updated.",
       });
-      onSaved();
     },
     onError: (e: any) => toast.error(e.message || "Could not save configuration"),
   });
