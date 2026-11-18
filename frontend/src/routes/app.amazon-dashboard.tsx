@@ -26,6 +26,7 @@ import {
   AlertCircle,
   CheckCircle,
   XCircle,
+  X,
   Calendar,
   Filter,
   RefreshCw,
@@ -388,9 +389,20 @@ function syncStatusBadge(status: string) {
     return "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300";
   if (s === "notconfigured")
     return "bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400";
-  if (s === "blocked")
-    return "bg-gray-100 dark:bg-gray-900 text-gray-500 dark:text-gray-400";
+  if (s === "blocked") return "bg-gray-100 dark:bg-gray-900 text-gray-500 dark:text-gray-400";
   return "bg-slate-100 dark:bg-slate-900 text-slate-500";
+}
+
+function isErrorStatus(status?: string | null) {
+  if (!status) return false;
+  const s = status.toLowerCase();
+  return (
+    s === "failed" ||
+    s === "authenticationerror" ||
+    s === "accessrestricted" ||
+    s === "ratelimited" ||
+    s === "blocked"
+  );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -418,6 +430,7 @@ export function AmazonDashboardPage() {
   const { user } = useAuth();
   const clientId = user?.id || "";
   const queryClient = useQueryClient();
+  const [bannerDismissed, setBannerDismissed] = useState(false);
 
   // ── Filters ──
   const [dateRangeLabel, setDateRangeLabel] = useState<
@@ -718,7 +731,9 @@ export function AmazonDashboardPage() {
     mutationFn: async (data: { module?: string }) => {
       const traceId = `fe-sync-${Date.now().toString(36)}`;
       if (import.meta.env.DEV || process.env.AMAZON_DEBUG === "true") {
-        console.debug(`[Amazon-Debug] sync.trigger module=${data.module ?? "all"} traceId=${traceId}`);
+        console.debug(
+          `[Amazon-Debug] sync.trigger module=${data.module ?? "all"} traceId=${traceId}`,
+        );
       }
       const res = await api.amazonSync.trigger({ ...data, traceId });
       if (import.meta.env.DEV || process.env.AMAZON_DEBUG === "true") {
@@ -749,11 +764,17 @@ export function AmazonDashboardPage() {
           queryClient.invalidateQueries({ queryKey: ["amazon-listings", clientId] });
           queryClient.invalidateQueries({ queryKey: ["amazon-returns", clientId] });
           const failed = latest.some(
-            (s: any) => s.status === "Failed" || s.status === "AuthenticationError" || s.status === "AccessRestricted",
+            (s: any) =>
+              s.status === "Failed" ||
+              s.status === "AuthenticationError" ||
+              s.status === "AccessRestricted",
           );
           const allDone = latest.length > 0 && !syncingMod;
           if (import.meta.env.DEV || process.env.AMAZON_DEBUG === "true") {
-            console.debug(`[Amazon-Debug] sync.done traceId=${traceId} allDone=${allDone} failed=${failed}`, latest);
+            console.debug(
+              `[Amazon-Debug] sync.done traceId=${traceId} allDone=${allDone} failed=${failed}`,
+              latest,
+            );
           }
           if (allDone && !failed) {
             toast.success("Amazon synchronization completed");
@@ -813,74 +834,119 @@ export function AmazonDashboardPage() {
   const hasInventory = inventory.length > 0;
   const hasListings = listings.length > 0;
 
+  // A module failure older than the latest successful sync is stale (e.g. left over from a
+  // run before a config fix) and shouldn't flag the whole dashboard.
+  const latestSuccessAt = Math.max(
+    0,
+    ...syncStatuses
+      .filter((s) => s.status === "Synchronized" || s.status === "EMPTY")
+      .map((s) => (s.lastSync ? new Date(s.lastSync).getTime() : 0)),
+  );
   const anyFailed = syncStatuses.some(
     (s) =>
-      s.status === "Failed" ||
-      s.status === "AuthenticationError" ||
-      s.status === "AccessRestricted",
+      (s.status === "Failed" ||
+        s.status === "AuthenticationError" ||
+        s.status === "AccessRestricted" ||
+        s.status === "NotConfigured") &&
+      (s.lastSync ? new Date(s.lastSync).getTime() : 0) >= latestSuccessAt,
   );
   const appReviewPending = Boolean(
     appState &&
-      (appState.overallClassification === "APPLICATION_REVIEW_PENDING" ||
-        appState.overallClassification === "APPLICATION_DRAFT" ||
-        appState.overallClassification === "PRODUCTION_CLIENT_UNAVAILABLE" ||
-        appState.overallClassification === "ROLE_NOT_APPROVED" ||
-        appState.overallClassification === "SELLER_NOT_AUTHORIZED")
+    (appState.overallClassification === "APPLICATION_REVIEW_PENDING" ||
+      appState.overallClassification === "APPLICATION_DRAFT" ||
+      appState.overallClassification === "PRODUCTION_CLIENT_UNAVAILABLE" ||
+      appState.overallClassification === "ROLE_NOT_APPROVED" ||
+      appState.overallClassification === "SELLER_NOT_AUTHORIZED"),
   );
-  const syncStatusText =
-    syncStatuses.length === 0
-      ? "Not Configured"
-      : appReviewPending
-        ? "Review Pending"
-        : syncStatuses.every((s) => s.status === "Synchronized")
-          ? "Synchronized"
-          : "Syncing";
+  const allSyncedOrEmpty =
+    syncStatuses.length > 0 &&
+    syncStatuses.every(
+      (s) => s.status === "Synchronized" || s.status === "EMPTY" || s.status === "Connected",
+    );
+
+  const syncStatusText = syncing
+    ? "Syncing"
+    : anyFailed
+      ? hasOrders
+        ? "Partial Sync"
+        : "Sync Error"
+      : allSyncedOrEmpty || hasOrders
+        ? "Connected"
+        : syncStatuses.length === 0
+          ? "Not Configured"
+          : appReviewPending
+            ? "Review Pending"
+            : "Connected";
+
+  const latestSyncDate = useMemo(() => {
+    const times = syncStatuses
+      .map((s) => (s.lastSync ? new Date(s.lastSync).getTime() : 0))
+      .filter((t) => t > 0);
+    if (times.length === 0) return null;
+    return new Date(Math.max(...times));
+  }, [syncStatuses]);
 
   return (
     <div className="min-h-screen bg-slate-50 dark:bg-slate-950">
       {/* Header */}
       <header className="border-b border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 sticky top-0 z-20">
-        <div className="flex flex-col gap-3 p-4 sm:p-6 lg:p-8">
-          <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-4 p-4 sm:px-6 lg:px-8">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
-                Amazon Seller Central
-              </h1>
-              <p className="text-sm text-slate-500 dark:text-slate-400">
-                Production SP-API dashboard · {syncStatusText}
+              <div className="flex items-center gap-2.5">
+                <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+                  Amazon Seller Central
+                </h1>
+                <Badge
+                  variant="outline"
+                  className={cn(
+                    "text-[11px] px-2.5 py-0.5 font-medium transition-colors",
+                    syncStatusText === "Connected"
+                      ? "bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800"
+                      : syncStatusText === "Syncing"
+                        ? "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800"
+                        : syncStatusText === "Partial Sync"
+                          ? "bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800"
+                          : "bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/40 dark:text-rose-300 dark:border-rose-800",
+                  )}
+                >
+                  {syncStatusText === "Connected" ? (
+                    <CheckCircle className="w-3.5 h-3.5 mr-1 text-emerald-600 dark:text-emerald-400" />
+                  ) : syncStatusText === "Syncing" ? (
+                    <SyncIcon className="w-3.5 h-3.5 mr-1 animate-spin text-blue-600 dark:text-blue-400" />
+                  ) : syncStatusText === "Partial Sync" ? (
+                    <AlertTriangle className="w-3.5 h-3.5 mr-1 text-amber-600 dark:text-amber-400" />
+                  ) : (
+                    <AlertCircle className="w-3.5 h-3.5 mr-1 text-rose-600 dark:text-rose-400" />
+                  )}
+                  {syncStatusText}
+                </Badge>
+              </div>
+              <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                Live SP-API integration · {store === "all" ? "Adventra Sports (Amazon.in)" : store}
               </p>
             </div>
+
             <div className="flex items-center gap-2">
-              <Badge
-                variant={syncStatusText === "Synchronized" ? "default" : "destructive"}
-                className="text-[11px] px-2 py-1.5"
-              >
-                {syncStatusText === "Synchronized" ? (
-                  <CheckCircle className="w-3 h-3 mr-1" />
-                ) : (
-                  <AlertCircle className="w-3 h-3 mr-1" />
-                )}
-                {syncStatusText}
-              </Badge>
               <Button
                 size="sm"
                 onClick={() => syncMutation.mutate({ module: "all" })}
                 disabled={syncing}
-                className="text-[12px] px-3"
+                className="text-xs h-8 px-3.5"
               >
-                <SyncIcon className="w-3 h-3 mr-2 animate-{syncing ? 'spin' : ''}" />
-                {syncing ? "Syncing…" : "Refresh Data"}
+                <SyncIcon className={cn("w-3.5 h-3.5 mr-1.5", syncing && "animate-spin")} />
+                {syncing ? "Syncing Data…" : "Refresh Data"}
               </Button>
             </div>
           </div>
 
-          {/* Filters */}
-          <div className="border-t border-slate-100 dark:border-slate-800 pt-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
-              <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                <Calendar className="w-3.5 h-3.5" />
+          {/* Filter Toolbar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-100 dark:border-slate-800/80">
+            <div className="flex flex-wrap items-center gap-2.5">
+              <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                <Calendar className="w-3.5 h-3.5 text-slate-400" />
                 <Select value={dateRangeLabel} onValueChange={(v) => setDateRangeLabel(v as any)}>
-                  <SelectTrigger className="text-[12px] h-8 w-full min-w-[140px]">
+                  <SelectTrigger className="text-[12px] h-8 w-[140px] bg-slate-50 dark:bg-slate-800/50">
                     <SelectValue placeholder="Date range" />
                   </SelectTrigger>
                   <SelectContent>
@@ -891,221 +957,416 @@ export function AmazonDashboardPage() {
                     ))}
                   </SelectContent>
                 </Select>
-                {dateRangeLabel === "Custom range" && (
-                  <div className="flex gap-1 mt-1">
-                    <Input
-                      type="date"
-                      value={customFrom}
-                      onChange={(e) => setCustomFrom(e.target.value)}
-                      className="text-[12px] h-8 flex-1"
-                    />
-                    <Input
-                      type="date"
-                      value={customTo}
-                      onChange={(e) => setCustomTo(e.target.value)}
-                      className="text-[12px] h-8 flex-1"
-                    />
-                  </div>
-                )}
               </div>
-              <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                <MapPin className="w-3.5 h-3.5" />
+
+              {dateRangeLabel === "Custom range" && (
+                <div className="flex items-center gap-1">
+                  <Input
+                    type="date"
+                    value={customFrom}
+                    onChange={(e) => setCustomFrom(e.target.value)}
+                    className="text-[12px] h-8 w-32"
+                  />
+                  <span className="text-xs text-slate-400">–</span>
+                  <Input
+                    type="date"
+                    value={customTo}
+                    onChange={(e) => setCustomTo(e.target.value)}
+                    className="text-[12px] h-8 w-32"
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                <MapPin className="w-3.5 h-3.5 text-slate-400" />
                 <Select value={marketplace} onValueChange={setMarketplace}>
-                  <SelectTrigger className="text-[12px] h-8 w-full min-w-[140px]">
+                  <SelectTrigger className="text-[12px] h-8 w-[150px] bg-slate-50 dark:bg-slate-800/50">
                     <SelectValue placeholder="Marketplace" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Marketplaces</SelectItem>
-                    <SelectItem value="amazon.in">Amazon.in (A21TJRUUN4KGV)</SelectItem>
-                    <SelectItem value="amazon.com">Amazon.com</SelectItem>
+                    <SelectItem value="amazon.in">Amazon India (IN)</SelectItem>
+                    <SelectItem value="amazon.com">Amazon US (COM)</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-300">
-                <Building2 className="w-3.5 h-3.5" />
+
+              <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
+                <Building2 className="w-3.5 h-3.5 text-slate-400" />
                 <Select value={store} onValueChange={setStore}>
-                  <SelectTrigger className="text-[12px] h-8 w-full min-w-[140px]">
+                  <SelectTrigger className="text-[12px] h-8 w-[160px] bg-slate-50 dark:bg-slate-800/50">
                     <SelectValue placeholder="Store / Account" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Accounts</SelectItem>
-                    <SelectItem value="adventra">Adventra Sports (Amazon.in)</SelectItem>
+                    <SelectItem value="all">All Stores</SelectItem>
+                    <SelectItem value="adventra">Adventra Sports</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              <div className="flex items-center gap-2 text-xs text-slate-400 dark:text-slate-500 justify-end">
-                <Clock className="w-3 h-3 mr-1" />
-                <span id="last-sync-timestamp">
-                  Last sync:{" "}
-                  {syncStatuses.length
-                    ? new Date(
-                        Math.max(
-                          0,
-                          ...syncStatuses.map((s) =>
-                            s.lastSync ? new Date(s.lastSync).getTime() : 0,
-                          ),
-                        ),
-                      ).toISOString()
-                    : "Never"}
-                </span>
-              </div>
+            </div>
+
+            <div className="flex items-center gap-1.5 text-xs text-slate-400 dark:text-slate-500">
+              <Clock className="w-3.5 h-3.5" />
+              <span id="last-sync-timestamp">
+                {latestSyncDate
+                  ? `Last synced: ${format(latestSyncDate, "d MMM, h:mm a")}`
+                  : "Last sync: Never"}
+              </span>
             </div>
           </div>
         </div>
       </header>
 
-      {appReviewPending && appState?.reviewPendingMessage && (
-        <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 p-4 sm:p-6">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
-                Amazon Public Developer Review Pending
-              </p>
-              <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                {appState.reviewPendingMessage}
-              </p>
+      {/* Review pending alert — only shown if no orders have synced yet and not dismissed */}
+      {!hasOrders && appReviewPending && appState?.reviewPendingMessage && !bannerDismissed && (
+        <div className="bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800/50 px-4 py-3 sm:px-6 lg:px-8">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" />
+              <div className="text-xs">
+                <p className="font-semibold text-amber-800 dark:text-amber-200">
+                  Amazon Public Developer Review Pending
+                </p>
+                <p className="text-amber-700 dark:text-amber-300 mt-0.5">
+                  {appState.reviewPendingMessage}
+                </p>
+              </div>
             </div>
+            <button
+              onClick={() => setBannerDismissed(true)}
+              className="text-amber-600 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-200 p-0.5"
+              aria-label="Dismiss banner"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         </div>
       )}
 
       <div className="p-4 sm:p-6 lg:p-8">
         {loading ? (
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
-            {[...Array(16)].map((_, i) => (
-              <KpiSkeleton key={i} />
-            ))}
+          <div className="space-y-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {[...Array(4)].map((_, i) => (
+                <KpiSkeleton key={i} />
+              ))}
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="h-40 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 animate-pulse" />
+              <div className="h-40 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 animate-pulse" />
+            </div>
           </div>
         ) : (
           <Tabs defaultValue="overview" className="border-none">
-            <TabsList className="flex w-full flex-wrap gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 mb-6">
+            <TabsList className="inline-flex h-auto flex-wrap gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 mb-6 shadow-2xs">
               <TabsTrigger
                 value="overview"
-                className="flex flex-col items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50 min-w-[60px]"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100"
               >
-                <BarChart2 className="w-4 h-4 mb-1" /> Overview
+                <BarChart2 className="w-3.5 h-3.5" /> Overview
               </TabsTrigger>
               <TabsTrigger
                 value="orders"
-                className="flex flex-col items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50 min-w-[60px]"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100"
               >
-                <ShoppingBag className="w-4 h-4 mb-1" /> Orders
+                <ShoppingBag className="w-3.5 h-3.5" /> Orders
               </TabsTrigger>
               <TabsTrigger
                 value="inventory"
-                className="flex flex-col items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50 min-w-[60px]"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100"
               >
-                <Warehouse className="w-4 h-4 mb-1" /> Inventory
+                <Warehouse className="w-3.5 h-3.5" /> Inventory
               </TabsTrigger>
               <TabsTrigger
                 value="listings"
-                className="flex flex-col items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50 min-w-[60px]"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100"
               >
-                <Package className="w-4 h-4 mb-1" /> Listings
+                <Package className="w-3.5 h-3.5" /> Listings
               </TabsTrigger>
               <TabsTrigger
                 value="returns"
-                className="flex flex-col items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50 min-w-[60px]"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100"
               >
-                <ArrowRightLeft className="w-4 h-4 mb-1" /> Returns
+                <ArrowRightLeft className="w-3.5 h-3.5" /> Returns
               </TabsTrigger>
               <TabsTrigger
                 value="analytics"
-                className="flex flex-col items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50 min-w-[60px]"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100"
               >
-                <BarChart2 className="w-4 h-4 mb-1" /> Analytics
+                <BarChart2 className="w-3.5 h-3.5" /> Analytics
               </TabsTrigger>
               <TabsTrigger
                 value="api-health"
-                className="flex flex-col items-center gap-1 px-3 py-2.5 text-xs font-medium transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800/50 min-w-[60px]"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100"
               >
-                <ShieldCheck className="w-4 h-4 mb-1" /> API Health
+                <ShieldCheck className="w-3.5 h-3.5" /> API Health
               </TabsTrigger>
             </TabsList>
 
             {/* ── Overview Tab ── */}
-            <TabsContent value="overview" className="border-none p-0">
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 mb-6">
-                {kpis.map((k) => (
-                  <KpiCard
-                    key={k.title}
-                    id={`kpi-${k.title.toLowerCase().replace(/\s+/g, "-")}`}
-                    title={k.title}
-                    subtitle={k.subtitle}
-                    value={k.value}
-                    icon={k.icon}
-                    color={k.color}
-                  />
-                ))}
+            <TabsContent value="overview" className="border-none p-0 space-y-6">
+              {/* 1. Core Financial & Order Metrics (Top Row) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <KpiCard
+                  id="kpi-total-sales"
+                  title="Total Revenue"
+                  value={totalSales.toLocaleString("en-IN", { style: "currency", currency: "INR" })}
+                  subtitle={
+                    todaysRevenue > 0
+                      ? `Today: ${todaysRevenue.toLocaleString("en-IN", { style: "currency", currency: "INR" })}`
+                      : "Gross sales in range"
+                  }
+                  icon={<Banknote className="w-4 h-4" />}
+                  color="#0067c2"
+                />
+                <KpiCard
+                  id="kpi-total-orders"
+                  title="Total Orders"
+                  value={totalOrders.toLocaleString()}
+                  subtitle={
+                    todaysOrders > 0
+                      ? `${todaysOrders} placed today`
+                      : `${totalUnitsSold.toLocaleString()} units sold`
+                  }
+                  icon={<ShoppingBag className="w-4 h-4" />}
+                  color="#2563eb"
+                />
+                <KpiCard
+                  id="kpi-units-sold"
+                  title="Units Sold"
+                  value={totalUnitsSold.toLocaleString()}
+                  subtitle="Across all orders in range"
+                  icon={<Package className="w-4 h-4" />}
+                  color="#0891b2"
+                />
+                <KpiCard
+                  id="kpi-active-listings"
+                  title="Active Listings"
+                  value={activeListings.toLocaleString()}
+                  subtitle={`${inactiveListings} inactive · ${totalListings} total`}
+                  icon={<ShieldCheck className="w-4 h-4" />}
+                  color="#10b981"
+                />
               </div>
 
+              {/* 2. Structured Operational Status Panels */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Order Fulfilment Pipeline */}
+                <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+                  <div className="flex items-center justify-between mb-3.5">
+                    <div className="flex items-center gap-2">
+                      <Truck className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+                      <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        Order Fulfilment Pipeline
+                      </h3>
+                    </div>
+                    <span className="text-xs text-slate-500 font-medium">{totalOrders} orders</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40">
+                      <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 text-xs font-medium">
+                        <Clock className="w-3.5 h-3.5" /> Pending
+                      </div>
+                      <div className="mt-1.5 text-2xl font-bold text-amber-900 dark:text-amber-100">
+                        {pendingOrders}
+                      </div>
+                      <div className="text-[11px] text-amber-600/80 dark:text-amber-400/70 mt-0.5">
+                        Awaiting dispatch
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-blue-50/70 dark:bg-blue-950/20 border border-blue-200/60 dark:border-blue-900/40">
+                      <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-400 text-xs font-medium">
+                        <Truck className="w-3.5 h-3.5" /> Shipped
+                      </div>
+                      <div className="mt-1.5 text-2xl font-bold text-blue-900 dark:text-blue-100">
+                        {shippedOrders}
+                      </div>
+                      <div className="text-[11px] text-blue-600/80 dark:text-blue-400/70 mt-0.5">
+                        In transit
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-emerald-50/70 dark:bg-emerald-950/20 border border-emerald-200/60 dark:border-emerald-900/40">
+                      <div className="flex items-center gap-1.5 text-emerald-700 dark:text-emerald-400 text-xs font-medium">
+                        <CheckCircle className="w-3.5 h-3.5" /> Delivered
+                      </div>
+                      <div className="mt-1.5 text-2xl font-bold text-emerald-900 dark:text-emerald-100">
+                        {deliveredOrders}
+                      </div>
+                      <div className="text-[11px] text-emerald-600/80 dark:text-emerald-400/70 mt-0.5">
+                        Customer received
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                      <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 text-xs font-medium">
+                        <XCircle className="w-3.5 h-3.5" /> Cancelled
+                      </div>
+                      <div className="mt-1.5 text-2xl font-bold text-slate-800 dark:text-slate-200">
+                        {cancelledOrders}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">Cancelled</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Inventory & Returns Health */}
+                <div className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
+                  <div className="flex items-center justify-between mb-3.5">
+                    <div className="flex items-center gap-2">
+                      <Warehouse className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                        Inventory & Returns Health
+                      </h3>
+                    </div>
+                    <span className="text-xs text-slate-500 font-medium">
+                      {totalInventoryUnits.toLocaleString()} units
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                      <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 text-xs font-medium">
+                        <Warehouse className="w-3.5 h-3.5" /> Stock
+                      </div>
+                      <div className="mt-1.5 text-2xl font-bold text-slate-900 dark:text-slate-100">
+                        {totalInventoryUnits}
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">Total units</div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-amber-50/70 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-900/40">
+                      <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-400 text-xs font-medium">
+                        <AlertTriangle className="w-3.5 h-3.5" /> Low Stock
+                      </div>
+                      <div className="mt-1.5 text-2xl font-bold text-amber-900 dark:text-amber-100">
+                        {lowStockProducts}
+                      </div>
+                      <div className="text-[11px] text-amber-600/80 dark:text-amber-400/70 mt-0.5">
+                        Needs reorder
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-rose-50/70 dark:bg-rose-950/20 border border-rose-200/60 dark:border-rose-900/40">
+                      <div className="flex items-center gap-1.5 text-rose-700 dark:text-rose-400 text-xs font-medium">
+                        <XCircle className="w-3.5 h-3.5" /> Out of Stock
+                      </div>
+                      <div className="mt-1.5 text-2xl font-bold text-rose-900 dark:text-rose-100">
+                        {outOfStockProducts}
+                      </div>
+                      <div className="text-[11px] text-rose-600/80 dark:text-rose-400/70 mt-0.5">
+                        SKUs unavailable
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800">
+                      <div className="flex items-center gap-1.5 text-slate-600 dark:text-slate-400 text-xs font-medium">
+                        <ArrowRightLeft className="w-3.5 h-3.5" /> Return Rate
+                      </div>
+                      <div className="mt-1.5 text-2xl font-bold text-slate-900 dark:text-slate-100">
+                        {returnRate.toFixed(1)}%
+                      </div>
+                      <div className="text-[11px] text-slate-500 mt-0.5">
+                        {pendingReturns} pending cases
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 3. Visual Analytics Charts */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="font-bold text-slate-900 dark:text-slate-100">
-                      Revenue vs Orders
-                    </h2>
+                    <div>
+                      <h2 className="font-bold text-slate-900 dark:text-slate-100">
+                        Revenue vs Orders Trend
+                      </h2>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        Daily sales volume and order count in selected range
+                      </p>
+                    </div>
                   </div>
                   <div className="h-64 w-full">
-                    <LineChart data={aggregateDaily(filteredOrders)} height={300}>
-                      <CartesianGrid
-                        strokeDasharray="3 3"
-                        vertical={false}
-                        className="stroke-slate-200 dark:stroke-slate-800"
+                    {filteredOrders.length === 0 ? (
+                      <EmptyState
+                        title="No order trend data"
+                        subtitle="No orders found for the selected date range."
+                        icon={
+                          <ShoppingBag className="w-8 h-8 text-slate-300 dark:text-slate-600" />
+                        }
                       />
-                      <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="#94a3b8" />
-                      <YAxis
-                        tickFormatter={(v) => `₹${Math.round(v)}`}
-                        tick={{ fontSize: 11 }}
-                        width={50}
-                      />
-                      <Tooltip />
-                      <Legend />
-                      <Line
-                        type="monotone"
-                        dataKey="revenue"
-                        stroke="#0067c2"
-                        strokeWidth={2}
-                        dot={{ fill: "#0067c2" }}
-                        name="Revenue"
-                      />
-                      <Bar
-                        dataKey="orders"
-                        stackId="a"
-                        fill="#2563eb"
-                        opacity={0.2}
-                        name="Orders"
-                      />
-                    </LineChart>
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart data={aggregateDaily(filteredOrders)}>
+                          <CartesianGrid
+                            strokeDasharray="3 3"
+                            vertical={false}
+                            className="stroke-slate-200 dark:stroke-slate-800"
+                          />
+                          <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+                          <YAxis
+                            tickFormatter={(v) => `₹${Math.round(v)}`}
+                            tick={{ fontSize: 11 }}
+                            width={55}
+                          />
+                          <Tooltip />
+                          <Legend />
+                          <Line
+                            type="monotone"
+                            dataKey="revenue"
+                            stroke="#0067c2"
+                            strokeWidth={2}
+                            dot={{ fill: "#0067c2", r: 3 }}
+                            name="Revenue (₹)"
+                          />
+                          <Bar
+                            dataKey="orders"
+                            stackId="a"
+                            fill="#2563eb"
+                            opacity={0.2}
+                            name="Orders Count"
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    )}
                   </div>
                 </div>
                 <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
                   <div className="flex items-center justify-between mb-4">
-                    <h2 className="font-bold text-slate-900 dark:text-slate-100">
-                      Orders by Status
-                    </h2>
+                    <div>
+                      <h2 className="font-bold text-slate-900 dark:text-slate-100">
+                        Orders by Status
+                      </h2>
+                      <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                        Current fulfilment distribution
+                      </p>
+                    </div>
                   </div>
                   <div className="h-64 w-full">
-                    <PieChart>
-                      <Pie
-                        data={orderStatusPie(filteredOrders)}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={60}
-                        outerRadius={90}
-                        fill="#8884d8"
-                        dataKey="value"
-                        nameKey="name"
-                        label
-                      >
-                        {orderStatusPie(filteredOrders).map((entry, idx) => (
-                          <Cell key={`cell-${idx}`} fill={statusColor(entry.name)} />
-                        ))}
-                      </Pie>
-                      <Tooltip />
-                      <Legend />
-                    </PieChart>
+                    {filteredOrders.length === 0 ? (
+                      <EmptyState
+                        title="No orders"
+                        subtitle="Status distribution will appear once orders are placed."
+                        icon={<PieChart className="w-8 h-8 text-slate-300 dark:text-slate-600" />}
+                      />
+                    ) : (
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={orderStatusPie(filteredOrders)}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={55}
+                            outerRadius={85}
+                            fill="#8884d8"
+                            dataKey="value"
+                            nameKey="name"
+                            label
+                          >
+                            {orderStatusPie(filteredOrders).map((entry, idx) => (
+                              <Cell key={`cell-${idx}`} fill={statusColor(entry.name)} />
+                            ))}
+                          </Pie>
+                          <Tooltip />
+                          <Legend />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    )}
                   </div>
                 </div>
               </div>
@@ -2001,7 +2262,11 @@ function ListingsSection({
                       </div>
                     )}
                   </td>
-                  <td className="p-3 text-sm">{l.productTitle || "—"}</td>
+                  <td className="p-3 text-sm max-w-[320px]">
+                    <div className="line-clamp-2" title={l.productTitle || undefined}>
+                      {l.productTitle || "—"}
+                    </div>
+                  </td>
                   <td className="p-3 font-mono text-sm">{l.sellerSku}</td>
                   <td className="p-3 font-mono text-sm text-slate-500">{l.asin || "—"}</td>
                   <td className="p-3 text-sm text-slate-500">{l.productType || "—"}</td>
@@ -2214,55 +2479,63 @@ function AnalyticsSection({
           Revenue & Orders Over Time
         </h2>
         <div className="h-72 w-full">
-          <LineChart data={ordersSeries}>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              vertical={false}
-              className="stroke-slate-200 dark:stroke-slate-800"
-            />
-            <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="#94a3b8" />
-            <YAxis tickFormatter={(v) => `₹${Math.round(v)}`} tick={{ fontSize: 11 }} width={50} />
-            <Tooltip />
-            <Legend />
-            <Line
-              dataKey="revenue"
-              stroke="#0067c2"
-              strokeWidth={2}
-              dot={{ fill: "#0067c2" }}
-              name="Revenue"
-            />
-            <Line
-              dataKey="orders"
-              stroke="#10b981"
-              strokeWidth={2}
-              dot={{ fill: "#10b981" }}
-              name="Orders"
-            />
-          </LineChart>
+          <ResponsiveContainer width="100%" height="100%">
+            <LineChart data={ordersSeries}>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                vertical={false}
+                className="stroke-slate-200 dark:stroke-slate-800"
+              />
+              <XAxis dataKey="date" tick={{ fontSize: 11 }} stroke="#94a3b8" />
+              <YAxis
+                tickFormatter={(v) => `₹${Math.round(v)}`}
+                tick={{ fontSize: 11 }}
+                width={50}
+              />
+              <Tooltip />
+              <Legend />
+              <Line
+                dataKey="revenue"
+                stroke="#0067c2"
+                strokeWidth={2}
+                dot={{ fill: "#0067c2" }}
+                name="Revenue"
+              />
+              <Line
+                dataKey="orders"
+                stroke="#10b981"
+                strokeWidth={2}
+                dot={{ fill: "#10b981" }}
+                name="Orders"
+              />
+            </LineChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
       <div className="p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
         <h2 className="font-bold text-slate-900 dark:text-slate-100 mb-4">Orders by Status</h2>
         <div className="h-64 w-full">
-          <PieChart>
-            <Pie
-              data={Object.entries(statusCounts).map(([name, value]) => ({ name, value }))}
-              cx="50%"
-              cy="50%"
-              innerRadius={60}
-              outerRadius={90}
-              dataKey="value"
-              nameKey="name"
-              label
-            >
-              {Object.entries(statusCounts).map((_, idx) => (
-                <Cell key={`s-${idx}`} fill={statusColor(Object.keys(statusCounts)[idx])} />
-              ))}
-            </Pie>
-            <Tooltip />
-            <Legend />
-          </PieChart>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={Object.entries(statusCounts).map(([name, value]) => ({ name, value }))}
+                cx="50%"
+                cy="50%"
+                innerRadius={60}
+                outerRadius={90}
+                dataKey="value"
+                nameKey="name"
+                label
+              >
+                {Object.entries(statusCounts).map((_, idx) => (
+                  <Cell key={`s-${idx}`} fill={statusColor(Object.keys(statusCounts)[idx])} />
+                ))}
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
@@ -2271,17 +2544,19 @@ function AnalyticsSection({
           Top 10 Products by Units Sold
         </h2>
         <div className="h-72 w-full">
-          <BarChart data={topProducts}>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              horizontal={false}
-              className="stroke-slate-200 dark:stroke-slate-800"
-            />
-            <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="#94a3b8" angle={-45} />
-            <YAxis tick={{ fontSize: 11 }} width={40} />
-            <Tooltip />
-            <Bar dataKey="value" fill="#0067c2" radius={[4, 4, 0, 0]} />
-          </BarChart>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={topProducts}>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                horizontal={false}
+                className="stroke-slate-200 dark:stroke-slate-800"
+              />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="#94a3b8" angle={-45} />
+              <YAxis tick={{ fontSize: 11 }} width={40} />
+              <Tooltip />
+              <Bar dataKey="value" fill="#0067c2" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
@@ -2290,43 +2565,47 @@ function AnalyticsSection({
           Inventory Distribution
         </h2>
         <div className="h-64 w-full">
-          <PieChart>
-            <Pie
-              data={[
-                { name: "FBA", value: fba },
-                { name: "FBM", value: fbm },
-              ]}
-              cx="50%"
-              cy="50%"
-              innerRadius={60}
-              outerRadius={90}
-              dataKey="value"
-              nameKey="name"
-              label
-            >
-              <Cell key="fba" fill="#0067c2" />
-              <Cell key="fbm" fill="#3b82f6" />
-            </Pie>
-            <Tooltip />
-            <Legend />
-          </PieChart>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={[
+                  { name: "FBA", value: fba },
+                  { name: "FBM", value: fbm },
+                ]}
+                cx="50%"
+                cy="50%"
+                innerRadius={60}
+                outerRadius={90}
+                dataKey="value"
+                nameKey="name"
+                label
+              >
+                <Cell key="fba" fill="#0067c2" />
+                <Cell key="fbm" fill="#3b82f6" />
+              </Pie>
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
       <div className="lg:col-span-2 p-6 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs mt-6 lg:mt-0">
         <h2 className="font-bold text-slate-900 dark:text-slate-100 mb-4">Returns by Reason</h2>
         <div className="h-64 w-full">
-          <BarChart data={Object.entries(reasonCounts).map(([name, value]) => ({ name, value }))}>
-            <CartesianGrid
-              strokeDasharray="3 3"
-              horizontal={false}
-              className="stroke-slate-200 dark:stroke-slate-800"
-            />
-            <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="#94a3b8" angle={-45} />
-            <YAxis tick={{ fontSize: 11 }} width={40} />
-            <Tooltip />
-            <Bar dataKey="value" fill="#dc2626" radius={[4, 4, 0, 0]} />
-          </BarChart>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={Object.entries(reasonCounts).map(([name, value]) => ({ name, value }))}>
+              <CartesianGrid
+                strokeDasharray="3 3"
+                horizontal={false}
+                className="stroke-slate-200 dark:stroke-slate-800"
+              />
+              <XAxis dataKey="name" tick={{ fontSize: 11 }} stroke="#94a3b8" angle={-45} />
+              <YAxis tick={{ fontSize: 11 }} width={40} />
+              <Tooltip />
+              <Bar dataKey="value" fill="#dc2626" radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
         </div>
       </div>
 
@@ -2357,22 +2636,26 @@ function ApiHealthSection({
   const modules = ["orders", "order-items", "inventory", "listings", "returns"];
   const reviewPending = Boolean(
     appState &&
-      (appState.overallClassification === "APPLICATION_REVIEW_PENDING" ||
-        appState.overallClassification === "APPLICATION_DRAFT" ||
-        appState.overallClassification === "PRODUCTION_CLIENT_UNAVAILABLE" ||
-        appState.overallClassification === "ROLE_NOT_APPROVED" ||
-        appState.overallClassification === "SELLER_NOT_AUTHORIZED")
+    (appState.overallClassification === "APPLICATION_REVIEW_PENDING" ||
+      appState.overallClassification === "APPLICATION_DRAFT" ||
+      appState.overallClassification === "PRODUCTION_CLIENT_UNAVAILABLE" ||
+      appState.overallClassification === "ROLE_NOT_APPROVED" ||
+      appState.overallClassification === "SELLER_NOT_AUTHORIZED"),
   );
 
   const healthStatus = (status: string) => {
     const s = (status || "").toLowerCase();
-    if (s === "success") return "bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300";
+    if (s === "success")
+      return "bg-emerald-100 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-300";
     if (s === "empty") return "bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300";
     if (s === "partial") return "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300";
     if (s === "failed") return "bg-rose-100 dark:bg-rose-950 text-rose-800 dark:text-rose-300";
-    if (s === "access_restricted" || s === "accessrestricted") return "bg-orange-100 dark:bg-orange-950 text-orange-800 dark:text-orange-300";
-    if (s === "review_pending" || s === "reviewpending") return "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 animate-pulse";
-    if (s === "in_progress" || s === "inprogress") return "bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 animate-pulse";
+    if (s === "access_restricted" || s === "accessrestricted")
+      return "bg-orange-100 dark:bg-orange-950 text-orange-800 dark:text-orange-300";
+    if (s === "review_pending" || s === "reviewpending")
+      return "bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 animate-pulse";
+    if (s === "in_progress" || s === "inprogress")
+      return "bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-300 animate-pulse";
     return "bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400";
   };
 
@@ -2381,8 +2664,7 @@ function ApiHealthSection({
     const out: AmazonModuleHealth[] = [];
     for (const m of modules) {
       const src =
-        appModules?.find((x) => x.module === m) ??
-        (statuses.find((x) => x.module === m) ?? null);
+        appModules?.find((x) => x.module === m) ?? statuses.find((x) => x.module === m) ?? null;
       if (!src) {
         out.push({
           module: m,
@@ -2419,9 +2701,13 @@ function ApiHealthSection({
         databaseRecordCount: (src as any).databaseRecordCount ?? 0,
         paginationCount: (src as any).paginationCount ?? 0,
         durationMs: (src as any).durationMs ?? null,
-        errorClassification: (src as any).errorClassification ?? null,
-        errorMessage: (src as any).errorMessage ?? (src as any).error ?? null,
-        errorCode: (src as any).errorCode ?? null,
+        errorClassification: isErrorStatus((src as any).status)
+          ? ((src as any).errorClassification ?? null)
+          : null,
+        errorMessage: isErrorStatus((src as any).status)
+          ? ((src as any).errorMessage ?? (src as any).error ?? null)
+          : null,
+        errorCode: isErrorStatus((src as any).status) ? ((src as any).errorCode ?? null) : null,
         amazonRequestId: (src as any).amazonRequestId ?? null,
       });
     }
@@ -2433,9 +2719,14 @@ function ApiHealthSection({
       {/* Application-level status */}
       <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-bold text-slate-900 dark:text-slate-100">Amazon Application Status</h2>
+          <h2 className="font-bold text-slate-900 dark:text-slate-100">
+            Amazon Application Status
+          </h2>
           {reviewPending && (
-            <Badge variant="destructive" className="text-[10px] px-2 py-1">
+            <Badge
+              variant="outline"
+              className="text-[10px] px-2 py-0.5 text-amber-700 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-800"
+            >
               Review Pending
             </Badge>
           )}
@@ -2504,7 +2795,9 @@ function ApiHealthSection({
       {/* Per-module API health */}
       <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xs">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="font-bold text-slate-900 dark:text-slate-100">API Synchronization Health</h2>
+          <h2 className="font-bold text-slate-900 dark:text-slate-100">
+            API Synchronization Health
+          </h2>
           <Button size="sm" variant="outline" onClick={onRetryAll}>
             Retry All Modules
           </Button>
@@ -2550,38 +2843,26 @@ function ApiHealthSection({
                         {s.status}
                       </span>
                     </td>
-                    <td className="p-3 text-sm text-slate-500">
-                      {s.lastAttemptedAt ?? "Never"}
-                    </td>
-                    <td className="p-3 text-right text-sm font-mono">
-                      {s.recordsReceived}
-                    </td>
-                    <td className="p-3 text-right text-sm font-mono">
-                      {s.recordsProcessed}
-                    </td>
-                    <td className="p-3 text-right text-sm font-mono">
-                      {s.recordsInserted}
-                    </td>
-                    <td className="p-3 text-right text-sm font-mono">
-                      {s.recordsUpdated}
-                    </td>
-                    <td className="p-3 text-right text-sm font-mono">
-                      {s.recordsSkipped}
-                    </td>
-                    <td className="p-3 text-right text-sm font-mono">
-                      {s.databaseRecordCount}
-                    </td>
-                    <td className="p-3 text-right text-sm font-mono">
-                      {s.paginationCount}
-                    </td>
-                    <td className="p-3 text-right text-sm font-mono">
-                      {s.durationMs ?? "—"}
-                    </td>
+                    <td className="p-3 text-sm text-slate-500">{s.lastAttemptedAt ?? "Never"}</td>
+                    <td className="p-3 text-right text-sm font-mono">{s.recordsReceived}</td>
+                    <td className="p-3 text-right text-sm font-mono">{s.recordsProcessed}</td>
+                    <td className="p-3 text-right text-sm font-mono">{s.recordsInserted}</td>
+                    <td className="p-3 text-right text-sm font-mono">{s.recordsUpdated}</td>
+                    <td className="p-3 text-right text-sm font-mono">{s.recordsSkipped}</td>
+                    <td className="p-3 text-right text-sm font-mono">{s.databaseRecordCount}</td>
+                    <td className="p-3 text-right text-sm font-mono">{s.paginationCount}</td>
+                    <td className="p-3 text-right text-sm font-mono">{s.durationMs ?? "—"}</td>
                     <td className="p-3 text-sm text-slate-500 font-mono">
-                      {s.errorClassification ?? "—"}
+                      {isErrorStatus(s.status) ? (s.errorClassification ?? "—") : "—"}
                     </td>
-                    <td className="p-3 text-sm text-rose-500 dark:text-rose-400">
-                      {s.errorMessage ?? "—"}
+                    <td className="p-3 text-sm">
+                      {isErrorStatus(s.status) && s.errorMessage ? (
+                        <span className="text-rose-500 dark:text-rose-400 font-mono text-xs">
+                          {s.errorMessage}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400 dark:text-slate-500">—</span>
+                      )}
                     </td>
                   </tr>
                 );
@@ -2595,38 +2876,39 @@ function ApiHealthSection({
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="text-sm text-slate-600 dark:text-slate-400 space-y-1">
                 <p>
-                  <span className="font-medium">
-                    {appSummary.totalRecordsReceived}
-                  </span>{" "}
-                  records received ·
-                  <span className="font-medium">
-                    {appSummary.totalRecordsPersisted}
-                  </span>{" "}
+                  <span className="font-medium">{appSummary.totalRecordsReceived}</span> records
+                  received ·<span className="font-medium">{appSummary.totalRecordsPersisted}</span>{" "}
                   persisted
                 </p>
                 <p>
-                  {appSummary.hasReviewPending
-                    ? "Amazon review is pending — some modules may be access-restricted."
-                    : appSummary.allModulesSuccess
-                      ? "All modules synchronized successfully."
-                      : appSummary.hasFailed
-                        ? "One or more modules failed. See error classification above."
-                        : "Sync status mixed."}
+                  {appSummary.allModulesSuccess
+                    ? "All modules synchronized successfully."
+                    : appSummary.hasFailed
+                      ? "One or more modules failed. See error classification above."
+                      : appSummary.hasReviewPending
+                        ? "Amazon review is pending — some modules may be access-restricted."
+                        : "All configured modules operational."}
                 </p>
               </div>
               <div className="flex gap-2">
                 {appSummary.hasReviewPending && (
-                  <Badge variant="destructive" className="text-[10px] px-2 py-1">
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] px-2 py-0.5 text-amber-700 bg-amber-50 border-amber-200 dark:bg-amber-950/30 dark:text-amber-300 dark:border-amber-800"
+                  >
                     Review Pending
                   </Badge>
                 )}
                 {appSummary.hasAccessRestricted && (
-                  <Badge variant="outline" className="text-[10px] px-2 py-1">
+                  <Badge
+                    variant="outline"
+                    className="text-[10px] px-2 py-0.5 text-orange-700 bg-orange-50 border-orange-200 dark:bg-orange-950/30 dark:text-orange-300 dark:border-orange-800"
+                  >
                     Access Restricted
                   </Badge>
                 )}
                 {appSummary.hasFailed && (
-                  <Badge variant="destructive" className="text-[10px] px-2 py-1">
+                  <Badge variant="destructive" className="text-[10px] px-2 py-0.5">
                     Failed
                   </Badge>
                 )}
