@@ -198,7 +198,7 @@ export async function saveConfig(
 
 export interface TallyBatchRecord {
   sourceId: string;
-  sourceLabel: string;
+  sourceLabel?: string;
   docNumber: string | null;
   date: string | null;
   party: string | null;

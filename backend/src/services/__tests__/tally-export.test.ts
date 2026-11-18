@@ -481,6 +481,7 @@ describe("Batch Manifest & Checksum", () => {
       records: [
         {
           sourceId: "inv-1",
+          sourceLabel: "ADV-001 - Sunrise Traders",
           docNumber: "ADV-001",
           date: "2026-10-01",
           party: "Sunrise Traders",
