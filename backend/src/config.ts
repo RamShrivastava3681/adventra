@@ -174,6 +174,28 @@ export const config = {
     isConfigured: Boolean(process.env.MYNTRA_MERCHANT_ID && process.env.MYNTRA_SECRET_KEY),
   },
 
+  // ── Shopify Admin API (GraphQL) ───────────────────────────────────────────
+  // A custom app in the store's admin (Settings → Apps → Develop apps) gives
+  // the Admin API access token (shpat_…). Scopes: read_orders, read_products,
+  // read_inventory (and read_returns for returns).
+  shopify: {
+    storeDomain: (process.env.SHOPIFY_STORE_DOMAIN || "").replace(/^https?:\/\//, "").replace(/\/+$/, ""),
+    accessToken: process.env.SHOPIFY_ADMIN_ACCESS_TOKEN || "",
+    apiVersion: process.env.SHOPIFY_API_VERSION || "2026-07",
+    syncLookbackDays: parseInt(process.env.SHOPIFY_SYNC_LOOKBACK_DAYS || "60", 10),
+    isConfigured: Boolean(process.env.SHOPIFY_STORE_DOMAIN && process.env.SHOPIFY_ADMIN_ACCESS_TOKEN),
+  },
+
+  // ── AJIO ─────────────────────────────────────────────────────────────────
+  // AJIO has no public seller API; access is given to approved OMS partners.
+  // Set these once AJIO shares the API details.
+  ajio: {
+    apiBaseUrl: (process.env.AJIO_API_BASE_URL || "").replace(/\/+$/, ""),
+    sellerId: process.env.AJIO_SELLER_ID || "",
+    apiKey: process.env.AJIO_API_KEY || "",
+    isConfigured: Boolean(process.env.AJIO_API_BASE_URL && process.env.AJIO_API_KEY),
+  },
+
   smtp: {
     host: process.env.SMTP_HOST || "",
     port: parseInt(process.env.SMTP_PORT || "587", 10),

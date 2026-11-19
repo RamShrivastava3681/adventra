@@ -168,6 +168,7 @@ import AmazonIntegration from "./amazon-integration.js";
 import TallyIntegration from "./tally.js";
 import FlipkartIntegration from "./flipkart-integration.js";
 import MyntraIntegration from "./myntra-integration.js";
+import MarketplaceChannels from "./marketplace-channels.js";
 import * as db from "../dynamodb.js";
 import * as AuditLog from "../models/audit-log.js";
 
@@ -11097,6 +11098,9 @@ router.use(FlipkartIntegration);
 
 // ===================== MYNTRA INTEGRATION =====================
 router.use(MyntraIntegration);
+
+// ===================== SHOPIFY + AJIO (shared channel dashboard) =====================
+router.use(MarketplaceChannels);
 
 // ===================== CASH FLOW & TREASURY =====================
 import cashFlowRoutes from "./cash-flow.js";
