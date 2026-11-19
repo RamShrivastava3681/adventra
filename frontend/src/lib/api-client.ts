@@ -932,6 +932,13 @@ const api = {
       api.post<any>("/flipkart/demo-seed", {}).then(camelizeResponse),
   },
 
+  // Shopify / AJIO — shared channel dashboard (real data only, from each channel's API)
+  channels: {
+    dashboard: (channel: "shopify" | "ajio") =>
+      api.get<any>(`/channels/${channel}/dashboard`).then(camelizeResponse),
+    sync: (channel: "shopify" | "ajio") => api.post<any>(`/channels/${channel}/sync`, {}).then(camelizeResponse),
+  },
+
   // Myntra Seller API V4 integration (real data only: Myntra pushes + our calls)
   myntra: {
     status: () => api.get<any>("/myntra/status").then(camelizeResponse),
