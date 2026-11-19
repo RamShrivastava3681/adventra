@@ -1072,17 +1072,20 @@ const api = {
   },
 
   // TallyPrime XML export / import workbench.
+  // The backend snake_cases every response key, but this UI was written against
+  // the camelCase service shapes, so convert them back here.
   tally: {
-    getConfig: () => api.get<any>("/tally/config"),
-    saveConfig: (data: any) => api.put<any>("/tally/config", data),
-    overview: () => api.get<any>("/tally/overview"),
-    records: (exportType: string) => api.get<any>(`/tally/records/${exportType}`),
+    getConfig: () => api.get<any>("/tally/config").then(camelizeResponse),
+    saveConfig: (data: any) => api.put<any>("/tally/config", data).then(camelizeResponse),
+    overview: () => api.get<any>("/tally/overview").then(camelizeResponse),
+    records: (exportType: string) =>
+      api.get<any>(`/tally/records/${exportType}`).then(camelizeResponse),
     validate: (data: { exportType: string; ids?: string[] }) =>
-      api.post<any>("/tally/validate", data),
+      api.post<any>("/tally/validate", data).then(camelizeResponse),
     export: (data: { exportType: string; ids?: string[]; force?: boolean }) =>
-      api.post<any>("/tally/export", data),
-    batches: () => api.get<any>("/tally/batches"),
-    batch: (id: string) => api.get<any>(`/tally/batches/${id}`),
+      api.post<any>("/tally/export", data).then(camelizeResponse),
+    batches: () => api.get<any>("/tally/batches").then(camelizeResponse),
+    batch: (id: string) => api.get<any>(`/tally/batches/${id}`).then(camelizeResponse),
     batchXmlUrl: (id: string) => `${API_URL}/tally/batches/${id}/xml`,
     downloadBatch: async (id: string, filename: string) => {
       const res = await fetch(`${API_URL}/tally/batches/${id}/download`, {
@@ -1147,10 +1150,12 @@ const api = {
     confirmImport: (
       id: string,
       data: { created: number; altered: number; skipped: number; failed: number; notes?: string },
-    ) => api.post<any>(`/tally/batches/${id}/confirm-import`, data),
-    retryBatch: (id: string) => api.post<any>(`/tally/batches/${id}/retry`, {}),
-    reverseImportParse: (xml: string) => api.post<any>("/tally/reverse-import/parse", { xml }),
-    instructions: () => api.get<any>("/tally/instructions"),
+    ) => api.post<any>(`/tally/batches/${id}/confirm-import`, data).then(camelizeResponse),
+    retryBatch: (id: string) =>
+      api.post<any>(`/tally/batches/${id}/retry`, {}).then(camelizeResponse),
+    reverseImportParse: (xml: string) =>
+      api.post<any>("/tally/reverse-import/parse", { xml }).then(camelizeResponse),
+    instructions: () => api.get<any>("/tally/instructions").then(camelizeResponse),
   },
 
   // CRM
