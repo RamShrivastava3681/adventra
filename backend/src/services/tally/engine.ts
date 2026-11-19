@@ -155,6 +155,46 @@ const sharedReceipts = () => PaymentReceipt.list().catch(() => [] as any[]);
 const sharedNotes = () => CreditDebitNote.list().catch(() => [] as any[]);
 const sharedMovements = () => StockMovement.list().catch(() => [] as any[]);
 
+function mergeReceiptRows(invoices: any[], receipts: any[]): any[] {
+  const verified = (receipts as any[]).filter((r) => r.status === "verified" && r.invoiceId);
+  const receivedByInvoice = new Map<string, number>();
+  for (const receipt of verified) {
+    receivedByInvoice.set(
+      receipt.invoiceId,
+      round2((receivedByInvoice.get(receipt.invoiceId) || 0) + (Number(receipt.amount) || 0)),
+    );
+  }
+
+  const rows = [...verified];
+  for (const invoice of invoices as any[]) {
+    if (!invoice?.id) continue;
+    const status = String(invoice.status || "").toLowerCase();
+    if (status === "cancelled") continue;
+    const booked = Number(invoice.amountReceived) || 0;
+    const net = Number(invoice.amount) || Number(invoice.grandTotal) || 0;
+    const expected = booked > 0 ? booked : status === "paid" ? net : 0;
+    const already = receivedByInvoice.get(invoice.id) || 0;
+    const missing = round2(expected - already);
+    if (!(missing > 0.005)) continue;
+    const date = invoice.receiptDate || invoice.paidDate || invoice.issueDate || new Date().toISOString().slice(0, 10);
+    rows.push({
+      id: `invoice-receipt:${invoice.id}`,
+      invoiceId: invoice.id,
+      invoiceNumber: invoice.invoiceNumber,
+      amount: missing,
+      utr: invoice.utr_reference || invoice.utrReference || null,
+      receiptDate: date,
+      submittedAt: date,
+      status: "verified",
+      paymentMode: null,
+      collectionAccount: null,
+      receiptNumber: invoice.invoiceNumber ? `RCT-${invoice.invoiceNumber}` : null,
+      synthetic: true,
+    });
+  }
+  return rows;
+}
+
 export function stateNameFromCode(code: string | null | undefined): string | null {
   if (!code) return null;
   const digits = String(code).trim().slice(0, 2).padStart(2, "0");
@@ -568,11 +608,12 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       });
     }
   } else if (exportType === "receipts") {
-    const rows = await sharedReceipts();
-    const [invoices, debtors] = await Promise.all([
+    const [receiptRows, invoices, debtors] = await Promise.all([
+      sharedReceipts(),
       sharedInvoiceRows(),
       Debtor.list().catch(() => [] as any[]),
     ]);
+    const rows = mergeReceiptRows(invoices, receiptRows);
     const invoiceById = new Map<string, any>();
     for (const i of invoices as any[]) invoiceById.set(i.id, i);
     const debtorById = new Map<string, any>();
@@ -584,7 +625,7 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       const customerName = debtor?.name || r.customerName || r.customer_name || invoice?.customerName || null;
       out.push({
         sourceId: r.id,
-        label: r.utr || r.id.slice(0, 8),
+        label: r.utr || r.invoiceNumber || r.id.slice(0, 8),
         docNumber: r.invoiceNumber || r.id.slice(0, 8),
         date: r.receiptDate || r.submittedAt,
         party: customerName,
@@ -592,7 +633,7 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
         taxAmount: 0,
         paymentStatus: r.status,
         voucherType: "Receipt",
-        detail: r.status,
+        detail: r.synthetic ? "verified from paid invoice" : r.status,
         missingInfo: [],
       });
     }
@@ -946,7 +987,7 @@ export async function buildRecords(
       });
     }
   } else if (exportType === "receipts") {
-    for (const row of receipts as any[]) {
+    for (const row of mergeReceiptRows(invoices, receipts) as any[]) {
       if (row.status !== "verified") continue;
       if (idSet && !idSet.has(row.id)) continue;
       if (!row.invoiceId) continue;

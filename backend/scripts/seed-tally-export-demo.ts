@@ -261,9 +261,12 @@ async function ensureSalesInvoice(customer: any, product: any) {
       taxAmount: 1800,
       grandTotal: 11800,
       freight: 0,
-      status: "issued",
+      status: "paid",
+      amountReceived: 11800,
+      receiptDate: dateOffset(-1),
+      paidDate: dateOffset(-1),
     } as any);
-    console.log(`Sales invoice reused: ${existing.invoiceNumber}`);
+    console.log(`Sales invoice reused: ${existing.invoiceNumber} (paid)`);
     return existing;
   }
 
@@ -288,7 +291,8 @@ async function ensureSalesInvoice(customer: any, product: any) {
     poNumber: "TD-PO-001",
     notes: "Seed data for Tally XML export validation.",
   });
-  console.log(`Sales invoice created: ${created.invoiceNumber} (${created.grandTotal})`);
+  await Invoice.recordPayment(created.id, 11800, dateOffset(-1));
+  console.log(`Sales invoice created and marked paid: ${created.invoiceNumber} (${created.grandTotal})`);
   return created;
 }
 
