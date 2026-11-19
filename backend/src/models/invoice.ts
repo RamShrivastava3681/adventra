@@ -532,7 +532,7 @@ export async function recordIrn(
   };
   if (data.signedQrPayload !== undefined) patch.signedQrPayload = data.signedQrPayload || null;
   if (data.signedQrPayload) patch.signedQr = data.signedQrPayload;
-  if (data.signedQrSignature !== undefined) patch.signedQrSignature = data.signedQrSignature?.replace(/\s+/g, "") || null;
+  if (data.signedQrSignature !== undefined) patch.signedQrSignature = data.signedQrSignature || null;
   if (data.signedQrHeader !== undefined) patch.signedQrHeader = data.signedQrHeader || null;
   if (data.signedQrDecoded !== undefined) patch.signedQrDecoded = data.signedQrDecoded || null;
   if (data.irnAcknowledgementNumber !== undefined) patch.irnAcknowledgementNumber = data.irnAcknowledgementNumber || null;

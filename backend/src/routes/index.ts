@@ -2334,10 +2334,20 @@ router.get("/invoices/:id/qr", authMiddleware, async (req, res) => {
     if (!inv || (inv.clientId !== req.user!.userId && !isStaffAccount(req.user?.roles))) {
       return res.status(404).json({ error: "Invoice not found" });
     }
-    const payload = (inv as any).signedQrPayload || (inv as any).signedQr || (inv as any).irn || null;
-    if (!payload) return res.status(404).json({ error: "No QR payload recorded" });
-    const { makeEinvoiceQrImage } = await import("../lib/document-pdf.js");
-    const png = await makeEinvoiceQrImage(String(payload));
+    const payload = (inv as any).signedQrPayload || (inv as any).signedQr || null;
+    const { makeEinvoiceQrImage, makeDecodedEinvoiceQrPayload } = await import("../lib/document-pdf.js");
+    const [sellerParts, debtor] = await Promise.all([
+      resolveTallySellerParts(inv.clientId).catch(() => ({ seller: {} })),
+      inv.debtorId ? Debtor.get(inv.debtorId).catch(() => null) : Promise.resolve(null),
+    ]);
+    const seller = (sellerParts as any).seller || {};
+    const complianceInvoice = {
+      ...inv,
+      sellerGstin: (inv as any).sellerGstin || seller.gstin || null,
+      buyerGstin: (inv as any).buyerGstin || (debtor as any)?.gstin || null,
+    };
+    const qrText = payload ? String(payload) : makeDecodedEinvoiceQrPayload(complianceInvoice);
+    const png = await makeEinvoiceQrImage(qrText);
     if (!png) return res.status(404).json({ error: "QR could not be generated" });
     res.setHeader("Content-Type", "image/png");
     res.setHeader("Cache-Control", "private, no-store");
@@ -3248,6 +3258,30 @@ router.post("/invoices/:id/irn", authMiddleware, async (req, res) => {
     if (!allowed)
       return res.status(403).json({ error: "Only finance/checker/admin can record the IRN" });
     const body = req.body || {};
+    const existing = await Invoice.get(req.params.id);
+    if (!existing) return res.status(404).json({ error: "Invoice not found" });
+    const payload = body.signedQrPayload ?? body.signed_qr_payload ?? null;
+    if (existing.irn && payload) {
+      const normalizedIrn = Invoice.normalizeIrn(String(body.irn || existing.irn));
+      if (!normalizedIrn) return res.status(400).json({ error: "Invalid IRN" });
+      const updated = await Invoice.update(req.params.id, {
+        signedQrPayload: String(payload),
+        signedQr: String(payload),
+        signedQrSignature: String(body.signedQrSignature ?? body.signed_qr_signature ?? "").replace(/\s+/g, "") || null,
+        signedQrHeader: body.signedQrHeader ?? body.signed_qr_header ?? null,
+        signedQrDecoded: body.signedQrDecoded ?? body.signed_qr_decoded ?? null,
+        complianceSource: "Genuine invoice QR scan",
+        complianceStatus: "Captured - signature verification pending",
+      });
+      if (!updated) return res.status(404).json({ error: "Invoice not found" });
+      trackAction(req, "invoice.signed_qr_captured", updated.id, {
+        entityType: "invoice",
+        entityRef: (updated as any).invoiceNumber,
+        signedQrPayload: "[stored]",
+        signedQrSignature: "[stored]",
+      });
+      return res.json({ success: true, invoice: updated, message: "Signed QR payload captured for this invoice" });
+    }
     try {
       const updated = await Invoice.recordIrn(req.params.id, {
         irn: String(body.irn ?? ""),
@@ -7538,15 +7572,21 @@ async function buildInvoiceTallyBuffer(
     invoiceToTallyData,
     buildInvoiceTallyPdf,
     makeEinvoiceQrImage,
+    makeDecodedEinvoiceQrPayload,
   } = await import("../lib/document-pdf.js");
   const debtor = inv.debtorId ? await Debtor.get(inv.debtorId).catch(() => null) : null;
   const so = inv.goodsSalesOrderId ? await GoodsSO.get(inv.goodsSalesOrderId).catch(() => null) : null;
   const qrPayload =
     inv.signedQrPayload ||
     inv.signedQr ||
-    inv.irn ||
     null;
-  const qrImage = await makeEinvoiceQrImage(qrPayload).catch(() => null);
+  const complianceInvoice = {
+    ...inv,
+    sellerGstin: inv.sellerGstin || seller.gstin || null,
+    buyerGstin: inv.buyerGstin || debtor?.gstin || null,
+  };
+  const qrText = qrPayload ? String(qrPayload) : makeDecodedEinvoiceQrPayload(complianceInvoice);
+  const qrImage = await makeEinvoiceQrImage(qrText).catch(() => null);
   const ewb = await assembleInvoiceEwb(inv, debtor, seller).catch(() => null);
   const data = invoiceToTallyData(inv, {
     debtor,

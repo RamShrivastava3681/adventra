@@ -324,7 +324,17 @@ const api = {
     // Manual e-invoice IRN from Tally (v1: paste; later written by integration).
     recordIrn: (
       id: string,
-      data: { irn: string; ackNo?: string | null; ackDate?: string | null },
+      data: {
+        irn: string;
+        ackNo?: string | null;
+        ackDate?: string | null;
+        signedQrPayload?: string | null;
+        signedQrSignature?: string | null;
+        signedQrHeader?: Record<string, unknown> | null;
+        signedQrDecoded?: Record<string, unknown> | null;
+        complianceSource?: string | null;
+        complianceStatus?: string | null;
+      },
     ) => api.post<any>(`/invoices/${id}/irn`, data),
     clearIrn: (id: string, reason: string) =>
       api.delete<any>(`/invoices/${id}/irn?reason=${encodeURIComponent(reason)}`),

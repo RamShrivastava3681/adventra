@@ -380,11 +380,21 @@ function InvoicesPageContent({
       irn: string;
       ackNo?: string | null;
       ackDate?: string | null;
+      signedQrPayload?: string | null;
+      signedQrSignature?: string | null;
+      signedQrHeader?: Record<string, unknown> | null;
+      signedQrDecoded?: Record<string, unknown> | null;
     }) => {
       await api.invoices.recordIrn(vals.id, {
         irn: vals.irn,
         ackNo: vals.ackNo || null,
         ackDate: vals.ackDate || null,
+        signedQrPayload: vals.signedQrPayload || null,
+        signedQrSignature: vals.signedQrSignature || null,
+        signedQrHeader: vals.signedQrHeader || null,
+        signedQrDecoded: vals.signedQrDecoded || null,
+        complianceSource: vals.signedQrPayload ? "Genuine invoice QR scan" : undefined,
+        complianceStatus: vals.signedQrPayload ? "Captured - signature verification pending" : undefined,
       });
     },
     onSuccess: () => {
@@ -761,6 +771,7 @@ function InvoicesPageContent({
           onClose={() => setViewing(null)}
           hideIrn={viewOnly}
           setReturning={setReturning}
+          setIrnFor={setIrnFor}
         />
       )}
       {utrFor && (
@@ -785,7 +796,16 @@ function InvoicesPageContent({
           onClose={() => setIrnFor(null)}
           onSubmit={(vals) => {
             recordIrn.mutate(
-              { id: irnFor.id, irn: vals.irn, ackNo: vals.ackNo, ackDate: vals.ackDate },
+                {
+                  id: irnFor.id,
+                  irn: vals.irn,
+                  ackNo: vals.ackNo,
+                  ackDate: vals.ackDate,
+                  signedQrPayload: vals.signedQrPayload,
+                  signedQrSignature: vals.signedQrSignature,
+                  signedQrHeader: vals.signedQrHeader,
+                  signedQrDecoded: vals.signedQrDecoded,
+                },
               { onSuccess: () => setIrnFor(null) },
             );
           }}
@@ -1819,11 +1839,13 @@ function InvoiceDetailModal({
   onClose,
   hideIrn = false,
   setReturning,
+  setIrnFor,
 }: {
   invoice: Inv;
   onClose: () => void;
   hideIrn?: boolean;
   setReturning: (invoice: Inv) => void;
+  setIrnFor: (invoice: Inv) => void;
 }) {
   const qc = useQueryClient();
   const sendNoa = useMutation({
@@ -1885,6 +1907,14 @@ function InvoiceDetailModal({
             >
               PDF
             </button>
+            {invoice.irn && !hideIrn && (
+              <button
+                onClick={() => setIrnFor(invoice)}
+                className="rounded-md border border-border px-3 py-1 text-xs hover:border-primary hover:text-primary"
+              >
+                Capture signed QR
+              </button>
+            )}
             {(invoice.lines ?? []).length > 0 &&
               !["draft", "cancelled", "rejected"].includes(invoice.status) && (
                 <button
@@ -1966,12 +1996,20 @@ function InvoiceDetailModal({
                   {invoice.ack_no && <D label="Ack No." value={invoice.ack_no} />}
                   {invoice.ack_date && <D label="Ack Date" value={fmtDate(invoice.ack_date)} />}
                   {invoice.irn_source && <D label="IRN source" value={invoice.irn_source} />}
-                  {invoice.compliance_status && (
-                    <D label="QR Status" value={invoice.compliance_status} />
+                  {(invoice.compliance_status || invoice.irn) && (
+                    <D
+                      label="QR Status"
+                      value={
+                        invoice.compliance_status ||
+                        (invoice.signed_qr_payload
+                          ? "Captured - signature verification pending"
+                          : "Decoded compliance QR - original compact payload pending")
+                      }
+                    />
                   )}
-                  {(invoice.signed_qr_payload || invoice.signed_qr_signature) && (
+                  {(invoice.irn || invoice.signed_qr_payload || invoice.signed_qr_signature) && (
                     <div className="col-span-2 md:col-span-3 flex items-center gap-4 rounded-md border border-border p-3">
-                      {invoice.signed_qr_payload && (
+                      {invoice.irn && (
                         <img
                           src={`/api/invoices/${invoice.id}/qr`}
                           alt="Signed e-invoice QR"
@@ -1981,7 +2019,7 @@ function InvoiceDetailModal({
                       <div className="min-w-0 text-xs text-muted-foreground">
                         {invoice.signed_qr_payload
                           ? "Signed QR payload captured."
-                          : "QR header and signature captured; original compact payload required for final production verification."}
+                          : "Decoded invoice compliance QR shown. Original compact JWT payload is still pending."}
                       </div>
                     </div>
                   )}
@@ -2320,11 +2358,23 @@ function IrnModal({
 }: {
   invoice: Inv;
   onClose: () => void;
-  onSubmit: (v: { irn: string; ackNo?: string | null; ackDate?: string | null }) => void;
+  onSubmit: (v: {
+    irn: string;
+    ackNo?: string | null;
+    ackDate?: string | null;
+    signedQrPayload?: string | null;
+    signedQrSignature?: string | null;
+    signedQrHeader?: Record<string, unknown> | null;
+    signedQrDecoded?: Record<string, unknown> | null;
+  }) => void;
 }) {
-  const [irn, setIrn] = useState("");
+  const [irn, setIrn] = useState(invoice.irn || "");
   const [ackNo, setAckNo] = useState("");
   const [ackDate, setAckDate] = useState(new Date().toISOString().slice(0, 10));
+  const [signedQrPayload, setSignedQrPayload] = useState("");
+  const [signedQrSignature, setSignedQrSignature] = useState("");
+  const [signedQrHeader, setSignedQrHeader] = useState("");
+  const [signedQrDecoded, setSignedQrDecoded] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const generateFromTally = () => {
@@ -2348,8 +2398,25 @@ function IrnModal({
       setError("Ack No. must be the numeric acknowledgement number from Tally");
       return;
     }
+    let header: Record<string, unknown> | null = null;
+    let decoded: Record<string, unknown> | null = null;
+    try {
+      if (signedQrHeader.trim()) header = JSON.parse(signedQrHeader);
+      if (signedQrDecoded.trim()) decoded = JSON.parse(signedQrDecoded);
+    } catch {
+      setError("QR header and decoded QR data must be valid JSON");
+      return;
+    }
     setError(null);
-    onSubmit({ irn: clean, ackNo: ackNo.trim() || null, ackDate: ackDate || null });
+    onSubmit({
+      irn: clean,
+      ackNo: ackNo.trim() || null,
+      ackDate: ackDate || null,
+      signedQrPayload: signedQrPayload.trim() || null,
+      signedQrSignature: signedQrSignature.replace(/\s+/g, "").trim() || null,
+      signedQrHeader: header,
+      signedQrDecoded: decoded,
+    });
   };
 
   return (
@@ -2390,6 +2457,56 @@ function IrnModal({
               placeholder="64-character hex IRN…"
             />
           </label>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+              Original signed QR payload (compact JWT)
+            </span>
+            <textarea
+              rows={5}
+              value={signedQrPayload}
+              onChange={(e) => setSignedQrPayload(e.target.value)}
+              className="w-full rounded-md border border-border bg-background p-2 font-mono text-xs"
+              placeholder="Paste the original raw QR payload; required to regenerate and print the exact QR"
+            />
+          </label>
+          <label className="block">
+            <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+              Signed QR signature
+            </span>
+            <textarea
+              rows={3}
+              value={signedQrSignature}
+              onChange={(e) => setSignedQrSignature(e.target.value)}
+              className="w-full rounded-md border border-border bg-background p-2 font-mono text-xs"
+              placeholder="Separate signature segment"
+            />
+          </label>
+          <div className="grid grid-cols-1 gap-3">
+            <label className="block">
+              <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+                QR header (JSON)
+              </span>
+              <textarea
+                rows={3}
+                value={signedQrHeader}
+                onChange={(e) => setSignedQrHeader(e.target.value)}
+                className="w-full rounded-md border border-border bg-background p-2 font-mono text-xs"
+                placeholder='{"alg":"RS256","kid":"...","x5t":"...","typ":"JWT"}'
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">
+                Decoded QR data (JSON)
+              </span>
+              <textarea
+                rows={5}
+                value={signedQrDecoded}
+                onChange={(e) => setSignedQrDecoded(e.target.value)}
+                className="w-full rounded-md border border-border bg-background p-2 font-mono text-xs"
+                placeholder='{"iss":"NIC","data":{"SellerGstin":"...","Irn":"..."}}'
+              />
+            </label>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className="mb-1 block text-xs uppercase tracking-widest text-muted-foreground">

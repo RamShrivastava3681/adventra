@@ -2145,6 +2145,50 @@ export async function makeEinvoiceQrImage(text: string | null | undefined): Prom
   }
 }
 
+export function makeDecodedEinvoiceQrPayload(inv: any): string {
+  const g = (camel: string, snake: string) => inv?.[camel] ?? inv?.[snake] ?? null;
+  const rawDate = String(g("issueDate", "issue_date") || g("invoiceDate", "invoice_date") || "");
+  let docDate = rawDate;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+    const [year, month, day] = rawDate.split("-");
+    docDate = `${day}/${month}/${year}`;
+  }
+  const lines = Array.isArray(g("lines", "lines")) ? g("lines", "lines") : [];
+  const hsnCode =
+    g("mainHsnCode", "main_hsn_code") ||
+    lines.find((line: any) => line?.hsnCode || line?.hsn_code)?.hsnCode ||
+    lines.find((line: any) => line?.hsnCode || line?.hsn_code)?.hsn_code ||
+    null;
+  const irn = g("irn", "irn");
+  const irnDate =
+    g("irnAcknowledgementDate", "irn_acknowledgement_date") ||
+    g("ackDate", "ack_date") ||
+    null;
+  const data: Record<string, unknown> = {
+    SellerGstin: g("sellerGstin", "seller_gstin"),
+    BuyerGstin: g("buyerGstin", "buyer_gstin"),
+    DocNo: g("tallyInvoiceNumber", "tally_invoice_number") || g("invoiceNumber", "invoice_number"),
+    DocTyp: "INV",
+    DocDt: docDate,
+    TotInvVal: g("totalInvoiceValue", "total_invoice_value") ?? g("grandTotal", "grand_total") ?? g("amount", "amount") ?? 0,
+    ItemCnt: g("itemCount", "item_count") ?? lines.length,
+    MainHsnCode: hsnCode,
+    Irn: irn,
+    IrnDt: irnDate,
+  };
+  const ewayBillNumber =
+    g("ewayBillNumber", "eway_bill_number") ||
+    g("ewbNumber", "ewb_number");
+  if (ewayBillNumber) data.EwayBillNumber = ewayBillNumber;
+  if (g("irnAcknowledgementNumber", "irn_acknowledgement_number") || g("ackNo", "ack_no")) {
+    data.IrnAckNo = g("irnAcknowledgementNumber", "irn_acknowledgement_number") || g("ackNo", "ack_no");
+  }
+  return JSON.stringify({
+    iss: "NIC",
+    data,
+  });
+}
+
 function tallyParty(p: Partial<TallyInvoiceParty>): TallyInvoiceParty {
   return {
     name: p.name || "",
@@ -2286,7 +2330,11 @@ export function invoiceToTallyData(
     ackDate: fmtTallyShortDate(g("ackDate", "ack_date") || "") || null,
     qrStatus:
       g("complianceStatus", "compliance_status") ||
-      (g("signedQrPayload", "signed_qr_payload") ? "Captured - signature verification pending" : null),
+      (g("signedQrPayload", "signed_qr_payload")
+        ? "Captured - signature verification pending"
+        : g("irn", "irn")
+          ? "Decoded compliance QR - original compact payload pending"
+          : null),
     qrImage: opts?.qrImage ?? null,
     seller: {
       name: s.name || "",
