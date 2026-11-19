@@ -70,6 +70,7 @@ async function request<T = any>(path: string, options: RequestInit = {}): Promis
     const body = await res.json().catch(() => ({}));
     const error: any = new Error(body.error || `Request failed: ${res.status}`);
     error.status = res.status;
+    error.body = body;
     console.error(
       `[API] ${options.method || "GET"} ${path} → ${res.status}:`,
       body.error || res.statusText,

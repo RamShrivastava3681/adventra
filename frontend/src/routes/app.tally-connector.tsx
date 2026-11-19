@@ -1290,6 +1290,19 @@ function ExportWorkflowDialog({
               <div className="rounded-xl border border-rose-300 bg-rose-50 p-4 text-sm text-rose-900 dark:bg-rose-950/40 dark:text-rose-200">
                 <div className="font-semibold">XML generation failed</div>
                 <div className="mt-1 text-xs">{(exportMutation.error as any)?.message || "The selected records could not be exported."}</div>
+                {(() => {
+                  const detailErrors: string[] = (exportMutation.error as any)?.body?.errors ?? [];
+                  if (!detailErrors.length) return null;
+                  return (
+                    <ul className="mt-3 max-h-56 space-y-1 overflow-auto rounded-lg border border-rose-200 bg-white/70 p-3 text-xs dark:border-rose-900 dark:bg-rose-950/60">
+                      {detailErrors.map((err, i) => (
+                        <li key={i} className="list-disc pl-1 marker:text-rose-500">
+                          {err}
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()}
                 <Button className="mt-3" size="sm" variant="outline" onClick={() => exportMutation.mutate()} disabled={isPending}>Try again</Button>
               </div>
             )}
