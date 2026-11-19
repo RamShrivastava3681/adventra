@@ -448,6 +448,11 @@ function PurchasesPageContent({
                           <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
                             <td className="px-5 py-3">
                               <div className="font-mono text-xs">{p.invoice_number}</div>
+                              {p.tally_voucher_ref && (
+                                <div className="mt-1 text-[10px] text-muted-foreground">
+                                  Tally voucher {p.tally_voucher_ref}
+                                </div>
+                              )}
                               {Number(p.advance_deducted ?? 0) > 0 && (
                                 <div className="text-[10px] text-muted-foreground">
                                   Less advance {fmtMoney(p.advance_deducted)}
@@ -1977,6 +1982,18 @@ function PurchaseDetailModal({
             )}
             <D label="Linked GRN" value={invoice.linked_goods_receipt_number ?? "—"} />
             {invoice.paid_date && <D label="Paid date" value={fmtDate(invoice.paid_date)} />}
+            {(invoice.tally_voucher_ref || invoice.tally_invoice_number) && (
+              <>
+                {invoice.tally_voucher_ref && (
+                  <D label="Tally voucher no." value={invoice.tally_voucher_ref} />
+                )}
+                {invoice.tally_invoice_number &&
+                  invoice.tally_invoice_number !== invoice.tally_voucher_ref && (
+                    <D label="Tally invoice no." value={invoice.tally_invoice_number} />
+                  )}
+                {invoice.eway_bill_no && <D label="e-Way Bill" value={invoice.eway_bill_no} />}
+              </>
+            )}
             {invoice.po_amount != null && invoice.po_amount > 0 && (
               <D
                 label="PO amount"

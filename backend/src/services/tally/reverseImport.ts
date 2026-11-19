@@ -1,6 +1,7 @@
 import * as Invoice from "../../models/invoice.js";
 import * as PurchaseInvoice from "../../models/purchase-invoice.js";
 import * as PaymentReceipt from "../../models/payment-receipt.js";
+import * as BulkPayment from "../../models/bulk-payment.js";
 import * as CreditDebitNote from "../../models/credit-debit-note.js";
 import * as Debtor from "../../models/debtor.js";
 import * as Supplier from "../../models/supplier.js";
@@ -1189,8 +1190,25 @@ async function importVouchers(
         if (!supplier) throw new Error(`Supplier "${voucher.partyName || "unknown"}" not found.`);
         const invoiceNumber = resolveDocumentNumber(voucher) || `TALLY-PI-${Date.now()}`;
         const key = `${supplier.id}|${invoiceNumber.trim().toLowerCase()}`;
-        if (purchasesByKey.has(key)) {
-          report.vouchers.purchases.skipped++;
+        const existing = purchasesByKey.get(key);
+        if (existing) {
+          const patch: any = {};
+          if (!existing.tallyVoucherRef && (voucher.voucherNumber || voucher.reference)) {
+            patch.tallyVoucherRef = voucher.voucherNumber || voucher.reference;
+          }
+          if (!existing.tallyInvoiceNumber && (voucher.voucherNumber || voucher.reference)) {
+            patch.tallyInvoiceNumber = voucher.voucherNumber || voucher.reference;
+          }
+          if (!existing.ewayBillNo && voucher.ewayBillNo) patch.ewayBillNo = voucher.ewayBillNo;
+          if (!existing.ewayBillDate && voucher.ewayBillDate) {
+            patch.ewayBillDate = normalizeDate(voucher.ewayBillDate);
+          }
+          if (Object.keys(patch).length) {
+            await PurchaseInvoice.update(existing.id, patch);
+            report.vouchers.purchases.updated++;
+          } else {
+            report.vouchers.purchases.skipped++;
+          }
           continue;
         }
         const lines: any[] = [];
@@ -1223,6 +1241,10 @@ async function importVouchers(
           dueDate: addDays(voucher.date || new Date().toISOString().slice(0, 10), 30),
           status: "draft",
           lines,
+          tallyVoucherRef: voucher.voucherNumber || voucher.reference || null,
+          tallyInvoiceNumber: voucher.voucherNumber || voucher.reference || null,
+          ewayBillNo: voucher.ewayBillNo || null,
+          ewayBillDate: voucher.ewayBillDate ? normalizeDate(voucher.ewayBillDate) : null,
           notes: voucher.narration || "Imported from Tally XML.",
         });
         purchasesByKey.set(key, created);
@@ -1276,11 +1298,33 @@ async function importVouchers(
         }
         const grandTotal = Number(purchase.grandTotal) || 0;
         const paid = round2(Math.min(grandTotal, (Number(purchase.amountPaid) || 0) + amount));
+        const paymentDate = voucher.date || new Date().toISOString().slice(0, 10);
         await PurchaseInvoice.update(purchase.id, {
           amountPaid: paid,
-          paidDate: voucher.date || new Date().toISOString().slice(0, 10),
+          paidDate: paymentDate,
           status: grandTotal > 0 && paid >= grandTotal - 0.005 ? "paid" : "partially_paid",
           paymentReference: reference || purchase.paymentReference || null,
+        });
+        const fullyPaid = grandTotal > 0 && paid >= grandTotal - 0.005;
+        await BulkPayment.create({
+          clientId,
+          debtorId: `supplier_${purchase.vendorId}`,
+          amount,
+          paymentDate,
+          remaining: 0,
+          invoicesClosed: fullyPaid ? 1 : 0,
+          closedInvoices: fullyPaid
+            ? [{ id: purchase.id, invoiceNumber: purchase.invoiceNumber, amount }]
+            : [],
+          partialInvoices: fullyPaid
+            ? []
+            : [{ id: purchase.id, invoiceNumber: purchase.invoiceNumber, amountPaid: amount }],
+          creditNoteIds: [],
+          mode: "manual",
+          reference: reference || null,
+          source: "tally",
+          voucherNumber: voucher.voucherNumber || null,
+          supplierName: purchase.supplierName || null,
         });
         purchase.amountPaid = paid;
         purchase.paymentReference = reference;
@@ -1329,6 +1373,7 @@ async function importVouchers(
           taxRate: lines[0]?.gstRate ?? 0,
           taxAmount: round2(Math.max(0, round2(voucher.amount) - subtotal)),
           notes: "Imported from Tally XML.",
+          source: "tally",
         });
         notesByNumber.set(noteNumber.trim().toLowerCase(), created);
         report.vouchers.creditNotes.created++;
@@ -1378,6 +1423,7 @@ async function importVouchers(
           taxRate: lines[0]?.gstRate ?? 0,
           taxAmount: round2(Math.max(0, round2(voucher.amount) - subtotal)),
           notes: "Imported from Tally XML.",
+          source: "tally",
         });
         notesByNumber.set(noteNumber.trim().toLowerCase(), created);
         report.vouchers.debitNotes.created++;

@@ -2328,6 +2328,26 @@ router.get("/invoices/:id", authMiddleware, async (req, res) => {
 });
 
 /** GET /invoices/:id/pdf — download the Tally-style tax-invoice PDF. */
+router.get("/invoices/:id/qr", authMiddleware, async (req, res) => {
+  try {
+    const inv = await Invoice.get(req.params.id);
+    if (!inv || (inv.clientId !== req.user!.userId && !isStaffAccount(req.user?.roles))) {
+      return res.status(404).json({ error: "Invoice not found" });
+    }
+    const payload = (inv as any).signedQrPayload || (inv as any).signedQr || (inv as any).irn || null;
+    if (!payload) return res.status(404).json({ error: "No QR payload recorded" });
+    const { makeEinvoiceQrImage } = await import("../lib/document-pdf.js");
+    const png = await makeEinvoiceQrImage(String(payload));
+    if (!png) return res.status(404).json({ error: "QR could not be generated" });
+    res.setHeader("Content-Type", "image/png");
+    res.setHeader("Cache-Control", "private, no-store");
+    res.send(png);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/** GET /invoices/:id/pdf — download the Tally-style tax-invoice PDF. */
 router.get("/invoices/:id/pdf", authMiddleware, async (req, res) => {
   try {
     const inv = await Invoice.get(req.params.id);
@@ -2479,6 +2499,21 @@ router.post("/invoices/:id/record-irn-ewb", authMiddleware, async (req, res) => 
       ackDate: ackDate ?? null,
       enteredBy: req.user!.email,
       source: "tally",
+      signedQrPayload: (req.body as any)?.signedQrPayload ?? (req.body as any)?.signed_qr_payload ?? null,
+      signedQrSignature: (req.body as any)?.signedQrSignature ?? (req.body as any)?.signed_qr_signature ?? null,
+      signedQrHeader: (req.body as any)?.signedQrHeader ?? (req.body as any)?.signed_qr_header ?? null,
+      signedQrDecoded: (req.body as any)?.signedQrDecoded ?? (req.body as any)?.signed_qr_decoded ?? null,
+      irnAcknowledgementNumber: ackNo ?? null,
+      irnAcknowledgementDate: ackDate ?? null,
+      ewayBillNumber: String(ewbNumber).trim(),
+      invoiceDate: String(inv.issueDate || "").slice(0, 10),
+      sellerGstin: (req.body as any)?.sellerGstin ?? (req.body as any)?.seller_gstin ?? null,
+      buyerGstin: (req.body as any)?.buyerGstin ?? (req.body as any)?.buyer_gstin ?? null,
+      totalInvoiceValue: (req.body as any)?.totalInvoiceValue ?? (req.body as any)?.total_invoice_value ?? inv.grandTotal ?? inv.amount ?? null,
+      itemCount: (req.body as any)?.itemCount ?? (req.body as any)?.item_count ?? inv.lines?.length ?? inv.lineItems?.length ?? null,
+      mainHsnCode: (req.body as any)?.mainHsnCode ?? (req.body as any)?.main_hsn_code ?? null,
+      complianceSource: (req.body as any)?.complianceSource ?? (req.body as any)?.compliance_source ?? "Genuine invoice QR scan",
+      complianceStatus: (req.body as any)?.complianceStatus ?? (req.body as any)?.compliance_status ?? "Captured - signature verification pending",
     });
 
     // Mirror the e-Way Bill number onto the invoice.
@@ -3220,6 +3255,21 @@ router.post("/invoices/:id/irn", authMiddleware, async (req, res) => {
         ackDate: body.ackDate ?? body.ack_date ?? null,
         enteredBy: req.user!.email,
         source: body.source === "tally" ? "tally" : "manual",
+        signedQrPayload: body.signedQrPayload ?? body.signed_qr_payload ?? null,
+        signedQrSignature: body.signedQrSignature ?? body.signed_qr_signature ?? null,
+        signedQrHeader: body.signedQrHeader ?? body.signed_qr_header ?? null,
+        signedQrDecoded: body.signedQrDecoded ?? body.signed_qr_decoded ?? null,
+        irnAcknowledgementNumber: body.irnAcknowledgementNumber ?? body.irn_acknowledgement_number ?? body.ackNo ?? body.ack_no ?? null,
+        irnAcknowledgementDate: body.irnAcknowledgementDate ?? body.irn_acknowledgement_date ?? body.ackDate ?? body.ack_date ?? null,
+        ewayBillNumber: body.ewayBillNumber ?? body.eway_bill_number ?? null,
+        invoiceDate: body.invoiceDate ?? body.invoice_date ?? null,
+        sellerGstin: body.sellerGstin ?? body.seller_gstin ?? null,
+        buyerGstin: body.buyerGstin ?? body.buyer_gstin ?? null,
+        totalInvoiceValue: body.totalInvoiceValue ?? body.total_invoice_value ?? null,
+        itemCount: body.itemCount ?? body.item_count ?? null,
+        mainHsnCode: body.mainHsnCode ?? body.main_hsn_code ?? null,
+        complianceSource: body.complianceSource ?? body.compliance_source ?? null,
+        complianceStatus: body.complianceStatus ?? body.compliance_status ?? null,
       });
       trackAction(req, "invoice.irn_recorded", updated.id, {
         entityType: "invoice",
@@ -7491,7 +7541,12 @@ async function buildInvoiceTallyBuffer(
   } = await import("../lib/document-pdf.js");
   const debtor = inv.debtorId ? await Debtor.get(inv.debtorId).catch(() => null) : null;
   const so = inv.goodsSalesOrderId ? await GoodsSO.get(inv.goodsSalesOrderId).catch(() => null) : null;
-  const qrImage = await makeEinvoiceQrImage(inv.signedQr || inv.irn || null).catch(() => null);
+  const qrPayload =
+    inv.signedQrPayload ||
+    inv.signedQr ||
+    inv.irn ||
+    null;
+  const qrImage = await makeEinvoiceQrImage(qrPayload).catch(() => null);
   const ewb = await assembleInvoiceEwb(inv, debtor, seller).catch(() => null);
   const data = invoiceToTallyData(inv, {
     debtor,

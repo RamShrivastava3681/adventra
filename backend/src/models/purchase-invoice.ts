@@ -96,6 +96,12 @@ export interface PurchaseInvoice {
   fundedDate: string | null; purchaseOrderId: string | null;
   /** UTR / bank reference for the payment — required before marking paid. */
   paymentReference: string | null;
+  /** Tally voucher / document references captured during XML import. */
+  tallyVoucherRef: string | null;
+  tallyInvoiceNumber: string | null;
+  /** e-Way Bill captured from Tally, when present. */
+  ewayBillNo: string | null;
+  ewayBillDate: string | null;
   documents: any[];
   /** Tracks the last date an overdue reminder email was sent (YYYY-MM-DD). Used by the daily reminder cron. */
   lastOverdueReminderDate: string | null;
@@ -242,6 +248,10 @@ export async function create(data: Partial<PurchaseInvoice> & { clientId: string
     advanceRate: data.advanceRate ?? 0.80, advancePaidDate: null,
     fundedDate: null, purchaseOrderId: data.purchaseOrderId || null,
     paymentReference: data.paymentReference || null,
+    tallyVoucherRef: data.tallyVoucherRef || null,
+    tallyInvoiceNumber: data.tallyInvoiceNumber || null,
+    ewayBillNo: data.ewayBillNo || null,
+    ewayBillDate: data.ewayBillDate || null,
     documents: data.documents || [], createdAt: now, updatedAt: now,
   };
   await db.putItem(item);
@@ -261,7 +271,7 @@ export async function update(id: string, updates: Partial<PurchaseInvoice>) {
     "lines", "subtotal", "gstTotal", "freight", "grandTotal",
     "amountPaid", "balanceDue", "differenceNotes", "creditAdjusted",
     "linkedSupplierProformaId", "linkedSupplierProformaNumber", "advanceDeducted",
-    "paymentReference",
+    "paymentReference", "tallyVoucherRef", "tallyInvoiceNumber", "ewayBillNo", "ewayBillDate",
   ];
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
 

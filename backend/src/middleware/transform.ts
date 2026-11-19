@@ -29,6 +29,7 @@ function deepTransformKeys(value: unknown, fn: (key: string) => string): unknown
   if (Array.isArray(value)) {
     return value.map((item) => deepTransformKeys(item, fn));
   }
+
   if (typeof value === "object" && !(value instanceof Date)) {
     const obj = value as Record<string, unknown>;
     const result: Record<string, unknown> = {};
@@ -39,6 +40,26 @@ function deepTransformKeys(value: unknown, fn: (key: string) => string): unknown
   }
   // Return primitives (string, number, boolean) as-is
   return value;
+}
+
+function redactQrConfidentialFields(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map(redactQrConfidentialFields);
+  if (typeof value !== "object" || value instanceof Date) return value;
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    if (
+      key === "signedQrPayload" ||
+      key === "signed_qr_payload" ||
+      key === "signedQrSignature" ||
+      key === "signed_qr_signature"
+    ) {
+      result[key] = val == null ? null : "[stored]";
+    } else {
+      result[key] = redactQrConfidentialFields(val);
+    }
+  }
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -62,7 +83,7 @@ export function camelCaseToSnakeCase(req: Request, res: Response, next: NextFunc
       // route handlers respond with `err.message`, which can expose database
       // errors, stack traces or file paths. Errors below 500 (validation,
       // 4xx) are intentionally kept — they carry user-facing messages.
-      let safe = body;
+      let safe = redactQrConfidentialFields(body);
       if (
         res.statusCode >= 500 &&
         typeof body === "object" &&

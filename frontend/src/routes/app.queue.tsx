@@ -19,6 +19,9 @@ import {
   FilePlus,
   Sparkles,
   Eye,
+  Receipt,
+  CreditCard,
+  FileText,
 } from "lucide-react";
 import { TableSkeleton } from "@/components/skeletons";
 import { toast } from "sonner";
@@ -76,8 +79,18 @@ export function QueuePage({
   const { isAdmin, isTreasury: isTreasuryRole, user } = useAuth();
   const isTreasury = isTreasuryRole || isAdmin;
   const qc = useQueryClient();
+  const [treasuryTab, setTreasuryTab] = useState<
+    "queue" | "receipts" | "supplier-payments" | "notes"
+  >("queue");
   const [side, setSide] = useState<"all" | "sale" | "purchase">("all");
   const [viewInv, setViewInv] = useState<{ kind: "sale" | "purchase"; raw: any } | null>(null);
+  const field = (obj: any, ...keys: string[]) => {
+    for (const key of keys) {
+      const value = obj?.[key];
+      if (value !== undefined && value !== null && value !== "") return value;
+    }
+    return null;
+  };
 
   const salesQ = useQuery({
     queryKey: ["queue-sales"],
@@ -309,7 +322,42 @@ export function QueuePage({
     queryKey: ["queue-notes"],
     queryFn: async () => {
       const data = await api.creditDebitNotes.list();
-      return data.filter((n: any) => n.status === "approved");
+      return [...data].sort((a: any, b: any) =>
+        String(b.note_date ?? b.noteDate ?? b.created_at ?? b.createdAt ?? "").localeCompare(
+          String(a.note_date ?? a.noteDate ?? a.created_at ?? a.createdAt ?? ""),
+        ),
+      );
+    },
+  });
+  const approvedNotes = (notesQ.data ?? []).filter((n: any) => n.status === "approved");
+
+  const receiptsQ = useQuery({
+    queryKey: ["queue-receipts"],
+    queryFn: async () => {
+      const data = await api.paymentReceipts.list();
+      return [...data].sort((a: any, b: any) =>
+        String(b.receipt_date ?? b.receiptDate ?? b.verified_at ?? b.verifiedAt ?? b.submitted_at ?? b.submittedAt ?? "").localeCompare(
+          String(a.receipt_date ?? a.receiptDate ?? a.verified_at ?? a.verifiedAt ?? a.submitted_at ?? a.submittedAt ?? ""),
+        ),
+      );
+    },
+  });
+
+  const supplierPaymentsQ = useQuery({
+    queryKey: ["queue-supplier-payments"],
+    queryFn: async () => {
+      const res = await api.bulkPayments.history();
+      const payments = (res?.payments ?? []) as any[];
+      return payments
+        .filter((p: any) => {
+          const debtor = String(p.debtor_id ?? p.debtorId ?? "");
+          return debtor.startsWith("vendor_") || debtor.startsWith("supplier_");
+        })
+        .sort((a: any, b: any) =>
+          String(b.payment_date ?? b.paymentDate ?? b.created_at ?? b.createdAt ?? "").localeCompare(
+            String(a.payment_date ?? a.paymentDate ?? a.created_at ?? a.createdAt ?? ""),
+          ),
+        );
     },
   });
 
@@ -504,6 +552,31 @@ export function QueuePage({
           </Card>
         </div>
 
+        <div className="flex flex-wrap gap-2 border-b border-border pb-2">
+          {[
+            { key: "queue", label: "Funding queue", icon: Banknote },
+            { key: "receipts", label: "Receipts", icon: Receipt },
+            { key: "supplier-payments", label: "Supplier payments", icon: CreditCard },
+            { key: "notes", label: "Credit / Debit notes", icon: FileText },
+          ].map((tab) => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.key}
+                onClick={() => setTreasuryTab(tab.key as typeof treasuryTab)}
+                className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs transition ${
+                  treasuryTab === tab.key
+                    ? "bg-primary/10 text-primary"
+                    : "text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                <Icon className="h-3.5 w-3.5" /> {tab.label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className={treasuryTab === "queue" ? "space-y-6" : "hidden"}>
         <div className="flex flex-wrap gap-2">
           {(["all", "sale", "purchase"] as const).map((s) => (
             <button
@@ -783,7 +856,7 @@ export function QueuePage({
         <Card title="Approved credit / debit notes — ready to apply">
           {notesQ.isLoading ? (
             <TableSkeleton rows={3} cols={8} />
-          ) : (notesQ.data ?? []).length === 0 ? (
+          ) : approvedNotes.length === 0 ? (
             <div className="py-6 text-center text-sm text-muted-foreground">
               No approved notes waiting to be applied.
             </div>
@@ -803,7 +876,7 @@ export function QueuePage({
                   </tr>
                 </thead>
                 <tbody>
-                  {(notesQ.data ?? []).map((n: any) => {
+                  {approvedNotes.map((n: any) => {
                     const Icon = n.kind === "credit" ? FileMinus : FilePlus;
                     const inv = n.invoice ?? n.purchase;
                     const linkLabel = n.invoice
@@ -920,6 +993,202 @@ export function QueuePage({
             </div>
           )}
         </Card>
+        </div>
+
+        {treasuryTab === "receipts" && (
+          <Card title="Customer receipts">
+            <p className="mb-4 text-xs text-muted-foreground">
+              Verified money received from customers, including receipts imported from Tally XML.
+            </p>
+            {receiptsQ.isLoading ? (
+              <TableSkeleton rows={4} cols={8} />
+            ) : (receiptsQ.data ?? []).length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                <Receipt className="mx-auto mb-3 h-8 w-8 opacity-40" />
+                No customer receipts recorded yet.
+              </div>
+            ) : (
+              <div className="-mx-5 overflow-x-auto table-wrap">
+                <table className="table-premium w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-5 py-2 text-left font-normal">Date</th>
+                      <th className="px-5 py-2 text-left font-normal">Invoice</th>
+                      <th className="px-5 py-2 text-right font-normal">Amount</th>
+                      <th className="px-5 py-2 text-left font-normal">UTR</th>
+                      <th className="px-5 py-2 text-left font-normal">Mode</th>
+                      <th className="px-5 py-2 text-left font-normal">Account</th>
+                      <th className="px-5 py-2 text-left font-normal">Status</th>
+                      <th className="px-5 py-2 text-left font-normal">Submitted</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(receiptsQ.data ?? []).map((r: any) => {
+                      const date = field(r, "receipt_date", "receiptDate");
+                      return (
+                        <tr key={r.id} className="border-b border-border/60 hover:bg-muted/30">
+                          <td className="px-5 py-3 text-sm">{date ? fmtDate(String(date)) : "—"}</td>
+                          <td className="px-5 py-3 font-mono text-xs">
+                            {field(r, "invoice_number", "invoiceNumber") ?? "—"}
+                          </td>
+                          <td className="px-5 py-3 text-right num">{fmtMoney(r.amount)}</td>
+                          <td className="px-5 py-3 font-mono text-xs">{field(r, "utr") ?? "—"}</td>
+                          <td className="px-5 py-3">{field(r, "payment_mode", "paymentMode") ?? "—"}</td>
+                          <td className="px-5 py-3 text-muted-foreground">
+                            {field(r, "collection_account", "collectionAccount") ?? "—"}
+                          </td>
+                          <td className="px-5 py-3">
+                            <StatusPill status={field(r, "status") ?? "submitted"} />
+                          </td>
+                          <td className="px-5 py-3 text-xs text-muted-foreground">
+                            {field(r, "submitted_by", "submittedBy") ?? "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {treasuryTab === "supplier-payments" && (
+          <Card title="Supplier payments">
+            <p className="mb-4 text-xs text-muted-foreground">
+              Payments made to suppliers, including batches and Tally XML payment vouchers.
+            </p>
+            {supplierPaymentsQ.isLoading ? (
+              <TableSkeleton rows={4} cols={9} />
+            ) : (supplierPaymentsQ.data ?? []).length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                <CreditCard className="mx-auto mb-3 h-8 w-8 opacity-40" />
+                No supplier payments recorded yet.
+              </div>
+            ) : (
+              <div className="-mx-5 overflow-x-auto table-wrap">
+                <table className="table-premium w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-5 py-2 text-left font-normal">Date</th>
+                      <th className="px-5 py-2 text-left font-normal">Supplier</th>
+                      <th className="px-5 py-2 text-right font-normal">Amount</th>
+                      <th className="px-5 py-2 text-left font-normal">Reference</th>
+                      <th className="px-5 py-2 text-left font-normal">Tally voucher</th>
+                      <th className="px-5 py-2 text-right font-normal">Invoices closed</th>
+                      <th className="px-5 py-2 text-right font-normal">Remaining</th>
+                      <th className="px-5 py-2 text-left font-normal">Mode</th>
+                      <th className="px-5 py-2 text-left font-normal">Source</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(supplierPaymentsQ.data ?? []).map((p: any) => {
+                      const date = field(p, "payment_date", "paymentDate");
+                      return (
+                        <tr key={p.id} className="border-b border-border/60 hover:bg-muted/30">
+                          <td className="px-5 py-3 text-sm">{date ? fmtDate(String(date)) : "—"}</td>
+                          <td className="px-5 py-3">
+                            {field(p, "debtor_name", "debtorName", "supplier_name", "supplierName") ?? "—"}
+                          </td>
+                          <td className="px-5 py-3 text-right num">{fmtMoney(p.amount)}</td>
+                          <td className="px-5 py-3 font-mono text-xs">{field(p, "reference") ?? "—"}</td>
+                          <td className="px-5 py-3 font-mono text-xs">
+                            {field(p, "voucher_number", "voucherNumber") ?? "—"}
+                          </td>
+                          <td className="px-5 py-3 text-right num">
+                            {field(p, "invoices_closed", "invoicesClosed") ?? 0}
+                          </td>
+                          <td className="px-5 py-3 text-right num">{fmtMoney(p.remaining)}</td>
+                          <td className="px-5 py-3">{field(p, "mode") ?? "—"}</td>
+                          <td className="px-5 py-3">
+                            {field(p, "source") === "tally" ? (
+                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] uppercase tracking-widest text-primary">
+                                Tally XML
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Manual / bulk</span>
+                            )}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        )}
+
+        {treasuryTab === "notes" && (
+          <Card title="Credit / Debit notes">
+            <p className="mb-4 text-xs text-muted-foreground">
+              All credit and debit notes, including those created from Tally XML imports.
+            </p>
+            {notesQ.isLoading ? (
+              <TableSkeleton rows={4} cols={9} />
+            ) : (notesQ.data ?? []).length === 0 ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                <FileText className="mx-auto mb-3 h-8 w-8 opacity-40" />
+                No credit or debit notes recorded yet.
+              </div>
+            ) : (
+              <div className="-mx-5 overflow-x-auto table-wrap">
+                <table className="table-premium w-full text-sm">
+                  <thead className="text-xs uppercase tracking-widest text-muted-foreground">
+                    <tr className="border-b border-border">
+                      <th className="px-5 py-2 text-left font-normal">Type</th>
+                      <th className="px-5 py-2 text-left font-normal">Number</th>
+                      <th className="px-5 py-2 text-left font-normal">Date</th>
+                      <th className="px-5 py-2 text-left font-normal">Counterparty</th>
+                      <th className="px-5 py-2 text-left font-normal">Linked invoice</th>
+                      <th className="px-5 py-2 text-right font-normal">Amount</th>
+                      <th className="px-5 py-2 text-left font-normal">Status</th>
+                      <th className="px-5 py-2 text-left font-normal">Source</th>
+                      <th className="px-5 py-2 text-left font-normal">Reason</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(notesQ.data ?? []).map((n: any) => {
+                      const Icon = n.kind === "credit" ? FileMinus : FilePlus;
+                      const date = field(n, "note_date", "noteDate");
+                      return (
+                        <tr key={n.id} className="border-b border-border/60 hover:bg-muted/30">
+                          <td className="px-5 py-3">
+                            <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest">
+                              <Icon className="h-3.5 w-3.5" /> {n.kind}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3 font-mono text-xs">{field(n, "note_number", "noteNumber") ?? "—"}</td>
+                          <td className="px-5 py-3 text-sm">{date ? fmtDate(String(date)) : "—"}</td>
+                          <td className="px-5 py-3">{field(n, "counterparty") ?? "—"}</td>
+                          <td className="px-5 py-3 font-mono text-xs">
+                            {field(n, "applied_invoice_number", "appliedInvoiceNumber") ?? "—"}
+                          </td>
+                          <td className="px-5 py-3 text-right num">{fmtMoney(n.amount)}</td>
+                          <td className="px-5 py-3">
+                            <StatusPill status={field(n, "status") ?? "pending"} />
+                          </td>
+                          <td className="px-5 py-3">
+                            {field(n, "source") === "tally" ? (
+                              <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] uppercase tracking-widest text-primary">
+                                Tally XML
+                              </span>
+                            ) : (
+                              <span className="text-xs text-muted-foreground">Manual</span>
+                            )}
+                          </td>
+                          <td className="px-5 py-3 text-xs text-muted-foreground">
+                            {field(n, "reason") ?? field(n, "notes") ?? "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </Card>
+        )}
       </div>
 
       {closeFor && (

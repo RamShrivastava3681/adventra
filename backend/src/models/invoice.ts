@@ -71,6 +71,25 @@ export interface Invoice {
   irnEnteredAt: string | null;
   /** Signed e-invoice QR payload (base64/text) for the print QR code. */
   signedQr: string | null;
+  /** Original compact QR/JWT payload captured from the scanner. */
+  signedQrPayload: string | null;
+  /** Signature segment extracted from the signed QR JWT. */
+  signedQrSignature: string | null;
+  /** Decoded JWT header. */
+  signedQrHeader: Record<string, unknown> | null;
+  /** Decoded NIC QR envelope. */
+  signedQrDecoded: Record<string, unknown> | null;
+  /** Invoice compliance snapshot fields. */
+  irnAcknowledgementNumber: string | null;
+  irnAcknowledgementDate: string | null;
+  ewayBillNumber: string | null;
+  invoiceDate: string | null;
+  sellerGstin: string | null;
+  totalInvoiceValue: number | null;
+  itemCount: number | null;
+  mainHsnCode: string | null;
+  complianceSource: string | null;
+  complianceStatus: string | null;
   /** E-Way Bill number (manual paste in v1; NIC service later). */
   ewbNumber: string | null;
   /** E-Way Bill date (YYYY-MM-DD). */
@@ -319,6 +338,20 @@ export async function create(data: Partial<Invoice> & { clientId: string; debtor
     irnEnteredBy: data.irnEnteredBy || null,
     irnEnteredAt: data.irnEnteredAt || null,
     signedQr: data.signedQr || null,
+    signedQrPayload: data.signedQrPayload || null,
+    signedQrSignature: data.signedQrSignature || null,
+    signedQrHeader: data.signedQrHeader || null,
+    signedQrDecoded: data.signedQrDecoded || null,
+    irnAcknowledgementNumber: data.irnAcknowledgementNumber || null,
+    irnAcknowledgementDate: data.irnAcknowledgementDate || null,
+    ewayBillNumber: data.ewayBillNumber || null,
+    invoiceDate: data.invoiceDate || null,
+    sellerGstin: data.sellerGstin || null,
+    totalInvoiceValue: data.totalInvoiceValue ?? null,
+    itemCount: data.itemCount ?? null,
+    mainHsnCode: data.mainHsnCode || null,
+    complianceSource: data.complianceSource || null,
+    complianceStatus: data.complianceStatus || null,
     ewbNumber: data.ewbNumber || null,
     ewbDate: data.ewbDate || null,
     ewbGeneratedAt: data.ewbGeneratedAt || null,
@@ -372,7 +405,7 @@ export async function update(id: string, updates: Partial<Invoice>) {
   // `payment_amount`). Accept both so Sales UTR saves are not silently dropped.
   "utrReference","paymentAmount",
   // Manual e-invoice fields (IRN set via the dedicated endpoint; the rest editable pre-IRN).
-  "ackNo","ackDate","irnSource","irnEnteredBy","irnEnteredAt","signedQr","ewbNumber","ewbDate","placeOfSupply","consigneeName","consigneeAddress","consigneeGstin","consigneePan","consigneeState","consigneeStateCode","buyerGstin","buyerPan","buyerState","buyerStateCode","deliveryNoteRef","deliveryNoteDate","otherReferences","buyerOrderDate","dispatchDocNumber","destination","termsOfDelivery",
+  "ackNo","ackDate","irnSource","irnEnteredBy","irnEnteredAt","signedQr","signedQrPayload","signedQrSignature","signedQrHeader","signedQrDecoded","irnAcknowledgementNumber","irnAcknowledgementDate","ewayBillNumber","invoiceDate","sellerGstin","buyerGstin","totalInvoiceValue","itemCount","mainHsnCode","complianceSource","complianceStatus","ewbNumber","ewbDate","placeOfSupply","consigneeName","consigneeAddress","consigneeGstin","consigneePan","consigneeState","consigneeStateCode","buyerGstin","buyerPan","buyerState","buyerStateCode","deliveryNoteRef","deliveryNoteDate","otherReferences","buyerOrderDate","dispatchDocNumber","destination","termsOfDelivery",
   "ewbGeneratedAt","ewbValidUntil","irnAttachmentId","ewbAttachmentId","tallyVoucherRef","tallyInvoiceNumber","transporter","vehicleNumber","lrRef"]; /* "irn" intentionally excluded — written only by recordIrn/clearIrn */
   for (const k of allowed) { if ((updates as any)[k] !== undefined) patch[k] = (updates as any)[k]; }
   // Normalize the camelCase variants to the snake_case storage keys.
@@ -446,7 +479,28 @@ export function normalizeIrn(v: unknown): string | null {
  */
 export async function recordIrn(
   id: string,
-  data: { irn: string; ackNo?: string | null; ackDate?: string | null; enteredBy: string; source?: "manual" | "tally" },
+  data: {
+    irn: string;
+    ackNo?: string | null;
+    ackDate?: string | null;
+    enteredBy: string;
+    source?: "manual" | "tally";
+    signedQrPayload?: string | null;
+    signedQrSignature?: string | null;
+    signedQrHeader?: Record<string, unknown> | null;
+    signedQrDecoded?: Record<string, unknown> | null;
+    irnAcknowledgementNumber?: string | null;
+    irnAcknowledgementDate?: string | null;
+    ewayBillNumber?: string | null;
+    invoiceDate?: string | null;
+    sellerGstin?: string | null;
+    buyerGstin?: string | null;
+    totalInvoiceValue?: number | null;
+    itemCount?: number | null;
+    mainHsnCode?: string | null;
+    complianceSource?: string | null;
+    complianceStatus?: string | null;
+  },
 ): Promise<Invoice> {
   const current = await get(id);
   if (!current) throw new Error("Invoice not found");
@@ -476,6 +530,27 @@ export async function recordIrn(
     irnEnteredAt: db.nowISO(),
     updatedAt: db.nowISO(),
   };
+  if (data.signedQrPayload !== undefined) patch.signedQrPayload = data.signedQrPayload || null;
+  if (data.signedQrPayload) patch.signedQr = data.signedQrPayload;
+  if (data.signedQrSignature !== undefined) patch.signedQrSignature = data.signedQrSignature?.replace(/\s+/g, "") || null;
+  if (data.signedQrHeader !== undefined) patch.signedQrHeader = data.signedQrHeader || null;
+  if (data.signedQrDecoded !== undefined) patch.signedQrDecoded = data.signedQrDecoded || null;
+  if (data.irnAcknowledgementNumber !== undefined) patch.irnAcknowledgementNumber = data.irnAcknowledgementNumber || null;
+  if (data.irnAcknowledgementNumber !== undefined) patch.ackNo = data.irnAcknowledgementNumber || ackNo;
+  if (data.irnAcknowledgementDate !== undefined) {
+    patch.irnAcknowledgementDate = data.irnAcknowledgementDate || null;
+  } else if (ackDate) {
+    patch.irnAcknowledgementDate = ackDate;
+  }
+  if (data.ewayBillNumber !== undefined) patch.ewayBillNumber = data.ewayBillNumber || null;
+  if (data.invoiceDate !== undefined) patch.invoiceDate = data.invoiceDate || null;
+  if (data.sellerGstin !== undefined) patch.sellerGstin = data.sellerGstin || null;
+  if (data.buyerGstin !== undefined) patch.buyerGstin = data.buyerGstin || null;
+  if (data.totalInvoiceValue !== undefined) patch.totalInvoiceValue = data.totalInvoiceValue ?? null;
+  if (data.itemCount !== undefined) patch.itemCount = data.itemCount ?? null;
+  if (data.mainHsnCode !== undefined) patch.mainHsnCode = data.mainHsnCode || null;
+  if (data.complianceSource !== undefined) patch.complianceSource = data.complianceSource || null;
+  if (data.complianceStatus !== undefined) patch.complianceStatus = data.complianceStatus || null;
   // Advance the workflow past IRN pending when the invoice is approved.
   if (current.status === "approved") patch.status = "approved";
   return db.updateItem(`INVOICE#${id}`, `INVOICE#${id}`, patch) as Promise<Invoice>;

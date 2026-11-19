@@ -2089,6 +2089,7 @@ export interface TallyInvoiceData {
   irn: string | null;
   ackNo: string | null;
   ackDate: string | null;
+  qrStatus: string | null;
   qrImage: Buffer | null;
   seller: TallySOSeller;
   consignee: TallyInvoiceParty;
@@ -2283,6 +2284,9 @@ export function invoiceToTallyData(
     irn: g("irn", "irn"),
     ackNo: g("ackNo", "ack_no"),
     ackDate: fmtTallyShortDate(g("ackDate", "ack_date") || "") || null,
+    qrStatus:
+      g("complianceStatus", "compliance_status") ||
+      (g("signedQrPayload", "signed_qr_payload") ? "Captured - signature verification pending" : null),
     qrImage: opts?.qrImage ?? null,
     seller: {
       name: s.name || "",
@@ -2427,6 +2431,10 @@ export function buildInvoiceTallyPdf(data: TallyInvoiceData): Promise<Buffer> {
         doc.font(FB).fontSize(7.5).text(`: ${data.ackNo ?? ""}`, M + PAD + 46, ackY);
         doc.font(F).fontSize(7.5).text("Ack Date", M + PAD, ackY + 11, { width: 44 });
         doc.font(FB).fontSize(7.5).text(`: ${data.ackDate ?? ""}`, M + PAD + 46, ackY + 11);
+        if (data.qrStatus) {
+          doc.font(F).fontSize(7).text("QR Status", M + PAD, ackY + 22, { width: 44 });
+          doc.font(FB).fontSize(7).text(`: ${data.qrStatus}`, M + PAD + 46, ackY + 22);
+        }
         if (data.qrImage) {
           try {
             doc.image(data.qrImage, M + leftW + 6, y + 2, { fit: [qrW, h - 4], align: "center", valign: "center" });

@@ -153,12 +153,31 @@ type Inv = {
   ack_no: string | null;
   ack_date: string | null;
   irn_source: string | null;
+  signed_qr_payload?: string | null;
+  signed_qr_signature?: string | null;
+  signed_qr_header?: Record<string, unknown> | null;
+  signed_qr_decoded?: Record<string, unknown> | null;
+  irn_acknowledgement_number?: string | null;
+  irn_acknowledgement_date?: string | null;
+  eway_bill_number?: string | null;
+  invoice_date?: string | null;
+  seller_gstin?: string | null;
+  buyer_gstin?: string | null;
+  total_invoice_value?: number | null;
+  item_count?: number | null;
+  main_hsn_code?: string | null;
+  compliance_source?: string | null;
+  compliance_status?: string | null;
   /** Manually pasted e-Way Bill number (v1). */
   ewb_number: string | null;
   ewb_valid_until?: string | null;
   transporter?: string | null;
   vehicle_number?: string | null;
   lr_ref?: string | null;
+  /** Tally voucher number imported from / exported to Tally. */
+  tally_voucher_ref: string | null;
+  /** Final invoice number issued by Tally. */
+  tally_invoice_number: string | null;
 };
 
 function round2(n: number): number {
@@ -514,6 +533,14 @@ function InvoicesPageContent({
                                   title={`e-Way Bill: ${i.ewb_number}${i.ewb_valid_until ? ` · valid to ${i.ewb_valid_until}` : ""}${i.transporter ? ` · ${i.transporter}` : ""}`}
                                 >
                                   EWB {String(i.ewb_number)}
+                                </div>
+                              ) : null}
+                              {i.tally_voucher_ref ? (
+                                <div
+                                  className="text-[10px] text-muted-foreground"
+                                  title={`Tally voucher: ${i.tally_voucher_ref}`}
+                                >
+                                  Tally Voucher {i.tally_voucher_ref}
                                 </div>
                               ) : null}
                               {i.po_number && (
@@ -1939,6 +1966,25 @@ function InvoiceDetailModal({
                   {invoice.ack_no && <D label="Ack No." value={invoice.ack_no} />}
                   {invoice.ack_date && <D label="Ack Date" value={fmtDate(invoice.ack_date)} />}
                   {invoice.irn_source && <D label="IRN source" value={invoice.irn_source} />}
+                  {invoice.compliance_status && (
+                    <D label="QR Status" value={invoice.compliance_status} />
+                  )}
+                  {(invoice.signed_qr_payload || invoice.signed_qr_signature) && (
+                    <div className="col-span-2 md:col-span-3 flex items-center gap-4 rounded-md border border-border p-3">
+                      {invoice.signed_qr_payload && (
+                        <img
+                          src={`/api/invoices/${invoice.id}/qr`}
+                          alt="Signed e-invoice QR"
+                          className="h-28 w-28 rounded border border-border bg-white p-1"
+                        />
+                      )}
+                      <div className="min-w-0 text-xs text-muted-foreground">
+                        {invoice.signed_qr_payload
+                          ? "Signed QR payload captured."
+                          : "QR header and signature captured; original compact payload required for final production verification."}
+                      </div>
+                    </div>
+                  )}
                 </>
               ) : (
                 <D
@@ -1959,6 +2005,17 @@ function InvoiceDetailModal({
                 {invoice.transporter && <D label="Transporter" value={invoice.transporter} />}
                 {invoice.vehicle_number && <D label="Vehicle No." value={invoice.vehicle_number} />}
                 {invoice.lr_ref && <D label="LR / Doc ref" value={invoice.lr_ref} />}
+              </>
+            )}
+            {(invoice.tally_voucher_ref || invoice.tally_invoice_number) && (
+              <>
+                {invoice.tally_voucher_ref && (
+                  <D label="Tally voucher no." value={invoice.tally_voucher_ref} />
+                )}
+                {invoice.tally_invoice_number &&
+                  invoice.tally_invoice_number !== invoice.tally_voucher_ref && (
+                    <D label="Tally invoice no." value={invoice.tally_invoice_number} />
+                  )}
               </>
             )}
             {invoice.po_amount != null && invoice.po_amount > 0 && (

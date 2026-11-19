@@ -419,7 +419,12 @@ router.get("/bulk-payments/history", async (req: Request, res: Response) => {
 
     const enriched = payments.map((p) => ({
       ...p,
-      debtorName: debtorMap.get(p.debtorId) ?? vendorMap.get(p.debtorId) ?? supplierMap.get(p.debtorId) ?? "Unknown",
+      debtorName:
+        p.supplierName ??
+        debtorMap.get(p.debtorId) ??
+        vendorMap.get(p.debtorId) ??
+        supplierMap.get(p.debtorId) ??
+        "Unknown",
     }));
     res.json({
       payments: enriched,

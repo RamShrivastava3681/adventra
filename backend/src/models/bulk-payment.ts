@@ -38,6 +38,14 @@ export interface BulkPayment {
   partialInvoices: BulkPaymentPartialInvoice[];
   creditNoteIds: string[];
   mode: BulkPaymentMode;
+  /** Bank UTR / voucher reference, when supplied (Tally imports store this). */
+  reference?: string | null;
+  /** Origin of the record: bulk processing or Tally XML import. */
+  source?: string | null;
+  /** Tally voucher number for imported payments. */
+  voucherNumber?: string | null;
+  /** Denormalized supplier name so imported payments render without lookups. */
+  supplierName?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -55,7 +63,8 @@ export async function get(id: string) {
 }
 
 export async function create(
-  data: Pick<BulkPayment, "clientId" | "debtorId" | "amount" | "paymentDate" | "remaining" | "invoicesClosed" | "closedInvoices" | "partialInvoices" | "creditNoteIds" | "mode">,
+  data: Pick<BulkPayment, "clientId" | "debtorId" | "amount" | "paymentDate" | "remaining" | "invoicesClosed" | "closedInvoices" | "partialInvoices" | "creditNoteIds" | "mode"> &
+    Partial<Pick<BulkPayment, "reference" | "source" | "voucherNumber" | "supplierName">>,
 ) {
   const id = uuid();
   const now = db.nowISO();
@@ -76,6 +85,10 @@ export async function create(
     partialInvoices: data.partialInvoices,
     creditNoteIds: data.creditNoteIds,
     mode: data.mode,
+    reference: data.reference || null,
+    source: data.source || null,
+    voucherNumber: data.voucherNumber || null,
+    supplierName: data.supplierName || null,
     createdAt: now,
     updatedAt: now,
   };

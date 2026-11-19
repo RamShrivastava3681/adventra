@@ -1058,6 +1058,16 @@ const api = {
     delete: (id: string) => api.delete(`/credit-debit-notes/${id}`),
   },
 
+  // Customer payment receipts (Treasury verification queue).
+  paymentReceipts: {
+    list: () => api.get<any[]>("/payment-receipts"),
+  },
+
+  // Supplier/customer payment batches, used by the Treasury payment tabs.
+  bulkPayments: {
+    history: () => api.get<any>("/bulk-payments/history"),
+  },
+
   // Balance Sheet
   balanceEntries: {
     list: () => api.get<any[]>("/balance-entries"),
