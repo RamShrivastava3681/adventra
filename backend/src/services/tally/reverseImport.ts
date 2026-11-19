@@ -171,6 +171,45 @@ function normalizeDate(raw: string | null): string {
   return new Date().toISOString().slice(0, 10);
 }
 
+function normalizeGstin(raw: string | null): string | null {
+  const s = String(raw ?? "").replace(/\s+/g, "").toUpperCase();
+  return /^[0-9]{2}[A-Z0-9]{13}$/.test(s) ? s : null;
+}
+
+function extractIrnFromText(text: string | null): string | null {
+  if (!text) return null;
+  const m = /\bIRN\s*[:\-]?\s*([0-9A-Fa-f]{64})\b/.exec(text);
+  return m ? m[1] : null;
+}
+
+function extractAckFromText(text: string | null): string | null {
+  if (!text) return null;
+  const m = /\b(?:Acknowledgement|Ack)\s*(?:number|no\.?)?\s*[:\-]?\s*(\d{9,20})\b/i.exec(text);
+  return m ? m[1] : null;
+}
+
+function extractEwayFromText(text: string | null): string | null {
+  if (!text) return null;
+  const m = /\b(?:e-?way\s*bill|ewb)\s*(?:no\.?|number)?\s*[:\-]?\s*(\d{8,20})\b/i.exec(text);
+  return m ? m[1] : null;
+}
+
+function extractWhizunikRef(text: string | null): string | null {
+  if (!text) return null;
+  const m = /\bWhizUnik\s*Ref\s*[:\-]\s*([A-Za-z0-9][A-Za-z0-9/_.-]*)/i.exec(text);
+  return m ? m[1] : null;
+}
+
+function resolveDocumentNumber(voucher: StagedTallyVoucher): string {
+  // WhizUnik invoice numbers live in REFERENCE; VOUCHERNUMBER is Tally's
+  // internal serial (e.g. 46). Prefer the reference so matching works.
+  return (
+    (voucher.reference && voucher.reference.trim()) ||
+    (voucher.voucherNumber && voucher.voucherNumber.trim()) ||
+    ""
+  );
+}
+
 function parseQty(raw: string | null): { quantity: number; unit: string } {
   if (!raw) return { quantity: 0, unit: "" };
   const m = /^(-?[\d,.]+)\s*(.*)$/.exec(raw.trim());
@@ -204,7 +243,7 @@ function gstRateFromBlock(block: string): number | null {
 function parseInventoryLines(block: string): StagedTallyLine[] {
   const lines: StagedTallyLine[] = [];
   for (const entry of extractAllTags(block, "ALLINVENTORYENTRIES.LIST")) {
-    const stockItem = extractTag(entry, "STOCKITEMNAME") || extractTag(entry, "STOCKITEMNAME");
+    const stockItem = extractTag(entry, "STOCKITEMNAME");
     if (!stockItem) continue;
     const amount = Math.abs(toNumber(extractTag(entry, "AMOUNT")));
     const qtyRaw = extractTag(entry, "BILLEDQTY") || extractTag(entry, "ACTUALQTY");
@@ -271,7 +310,7 @@ export function parseTallyMasters(xmlContent: string): StagedTallyMaster[] {
     if (!kind) continue;
     const addressLines = extractAllTags(block, "ADDRESS");
     const parsedAddress = parseAddressParts(addressLines);
-    const gstin = extractTag(block, "PARTYGSTIN") || extractTag(block, "GSTIN");
+    const gstin = normalizeGstin(extractTag(block, "PARTYGSTIN") || extractTag(block, "GSTIN"));
     const state =
       extractTag(block, "LEDSTATENAME") ||
       extractTag(block, "LEDGERSTATENAME") ||
@@ -359,17 +398,34 @@ export function parseTallyXml(xmlContent: string): StagedTallyVoucher[] {
       extractTag(block, "VOUCHERNUMBER") ||
       extractAttr(block, "VOUCHER", "VOUCHERNUMBER") ||
       extractAttr(block, "VOUCHER", "NUMBER");
-    const reference = extractTag(block, "REFERENCE") || voucherNumber;
     const narration = extractTag(block, "NARRATION");
+    const reference =
+      extractTag(block, "REFERENCE") || extractWhizunikRef(narration) || voucherNumber;
     const partyName = extractTag(block, "PARTYLEDGERNAME") || extractTag(block, "BASICBUYERNAME");
-    const partyGstin = extractTag(block, "PARTYGSTIN");
+    const partyGstin = normalizeGstin(extractTag(block, "PARTYGSTIN"));
     const placeOfSupply = extractTag(block, "PLACEOFSUPPLY");
 
-    const irn = extractTag(block, "IRN") || extractTag(block, "IRNACKNO");
-    const ackNo = extractTag(block, "ACKNO") || extractTag(block, "GSTINVOICEACKNO");
-    const ackDate = extractTag(block, "ACKDATE");
-    const ewayBillNo = extractTag(block, "EWAYBILLNO") || extractTag(block, "EWBNO");
-    const ewayBillDate = extractTag(block, "EWAYBILLDATE");
+    const ewayBlock = extractAllTags(block, "EWAYBILLDETAILS.LIST")[0] || "";
+    const irn =
+      extractTag(block, "IRN") ||
+      extractTag(block, "IRNACKNO") ||
+      extractIrnFromText(narration);
+    const ackNo =
+      extractTag(block, "ACKNO") ||
+      extractTag(block, "GSTINVOICEACKNO") ||
+      extractAckFromText(narration);
+    const ackDateRaw = extractTag(block, "ACKDATE");
+    const ackDate = ackDateRaw ? normalizeDate(ackDateRaw) : null;
+    const ewayBillNo =
+      extractTag(block, "EWAYBILLNO") ||
+      extractTag(block, "EWBNO") ||
+      (ewayBlock ? extractTag(ewayBlock, "BILLNUMBER") : null) ||
+      extractEwayFromText(narration);
+    const ewayBillDateRaw =
+      extractTag(block, "EWAYBILLDATE") ||
+      (ewayBlock ? extractTag(ewayBlock, "BILLDATE") : null) ||
+      (ewayBlock ? extractTag(ewayBlock, "VALIDUNTIL") : null);
+    const ewayBillDate = ewayBillDateRaw ? normalizeDate(ewayBillDateRaw) : null;
 
     const ledgers: StagedTallyLedger[] = [];
     let voucherAmount = 0;
@@ -425,8 +481,8 @@ export async function matchAndClassifyStaged(
   staged: StagedTallyVoucher[],
 ): Promise<StagedTallyVoucher[]> {
   const [invoices, purchases, debtors, suppliers] = await Promise.all([
-    Invoice.list(clientId).catch(() => [] as any[]),
-    PurchaseInvoice.list(clientId).catch(() => [] as any[]),
+    Invoice.list().catch(() => [] as any[]),
+    PurchaseInvoice.list().catch(() => [] as any[]),
     Debtor.list().catch(() => [] as any[]),
     Supplier.list().catch(() => [] as any[]),
   ]);
@@ -445,7 +501,7 @@ export async function matchAndClassifyStaged(
   const supplierNames = new Set((suppliers as any[]).map((s) => (s.companyName || "").trim().toLowerCase()));
 
   for (const row of staged) {
-    const refKey = (row.reference || row.voucherNumber || "").trim().toLowerCase();
+    const refKey = resolveDocumentNumber(row).toLowerCase();
     const isSales = row.voucherType.toLowerCase().includes("sales");
     const isPurchase = row.voucherType.toLowerCase().includes("purchase");
 
@@ -506,7 +562,7 @@ export async function matchAndClassifyMasters(
     Debtor.list().catch(() => [] as any[]),
     Supplier.list().catch(() => [] as any[]),
     Vendor.list().catch(() => [] as any[]),
-    Product.list(clientId).catch(() => [] as any[]),
+    Product.list().catch(() => [] as any[]),
   ]);
 
   const debtorByName = new Map<string, any>();
@@ -748,7 +804,7 @@ async function importMasters(
     Debtor.list().catch(() => [] as any[]),
     Supplier.list().catch(() => [] as any[]),
     Vendor.list().catch(() => [] as any[]),
-    Product.list(clientId).catch(() => [] as any[]),
+    Product.list().catch(() => [] as any[]),
   ]);
 
   const debtorByName = new Map<string, any>();
@@ -920,11 +976,11 @@ async function importVouchers(
     Debtor.list().catch(() => [] as any[]),
     Supplier.list().catch(() => [] as any[]),
     Vendor.list().catch(() => [] as any[]),
-    Product.list(clientId).catch(() => [] as any[]),
-    Invoice.list(clientId).catch(() => [] as any[]),
-    PurchaseInvoice.list(clientId).catch(() => [] as any[]),
-    PaymentReceipt.list(clientId).catch(() => [] as any[]),
-    CreditDebitNote.list(clientId).catch(() => [] as any[]),
+    Product.list().catch(() => [] as any[]),
+    Invoice.list().catch(() => [] as any[]),
+    PurchaseInvoice.list().catch(() => [] as any[]),
+    PaymentReceipt.list().catch(() => [] as any[]),
+    CreditDebitNote.list().catch(() => [] as any[]),
   ]);
 
   const debtorByName = new Map<string, any>();
@@ -1001,12 +1057,12 @@ async function importVouchers(
   for (const voucher of vouchers) {
     const type = voucher.voucherType.toLowerCase();
     const docNumber =
-      voucher.voucherNumber || voucher.reference || `TALLY-${voucher.date || "UNKNOWN"}`;
+      resolveDocumentNumber(voucher) || `TALLY-${voucher.date || "UNKNOWN"}`;
     try {
       if (type.includes("sales")) {
         const debtor = await resolveDebtor(voucher, debtorMaps);
         if (!debtor) throw new Error(`Customer "${voucher.partyName || "unknown"}" not found.`);
-        const invoiceNumber = voucher.voucherNumber || voucher.reference || `TALLY-SI-${Date.now()}`;
+        const invoiceNumber = resolveDocumentNumber(voucher) || `TALLY-SI-${Date.now()}`;
         const existing = invoicesByNumber.get(invoiceNumber.trim().toLowerCase());
         if (existing) {
           // Existing invoice: enrich missing Tally metadata instead of
@@ -1019,29 +1075,44 @@ async function importVouchers(
           if (!existing.tallyInvoiceNumber && (voucher.voucherNumber || voucher.reference)) {
             patch.tallyInvoiceNumber = voucher.voucherNumber || voucher.reference;
           }
-          if (!existing.ewbNumber && voucher.ewayBillNo) {
-            patch.ewbNumber = voucher.ewayBillNo;
-            patch.ewbDate = voucher.ewayBillDate ? normalizeDate(voucher.ewayBillDate) : null;
-          }
           if (Object.keys(patch).length) {
             await Invoice.update(existing.id, patch);
             changed = true;
           }
-          if (!existing.irn && voucher.irn) {
+          if (existing.irn && voucher.irn && existing.irn.toLowerCase() !== voucher.irn.toLowerCase()) {
+            report.warnings.push({
+              section: "sales",
+              docNumber: invoiceNumber,
+              message: `IRN in Tally differs from WhizUnik - kept the existing IRN.`,
+            });
+          }
+          if (existing.ewbNumber && voucher.ewayBillNo && existing.ewbNumber !== voucher.ewayBillNo) {
+            report.warnings.push({
+              section: "sales",
+              docNumber: invoiceNumber,
+              message: `e-Way Bill number in Tally differs from WhizUnik - kept the existing number.`,
+            });
+          }
+          const missingStatutory =
+            (!existing.irn && voucher.irn) ||
+            (!existing.ackNo && voucher.ackNo) ||
+            (!existing.ewbNumber && voucher.ewayBillNo);
+          if (missingStatutory) {
             try {
-              await Invoice.recordIrn(existing.id, {
-                irn: voucher.irn,
-                ackNo: voucher.ackNo,
-                ackDate: voucher.ackDate ? normalizeDate(voucher.ackDate) : null,
+              await Invoice.applyTallyStatutory(existing.id, {
+                irn: !existing.irn ? voucher.irn : null,
+                ackNo: !existing.ackNo ? voucher.ackNo : null,
+                ackDate: !existing.ackDate && voucher.ackDate ? normalizeDate(voucher.ackDate) : null,
+                ewbNumber: !existing.ewbNumber ? voucher.ewayBillNo : null,
+                ewbDate: !existing.ewbDate && voucher.ewayBillDate ? normalizeDate(voucher.ewayBillDate) : null,
                 enteredBy: updatedBy,
-                source: "tally",
               });
               changed = true;
             } catch (err: any) {
               report.warnings.push({
                 section: "sales",
                 docNumber: invoiceNumber,
-                message: `IRN not applied to existing invoice: ${err?.message || err}`,
+                message: `Statutory details not applied: ${err?.message || err}`,
               });
             }
           }
@@ -1074,7 +1145,7 @@ async function importVouchers(
           report.warnings.push({
             section: "sales",
             docNumber: invoiceNumber,
-            message: `IRN "${voucher.irn}" is not a valid 64-character IRP reference — not saved.`,
+            message: `IRN "${voucher.irn}" is not a valid 64-character IRP reference - not saved.`,
           });
         }
         const created = await Invoice.create({
@@ -1116,7 +1187,7 @@ async function importVouchers(
       } else if (type.includes("purchase")) {
         const supplier = await resolveSupplier(voucher, supplierMaps);
         if (!supplier) throw new Error(`Supplier "${voucher.partyName || "unknown"}" not found.`);
-        const invoiceNumber = voucher.voucherNumber || voucher.reference || `TALLY-PI-${Date.now()}`;
+        const invoiceNumber = resolveDocumentNumber(voucher) || `TALLY-PI-${Date.now()}`;
         const key = `${supplier.id}|${invoiceNumber.trim().toLowerCase()}`;
         if (purchasesByKey.has(key)) {
           report.vouchers.purchases.skipped++;
@@ -1314,7 +1385,7 @@ async function importVouchers(
         report.warnings.push({
           section: "vouchers",
           docNumber,
-          message: `Unsupported voucher type "${voucher.voucherType}" — skipped.`,
+          message: `Unsupported voucher type "${voucher.voucherType}" - skipped.`,
         });
       }
     } catch (err: any) {
@@ -1354,3 +1425,4 @@ export async function importTallyXml(
 
   return report;
 }
+

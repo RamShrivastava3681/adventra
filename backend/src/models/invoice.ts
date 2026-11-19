@@ -482,6 +482,51 @@ export async function recordIrn(
 }
 
 /**
+ * Apply statutory metadata coming from a Tally reverse import. Unlike
+ * recordIrn(), this also works on already-paid invoices because the Tally
+ * voucher is the source of truth for IRN / acknowledgement / e-Way Bill.
+ */
+export async function applyTallyStatutory(
+  id: string,
+  data: {
+    irn?: string | null;
+    ackNo?: string | null;
+    ackDate?: string | null;
+    ewbNumber?: string | null;
+    ewbDate?: string | null;
+    enteredBy: string;
+  },
+): Promise<Invoice> {
+  const current = await get(id);
+  if (!current) throw new Error("Invoice not found");
+  if (["cancelled", "rejected"].includes(current.status)) {
+    throw new Error(`Cannot update statutory details on a ${current.status} invoice`);
+  }
+  const patch: Record<string, any> = { updatedAt: db.nowISO() };
+  if (data.irn && !current.irn) {
+    const irn = normalizeIrn(data.irn);
+    if (!irn) throw new Error("IRN must be the 64-character hex string from Tally");
+    patch.irn = irn;
+    patch.irnSource = "tally";
+    patch.irnEnteredBy = data.enteredBy;
+    patch.irnEnteredAt = db.nowISO();
+  }
+  if (data.ackNo !== undefined && data.ackNo !== null && !current.ackNo) {
+    patch.ackNo = String(data.ackNo).trim() || null;
+  }
+  if (data.ackDate !== undefined && data.ackDate !== null && !current.ackDate) {
+    patch.ackDate = String(data.ackDate).slice(0, 10) || null;
+  }
+  if (data.ewbNumber && !current.ewbNumber) {
+    patch.ewbNumber = String(data.ewbNumber).trim();
+  }
+  if (data.ewbDate && !current.ewbDate) {
+    patch.ewbDate = String(data.ewbDate).slice(0, 10);
+  }
+  return db.updateItem(`INVOICE#${id}`, `INVOICE#${id}`, patch) as Promise<Invoice>;
+}
+
+/**
  * Clear a manually-entered IRN (same-day correction only — the route layer
  * blocks this once dispatch/ewb activity exists on the invoice).
  */

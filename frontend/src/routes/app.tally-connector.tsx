@@ -1951,7 +1951,8 @@ function ReverseImportTab() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Voucher #</TableHead>
+                    <TableHead>Invoice / Reference</TableHead>
+                    <TableHead>Tally #</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Party</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
@@ -1963,7 +1964,8 @@ function ReverseImportTab() {
                 <TableBody>
                   {stagedResult.vouchers?.map((v: any, i: number) => (
                     <TableRow key={i}>
-                      <TableCell className="font-mono text-xs font-semibold">{v.voucherNumber || v.reference}</TableCell>
+                      <TableCell className="font-mono text-xs font-semibold">{v.reference || v.voucherNumber}</TableCell>
+                      <TableCell className="font-mono text-xs">{v.voucherNumber || "-"}</TableCell>
                       <TableCell className="text-xs">{v.voucherType}</TableCell>
                       <TableCell className="text-xs">{v.partyName}</TableCell>
                       <TableCell className="text-right tabular-nums text-xs font-bold">{money(v.amount)}</TableCell>

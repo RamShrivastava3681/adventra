@@ -624,4 +624,66 @@ describe("Reverse Import XML Parser", () => {
     expect(staged[0].irn).toBe("64charhexstring1234567890abcdef1234567890abcdef1234567890abcdef1234");
     expect(staged[0].ewayBillNo).toBe("123456789012");
   });
+
+  it("prefers REFERENCE and reads IRN/e-way bill from narration and EWAYBILLDETAILS", () => {
+    const irn = "20F566B203FFA0AD13D5B986151033A97E6A4589ADE3E248B1934E27F8379E67";
+    const tallyXml = `
+      <ENVELOPE>
+        <BODY>
+          <IMPORTDATA>
+            <REQUESTDATA>
+              <TALLYMESSAGE>
+                <VOUCHER VCHTYPE="Sales" ACTION="Create">
+                  <DATE>20261001</DATE>
+                  <NARRATION>WhizUnik Ref: INV-322C0950 | IRN: ${irn} Acknowledgement number: 276451908372615</NARRATION>
+                  <PARTYGSTIN>123456789</PARTYGSTIN>
+                  <VOUCHERTYPENAME>Sales</VOUCHERTYPENAME>
+                  <PARTYLEDGERNAME>Nehaazzzz</PARTYLEDGERNAME>
+                  <VOUCHERNUMBER>46</VOUCHERNUMBER>
+                  <REFERENCE>INV-322C0950</REFERENCE>
+                  <EWAYBILLDETAILS.LIST>
+                    <BILLNUMBER>123456789012</BILLNUMBER>
+                    <BILLDATE>20261002</BILLDATE>
+                  </EWAYBILLDETAILS.LIST>
+                  <ALLINVENTORYENTRIES.LIST>
+                    <STOCKITEMNAME>Boots - BLUE</STOCKITEMNAME>
+                    <GSTHSNNAME>64041990</GSTHSNNAME>
+                    <AMOUNT>60000.00</AMOUNT>
+                    <BILLEDQTY> 15 pics</BILLEDQTY>
+                    <INCLVATRATE>4720.00/pics</INCLVATRATE>
+                    <RATEDETAILS.LIST><GSTRATEDUTYHEAD>IGST</GSTRATEDUTYHEAD><GSTRATE> 18</GSTRATE></RATEDETAILS.LIST>
+                  </ALLINVENTORYENTRIES.LIST>
+                  <LEDGERENTRIES.LIST>
+                    <LEDGERNAME>Nehaazzzz</LEDGERNAME>
+                    <AMOUNT>-70800.00</AMOUNT>
+                    <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+                    <ISPARTYLEDGER>Yes</ISPARTYLEDGER>
+                  </LEDGERENTRIES.LIST>
+                </VOUCHER>
+              </TALLYMESSAGE>
+            </REQUESTDATA>
+          </IMPORTDATA>
+        </BODY>
+      </ENVELOPE>
+    `;
+
+    const staged = parseTallyXml(tallyXml);
+    expect(staged).toHaveLength(1);
+    expect(staged[0].voucherNumber).toBe("46");
+    expect(staged[0].reference).toBe("INV-322C0950");
+    expect(staged[0].irn).toBe(irn);
+    expect(staged[0].ackNo).toBe("276451908372615");
+    expect(staged[0].ewayBillNo).toBe("123456789012");
+    expect(staged[0].ewayBillDate).toBe("2026-10-02");
+    expect(staged[0].partyGstin).toBeNull();
+    expect(staged[0].amount).toBe(70800);
+    expect(staged[0].lines[0]).toMatchObject({
+      stockItem: "Boots - BLUE",
+      quantity: 15,
+      unit: "pics",
+      unitPrice: 4720,
+      gstRate: 18,
+      hsnCode: "64041990",
+    });
+  });
 });
