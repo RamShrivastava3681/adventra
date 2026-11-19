@@ -1778,40 +1778,117 @@ function HistoryTab() {
 
 // ─── Reverse Import Tab (Future-Ready) ───────────────────────────────────────
 
+function sumImportCounts(group: any) {
+  const totals = { created: 0, updated: 0, skipped: 0, failed: 0 };
+  for (const counts of Object.values(group || {}) as any[]) {
+    totals.created += Number(counts?.created) || 0;
+    totals.updated += Number(counts?.updated) || 0;
+    totals.skipped += Number(counts?.skipped) || 0;
+    totals.failed += Number(counts?.failed) || 0;
+  }
+  return totals;
+}
+
 function ReverseImportTab() {
   const [xmlText, setXmlText] = useState("");
+  const [createMissingMasters, setCreateMissingMasters] = useState(true);
   const [stagedResult, setStagedResult] = useState<any | null>(null);
+  const [importResult, setImportResult] = useState<any | null>(null);
 
   const parseMutation = useMutation({
     mutationFn: () => api.tally.reverseImportParse(xmlText),
     onSuccess: (data) => {
       setStagedResult(data);
+      setImportResult(null);
       toast.success("Tally XML Parsed & Reconciled", {
-        description: `Identified ${data.totalCount} vouchers (${data.matchedCount} matched, ${data.newCount} new).`,
+        description: `Identified ${data.totalCount} vouchers and ${data.masterCount ?? 0} masters.`,
       });
     },
     onError: (e: any) => toast.error(e.message || "Failed to parse XML"),
   });
 
+  const importMutation = useMutation({
+    mutationFn: () => api.tally.reverseImportCommit(xmlText, createMissingMasters),
+    onSuccess: (data) => {
+      setImportResult(data);
+      const masters = sumImportCounts(data.masters);
+      const vouchers = sumImportCounts(data.vouchers);
+      toast.success("Tally XML Imported", {
+        description: `${masters.created + vouchers.created} created, ${masters.updated + vouchers.updated} updated, ${masters.skipped + vouchers.skipped} skipped.`,
+      });
+    },
+    onError: (e: any) => toast.error(e.message || "Failed to import XML"),
+  });
+
+  async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    const text = await file.text();
+    setXmlText(text);
+    setStagedResult(null);
+    setImportResult(null);
+    toast.success("XML file loaded", {
+      description: `${file.name} (${Math.max(1, Math.round(file.size / 1024))} KB)`,
+    });
+    event.target.value = "";
+  }
+
+  function handleImport() {
+    if (!xmlText.trim()) return;
+    const ok = window.confirm(
+      "Import this Tally XML into WhizUnik? Existing records are matched by document number and skipped, not overwritten.",
+    );
+    if (ok) importMutation.mutate();
+  }
+
+  const masterTotals = importResult ? sumImportCounts(importResult.masters) : null;
+  const voucherTotals = importResult ? sumImportCounts(importResult.vouchers) : null;
+
   return (
     <div className="space-y-5">
       <Card title="Reverse Import from TallyPrime">
         <p className="mb-4 text-sm text-muted-foreground">
-          Import voucher, payment, and statutory tax details (IRN, e-Way Bill, Ack) from Tally back into WhizUnik.
-          The staging parser reconciles vouchers without overwriting operational records silently.
+          Upload a TallyPrime XML export to import masters (customers, suppliers, stock items) and transactions
+          (sales, purchases, receipts, payments, credit/debit notes) into WhizUnik. Records are matched by document
+          number; existing records are skipped rather than overwritten.
         </p>
 
         <div className="space-y-3">
-          <Label htmlFor="tally-xml-input">Paste Tally Export XML or Upload File</Label>
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="inline-flex cursor-pointer items-center gap-2 rounded-xl border border-input bg-background px-4 py-2 text-sm font-medium hover:bg-accent">
+              <UploadCloud className="h-4 w-4" />
+              Choose Tally XML file
+              <input
+                type="file"
+                accept=".xml,text/xml,application/xml"
+                className="hidden"
+                onChange={handleFile}
+              />
+            </label>
+            <span className="text-xs text-muted-foreground">or paste the XML below</span>
+          </div>
+
+          <Label htmlFor="tally-xml-input">Tally Export XML</Label>
           <textarea
             id="tally-xml-input"
-            rows={6}
+            rows={8}
             className="w-full rounded-xl border border-input bg-background p-3 font-mono text-xs"
             placeholder="Paste <ENVELOPE>...</ENVELOPE> from Tally export..."
             value={xmlText}
             onChange={(e) => setXmlText(e.target.value)}
           />
-          <div className="flex gap-2">
+
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={createMissingMasters}
+              onChange={(e) => setCreateMissingMasters(e.target.checked)}
+              className="h-4 w-4 rounded border-input"
+            />
+            Create missing customers, suppliers and stock items automatically
+          </label>
+
+          <div className="flex flex-wrap gap-2">
             <Button onClick={() => parseMutation.mutate()} disabled={!xmlText.trim() || parseMutation.isPending}>
               {parseMutation.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1820,7 +1897,26 @@ function ReverseImportTab() {
               )}
               Parse & Reconcile with WhizUnik
             </Button>
-            <Button variant="outline" onClick={() => setXmlText("")}>
+            <Button
+              onClick={handleImport}
+              disabled={!xmlText.trim() || importMutation.isPending}
+              className="bg-emerald-600 hover:bg-emerald-700"
+            >
+              {importMutation.isPending ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : (
+                <UploadCloud className="mr-2 h-4 w-4" />
+              )}
+              Import into WhizUnik
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setXmlText("");
+                setStagedResult(null);
+                setImportResult(null);
+              }}
+            >
               Clear
             </Button>
           </div>
@@ -1828,10 +1924,14 @@ function ReverseImportTab() {
 
         {stagedResult && (
           <div className="mt-6 space-y-4">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 text-xs">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 text-xs">
               <div className="rounded-lg border border-border p-3">
                 <span className="text-muted-foreground">Total Vouchers</span>
                 <div className="text-lg font-bold">{stagedResult.totalCount}</div>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <span className="text-muted-foreground">Masters</span>
+                <div className="text-lg font-bold">{stagedResult.masterCount ?? 0}</div>
               </div>
               <div className="rounded-lg border border-emerald-300 bg-emerald-50/50 p-3">
                 <span className="text-emerald-800">Matched to WhizUnik</span>
@@ -1855,6 +1955,7 @@ function ReverseImportTab() {
                     <TableHead>Type</TableHead>
                     <TableHead>Party</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
+                    <TableHead>Lines</TableHead>
                     <TableHead>IRN / EWB</TableHead>
                     <TableHead>Classification</TableHead>
                   </TableRow>
@@ -1866,6 +1967,7 @@ function ReverseImportTab() {
                       <TableCell className="text-xs">{v.voucherType}</TableCell>
                       <TableCell className="text-xs">{v.partyName}</TableCell>
                       <TableCell className="text-right tabular-nums text-xs font-bold">{money(v.amount)}</TableCell>
+                      <TableCell className="text-xs">{v.lines?.length ?? 0}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">
                         {v.irn ? <Badge variant="outline" className="text-[10px]">IRN Set</Badge> : "—"}
                         {v.ewayBillNo ? <Badge variant="outline" className="ml-1 text-[10px]">EWB Set</Badge> : null}
@@ -1883,6 +1985,69 @@ function ReverseImportTab() {
                 </TableBody>
               </Table>
             </div>
+          </div>
+        )}
+
+        {importResult && (
+          <div className="mt-6 space-y-4">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 text-xs">
+              <div className="rounded-lg border border-emerald-300 bg-emerald-50/50 p-3">
+                <span className="text-emerald-800">Created</span>
+                <div className="text-lg font-bold text-emerald-700">
+                  {(masterTotals?.created ?? 0) + (voucherTotals?.created ?? 0)}
+                </div>
+              </div>
+              <div className="rounded-lg border border-blue-300 bg-blue-50/50 p-3">
+                <span className="text-blue-800">Updated</span>
+                <div className="text-lg font-bold text-blue-700">
+                  {(masterTotals?.updated ?? 0) + (voucherTotals?.updated ?? 0)}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border p-3">
+                <span className="text-muted-foreground">Skipped (already present)</span>
+                <div className="text-lg font-bold">
+                  {(masterTotals?.skipped ?? 0) + (voucherTotals?.skipped ?? 0)}
+                </div>
+              </div>
+              <div className="rounded-lg border border-rose-300 bg-rose-50/50 p-3">
+                <span className="text-rose-800">Failed</span>
+                <div className="text-lg font-bold text-rose-700">
+                  {(masterTotals?.failed ?? 0) + (voucherTotals?.failed ?? 0)}
+                </div>
+              </div>
+            </div>
+
+            {importResult.errors?.length > 0 && (
+              <div className="rounded-xl border border-rose-200 bg-rose-50/40 p-3">
+                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-rose-800">
+                  <AlertTriangle className="h-4 w-4" />
+                  Import errors
+                </div>
+                <ul className="max-h-48 space-y-1 overflow-auto text-xs text-rose-700">
+                  {importResult.errors.map((e: any, i: number) => (
+                    <li key={i}>
+                      <span className="font-mono">{e.docNumber || e.section}</span>: {e.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {importResult.warnings?.length > 0 && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50/40 p-3">
+                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-amber-800">
+                  <Info className="h-4 w-4" />
+                  Warnings
+                </div>
+                <ul className="max-h-40 space-y-1 overflow-auto text-xs text-amber-700">
+                  {importResult.warnings.map((w: any, i: number) => (
+                    <li key={i}>
+                      <span className="font-mono">{w.docNumber || w.section}</span>: {w.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
       </Card>

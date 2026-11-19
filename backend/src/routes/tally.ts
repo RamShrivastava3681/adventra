@@ -4,7 +4,13 @@ import { requireRole } from "../middleware/roles.js";
 import * as Tally from "../models/tally.js";
 import * as engine from "../services/tally/engine.js";
 import { generateValidationErrorReportCsv } from "../services/tally/manifestService.js";
-import { parseTallyXml, matchAndClassifyStaged } from "../services/tally/reverseImport.js";
+import {
+  parseTallyXml,
+  parseTallyMasters,
+  matchAndClassifyStaged,
+  matchAndClassifyMasters,
+  importTallyXml,
+} from "../services/tally/reverseImport.js";
 
 const router = Router();
 const EXPORT_TYPES: Tally.TallyExportType[] = [
@@ -525,17 +531,40 @@ router.post("/tally/reverse-import/parse", authMiddleware, async (req, res) => {
       return res.status(400).json({ error: "XML content string is required" });
     }
     const staged = parseTallyXml(xml);
-    const classified = await matchAndClassifyStaged(clientId(req), staged);
+    const masters = parseTallyMasters(xml);
+    const [classified, classifiedMasters] = await Promise.all([
+      matchAndClassifyStaged(clientId(req), staged),
+      matchAndClassifyMasters(clientId(req), masters),
+    ]);
     res.json({
       totalCount: classified.length,
       matchedCount: classified.filter((r) => r.classification === "Matched").length,
       changedCount: classified.filter((r) => r.classification === "Changed").length,
       newCount: classified.filter((r) => r.classification === "New").length,
       missingMasterCount: classified.filter((r) => r.classification === "Missing Master").length,
+      masterCount: classifiedMasters.length,
       vouchers: classified,
+      masters: classifiedMasters,
     });
   } catch (err) {
     handleError(res, err, "Failed to parse Tally XML");
+  }
+});
+
+router.post("/tally/reverse-import/commit", authMiddleware, CAN_EXPORT, async (req, res) => {
+  try {
+    const { xml, createMissingMasters } = req.body ?? {};
+    if (!xml || typeof xml !== "string") {
+      return res.status(400).json({ error: "XML content string is required" });
+    }
+    const report = await importTallyXml(xml, {
+      clientId: clientId(req),
+      createMissingMasters: createMissingMasters !== false,
+      updatedBy: req.user?.email ?? req.user?.userId ?? null,
+    });
+    res.json(report);
+  } catch (err) {
+    handleError(res, err, "Failed to import Tally XML");
   }
 });
 

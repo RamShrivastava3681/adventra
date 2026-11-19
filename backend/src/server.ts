@@ -89,6 +89,9 @@ app.use(cors({
 app.use(cookieParser());
 
 // ─── Request limits ──────────────────────────────────────────────────────────
+// Tally XML mass imports can exceed the normal JSON body limit. Parse this
+// path first with a larger limit; the global parser below then skips it.
+app.use("/api/tally/reverse-import", express.json({ limit: config.security.tallyXmlBodyLimit }));
 app.use(express.json({
   limit: config.security.jsonBodyLimit,
   // Myntra's outbound calls are stored exactly as received; the global

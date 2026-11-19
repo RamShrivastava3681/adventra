@@ -51,6 +51,9 @@ export const config = {
     // Max JSON payload the API will parse (bytes). Keep small — file uploads go
     // through multipart (/upload), never through the JSON body.
     jsonBodyLimit: process.env.MAX_JSON_BODY || "5mb",
+    // Tally XML mass imports travel as a JSON string and can be much larger
+    // than normal API payloads.
+    tallyXmlBodyLimit: process.env.MAX_TALLY_XML_BODY || "50mb",
     // Max URL-encoded form body size.
     urlencodedLimit: process.env.MAX_URLENCODED_BODY || "100kb",
     // JSON parse of a request must be bounded; rejects giant arrays/queries.

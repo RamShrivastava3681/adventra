@@ -1156,6 +1156,10 @@ const api = {
       api.post<any>(`/tally/batches/${id}/retry`, {}).then(camelizeResponse),
     reverseImportParse: (xml: string) =>
       api.post<any>("/tally/reverse-import/parse", { xml }).then(camelizeResponse),
+    reverseImportCommit: (xml: string, createMissingMasters = true) =>
+      api
+        .post<any>("/tally/reverse-import/commit", { xml, createMissingMasters })
+        .then(camelizeResponse),
     instructions: () => api.get<any>("/tally/instructions").then(camelizeResponse),
   },
 
