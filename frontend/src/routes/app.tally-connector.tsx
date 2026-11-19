@@ -1971,8 +1971,18 @@ function ReverseImportTab() {
                       <TableCell className="text-right tabular-nums text-xs font-bold">{money(v.amount)}</TableCell>
                       <TableCell className="text-xs">{v.lines?.length ?? 0}</TableCell>
                       <TableCell className="text-xs text-muted-foreground">
-                        {v.irn ? <Badge variant="outline" className="text-[10px]">IRN Set</Badge> : "—"}
-                        {v.ewayBillNo ? <Badge variant="outline" className="ml-1 text-[10px]">EWB Set</Badge> : null}
+                        {v.irn ? (
+                          <Badge variant="outline" className="text-[10px]" title={v.irn}>
+                            IRN {String(v.irn).slice(0, 8)}...
+                          </Badge>
+                        ) : (
+                          "—"
+                        )}
+                        {v.ewayBillNo ? (
+                          <Badge variant="outline" className="ml-1 text-[10px]" title={v.ewayBillNo}>
+                            EWB {v.ewayBillNo}
+                          </Badge>
+                        ) : null}
                       </TableCell>
                       <TableCell>
                         <Badge
