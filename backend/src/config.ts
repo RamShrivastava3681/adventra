@@ -116,10 +116,9 @@ export const config = {
     // Tally exports use a dedicated uncapped helper and are the only exception.
     readDiagnostics: process.env.DYNAMODB_READ_DIAGNOSTICS === "true",
 
-    // Safe default: "scan" keeps the legacy, fully-paginated access path until
-    // the GSI2 backfill is verified AND every model writes gsi2pk/gsi2sk. Flip
-    // to "gsi2" per environment only after both conditions are proven.
-    scanSource: (process.env.DYNAMODB_SCAN_SOURCE === "gsi2" ? "gsi2" : "scan") as
+    // GSI2 is the production default. "scan" is available only as an explicit
+    // emergency override for compatibility troubleshooting.
+    scanSource: "gsi2" as
       | "gsi2"
       | "scan",
 

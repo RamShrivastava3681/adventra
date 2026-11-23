@@ -78,8 +78,7 @@ async function removeEmailPointer(email: string | null | undefined): Promise<voi
   await db.deleteItem(emailLookupKey(normalized)).catch(() => undefined);
 }
 
-/** Find a user by email via the unique pointer item, falling back to a bounded
- * GSI2 query only for accounts that predate the pointer. */
+/** Find a user by email via the unique pointer item. */
 export async function findUserByEmail(email: string): Promise<UserProfile | undefined> {
   const normalized = String(email || "").trim().toLowerCase();
   if (!normalized) return undefined;
@@ -90,9 +89,14 @@ export async function findUserByEmail(email: string): Promise<UserProfile | unde
     if (user) return user as UserProfile;
   }
 
-  const users = (await db.scanByType("User")) as any[];
+  // Legacy accounts may not have a pointer yet. Use paginated GSI2 entity
+  // reads, not a table scan, and cap the fallback to a bounded read.
+  const users = (await db.scanByType("User", {
+    maxPages: 50,
+    maxItems: 5000,
+  })) as any[];
   const found = users.find(
-    (u) => String(u.email || "").toLowerCase() === normalized,
+    (u) => String(u.email || "").trim().toLowerCase() === normalized,
   );
   if (found) {
     await writeEmailPointer(found).catch(() => undefined);

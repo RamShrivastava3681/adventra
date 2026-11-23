@@ -648,9 +648,12 @@ export async function getByNOAToken(token: string) {
     const inv = await get(pointer.invoiceId);
     if (inv && (inv as any).noaToken === token) return inv;
   }
-  // Fallback for invoices created before the pointer existed — bounded entity
+  // Fallback for invoices created before the pointer existed — bounded GSI2
   // query, not a full-table scan.
-  const items = await db.scanByType("Invoice");
+  const items = await db.scanByType("Invoice", {
+    maxPages: 50,
+    maxItems: 50000,
+  });
   const found = items.find((i: any) => i.noaToken === token) as Invoice | undefined;
   if (found) await writeNoaPointer(found as any).catch(() => undefined);
   return found;

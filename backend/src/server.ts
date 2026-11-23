@@ -139,7 +139,7 @@ app.use(apiErrorHandler);
 // ---------------------------------------------------------------------------
 async function seedAdmin() {
   try {
-    const users = await db.scanByType("User");
+    const users = await db.scanByType("User", { maxPages: 50, maxItems: 5000 });
 
     // 1) Factor-admin account from ADMIN_EMAIL / ADMIN_PASSWORD.
     if (config.admin.email && config.admin.password) {
@@ -274,7 +274,7 @@ async function recomputeAllForecastsOnStartup() {
     const { recomputeAll } = await import("./services/forecast-service.js");
     // Scan inventory entries (stock movements) instead of user accounts so we
     // only recompute forecasts for clients that actually have inventory data.
-    const movements = await db.scanByType("StockMovement", { limit: 2000 });
+    const movements = await db.scanByType("StockMovement", { limit: 2000, maxItems: 50000 });
     const clientIds = new Set<string>();
     for (const m of movements) {
       if (m.clientId) clientIds.add(m.clientId);

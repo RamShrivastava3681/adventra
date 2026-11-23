@@ -538,9 +538,8 @@ export async function queryByGSI1(
 /**
  * Entity-wide read used by every model `list()`.
  *
- * Reads through GSI2 (gsi2pk = entityType) by default so normal workflows never
- * touch the table with a Scan. Legacy Scan remains available via
- * DYNAMODB_SCAN_SOURCE=scan until the GSI2 backfill is verified.
+ * Reads through GSI2 (gsi2pk = entityType) so normal workflows never touch the
+ * table with a Scan.
  */
 export async function scanByType(
   entityType: string,

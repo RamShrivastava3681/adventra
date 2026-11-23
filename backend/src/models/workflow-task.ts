@@ -1,6 +1,5 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
-import { config } from "../config.js";
 
 /**
  * WorkflowTask — the unified queue engine (PDF-3 §1, §5, §10).
@@ -147,27 +146,7 @@ export async function listForDoc(docType: string, docId: string): Promise<Workfl
     await Promise.all(refs.map((ref) => db.getItem(`WTASK#${ref.taskId}`)))
   ).filter(Boolean) as WorkflowTask[];
 
-  if (config.dynamodb.scanSource === "gsi2") {
-    return fromRefs.filter((t) => t.docType === docType && t.docId === docId);
-  }
-
-  // Transitional fallback: tasks created before the doc pointer existed are
-  // still visible through the legacy bounded entity read. Pointers are written
-  // lazily so a later GSI2 switch is complete for every touched document.
-  const legacy = (await db.scanByType("WorkflowTask", { limit: 2000 })) as WorkflowTask[];
-  const merged = new Map<string, WorkflowTask>();
-  for (const t of legacy) {
-    if (t.docType === docType && t.docId === docId) merged.set(t.id, t);
-  }
-  for (const t of fromRefs) {
-    if (t.docType === docType && t.docId === docId) merged.set(t.id, t);
-  }
-  const rows = [...merged.values()];
-  const alreadyPointed = new Set(fromRefs.map((t) => t.id));
-  await Promise.all(
-    rows.filter((t) => !alreadyPointed.has(t.id)).map(writeDocPointer),
-  );
-  return rows;
+  return fromRefs.filter((t) => t.docType === docType && t.docId === docId);
 }
 
 /**

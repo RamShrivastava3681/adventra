@@ -1,6 +1,5 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
-import { config } from "../config.js";
 
 /**
  * NotificationLog — delivery record for workflow emails (PDF-3 §6, §9).
@@ -84,24 +83,9 @@ export async function listForDoc(docType: string, docId: string): Promise<Notifi
     await Promise.all(refs.map((ref) => db.getItem(`NOTIF#${ref.notificationId}`)))
   ).filter(Boolean) as NotificationEntry[];
 
-  if (config.dynamodb.scanSource === "gsi2") {
-    return fromRefs
-      .filter((n) => n.docType === docType && n.docId === docId)
-      .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
-  }
-
-  // Transitional fallback: notifications written before the doc pointer
-  // existed are still visible through the legacy bounded entity read. Once the
-  // pointer backfill is verified, GSI2 mode reads pointers only.
-  const legacy = (await db.scanByType("NotificationLog", { limit: 2000 })) as NotificationEntry[];
-  const merged = new Map<string, NotificationEntry>();
-  for (const n of legacy) {
-    if (n.docType === docType && n.docId === docId) merged.set(n.id, n);
-  }
-  for (const n of fromRefs) {
-    if (n.docType === docType && n.docId === docId) merged.set(n.id, n);
-  }
-  const rows = [...merged.values()];
+  const rows = fromRefs
+    .filter((n) => n.docType === docType && n.docId === docId)
+    .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
   const alreadyPointed = new Set(fromRefs.map((n) => n.id));
   await Promise.all(
     rows.filter((n) => !alreadyPointed.has(n.id)).map(writeDocPointer),
