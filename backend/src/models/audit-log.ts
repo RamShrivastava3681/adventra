@@ -80,8 +80,9 @@ export async function writeWorkflowAction(
 
 /** List audit entries, newest first (bounded via GSI2 — never a full scan). */
 export async function list(options?: { limit?: number }): Promise<StoredAuditLogEntry[]> {
-  return (await db.queryByGSI2("AuditLog", {
+  const { items } = await db.queryByGSI2("AuditLog", {
     limit: options?.limit || 200,
     reverse: true,
-  })) as StoredAuditLogEntry[];
+  });
+  return items as StoredAuditLogEntry[];
 }

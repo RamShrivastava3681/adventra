@@ -451,7 +451,14 @@ async function processInvoice(params: {
 // Main reminder run — called once per day (or on demand)
 // ---------------------------------------------------------------------------
 
+let dueDateReminderRunning = false;
+
 export async function runDueDateReminders(): Promise<{ checked: number; sent: number; message?: string }> {
+  if (dueDateReminderRunning) {
+    return { checked: 0, sent: 0, message: "Reminder run already in progress" };
+  }
+  dueDateReminderRunning = true;
+  try {
   // In-app alerts (payment due / overdue escalation) run even when email
   // is not configured or reminder emails are switched off.
   await runPaymentAlerts().catch((err) => console.error("  ❌ Payment alert run failed:", err));
@@ -548,6 +555,9 @@ export async function runDueDateReminders(): Promise<{ checked: number; sent: nu
   console.log(`  📬 Due-date reminders: ${checked} checked, ${sent} sent`);
 
   return { checked, sent };
+  } finally {
+    dueDateReminderRunning = false;
+  }
 }
 
 // ---------------------------------------------------------------------------

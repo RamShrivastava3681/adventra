@@ -265,8 +265,18 @@ function batchPk(clientId: string) {
 }
 
 export async function listBatches(clientId: string): Promise<TallyBatch[]> {
-  const { items } = await db.queryByPk(batchPk(clientId), { limit: 200, reverse: true });
-  return items as TallyBatch[];
+  const items: TallyBatch[] = [];
+  let exclusiveStartKey: Record<string, any> | undefined;
+  do {
+    const page = await db.queryByPk(batchPk(clientId), {
+      limit: 500,
+      reverse: true,
+      exclusiveStartKey,
+    });
+    items.push(...(page.items as TallyBatch[]));
+    exclusiveStartKey = page.lastKey;
+  } while (exclusiveStartKey);
+  return items;
 }
 
 export async function getBatch(clientId: string, id: string): Promise<TallyBatch | null> {
@@ -346,8 +356,17 @@ function recordPk(clientId: string) {
 }
 
 export async function listExportRecords(clientId: string): Promise<TallyExportRecord[]> {
-  const { items } = await db.queryByPk(recordPk(clientId), { limit: 500 });
-  return items as TallyExportRecord[];
+  const items: TallyExportRecord[] = [];
+  let exclusiveStartKey: Record<string, any> | undefined;
+  do {
+    const page = await db.queryByPk(recordPk(clientId), {
+      limit: 500,
+      exclusiveStartKey,
+    });
+    items.push(...(page.items as TallyExportRecord[]));
+    exclusiveStartKey = page.lastKey;
+  } while (exclusiveStartKey);
+  return items;
 }
 
 export async function findExportRecord(

@@ -12,6 +12,7 @@ import * as PaymentReceipt from "../../models/payment-receipt.js";
 import * as CreditDebitNote from "../../models/credit-debit-note.js";
 import * as StockMovement from "../../models/stock-movement.js";
 import * as Tally from "../../models/tally.js";
+import * as db from "../../dynamodb.js";
 import { isUnionTerritory, type TallyConfig, type TallyExportType, type TallyBatchRecord } from "../../models/tally.js";
 import { splitGstInclusive, round2 } from "../../lib/gst.js";
 import {
@@ -147,13 +148,27 @@ export const STANDARD_UNITS: { name: string; originalName: string; decimalPlaces
 // The application exposes a shared business portfolio to staff. Tally source
 // lists must therefore use the shared entity scans; GSI client partitions can
 // differ from the currently signed-in staff member.
-const sharedInvoiceRows = () => Invoice.list().catch(() => [] as any[]);
-const sharedPurchaseInvoiceRows = () => PurchaseInvoice.list().catch(() => [] as any[]);
-const sharedProducts = () => Product.list().catch(() => [] as any[]);
-const sharedVendors = () => Vendor.list().catch(() => [] as any[]);
-const sharedReceipts = () => PaymentReceipt.list().catch(() => [] as any[]);
-const sharedNotes = () => CreditDebitNote.list().catch(() => [] as any[]);
-const sharedMovements = () => StockMovement.list().catch(() => [] as any[]);
+const sharedInvoiceRows = () => db.listAllByType("Invoice").catch(() => [] as any[]);
+const sharedPurchaseInvoiceRows = () => db.listAllByType("PurchaseInvoice").catch(() => [] as any[]);
+const sharedProducts = () => db.listAllByType("Product").catch(() => [] as any[]);
+const sharedVendors = () => db.listAllByType("Vendor").catch(() => [] as any[]);
+const sharedDebtors = () => db.listAllByType("Debtor").catch(() => [] as any[]);
+const sharedSuppliers = () => db.listAllByType("Supplier").catch(() => [] as any[]);
+const sharedReceipts = () => db.listAllByType("PaymentReceipt").catch(() => [] as any[]);
+const sharedNotes = () => db.listAllByType("CreditDebitNote").catch(() => [] as any[]);
+const sharedMovements = () => db.listAllByType("StockMovement").catch(() => [] as any[]);
+
+async function selectedInvoiceRows(ids: Set<string> | null): Promise<any[]> {
+  if (!ids) return sharedInvoiceRows();
+  const rows = await Promise.all([...ids].map((id) => Invoice.get(id)));
+  return rows.filter((row): row is any => !!row);
+}
+
+async function selectedPurchaseInvoiceRows(ids: Set<string> | null): Promise<any[]> {
+  if (!ids) return sharedPurchaseInvoiceRows();
+  const rows = await Promise.all([...ids].map((id) => PurchaseInvoice.get(id)));
+  return rows.filter((row): row is any => !!row);
+}
 
 function mergeReceiptRows(invoices: any[], receipts: any[]): any[] {
   const verified = (receipts as any[]).filter((r) => r.status === "verified" && r.invoiceId);
@@ -365,13 +380,24 @@ export function partyStateForPurchase(pi: any, ctx: BuildContext): string | null
   );
 }
 
-export async function loadContext(clientId: string, config: TallyConfig): Promise<BuildContext> {
+export async function loadContext(clientId: string, config: TallyConfig, exportType?: TallyExportType): Promise<BuildContext> {
+  const needsDebtors = !exportType || ["customers", "sales", "receipts", "credit-notes"].includes(exportType);
+  const needsSuppliers = !exportType || ["suppliers", "purchases", "payments", "debit-notes", "stock-items"].includes(exportType);
+  const needsVendors = needsSuppliers;
+  const needsProducts = !exportType || ["stock-items", "sales", "purchases", "receipts", "payments", "credit-notes", "debit-notes"].includes(exportType);
+  const needsMovements = !exportType || exportType === "stock-items";
+
+  const debtorsPromise = needsDebtors ? sharedDebtors() : Promise.resolve([] as any[]);
+  const suppliersPromise = needsSuppliers ? sharedSuppliers() : Promise.resolve([] as any[]);
+  const vendorsPromise = needsVendors ? sharedVendors() : Promise.resolve([] as any[]);
+  const productsPromise = needsProducts ? sharedProducts() : Promise.resolve([] as any[]);
+  const movementsPromise = needsMovements ? sharedMovements() : Promise.resolve([] as any[]);
   const [debtors, suppliers, vendors, products, movements] = await Promise.all([
-    Debtor.list().catch(() => [] as any[]),
-    Supplier.list().catch(() => [] as any[]),
-    sharedVendors(),
-    sharedProducts(),
-    sharedMovements(),
+    debtorsPromise,
+    suppliersPromise,
+    vendorsPromise,
+    productsPromise,
+    movementsPromise,
   ]);
   const debtorsById = new Map<string, any>();
   for (const d of debtors as any[]) {
@@ -438,7 +464,7 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
   const config = (await Tally.getConfig(clientId)) || (await Tally.getConfig("shared"));
 
   if (exportType === "customers") {
-    const rows = await Debtor.list().catch(() => [] as any[]);
+    const rows = await sharedDebtors();
     for (const d of rows as any[]) {
       const missing: string[] = [];
       if (!d.gstin) missing.push("GSTIN missing");
@@ -458,7 +484,7 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
     }
   } else if (exportType === "suppliers") {
     const [supplierRows, vendorRows] = await Promise.all([
-      Supplier.list().catch(() => [] as any[]),
+      sharedSuppliers(),
       sharedVendors(),
     ]);
     const rows = [
@@ -551,7 +577,7 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
     }
   } else if (exportType === "sales") {
     const rows = await sharedInvoiceRows();
-    const debtors = await Debtor.list().catch(() => [] as any[]);
+    const debtors = await sharedDebtors();
     const debtorById = new Map<string, any>();
     for (const d of debtors as any[]) {
       debtorById.set(d.id, d);
@@ -579,7 +605,7 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
   } else if (exportType === "purchases") {
     const rows = await sharedPurchaseInvoiceRows();
     const [supplierRows, vendorRows] = await Promise.all([
-      Supplier.list().catch(() => [] as any[]),
+      sharedSuppliers(),
       sharedVendors(),
     ]);
     const supplierById = new Map<string, any>();
@@ -611,7 +637,7 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
     const [receiptRows, invoices, debtors] = await Promise.all([
       sharedReceipts(),
       sharedInvoiceRows(),
-      Debtor.list().catch(() => [] as any[]),
+      sharedDebtors(),
     ]);
     const rows = mergeReceiptRows(invoices, receiptRows);
     const invoiceById = new Map<string, any>();
@@ -640,7 +666,7 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
   } else if (exportType === "payments") {
     const rows = await sharedPurchaseInvoiceRows();
     const [supplierRows, vendorRows] = await Promise.all([
-      Supplier.list().catch(() => [] as any[]),
+      sharedSuppliers(),
       sharedVendors(),
     ]);
     const supplierById = new Map<string, any>();
@@ -672,8 +698,8 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
     const [invoices, purchases, debtors, suppliers, vendors] = await Promise.all([
       sharedInvoiceRows(),
       sharedPurchaseInvoiceRows(),
-      Debtor.list().catch(() => [] as any[]),
-      Supplier.list().catch(() => [] as any[]),
+      sharedDebtors(),
+      sharedSuppliers(),
       sharedVendors(),
     ]);
     const invoiceById = new Map<string, any>();
@@ -734,7 +760,7 @@ export async function buildRecords(
   config: TallyConfig,
   ids?: string[],
 ): Promise<{ reportName: "All Masters" | "Vouchers"; prepared: PreparedRecord[] }> {
-  const ctx = await loadContext(clientId, config);
+  const ctx = await loadContext(clientId, config, exportType);
   const idSet = ids && ids.length ? new Set(ids) : null;
   const prepared: PreparedRecord[] = [];
 
@@ -742,10 +768,10 @@ export async function buildRecords(
   if (exportType === "customers" || exportType === "suppliers") {
     let rows: any[];
     if (exportType === "customers") {
-      rows = await Debtor.list();
+      rows = await sharedDebtors();
     } else {
       const [suppliers, vendors] = await Promise.all([
-        Supplier.list().catch(() => [] as any[]),
+        sharedSuppliers(),
         sharedVendors(),
       ]);
       rows = [
@@ -917,8 +943,12 @@ export async function buildRecords(
   // Transactions
   const needsNotes = exportType === "credit-notes" || exportType === "debit-notes";
   const [invoices, purchases, receipts, notes] = await Promise.all([
-    exportType === "receipts" || needsNotes ? sharedInvoiceRows() : Promise.resolve([] as any[]),
-    needsNotes ? sharedPurchaseInvoiceRows() : Promise.resolve([] as any[]),
+    exportType === "receipts" || needsNotes
+      ? (idSet && exportType !== "receipts" ? selectedInvoiceRows(idSet) : sharedInvoiceRows())
+      : Promise.resolve([] as any[]),
+    needsNotes
+      ? (idSet ? selectedPurchaseInvoiceRows(idSet) : sharedPurchaseInvoiceRows())
+      : Promise.resolve([] as any[]),
     exportType === "receipts" ? sharedReceipts() : Promise.resolve([] as any[]),
     needsNotes ? sharedNotes() : Promise.resolve([] as any[]),
   ]);
@@ -943,7 +973,7 @@ export async function buildRecords(
   };
 
   if (exportType === "sales") {
-    const rows = await sharedInvoiceRows();
+    const rows = await selectedInvoiceRows(idSet);
     for (const row of rows as any[]) {
       if (idSet && !idSet.has(row.id)) continue;
       const res = serializeSalesVoucher(row, sharedVoucherCtx);

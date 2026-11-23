@@ -211,6 +211,8 @@ function normalizeInventory(clientId: string, marketplaceId: string, item: any) 
   };
 }
 
+const syncInFlight = new Map<string, Promise<SyncResult>>();
+
 export class AmazonSyncService {
   private readonly log: AmazonDebugLogger;
 
@@ -220,13 +222,23 @@ export class AmazonSyncService {
 
   /** Enqueue a sync and return when complete. */
   async sync(module: Module, clientId: string, traceId?: string): Promise<SyncResult> {
-    return new Promise((resolve, reject) => {
+    const key = `${clientId}:${module}`;
+    const existing = syncInFlight.get(key);
+    if (existing) return existing;
+
+    const promise = new Promise<SyncResult>((resolve, reject) => {
       const log = new AmazonDebugLogger({ traceId, clientId }).child({ module });
       log.info({ operation: "sync.enqueue", stage: "before", config: { module } });
       const entry = { module, clientId, traceId, resolve, reject, log };
       syncQueue.push(entry);
       void processQueue();
     });
+    syncInFlight.set(key, promise);
+    void promise.then(
+      () => syncInFlight.delete(key),
+      () => syncInFlight.delete(key),
+    );
+    return promise;
   }
 
   /** Sync all modules for a client. */
@@ -1089,6 +1101,7 @@ interface SyncQueueEntry {
   resolve: (v: any) => void;
   reject: (e: any) => void;
   log: AmazonDebugLogger;
+  retryCount?: number;
 }
 
 const syncQueue: SyncQueueEntry[] = [];
@@ -1108,6 +1121,16 @@ async function processQueue() {
     } catch (err) {
       const e = err as any;
       log.error({ operation: "sync.queue.process", stage: "error", config: { module: item.module }, errorMessage: e?.message ?? String(e) });
+      const retryable = /(429|503|timeout|throttl|temporar)/i.test(`${e?.message ?? ""}${e?.code ?? ""}`);
+      if (retryable && (item.retryCount ?? 0) < 1) {
+        log.warn({ operation: "sync.queue.retry", stage: "scheduled", config: { module: item.module, retryCount: 1 } });
+        const retryEntry: SyncQueueEntry = { ...item, retryCount: 1 };
+        setTimeout(() => {
+          syncQueue.push(retryEntry);
+          void processQueue();
+        }, 1000);
+        continue;
+      }
       item.reject(err);
     }
   }
@@ -1115,8 +1138,15 @@ async function processQueue() {
 }
 
 /** Start the scheduled background sync (runs every sync interval). */
+let scheduledSyncRunning = false;
+
 export function startScheduledSync(intervalMs = 15 * 60 * 1000) {
   setInterval(async () => {
+    if (scheduledSyncRunning) {
+      console.warn("[amazon-sync] Skipping scheduled cycle because the previous cycle is still running");
+      return;
+    }
+    scheduledSyncRunning = true;
     try {
       const { scanByType } = await import("../dynamodb.js");
       const clients = await scanByType("User", { limit: 1000 });
@@ -1130,6 +1160,8 @@ export function startScheduledSync(intervalMs = 15 * 60 * 1000) {
       }
     } catch (err) {
       console.error("[amazon-sync] scheduled sync cycle error:", err);
+    } finally {
+      scheduledSyncRunning = false;
     }
   }, intervalMs).unref?.();
 }

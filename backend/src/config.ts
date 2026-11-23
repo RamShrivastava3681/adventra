@@ -74,7 +74,7 @@ export const config = {
     signupLimit: parseInt(process.env.RL_SIGNUP_LIMIT || "10", 10),
     publicWindowMs: parseInt(process.env.RL_PUBLIC_WINDOW_MS || String(15 * 60 * 1000), 10),
     publicLimit: parseInt(process.env.RL_PUBLIC_LIMIT || "60", 10),
-    apiWindowMs: parseInt(process.env.RL_API_WINDOW_MS || String(15 * 60 * 1000), 10),
+    apiWindowMs: parseInt(process.env.RL_API_WINDOW_MS || "60000", 10),
     apiLimit: parseInt(process.env.RL_API_LIMIT || "1000", 10),
     // Slow-down (throttle) only slows FAILED attempts, and starts much later
     // than the old settings so legitimate multi-user logins are never delayed.
@@ -110,6 +110,26 @@ export const config = {
     credentials: awsCredentials(),
     tableName: process.env.DYNAMODB_TABLE || "InsightFactor",
     endpoint: process.env.DYNAMODB_ENDPOINT || undefined,
+
+    // Read-path safety (see "Safe DynamoDB Scan Fix"). Every unbounded read is
+    // capped so a runaway scan/query can never silently drain the table.
+    // Tally exports use a dedicated uncapped helper and are the only exception.
+    readDiagnostics: process.env.DYNAMODB_READ_DIAGNOSTICS === "true",
+
+    // Safe default: "scan" keeps the legacy, fully-paginated access path until
+    // the GSI2 backfill is verified AND every model writes gsi2pk/gsi2sk. Flip
+    // to "gsi2" per environment only after both conditions are proven.
+    scanSource: (process.env.DYNAMODB_SCAN_SOURCE === "gsi2" ? "gsi2" : "scan") as
+      | "gsi2"
+      | "scan",
+
+    readLimits: {
+      maxScanPages: parseInt(process.env.DYNAMODB_MAX_SCAN_PAGES || "400", 10),
+      maxScanItems: parseInt(process.env.DYNAMODB_MAX_SCAN_ITEMS || "200000", 10),
+      scanTimeoutMs: parseInt(process.env.DYNAMODB_SCAN_TIMEOUT_MS || "120000", 10),
+      warnScanPages: parseInt(process.env.DYNAMODB_WARN_SCAN_PAGES || "20", 10),
+      warnScanItems: parseInt(process.env.DYNAMODB_WARN_SCAN_ITEMS || "10000", 10),
+    },
   },
 
   s3: {

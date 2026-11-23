@@ -1,5 +1,6 @@
 import { v4 as uuid } from "uuid";
 import * as db from "../dynamodb.js";
+import { config } from "../config.js";
 
 /**
  * WorkflowTask — the unified queue engine (PDF-3 §1, §5, §10).
@@ -93,6 +94,41 @@ function taskKey(id: string) {
   return { pk: `WTASK#${id}`, sk: `WTASK#${id}` };
 }
 
+/**
+ * Document-scoped pointer partition. Tasks keep their WTASK primary key (so
+ * id-only updates stay cheap), and each task also writes one small ref under
+ * its document so `listForDoc` is a targeted Query rather than an entity read.
+ */
+function docPointerPk(docType: string, docId: string): string {
+  return `WTASKDOC#${docType}#${docId}`;
+}
+
+function docPointerSk(taskId: string): string {
+  return `TASK#${taskId}`;
+}
+
+async function writeDocPointer(
+  task: Pick<WorkflowTask, "id" | "docType" | "docId">,
+): Promise<void> {
+  await db.putItemIfAbsent({
+    pk: docPointerPk(task.docType, task.docId),
+    sk: docPointerSk(task.id),
+    entityType: "WorkflowTaskRef",
+    taskId: task.id,
+  }).catch(() => undefined);
+}
+
+/** Remove a task's doc pointer (used by party cascade deletes). */
+export async function removeDocPointer(
+  docType: string,
+  docId: string,
+  id: string,
+): Promise<void> {
+  await db
+    .deleteItem(docPointerPk(docType, docId), docPointerSk(id))
+    .catch(() => undefined);
+}
+
 /** Idempotency reference: DocType + DocID + Stage (PDF-3 §10). */
 export function taskRef(docType: string, docId: string, stage: string): string {
   return `${docType}#${docId}#${stage}`;
@@ -106,8 +142,32 @@ export async function listOpen(clientId?: string): Promise<WorkflowTask[]> {
 }
 
 export async function listForDoc(docType: string, docId: string): Promise<WorkflowTask[]> {
-  const items = await db.scanByType("WorkflowTask", { limit: 2000 });
-  return (items as WorkflowTask[]).filter((t) => t.docType === docType && t.docId === docId);
+  const refs = await db.queryAllByPk(docPointerPk(docType, docId));
+  const fromRefs = (
+    await Promise.all(refs.map((ref) => db.getItem(`WTASK#${ref.taskId}`)))
+  ).filter(Boolean) as WorkflowTask[];
+
+  if (config.dynamodb.scanSource === "gsi2") {
+    return fromRefs.filter((t) => t.docType === docType && t.docId === docId);
+  }
+
+  // Transitional fallback: tasks created before the doc pointer existed are
+  // still visible through the legacy bounded entity read. Pointers are written
+  // lazily so a later GSI2 switch is complete for every touched document.
+  const legacy = (await db.scanByType("WorkflowTask", { limit: 2000 })) as WorkflowTask[];
+  const merged = new Map<string, WorkflowTask>();
+  for (const t of legacy) {
+    if (t.docType === docType && t.docId === docId) merged.set(t.id, t);
+  }
+  for (const t of fromRefs) {
+    if (t.docType === docType && t.docId === docId) merged.set(t.id, t);
+  }
+  const rows = [...merged.values()];
+  const alreadyPointed = new Set(fromRefs.map((t) => t.id));
+  await Promise.all(
+    rows.filter((t) => !alreadyPointed.has(t.id)).map(writeDocPointer),
+  );
+  return rows;
 }
 
 /**
@@ -175,6 +235,7 @@ export async function openTask(
     completedBy: null,
   };
   await db.putItem(item);
+  await writeDocPointer(item);
   return { task: item, created: true };
 }
 

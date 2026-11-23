@@ -53,6 +53,54 @@ function clampString(value: unknown, max: number): string | null {
   return null;
 }
 
+// ---- Email lookup pointer (unique login key — no table scan) ----
+
+function emailLookupKey(email: string): string {
+  return `USEREMAIL#${email.trim().toLowerCase()}`;
+}
+
+async function writeEmailPointer(user: { id: string; email: string }): Promise<void> {
+  const normalized = String(user.email || "").trim().toLowerCase();
+  if (!normalized) return;
+  const key = emailLookupKey(normalized);
+  await db.putItemIfAbsent({
+    pk: key,
+    sk: key,
+    entityType: "UserEmail",
+    userId: user.id,
+    email: normalized,
+  });
+}
+
+async function removeEmailPointer(email: string | null | undefined): Promise<void> {
+  const normalized = String(email || "").trim().toLowerCase();
+  if (!normalized) return;
+  await db.deleteItem(emailLookupKey(normalized)).catch(() => undefined);
+}
+
+/** Find a user by email via the unique pointer item, falling back to a bounded
+ * GSI2 query only for accounts that predate the pointer. */
+export async function findUserByEmail(email: string): Promise<UserProfile | undefined> {
+  const normalized = String(email || "").trim().toLowerCase();
+  if (!normalized) return undefined;
+
+  const pointer: any = await db.getItem(emailLookupKey(normalized)).catch(() => null);
+  if (pointer?.userId) {
+    const user: any = await db.getItem(`USER#${pointer.userId}`).catch(() => null);
+    if (user) return user as UserProfile;
+  }
+
+  const users = (await db.scanByType("User")) as any[];
+  const found = users.find(
+    (u) => String(u.email || "").toLowerCase() === normalized,
+  );
+  if (found) {
+    await writeEmailPointer(found).catch(() => undefined);
+    return found as UserProfile;
+  }
+  return undefined;
+}
+
 function issueToken(user: { id: string; email: string; roles: string[] }): string {
   return jwt.sign(
     { userId: user.id, email: user.email, roles: user.roles },
@@ -113,8 +161,7 @@ export async function signup(req: Request, res: Response) {
     const normalizedEmail = email.trim().toLowerCase();
 
     // Check if exists
-    const existing = await db.scanByType("User");
-    const found = existing.find((u: any) => String(u.email || "").toLowerCase() === normalizedEmail);
+    const found = await findUserByEmail(normalizedEmail);
     if (found) {
       return res.status(409).json({ error: "Email already registered" });
     }
@@ -146,6 +193,7 @@ export async function signup(req: Request, res: Response) {
     };
 
     await db.putItem(user);
+    await writeEmailPointer(user).catch(() => undefined);
 
     // Signup does NOT create a session — the user signs in explicitly, so no
     // token and no cookie is issued here (matches the current UI flow).
@@ -175,8 +223,7 @@ export async function login(req: Request, res: Response) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    const users = await db.scanByType("User");
-    const user = users.find((u: any) => String(u.email || "").toLowerCase() === email.trim().toLowerCase()) as UserProfile | undefined;
+    const user = await findUserByEmail(email);
     if (!user) {
       logSecurityEvent("auth.login_failed", req, { reason: "user_not_found" });
       return res.status(401).json({ error: "Invalid credentials" });
@@ -250,8 +297,23 @@ export async function updateProfile(req: Request, res: Response) {
       }
     }
 
+    const previous =
+      updates.email !== undefined
+        ? ((await db.getItem(`USER#${req.user!.userId}`)) as any)
+        : null;
+
     updates.updatedAt = db.nowISO();
     const result = await db.updateItem(`USER#${req.user!.userId}`, `USER#${req.user!.userId}`, updates);
+
+    if (updates.email !== undefined) {
+      const oldEmail = String(previous?.email || "").toLowerCase();
+      const newEmail = String((result as any)?.email || updates.email || "").toLowerCase();
+      if (oldEmail && oldEmail !== newEmail) {
+        await removeEmailPointer(oldEmail);
+      }
+      await writeEmailPointer({ id: req.user!.userId, email: newEmail }).catch(() => undefined);
+    }
+
     const { passwordHash, ...safe } = result as any;
     return res.json(safe);
   } catch (err: any) {
@@ -275,8 +337,7 @@ export async function adminCreateUser(req: Request, res: Response) {
     const normalizedEmail = email.trim().toLowerCase();
 
     // Check if exists
-    const existing = await db.scanByType("User");
-    const found = existing.find((u: any) => String(u.email || "").toLowerCase() === normalizedEmail);
+    const found = await findUserByEmail(normalizedEmail);
     if (found) {
       return res.status(409).json({ error: "Email already registered" });
     }
@@ -323,6 +384,7 @@ export async function adminCreateUser(req: Request, res: Response) {
     };
 
     await db.putItem(user);
+    await writeEmailPointer(user).catch(() => undefined);
 
     const { passwordHash: _, ...safe } = user;
     return res.status(201).json(safe);
@@ -483,6 +545,7 @@ export async function adminDeleteUser(req: Request, res: Response) {
     }
 
     await db.deleteItem(`USER#${userId}`);
+    await removeEmailPointer(target.email);
     logSecurityEvent("user.deleted", req, {
       targetUserId: userId,
       targetEmail: target.email ?? null,
