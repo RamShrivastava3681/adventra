@@ -148,24 +148,88 @@ export const STANDARD_UNITS: { name: string; originalName: string; decimalPlaces
 // The application exposes a shared business portfolio to staff. Tally source
 // lists must therefore use the shared entity scans; GSI client partitions can
 // differ from the currently signed-in staff member.
-const sharedInvoiceRows = () => db.listAllByType("Invoice").catch(() => [] as any[]);
-const sharedPurchaseInvoiceRows = () => db.listAllByType("PurchaseInvoice").catch(() => [] as any[]);
-const sharedProducts = () => db.listAllByType("Product").catch(() => [] as any[]);
-const sharedVendors = () => db.listAllByType("Vendor").catch(() => [] as any[]);
-const sharedDebtors = () => db.listAllByType("Debtor").catch(() => [] as any[]);
-const sharedSuppliers = () => db.listAllByType("Supplier").catch(() => [] as any[]);
-const sharedReceipts = () => db.listAllByType("PaymentReceipt").catch(() => [] as any[]);
-const sharedNotes = () => db.listAllByType("CreditDebitNote").catch(() => [] as any[]);
-const sharedMovements = () => db.listAllByType("StockMovement").catch(() => [] as any[]);
+//
+// Every scan is memoized per request. A single export used to scan the same
+// entity type several times (context loading, listing, validation, duplicate
+// checks) and the dashboard scanned every type twice; each scan is billed per
+// page, so the duplicates were pure cost.
 
-async function selectedInvoiceRows(ids: Set<string> | null): Promise<any[]> {
-  if (!ids) return sharedInvoiceRows();
+export interface TallyRequestContext {
+  clientId: string;
+  config(): Promise<TallyConfig | null>;
+  debtors(): Promise<any[]>;
+  suppliers(): Promise<any[]>;
+  vendors(): Promise<any[]>;
+  products(): Promise<any[]>;
+  movements(): Promise<any[]>;
+  invoices(): Promise<any[]>;
+  purchaseInvoices(): Promise<any[]>;
+  receipts(): Promise<any[]>;
+  notes(): Promise<any[]>;
+  exportRecords(): Promise<Tally.TallyExportRecord[]>;
+  exportRecordMap(): Promise<Map<string, Tally.TallyExportRecord>>;
+  batches(): Promise<Tally.TallyBatchSummary[]>;
+}
+
+function memoRead<T>(load: () => Promise<T>): () => Promise<T> {
+  let cached: Promise<T> | null = null;
+  return () => (cached ??= load());
+}
+
+function allByType(entityType: string): Promise<any[]> {
+  return db.listAllByType(entityType).catch(() => [] as any[]);
+}
+
+/**
+ * Request-scoped read cache for Tally listing, validation, export generation
+ * and the dashboard. Pass one instance per HTTP request (or per multi-step
+ * operation); callers that do not pass one get an equivalent cache scoped to
+ * that single call.
+ */
+export function createRequestContext(clientId: string): TallyRequestContext {
+  const exportRecords = memoRead(() =>
+    Tally.listExportRecords(clientId).catch(() => [] as Tally.TallyExportRecord[]),
+  );
+  return {
+    clientId,
+    config: memoRead(() => getTallyConfig(clientId)),
+    debtors: memoRead(() => allByType("Debtor")),
+    suppliers: memoRead(() => allByType("Supplier")),
+    vendors: memoRead(() => allByType("Vendor")),
+    products: memoRead(() => allByType("Product")),
+    movements: memoRead(() => allByType("StockMovement")),
+    invoices: memoRead(() => allByType("Invoice")),
+    purchaseInvoices: memoRead(() => allByType("PurchaseInvoice")),
+    receipts: memoRead(() => allByType("PaymentReceipt")),
+    notes: memoRead(() => allByType("CreditDebitNote")),
+    exportRecords,
+    exportRecordMap: memoRead(async () => {
+      const map = new Map<string, Tally.TallyExportRecord>();
+      for (const rec of await exportRecords()) {
+        map.set(`${rec.exportType}|${rec.sourceId}`, rec);
+      }
+      return map;
+    }),
+    batches: memoRead(() =>
+      Tally.listBatchSummaries(clientId).catch(() => [] as Tally.TallyBatchSummary[]),
+    ),
+  };
+}
+
+async function selectedInvoiceRows(
+  ids: Set<string> | null,
+  request: TallyRequestContext,
+): Promise<any[]> {
+  if (!ids) return request.invoices();
   const rows = await Promise.all([...ids].map((id) => Invoice.get(id)));
   return rows.filter((row): row is any => !!row);
 }
 
-async function selectedPurchaseInvoiceRows(ids: Set<string> | null): Promise<any[]> {
-  if (!ids) return sharedPurchaseInvoiceRows();
+async function selectedPurchaseInvoiceRows(
+  ids: Set<string> | null,
+  request: TallyRequestContext,
+): Promise<any[]> {
+  if (!ids) return request.purchaseInvoices();
   const rows = await Promise.all([...ids].map((id) => PurchaseInvoice.get(id)));
   return rows.filter((row): row is any => !!row);
 }
@@ -380,18 +444,27 @@ export function partyStateForPurchase(pi: any, ctx: BuildContext): string | null
   );
 }
 
-export async function loadContext(clientId: string, config: TallyConfig, exportType?: TallyExportType): Promise<BuildContext> {
+export async function loadContext(
+  clientId: string,
+  config: TallyConfig,
+  exportType?: TallyExportType,
+  context?: TallyRequestContext,
+): Promise<BuildContext> {
+  const request = context ?? createRequestContext(clientId);
   const needsDebtors = !exportType || ["customers", "sales", "receipts", "credit-notes"].includes(exportType);
-  const needsSuppliers = !exportType || ["suppliers", "purchases", "payments", "debit-notes", "stock-items"].includes(exportType);
+  const needsSuppliers = !exportType || ["suppliers", "purchases", "payments", "debit-notes"].includes(exportType);
   const needsVendors = needsSuppliers;
-  const needsProducts = !exportType || ["stock-items", "sales", "purchases", "receipts", "payments", "credit-notes", "debit-notes"].includes(exportType);
+  // Receipts and payments are accounting vouchers: their serializers resolve
+  // only the party ledger, so loading the whole product catalogue for them is
+  // a wasted full scan.
+  const needsProducts = !exportType || ["stock-items", "sales", "purchases", "credit-notes", "debit-notes"].includes(exportType);
   const needsMovements = !exportType || exportType === "stock-items";
 
-  const debtorsPromise = needsDebtors ? sharedDebtors() : Promise.resolve([] as any[]);
-  const suppliersPromise = needsSuppliers ? sharedSuppliers() : Promise.resolve([] as any[]);
-  const vendorsPromise = needsVendors ? sharedVendors() : Promise.resolve([] as any[]);
-  const productsPromise = needsProducts ? sharedProducts() : Promise.resolve([] as any[]);
-  const movementsPromise = needsMovements ? sharedMovements() : Promise.resolve([] as any[]);
+  const debtorsPromise = needsDebtors ? request.debtors() : Promise.resolve([] as any[]);
+  const suppliersPromise = needsSuppliers ? request.suppliers() : Promise.resolve([] as any[]);
+  const vendorsPromise = needsVendors ? request.vendors() : Promise.resolve([] as any[]);
+  const productsPromise = needsProducts ? request.products() : Promise.resolve([] as any[]);
+  const movementsPromise = needsMovements ? request.movements() : Promise.resolve([] as any[]);
   const [debtors, suppliers, vendors, products, movements] = await Promise.all([
     debtorsPromise,
     suppliersPromise,
@@ -459,12 +532,17 @@ const TYPE_LABEL: Record<TallyExportType, string> = {
   "debit-notes": "Debit Note",
 };
 
-export async function listSelectable(clientId: string, exportType: TallyExportType): Promise<SelectableRecord[]> {
+export async function listSelectable(
+  clientId: string,
+  exportType: TallyExportType,
+  context?: TallyRequestContext,
+): Promise<SelectableRecord[]> {
   const out: SelectableRecord[] = [];
-  const config = (await Tally.getConfig(clientId)) || (await Tally.getConfig("shared"));
+  const request = context ?? createRequestContext(clientId);
+  const config = await request.config();
 
   if (exportType === "customers") {
-    const rows = await sharedDebtors();
+    const rows = await request.debtors();
     for (const d of rows as any[]) {
       const missing: string[] = [];
       if (!d.gstin) missing.push("GSTIN missing");
@@ -484,8 +562,8 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
     }
   } else if (exportType === "suppliers") {
     const [supplierRows, vendorRows] = await Promise.all([
-      sharedSuppliers(),
-      sharedVendors(),
+      request.suppliers(),
+      request.vendors(),
     ]);
     const rows = [
       ...supplierRows,
@@ -512,7 +590,7 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       });
     }
   } else if (exportType === "stock-items") {
-    const rows = await sharedProducts();
+    const rows = await request.products();
     for (const p of rows as any[]) {
       const missing: string[] = [];
       if (!p.hsnCode) missing.push("HSN missing");
@@ -576,8 +654,8 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       });
     }
   } else if (exportType === "sales") {
-    const rows = await sharedInvoiceRows();
-    const debtors = await sharedDebtors();
+    const rows = await request.invoices();
+    const debtors = await request.debtors();
     const debtorById = new Map<string, any>();
     for (const d of debtors as any[]) {
       debtorById.set(d.id, d);
@@ -603,10 +681,10 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       });
     }
   } else if (exportType === "purchases") {
-    const rows = await sharedPurchaseInvoiceRows();
+    const rows = await request.purchaseInvoices();
     const [supplierRows, vendorRows] = await Promise.all([
-      sharedSuppliers(),
-      sharedVendors(),
+      request.suppliers(),
+      request.vendors(),
     ]);
     const supplierById = new Map<string, any>();
     for (const s of supplierRows as any[]) supplierById.set(s.id, s);
@@ -635,9 +713,9 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
     }
   } else if (exportType === "receipts") {
     const [receiptRows, invoices, debtors] = await Promise.all([
-      sharedReceipts(),
-      sharedInvoiceRows(),
-      sharedDebtors(),
+      request.receipts(),
+      request.invoices(),
+      request.debtors(),
     ]);
     const rows = mergeReceiptRows(invoices, receiptRows);
     const invoiceById = new Map<string, any>();
@@ -664,10 +742,10 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       });
     }
   } else if (exportType === "payments") {
-    const rows = await sharedPurchaseInvoiceRows();
+    const rows = await request.purchaseInvoices();
     const [supplierRows, vendorRows] = await Promise.all([
-      sharedSuppliers(),
-      sharedVendors(),
+      request.suppliers(),
+      request.vendors(),
     ]);
     const supplierById = new Map<string, any>();
     for (const s of supplierRows as any[]) supplierById.set(s.id, s);
@@ -693,14 +771,14 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
       });
     }
   } else if (exportType === "credit-notes" || exportType === "debit-notes") {
-    const rows = await sharedNotes();
+    const rows = await request.notes();
     const want = exportType === "credit-notes" ? "credit" : "debit";
     const [invoices, purchases, debtors, suppliers, vendors] = await Promise.all([
-      sharedInvoiceRows(),
-      sharedPurchaseInvoiceRows(),
-      sharedDebtors(),
-      sharedSuppliers(),
-      sharedVendors(),
+      request.invoices(),
+      request.purchaseInvoices(),
+      request.debtors(),
+      request.suppliers(),
+      request.vendors(),
     ]);
     const invoiceById = new Map<string, any>();
     for (const i of invoices as any[]) invoiceById.set(i.id, i);
@@ -738,7 +816,7 @@ export async function listSelectable(clientId: string, exportType: TallyExportTy
     }
   }
 
-  const exported = await Tally.listExportRecords(clientId).catch(() => [] as any[]);
+  const exported = await request.exportRecords();
   const byKey = new Map<string, any>();
   for (const r of exported as any[]) byKey.set(`${r.exportType}|${r.sourceId}`, r);
   for (const row of out) {
@@ -759,8 +837,10 @@ export async function buildRecords(
   exportType: TallyExportType,
   config: TallyConfig,
   ids?: string[],
+  context?: TallyRequestContext,
 ): Promise<{ reportName: "All Masters" | "Vouchers"; prepared: PreparedRecord[] }> {
-  const ctx = await loadContext(clientId, config, exportType);
+  const request = context ?? createRequestContext(clientId);
+  const ctx = await loadContext(clientId, config, exportType, request);
   const idSet = ids && ids.length ? new Set(ids) : null;
   const prepared: PreparedRecord[] = [];
 
@@ -768,11 +848,11 @@ export async function buildRecords(
   if (exportType === "customers" || exportType === "suppliers") {
     let rows: any[];
     if (exportType === "customers") {
-      rows = await sharedDebtors();
+      rows = await request.debtors();
     } else {
       const [suppliers, vendors] = await Promise.all([
-        sharedSuppliers(),
-        sharedVendors(),
+        request.suppliers(),
+        request.vendors(),
       ]);
       rows = [
         ...suppliers,
@@ -830,7 +910,9 @@ export async function buildRecords(
   }
 
   if (exportType === "stock-items") {
-    const rows = await sharedProducts();
+    const rows = await request.products();
+    // One bulk lookup instead of a GetItem per stock item.
+    const exportRecords = await request.exportRecordMap();
     for (const row of rows as any[]) {
       if (idSet && !idSet.has(row.id)) continue;
       const errors: string[] = [];
@@ -848,7 +930,7 @@ export async function buildRecords(
       }
       if (row.skuLevel === "parent") warnings.push("Parent product exported as a stock item; variants export separately.");
 
-      const existingExport = await Tally.findExportRecord(clientId, "stock-items", row.id).catch(() => null);
+      const existingExport = exportRecords.get(`stock-items|${row.id}`) ?? null;
       const action =
         existingExport && ["Exported", "Downloaded", "Imported"].includes(existingExport.status)
           ? "Alter"
@@ -944,13 +1026,13 @@ export async function buildRecords(
   const needsNotes = exportType === "credit-notes" || exportType === "debit-notes";
   const [invoices, purchases, receipts, notes] = await Promise.all([
     exportType === "receipts" || needsNotes
-      ? (idSet && exportType !== "receipts" ? selectedInvoiceRows(idSet) : sharedInvoiceRows())
+      ? (idSet && exportType !== "receipts" ? selectedInvoiceRows(idSet, request) : request.invoices())
       : Promise.resolve([] as any[]),
     needsNotes
-      ? (idSet ? selectedPurchaseInvoiceRows(idSet) : sharedPurchaseInvoiceRows())
+      ? (idSet ? selectedPurchaseInvoiceRows(idSet, request) : request.purchaseInvoices())
       : Promise.resolve([] as any[]),
-    exportType === "receipts" ? sharedReceipts() : Promise.resolve([] as any[]),
-    needsNotes ? sharedNotes() : Promise.resolve([] as any[]),
+    exportType === "receipts" ? request.receipts() : Promise.resolve([] as any[]),
+    needsNotes ? request.notes() : Promise.resolve([] as any[]),
   ]);
   const invoicesById = new Map<string, any>();
   for (const i of invoices as any[]) invoicesById.set(i.id, i);
@@ -973,7 +1055,7 @@ export async function buildRecords(
   };
 
   if (exportType === "sales") {
-    const rows = await selectedInvoiceRows(idSet);
+    const rows = await selectedInvoiceRows(idSet, request);
     for (const row of rows as any[]) {
       if (idSet && !idSet.has(row.id)) continue;
       const res = serializeSalesVoucher(row, sharedVoucherCtx);
@@ -995,7 +1077,7 @@ export async function buildRecords(
       });
     }
   } else if (exportType === "purchases") {
-    const rows = await sharedPurchaseInvoiceRows();
+    const rows = await request.purchaseInvoices();
     for (const row of rows as any[]) {
       if (idSet && !idSet.has(row.id)) continue;
       const res = serializePurchaseVoucher(row, sharedVoucherCtx);
@@ -1039,7 +1121,7 @@ export async function buildRecords(
       });
     }
   } else if (exportType === "payments") {
-    const rows = await sharedPurchaseInvoiceRows();
+    const rows = await request.purchaseInvoices();
     for (const row of rows as any[]) {
       if (!(Number(row.amountPaid) > 0)) continue;
       if (idSet && !idSet.has(row.id)) continue;
@@ -1090,14 +1172,20 @@ export async function buildRecords(
   return { reportName: "Vouchers", prepared };
 }
 
-export async function validateRecords(clientId: string, exportType: TallyExportType, ids?: string[]) {
-  const config = await getTallyConfig(clientId);
+export async function validateRecords(
+  clientId: string,
+  exportType: TallyExportType,
+  ids?: string[],
+  context?: TallyRequestContext,
+) {
+  const request = context ?? createRequestContext(clientId);
+  const config = await request.config();
   if (!config) return { configError: "Tally company name is not configured. Open Configuration & Mapping and enter the exact company name shown in Tally.", records: [] as PreparedRecord[] };
   const problems = configProblems(config, exportType);
   if (problems.length) return { configError: problems.join(" "), records: [] as PreparedRecord[] };
-  const { prepared } = await buildRecords(clientId, exportType, config, ids);
+  const { prepared } = await buildRecords(clientId, exportType, config, ids, request);
   if (!config.allowDuplicateReExport) {
-    const existing = await Tally.listExportRecords(clientId).catch(() => [] as any[]);
+    const existing = await request.exportRecords();
     const map = new Map(existing.map((r) => [`${r.exportType}|${r.sourceId}`, r]));
     for (const rec of prepared) {
       const prev = map.get(`${exportType}|${rec.sourceId}`);
@@ -1158,19 +1246,22 @@ export interface GenerateOptions {
   ids?: string[];
   generatedBy?: string | null;
   force?: boolean;
+  /** Shared read cache; routes pass one per request. */
+  context?: TallyRequestContext;
 }
 
 export async function generateBatch(opts: GenerateOptions) {
-  const config = await getTallyConfig(opts.clientId);
+  const request = opts.context ?? createRequestContext(opts.clientId);
+  const config = await request.config();
   if (!config) throw Object.assign(new Error("Tally configuration has not been set up yet."), { status: 400 });
   const problems = configProblems(config, opts.exportType);
   if (problems.length) throw Object.assign(new Error(problems.join(" ")), { status: 400 });
 
-  const { reportName, prepared } = await buildRecords(opts.clientId, opts.exportType, config, opts.ids);
+  const { reportName, prepared } = await buildRecords(opts.clientId, opts.exportType, config, opts.ids, request);
   if (!prepared.length) throw Object.assign(new Error("No records selected for export."), { status: 400 });
 
   if (!opts.force && !config.allowDuplicateReExport) {
-    const existing = await Tally.listExportRecords(opts.clientId);
+    const existing = await request.exportRecords();
     const map = new Map(existing.map((r) => [`${r.exportType}|${r.sourceId}`, r]));
     for (const rec of prepared) {
       const prev = map.get(`${opts.exportType}|${rec.sourceId}`);
@@ -1311,20 +1402,27 @@ export async function generateBatch(opts: GenerateOptions) {
     records: batchRecords,
   });
 
+  // The duplicate-check above already loaded every export record; reuse that
+  // map so each write skips its own GetItem.
+  const knownExports = await request.exportRecordMap();
   for (const rec of exportPrepared) {
-    await Tally.upsertExportRecord(opts.clientId, {
-      exportType: opts.exportType,
-      sourceId: rec.sourceId,
-      sourceLabel: rec.sourceLabel,
-      docNumber: rec.docNumber,
-      voucherType: rec.voucherType,
-      contentHash: rec.contentHash,
-      status: rec.status === "Needs Review" ? "Needs Review" : "Exported",
-      lastBatchId: batch.id,
-      exportedAt: generatedAt,
-      errorCount: rec.errors.length,
-      errors: rec.errors,
-    });
+    await Tally.upsertExportRecord(
+      opts.clientId,
+      {
+        exportType: opts.exportType,
+        sourceId: rec.sourceId,
+        sourceLabel: rec.sourceLabel,
+        docNumber: rec.docNumber,
+        voucherType: rec.voucherType,
+        contentHash: rec.contentHash,
+        status: rec.status === "Needs Review" ? "Needs Review" : "Exported",
+        lastBatchId: batch.id,
+        exportedAt: generatedAt,
+        errorCount: rec.errors.length,
+        errors: rec.errors,
+      },
+      knownExports.get(`${opts.exportType}|${rec.sourceId}`) ?? null,
+    );
   }
 
   return {
@@ -1346,17 +1444,26 @@ export async function markDownloaded(clientId: string, batchId: string, user: st
     downloadedBy: user,
   });
   if (!updated) return null;
+  const knownExports = new Map(
+    (await Tally.listExportRecords(clientId).catch(() => [] as Tally.TallyExportRecord[])).map(
+      (r) => [`${r.exportType}|${r.sourceId}`, r] as const,
+    ),
+  );
   for (const rec of updated.records) {
-    const existing = await Tally.findExportRecord(clientId, updated.exportType, rec.sourceId);
+    const existing = knownExports.get(`${updated.exportType}|${rec.sourceId}`);
     if (existing && existing.lastBatchId === updated.id && existing.status === "Exported") {
-      await Tally.upsertExportRecord(clientId, {
-        ...existing,
-        exportType: updated.exportType,
-        sourceId: rec.sourceId,
-        contentHash: rec.contentHash,
-        voucherType: rec.voucherType,
-        status: "Downloaded",
-      });
+      await Tally.upsertExportRecord(
+        clientId,
+        {
+          ...existing,
+          exportType: updated.exportType,
+          sourceId: rec.sourceId,
+          contentHash: rec.contentHash,
+          voucherType: rec.voucherType,
+          status: "Downloaded",
+        },
+        existing,
+      );
     }
   }
   return updated;
@@ -1383,18 +1490,27 @@ export async function confirmImport(
     importResult: { created, altered, skipped, failed, notes: result.notes ?? null },
   });
   if (!updated) return null;
+  const knownExports = new Map(
+    (await Tally.listExportRecords(clientId).catch(() => [] as Tally.TallyExportRecord[])).map(
+      (r) => [`${r.exportType}|${r.sourceId}`, r] as const,
+    ),
+  );
   for (const rec of updated.records) {
-    const existing = await Tally.findExportRecord(clientId, updated.exportType, rec.sourceId);
+    const existing = knownExports.get(`${updated.exportType}|${rec.sourceId}`);
     if (!existing || existing.lastBatchId !== updated.id) continue;
-    await Tally.upsertExportRecord(clientId, {
-      ...existing,
-      exportType: updated.exportType,
-      sourceId: rec.sourceId,
-      contentHash: rec.contentHash,
-      voucherType: rec.voucherType,
-      status: status === "Failed" ? "Failed" : "Imported",
-      importedAt: now,
-    });
+    await Tally.upsertExportRecord(
+      clientId,
+      {
+        ...existing,
+        exportType: updated.exportType,
+        sourceId: rec.sourceId,
+        contentHash: rec.contentHash,
+        voucherType: rec.voucherType,
+        status: status === "Failed" ? "Failed" : "Imported",
+        importedAt: now,
+      },
+      existing,
+    );
   }
   return updated;
 }
@@ -1438,11 +1554,17 @@ export function manifestCsv(batch: Tally.TallyBatch): string {
   return generateManifestCsv(batch);
 }
 
-export async function getDashboardOverview(clientId: string) {
-  const config = (await Tally.getConfig(clientId)) || (await Tally.getConfig("shared"));
+export async function getDashboardOverview(
+  clientId: string,
+  context?: TallyRequestContext,
+) {
+  const request = context ?? createRequestContext(clientId);
+  const config = await request.config();
+  // One shared cache for all eleven export types: each entity type is scanned
+  // once for the whole dashboard instead of once per type.
   const [batches, exportRecords] = await Promise.all([
-    Tally.listBatches(clientId).catch(() => []),
-    Tally.listExportRecords(clientId).catch(() => []),
+    request.batches(),
+    request.exportRecords(),
   ]);
 
   const allExportTypes: TallyExportType[] = [
@@ -1464,7 +1586,7 @@ export async function getDashboardOverview(clientId: string) {
   let totalExportedValue = 0;
 
   for (const type of allExportTypes) {
-    const rows = await listSelectable(clientId, type);
+    const rows = await listSelectable(clientId, type, request);
     const count = rows.length;
     totalEligible += count;
     const typeRecords = exportRecords.filter((r) => r.exportType === type);

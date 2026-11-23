@@ -35,8 +35,12 @@ export function isIndexableEntityType(entityType: unknown): entityType is string
   );
 }
 
-/** Derive the correct GSI2 keys for an item, or null when it cannot be indexed. */
-export function gsi2KeysFor(
+/**
+ * Keys an item must have, ignoring whatever it already stores. Used by the
+ * backfill's propagation check, where comparing against `gsi2KeysFor` would
+ * always "pass" because it preserves existing keys.
+ */
+export function expectedGsi2Keys(
   item: Record<string, any>,
 ): { gsi2pk: string; gsi2sk: string } | null {
   const entityType = item.entityType;
@@ -48,8 +52,20 @@ export function gsi2KeysFor(
   const sortSource =
     item.createdAt ?? item.updatedAt ?? item.id ?? item.pk ?? "";
   return {
-    gsi2pk: item.gsi2pk ?? custom ?? entityType,
-    gsi2sk: item.gsi2sk ?? `ENTITY#${sortSource}`,
+    gsi2pk: custom ?? entityType,
+    gsi2sk: `ENTITY#${sortSource}`,
+  };
+}
+
+/** Derive the correct GSI2 keys for an item, or null when it cannot be indexed. */
+export function gsi2KeysFor(
+  item: Record<string, any>,
+): { gsi2pk: string; gsi2sk: string } | null {
+  const expected = expectedGsi2Keys(item);
+  if (!expected) return null;
+  return {
+    gsi2pk: item.gsi2pk ?? expected.gsi2pk,
+    gsi2sk: item.gsi2sk ?? expected.gsi2sk,
   };
 }
 

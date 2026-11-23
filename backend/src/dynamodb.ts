@@ -165,6 +165,12 @@ export interface BoundedReadOptions {
   timeoutMs?: number;
   signal?: AbortSignal;
   consistentRead?: boolean;
+  /**
+   * Attributes to return. Item data is billed on transfer, so export/dashboard
+   * reads use this to skip large embedded arrays. `isDemoData` is always added
+   * so demo isolation still works.
+   */
+  projection?: string[];
   /** Disables caps entirely. Reserved for the dedicated Tally all-records helper. */
   unbounded?: boolean;
 }
@@ -186,6 +192,23 @@ function resolvePageSize(options?: BoundedReadOptions): number {
   return Number.isFinite(requested) && requested > 0
     ? Math.floor(requested)
     : 1000;
+}
+
+/**
+ * Applies a projection without ever dropping `isDemoData`, which
+ * `filterForCurrentMode` needs to keep demo rows out of live reads.
+ */
+function applyProjection(
+  params: Record<string, any>,
+  projection?: string[],
+): void {
+  if (!projection?.length) return;
+  const names = Array.from(new Set([...projection, "isDemoData"]));
+  params.ProjectionExpression = names.map((_, i) => `#p${i}`).join(", ");
+  params.ExpressionAttributeNames = {
+    ...(params.ExpressionAttributeNames ?? {}),
+    ...Object.fromEntries(names.map((name, i) => [`#p${i}`, name])),
+  };
 }
 
 function assertWithinCaps(
@@ -258,6 +281,7 @@ async function readAllByEntityType(
             Limit: pageSize,
             ExclusiveStartKey: lastKey,
           };
+    applyProjection(params, options?.projection);
     withReadDiagnostics(params);
 
     const result = await instrumentRead(
@@ -474,7 +498,12 @@ export async function deleteItem(pk: string, sk?: string) {
 
 export async function queryByPk(
   pk: string,
-  options?: { limit?: number; reverse?: boolean; exclusiveStartKey?: Record<string, any> },
+  options?: {
+    limit?: number;
+    reverse?: boolean;
+    exclusiveStartKey?: Record<string, any>;
+    projection?: string[];
+  },
 ) {
   const params: QueryCommandInput = withReadDiagnostics({
     TableName: TABLE,
@@ -484,6 +513,7 @@ export async function queryByPk(
     ScanIndexForward: options?.reverse !== undefined ? !options.reverse : true,
     ExclusiveStartKey: options?.exclusiveStartKey,
   });
+  applyProjection(params as Record<string, any>, options?.projection);
   const result = await instrumentRead(
     {
       operation: "Query",
@@ -625,6 +655,7 @@ export async function queryAllByPk(
       ExclusiveStartKey: lastKey,
       ...(options?.consistentRead ? { ConsistentRead: true } : {}),
     });
+    applyProjection(params as Record<string, any>, options?.projection);
 
     const result = await instrumentRead(
       { operation: "Query", tenantId: pk.startsWith("USER#") ? pk.slice(5) : null },

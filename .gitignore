@@ -33,9 +33,10 @@ logs/
 *.log
 npm-debug.log*
 
-# Local DynamoDB backups (never commit)
+# Local DynamoDB backups and resumable maintenance progress (never commit)
 backups/
 backend/backups/
+*.checkpoint.json
 
 # Tally export files (generated XML/batches)
 tally-exports/

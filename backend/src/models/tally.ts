@@ -279,13 +279,77 @@ export async function listBatches(clientId: string): Promise<TallyBatch[]> {
   return items;
 }
 
+export type TallyBatchSummary = Omit<TallyBatch, "records">;
+
+/**
+ * Metadata attributes for dashboards and lists. `records` holds every exported
+ * record (with hashes and error text), so reading it for a list multiplies the
+ * read cost by the batch size — the projection skips it entirely.
+ */
+const BATCH_SUMMARY_PROJECTION = [
+  "pk",
+  "sk",
+  "gsi1pk",
+  "gsi1sk",
+  "entityType",
+  "id",
+  "clientId",
+  "batchNumber",
+  "exportType",
+  "reportName",
+  "companyName",
+  "status",
+  "fileName",
+  "xmlPath",
+  "xmlSha256",
+  "xmlBytes",
+  "recordCount",
+  "validCount",
+  "errorCount",
+  "warningCount",
+  "totals",
+  "generatedAt",
+  "generatedBy",
+  "downloadedAt",
+  "downloadedBy",
+  "importedAt",
+  "importedBy",
+  "importResult",
+];
+
+export async function listBatchSummaries(
+  clientId: string,
+  options?: { limit?: number },
+): Promise<TallyBatchSummary[]> {
+  const items: TallyBatchSummary[] = [];
+  let exclusiveStartKey: Record<string, any> | undefined;
+  do {
+    const page = await db.queryByPk(batchPk(clientId), {
+      limit: options?.limit ?? 500,
+      reverse: true,
+      exclusiveStartKey,
+      projection: BATCH_SUMMARY_PROJECTION,
+    });
+    items.push(...(page.items as unknown as TallyBatchSummary[]));
+    exclusiveStartKey = page.lastKey;
+  } while (exclusiveStartKey);
+  return items;
+}
+
 export async function getBatch(clientId: string, id: string): Promise<TallyBatch | null> {
-  const batches = await listBatches(clientId);
-  return batches.find((b) => b.id === id) ?? null;
+  // Find the sort key from metadata only, then fetch the single full batch.
+  // Reading every batch (with its embedded records) just to locate one id is
+  // the most expensive read in the batch flow.
+  const summaries = await listBatchSummaries(clientId);
+  const summary = summaries.find((b) => b.id === id);
+  if (!summary) return null;
+  return (await db.getItem(summary.pk, summary.sk)) as TallyBatch | null;
 }
 
 export async function countBatches(clientId: string): Promise<number> {
-  return (await listBatches(clientId)).length;
+  // Metadata-only read: keeps the previous demo-filtering and numbering
+  // semantics without transferring every batch's embedded record list.
+  return (await listBatchSummaries(clientId)).length;
 }
 
 export async function createBatch(
@@ -386,10 +450,15 @@ export async function upsertExportRecord(
     voucherType: string;
     status: TallyRecordStatus;
   },
+  /** Pass the preloaded record to skip a per-item GetItem on bulk writes. */
+  knownExisting?: TallyExportRecord | null,
 ): Promise<TallyExportRecord> {
   const sk = `${data.exportType}#${data.sourceId}`;
   const pk = recordPk(clientId);
-  const existing = (await db.getItem(pk, sk)) as TallyExportRecord | null;
+  const existing =
+    knownExisting === undefined
+      ? ((await db.getItem(pk, sk)) as TallyExportRecord | null)
+      : knownExisting;
   const now = db.nowISO();
   const item: TallyExportRecord = {
     pk,

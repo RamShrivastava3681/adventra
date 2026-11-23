@@ -18,6 +18,28 @@ function awsCredentials(): AwsCredentials | undefined {
 
 const isProduction = (process.env.NODE_ENV || "development") === "production";
 
+/**
+ * Chooses the entity-read source. Defaults to a table scan so every record —
+ * indexed or not — remains visible to exports. GSI2 is opt-in and only honoured
+ * once the backfill verification has been recorded in the environment.
+ */
+export function resolveScanSource(
+  requested: string | undefined,
+  verified: string | undefined,
+): "scan" | "gsi2" {
+  if (requested !== "gsi2") return "scan";
+  if (verified !== "true") {
+    console.warn(
+      "[dynamodb] DYNAMODB_SCAN_SOURCE=gsi2 ignored until DYNAMODB_GSI2_VERIFIED=true " +
+        "(run `npx tsx scripts/backfill-gsi2.ts --verify` first). Using table scans so " +
+        "unbackfilled records stay exportable.",
+    );
+    return "scan";
+  }
+  return "gsi2";
+}
+
+
 // Approved browser origins (used by CORS and the CSRF origin guard).
 // Explicitly configured via CORS_ORIGIN — in production ONLY these are allowed.
 const configuredOrigins = (process.env.CORS_ORIGIN || "http://localhost:3000,http://localhost:8080")
@@ -116,11 +138,15 @@ export const config = {
     // Tally exports use a dedicated uncapped helper and are the only exception.
     readDiagnostics: process.env.DYNAMODB_READ_DIAGNOSTICS === "true",
 
-    // GSI2 is the production default. "scan" is available only as an explicit
-    // emergency override for compatibility troubleshooting.
-    scanSource: "gsi2" as
-      | "gsi2"
-      | "scan",
+    // GSI2 only contains records whose index keys were written (new writes plus
+    // a completed backfill). Reading through it before the backfill is verified
+    // silently hides legacy records — including from Tally exports — so the
+    // table scan stays the default and GSI2 requires both an explicit request
+    // and a passed `backfill-gsi2.ts --verify` run.
+    scanSource: resolveScanSource(
+      process.env.DYNAMODB_SCAN_SOURCE,
+      process.env.DYNAMODB_GSI2_VERIFIED,
+    ),
 
     readLimits: {
       maxScanPages: parseInt(process.env.DYNAMODB_MAX_SCAN_PAGES || "400", 10),

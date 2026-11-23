@@ -98,7 +98,9 @@ router.put("/tally/config", authMiddleware, CAN_EXPORT, async (req, res) => {
 
 router.get(["/tally/overview", "/tally/dashboard"], authMiddleware, async (req, res) => {
   try {
-    const data = await engine.getDashboardOverview(clientId(req));
+    // One read cache for the whole dashboard: entity data is scanned once.
+    const ctx = engine.createRequestContext(clientId(req));
+    const data = await engine.getDashboardOverview(clientId(req), ctx);
     res.json(data);
   } catch (err) {
     handleError(res, err, "Failed to load Tally overview");
@@ -165,6 +167,7 @@ router.post("/tally/masters/export", authMiddleware, CAN_EXPORT, async (req, res
       ids: Array.isArray(ids) ? ids : undefined,
       force: !!force,
       generatedBy: req.user?.email ?? null,
+      context: engine.createRequestContext(clientId(req)),
     });
     if (result.validationFailed) {
       return res.status(422).json({
@@ -254,6 +257,7 @@ router.post("/tally/transactions/export", authMiddleware, CAN_EXPORT, async (req
       ids: Array.isArray(ids) ? ids : undefined,
       force: !!force,
       generatedBy: req.user?.email ?? null,
+      context: engine.createRequestContext(clientId(req)),
     });
     if (result.validationFailed) {
       return res.status(422).json({
@@ -277,7 +281,11 @@ router.get("/tally/records/:exportType", authMiddleware, async (req, res) => {
   try {
     const type = req.params.exportType;
     if (!isExportType(type)) return res.status(400).json({ error: "Unknown export type" });
-    const rows = await engine.listSelectable(clientId(req), type);
+    const rows = await engine.listSelectable(
+      clientId(req),
+      type,
+      engine.createRequestContext(clientId(req)),
+    );
     res.json({ exportType: type, label: engine.typeLabel(type), records: rows });
   } catch (err) {
     handleError(res, err, "Failed to list Tally source records");
@@ -288,7 +296,12 @@ router.post("/tally/validate", authMiddleware, CAN_EXPORT, async (req, res) => {
   try {
     const { exportType, ids } = req.body ?? {};
     if (!isExportType(exportType)) return res.status(400).json({ error: "Unknown export type" });
-    const result = await engine.validateRecords(clientId(req), exportType, Array.isArray(ids) ? ids : undefined);
+    const result = await engine.validateRecords(
+      clientId(req),
+      exportType,
+      Array.isArray(ids) ? ids : undefined,
+      engine.createRequestContext(clientId(req)),
+    );
     const records = result.records.map(publicRecord);
     const errors = records.flatMap((r) => r.errors.map((e) => `${r.sourceLabel}: ${e}`));
     if (result.configError) {
@@ -376,6 +389,7 @@ router.post("/tally/export", authMiddleware, CAN_EXPORT, async (req, res) => {
       ids: Array.isArray(ids) ? ids : undefined,
       force: !!force,
       generatedBy: req.user?.email ?? null,
+      context: engine.createRequestContext(clientId(req)),
     });
     if (result.validationFailed) {
       return res.status(422).json({
@@ -397,7 +411,9 @@ router.post("/tally/export", authMiddleware, CAN_EXPORT, async (req, res) => {
 
 router.get("/tally/batches", authMiddleware, async (req, res) => {
   try {
-    const batches = await Tally.listBatches(clientId(req));
+    // Metadata only: batch items embed every exported record, which lists do
+    // not need and would otherwise pay to read.
+    const batches = await Tally.listBatchSummaries(clientId(req));
     res.json({
       batches: batches.map((b) => ({
         id: b.id,

@@ -1,5 +1,29 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { shouldBackfillGsi2 } from "../../lib/gsi2-backfill.js";
+import { resolveScanSource } from "../../config.js";
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("DynamoDB read source safety", () => {
+  it("defaults to scans so unbackfilled records stay visible to exports", () => {
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(resolveScanSource(undefined, undefined)).toBe("scan");
+    expect(resolveScanSource("scan", "true")).toBe("scan");
+    expect(resolveScanSource("gsi2", undefined)).toBe("scan");
+  });
+
+  it("ignores an unverified GSI2 request with a warning", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(resolveScanSource("gsi2", "false")).toBe("scan");
+    expect(warn).toHaveBeenCalledOnce();
+  });
+
+  it("uses GSI2 only after the backfill verification is recorded", () => {
+    expect(resolveScanSource("gsi2", "true")).toBe("gsi2");
+  });
+});
 
 describe("GSI2 backfill safety", () => {
   it("backfills records that have an entity type but no gsi2pk", () => {
