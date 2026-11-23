@@ -33,6 +33,10 @@ logs/
 *.log
 npm-debug.log*
 
+# Local DynamoDB backups (never commit)
+backups/
+backend/backups/
+
 # Tally export files (generated XML/batches)
 tally-exports/
 backend/tally-exports/

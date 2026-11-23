@@ -281,6 +281,24 @@ export async function list(clientId?: string) {
 
 export async function get(id: string) { return db.getItem(`INVOICE#${id}`) as Promise<Invoice | null>; }
 
+// ---- NOA token pointer (public verification link → invoice, no table read) ----
+
+function noaLookupKey(token: string): string {
+  return `NOA#${token}`;
+}
+
+async function writeNoaPointer(inv: { id: string; noaToken?: string | null; clientId?: string | null }) {
+  if (!inv.noaToken) return;
+  const key = noaLookupKey(inv.noaToken);
+  await db.putItemIfAbsent({
+    pk: key,
+    sk: key,
+    entityType: "NoaToken",
+    invoiceId: inv.id,
+    clientId: inv.clientId ?? null,
+  });
+}
+
 /**
  * Next sales-invoice number in the ADV-<FY>-SI- series (e.g.
  * ADV-26/27-SI-001, then 002, …). Each financial year restarts at 001;
@@ -394,6 +412,7 @@ export async function create(data: Partial<Invoice> & { clientId: string; debtor
     createdAt: now, updatedAt: now,
   };
   await db.putItem(item);
+  await writeNoaPointer(item).catch(() => undefined);
   return item;
 }
 
@@ -624,6 +643,15 @@ export async function clearIrn(id: string, reason: string): Promise<Invoice> {
 }
 
 export async function getByNOAToken(token: string) {
+  const pointer: any = await db.getItem(noaLookupKey(token)).catch(() => null);
+  if (pointer?.invoiceId) {
+    const inv = await get(pointer.invoiceId);
+    if (inv && (inv as any).noaToken === token) return inv;
+  }
+  // Fallback for invoices created before the pointer existed — bounded entity
+  // query, not a full-table scan.
   const items = await db.scanByType("Invoice");
-  return items.find((i: any) => i.noaToken === token) as Invoice | undefined;
+  const found = items.find((i: any) => i.noaToken === token) as Invoice | undefined;
+  if (found) await writeNoaPointer(found as any).catch(() => undefined);
+  return found;
 }

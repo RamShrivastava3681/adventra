@@ -20,6 +20,8 @@ import * as StockMovement from "../models/stock-movement.js";
 import * as Alert from "../models/alert.js";
 import * as EwayBill from "../models/eway-bill.js";
 import * as DebtorTerm from "../models/debtor-payment-term.js";
+import * as WorkflowTask from "../models/workflow-task.js";
+import * as NotificationLog from "../models/notification-log.js";
 
 // ─── Party cascade deletes ───────────────────────────────────────────────────
 // Deleting a customer / supplier / vendor removes every document linked to
@@ -106,6 +108,7 @@ async function deleteDocSidecars(
   for (const t of tasks as any[]) {
     if (t?.docId && docIds.has(String(t.docId))) {
       await db.deleteItem(t.pk, t.sk);
+      if (t.docType) await WorkflowTask.removeDocPointer(t.docType, t.docId, t.id);
       counts.tasks += 1;
     }
   }
@@ -124,6 +127,7 @@ async function deleteDocSidecars(
   for (const n of notifs as any[]) {
     if (n?.docId && docIds.has(String(n.docId))) {
       await db.deleteItem(n.pk, n.sk);
+      await NotificationLog.removeDocPointer(n.docType, n.docId, n.id, n.createdAt);
       counts.notifications += 1;
     }
   }

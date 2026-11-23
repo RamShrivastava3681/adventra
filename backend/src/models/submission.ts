@@ -25,6 +25,20 @@ export interface Submission {
   updatedAt: string;
 }
 
+async function queryAllForUser(userId: string): Promise<any[]> {
+  const items: any[] = [];
+  let exclusiveStartKey: Record<string, any> | undefined;
+  do {
+    const page = await db.queryByPk(`USER#${userId}`, {
+      limit: 500,
+      exclusiveStartKey,
+    });
+    items.push(...(page.items as any[]));
+    exclusiveStartKey = page.lastKey;
+  } while (exclusiveStartKey);
+  return items;
+}
+
 // ---- CRUD ----
 
 export async function create(req: Request, res: Response) {
@@ -65,12 +79,11 @@ export async function create(req: Request, res: Response) {
     // Fire-and-forget: notify the reporting manager
     try {
       if (isEmailConfigured()) {
-        // Find the RM for this user
-        const users = await db.scanByType("User");
-        const submitter = users.find((u: any) => u.id === userId);
+        // Targeted lookups — no full user read.
+        const submitter: any = await db.getItem(`USER#${userId}`);
         const rmId = submitter?.reportingManagerId;
         if (rmId) {
-          const rm = users.find((u: any) => u.id === rmId);
+          const rm: any = await db.getItem(`USER#${rmId}`);
           if (rm?.email) {
             const submitterName = submitter?.contactName || submitter?.email || "Team member";
             sendSubmissionEmail({
@@ -100,8 +113,12 @@ export async function list(req: Request, res: Response) {
   try {
     const userId = req.user!.userId;
     const typeFilter = req.query.type as string | undefined;
-    const all = await db.scanByType("Submission");
-    const userSubmissions = all.filter((s: any) => s.userId === userId);
+    // Submissions live in the user's own partition (pk = USER#<userId>), so the
+    // list is a targeted Query — not a table scan.
+    const items = await queryAllForUser(userId);
+    const userSubmissions = items.filter(
+      (s: any) => s.entityType === "Submission" && s.userId === userId,
+    );
     const result = typeFilter
       ? userSubmissions.filter((s: any) => s.type === typeFilter)
       : userSubmissions;
@@ -161,9 +178,12 @@ export async function listTeamRequests(req: Request, res: Response) {
       .filter((u: any) => u.reportingManagerId === managerId)
       .map((u: any) => u.id);
 
-    // Get all submissions
-    const all = await db.scanByType("Submission");
-    const teamSubmissions = all.filter((s: any) => teamIds.includes(s.userId));
+    // Submissions live in each team member's partition — one targeted Query per
+    // member instead of reading every submission in the table.
+    const perUser = await Promise.all(teamIds.map(queryAllForUser));
+    const teamSubmissions = perUser
+      .flat()
+      .filter((s: any) => s.entityType === "Submission" && teamIds.includes(s.userId));
 
     const result = typeFilter
       ? teamSubmissions.filter((s: any) => s.type === typeFilter)
@@ -201,9 +221,20 @@ export async function updateRequestStatus(req: Request, res: Response) {
       return res.status(400).json({ error: "Status must be 'approved' or 'rejected'" });
     }
 
-    // Find the submission by scanning (we don't know the userId)
-    const all = await db.scanByType("Submission");
-    const submission = all.find((s: any) => s.id === id);
+    // Resolve the submission through this RM's own team partitions (targeted
+    // Queries) — the id alone does not carry the owning user.
+    const teamUsers = (await db.scanByType("User")) as any[];
+    const teamIds = teamUsers
+      .filter((u) => u.reportingManagerId === managerId)
+      .map((u) => u.id);
+    let submission: any | undefined;
+    for (const teamId of teamIds) {
+      const items = await queryAllForUser(teamId);
+      submission = items.find(
+        (s) => s.entityType === "Submission" && s.id === id,
+      );
+      if (submission) break;
+    }
     if (!submission) return res.status(404).json({ error: "Submission not found" });
 
     // Verify the user is managed by this RM
@@ -217,9 +248,8 @@ export async function updateRequestStatus(req: Request, res: Response) {
     // Fire-and-forget: notify the submitter
     try {
       if (isEmailConfigured()) {
-        const allUsers = await db.scanByType("User");
-        const submitter = allUsers.find((u: any) => u.id === submission.userId);
-        const manager = allUsers.find((u: any) => u.id === managerId);
+        const submitter: any = await db.getItem(`USER#${submission.userId}`);
+        const manager: any = await db.getItem(`USER#${managerId}`);
         if (submitter?.email && manager) {
           const submitterName = submitter.contactName || submitter.email || "Team member";
           const managerName = manager.contactName || manager.email || "Manager";

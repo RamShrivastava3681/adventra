@@ -57,12 +57,16 @@ export async function writeEvent(data: {
 }): Promise<DomainEvent | null> {
   const dedupeKey = `${data.name}#${data.docType}#${data.docId}`;
   try {
-    const existing = await db.scanByType("DomainEvent", { limit: 2000 });
-    if ((existing as any[]).some((e) => `${e.name}#${e.docType}#${e.docId}` === dedupeKey)) {
+    // Events live in a document-scoped partition — dedupe with a targeted
+    // Query instead of reading every event in the table.
+    const existing = await db.queryAllByPk(
+      `DOMAINEVENT#${data.docType}#${data.docId}`,
+    );
+    if (existing.some((e) => `${e.name}#${e.docType}#${e.docId}` === dedupeKey)) {
       return null;
     }
   } catch {
-    // If the scan fails, still attempt the write — never block the caller.
+    // If the read fails, still attempt the write — never block the caller.
   }
   const id = uuid();
   const now = db.nowISO();
@@ -91,7 +95,9 @@ export async function writeEvent(data: {
 }
 
 export async function listForDoc(docType: string, docId: string): Promise<DomainEvent[]> {
-  const items = await db.scanByType("DomainEvent", { limit: 2000 });
+  const items = await db.queryAllByPk(`DOMAINEVENT#${docType}#${docId}`, {
+    reverse: true,
+  });
   return (items as DomainEvent[])
     .filter((e) => e.docType === docType && e.docId === docId)
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));

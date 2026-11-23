@@ -11073,8 +11073,12 @@ router.get("/user-progress", authMiddleware, async (req, res) => {
       Expense.list(userId),
       Advance.list(userId),
       db
-        .scanByType("Submission")
-        .then((items: any[]) => items.filter((s: any) => s.userId === userId)),
+        .queryByPk(`USER#${userId}`, { limit: 500 })
+        .then(({ items }) =>
+          (items as any[]).filter(
+            (s: any) => s.entityType === "Submission" && s.userId === userId,
+          ),
+        ),
     ]);
 
     // Compute stats

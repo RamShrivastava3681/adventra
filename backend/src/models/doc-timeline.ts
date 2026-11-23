@@ -45,7 +45,11 @@ export interface TimelineEntry {
 }
 
 export async function listForDoc(docType: string, docId: string): Promise<TimelineEntry[]> {
-  const items = await db.scanByType("DocTimeline", { limit: 2000 });
+  // Entries already live in a document-scoped partition — a paginated Query,
+  // never an entity-wide read.
+  const items = await db.queryAllByPk(`TIMELINE#${docType}#${docId}`, {
+    reverse: true,
+  });
   return (items as TimelineEntry[])
     .filter((e) => e.docType === docType && e.docId === docId)
     .sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));

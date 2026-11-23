@@ -13,6 +13,7 @@ vi.mock("../../dynamodb.js", () => ({
   deleteItem: vi.fn().mockResolvedValue({}),
   queryByGSI1: vi.fn().mockResolvedValue({ items: [] }),
   scanByType: vi.fn().mockResolvedValue([]),
+  queryAllByPk: vi.fn().mockResolvedValue([]),
   nowISO: vi.fn(() => "2026-09-16T00:00:00.000Z"),
   todayDate: vi.fn(() => "2026-09-16"),
 }));
@@ -79,7 +80,7 @@ describe("domain events (log-only, deduped)", () => {
     expect(DOMAIN_EVENTS).toContain("payment_overdue");
   });
   it("writeEvent dedupes on name+docType+docId", async () => {
-    vi.mocked(db.scanByType).mockResolvedValueOnce([
+    vi.mocked(db.queryAllByPk).mockResolvedValueOnce([
       { name: "irn_recorded", docType: "sales_invoice", docId: "inv1" },
     ] as any);
     const dup = await writeEvent({
