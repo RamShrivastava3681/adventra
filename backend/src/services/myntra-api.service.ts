@@ -427,7 +427,9 @@ export const mockUnHold = (sellerOrderId: string, endpoint: MyntraEndpoint) =>
   rawCall("UnHold", {
     method: "PUT",
     path: `/storefront/v4/mock/order/${encodeURIComponent(sellerOrderId)}/unhold`,
-    body: endpoint,
+    // The sheet shows a bare endpoint body, but Mockify rejects it
+    // ("Invalid request body provided"); it takes the same shape as OnHold.
+    body: { endpoint, orderLineIds: [] },
   });
 
 export const mockCourierReturn = (packetId: string, endpoint: MyntraEndpoint) =>
@@ -454,7 +456,8 @@ export const mockRtoUpdate = (packetId: string, endpoint: MyntraEndpoint) =>
 export const mockRtvUpdate = (returnId: string, endpoint: MyntraEndpoint) =>
   rawCall("RTV Update Returns", {
     method: "PUT",
-    path: `/storefront/v4/mock/return/cus_${encodeURIComponent(returnId)}/update`,
+    // Mockify's customer-return response already gives "cus_<id>".
+    path: `/storefront/v4/mock/return/${returnId.startsWith("cus_") ? "" : "cus_"}${encodeURIComponent(returnId)}/update`,
     body: endpoint,
   });
 
@@ -467,7 +470,12 @@ export const mockRtvUpdate = (returnId: string, endpoint: MyntraEndpoint) =>
 export function outboundEndpoint(path: string, method: MyntraEndpoint["method"] = "POST"): MyntraEndpoint {
   const headers: Record<string, string> = { "content-type": "application/json" };
   if (config.myntra.mockPushUrl) return { url: config.myntra.mockPushUrl, headers, method: "POST" };
-  if (config.myntra.outboundToken) headers["access_token"] = config.myntra.outboundToken;
+  if (config.myntra.outboundToken) {
+    headers["access_token"] = config.myntra.outboundToken;
+    // nginx drops header names containing "_" unless `underscores_in_headers on`
+    // is set; the hyphenated copy still reaches us (isAuthorized accepts both).
+    headers["access-token"] = config.myntra.outboundToken;
+  }
   return { url: `${config.myntra.sellerDomain}${path}`, headers, method };
 }
 

@@ -83,7 +83,7 @@ function linesFrom(payload: any, existing: MyntraModel.MyntraOrderLine[] = []): 
       orderLineId: id,
       sku: str(e.sku) ?? prev?.sku ?? "",
       quantity: num(e.quantity) ?? prev?.quantity ?? 1,
-      status: str(e.status) ?? prev?.status ?? null,
+      status: str(e.status_code ?? e.statusCode ?? e.status) ?? prev?.status ?? null,
       mrp: num(e.mrp) ?? prev?.mrp ?? null,
       lineFinalAmount: num(e.lineFinalAmount) ?? prev?.lineFinalAmount ?? null,
       invoiceNumber: str(e.invoiceNumber) ?? prev?.invoiceNumber ?? null,

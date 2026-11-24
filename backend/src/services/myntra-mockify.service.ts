@@ -159,6 +159,23 @@ async function runAll(opts: RunOptions) {
     record(res.api, res.ok ? "ok" : "failed", res.httpStatus, summarize(res));
     return res;
   };
+  /**
+   * Mockify's order state is not consistent between requests (the same order
+   * is sometimes "not found" a second later), so order actions are retried a
+   * few times before the result is recorded.
+   */
+  const stepRetry = async (call: () => Promise<Api.MyntraCallResult>, tries = 5) => {
+    let res = await call();
+    for (let i = 1; i < tries && !res.ok; i++) {
+      await sleep(4000);
+      res = await call();
+    }
+    record(res.api, res.ok ? "ok" : "failed", res.httpStatus, summarize(res));
+    return res;
+  };
+  /** Our outbound URL for an order event, with the real id in the path as Myntra sends it. */
+  const orderEvent = (id: string, event: string) =>
+    Api.outboundEndpoint(`/storefront/v4/order/${encodeURIComponent(id)}/${event}`, "PUT");
   const skip = (api: string, why: string) => record(api, "skipped", null, why);
 
   // ── Data preparation ──
@@ -222,57 +239,122 @@ async function runAll(opts: RunOptions) {
     return String(id);
   };
 
-  const loadOrder = async (sellerOrderId: string) => {
-    const res = await step(Api.getOrder(sellerOrderId));
-    let lineIds = Api.findOrderLineIds(res.json);
-    let packetId = Api.deepFind(res.json, ["packetId"]);
-    let trackingNumber = Api.deepFind(res.json, ["trackingNumber"]);
+  interface LoadedOrder {
+    lineIds: string[];
+    packetId: string | null;
+    trackingNumber: string | null;
+    /** Line status as Myntra reports it, e.g. "AS" (assigned, not yet accepted). */
+    lineStatus: string | null;
+  }
+  const readOrder = (json: Api.Json): LoadedOrder => {
+    const packetId = Api.deepFind(json, ["packetId"]);
+    const trackingNumber = Api.deepFind(json, ["trackingNumber"]);
+    const lineStatus = Api.deepFind(json?.orderLineEntries?.[0] ?? null, ["status_code", "statusCode", "status"]);
+    return {
+      lineIds: Api.findOrderLineIds(json),
+      packetId: packetId ? String(packetId) : null,
+      trackingNumber: trackingNumber ? String(trackingNumber) : null,
+      lineStatus: lineStatus ? String(lineStatus) : null,
+    };
+  };
+
+  /**
+   * Mockify processes orders asynchronously: a new order is not retrievable
+   * for a few seconds, and accept / RTD change its status a little later.
+   * Poll Get Order until `until` holds (or ~45 s pass), then record one step.
+   */
+  const loadOrder = async (sellerOrderId: string, until?: (o: LoadedOrder) => boolean) => {
+    const deadline = Date.now() + 45_000;
+    let res: Api.MyntraCallResult;
+    let o: LoadedOrder;
+    for (;;) {
+      res = await Api.getOrder(sellerOrderId);
+      o = readOrder(res.json);
+      if (res.ok && o.lineIds.length && (!until || until(o))) break;
+      if (Date.now() > deadline) break;
+      await sleep(3000);
+    }
+    record(res.api, res.ok ? "ok" : "failed", res.httpStatus, summarize(res));
+    let { lineIds, packetId, trackingNumber } = o;
     if (!lineIds.length || !packetId) {
       // Fall back to what Mockify pushed to our outbound API.
       const stored = await MyntraModel.getOrder(sellerOrderId);
       if (stored) {
         if (!lineIds.length) lineIds = stored.orderLines.map((l) => l.orderLineId);
-        packetId = packetId ?? stored.packetId ?? undefined;
-        trackingNumber = trackingNumber ?? stored.trackingNumber ?? undefined;
+        packetId = packetId ?? stored.packetId ?? null;
+        trackingNumber = trackingNumber ?? stored.trackingNumber ?? null;
       }
     }
     return {
       lineIds,
       packetId: packetId ? String(packetId) : null,
       trackingNumber: trackingNumber ? String(trackingNumber) : null,
+      lineStatus: o.lineStatus,
     };
+  };
+  const accepted = (o: LoadedOrder) => Boolean(o.lineStatus && o.lineStatus.toUpperCase() !== "AS");
+  const packed = (o: LoadedOrder) => Boolean(o.packetId);
+
+  const lineEntries = (id: string, lineIds: string[]) => lineIds.map((orderLineId) => ({ sellerOrderId: id, orderLineId }));
+  const sellerInvoice = (id: string, lineIds: string[]) =>
+    lineIds.map((orderLineId, i) => ({
+      sellerOrderId: id,
+      orderLineId,
+      invoiceNumber: `WZMYN${Date.now()}${i}`,
+      invoiceDate: myntraDateTime(0),
+      unitTotalAmount: 1050.0,
+      taxEntries: [
+        { taxRate: 2.5, taxType: "CGST", unitTaxAmount: 25.0, unitTaxableAmount: 1000.0 },
+        { taxRate: 2.5, taxType: "SGST", unitTaxAmount: 25.0, unitTaxableAmount: 1000.0 },
+      ],
+    }));
+
+  /** Create → load → accept → wait until accepted. Returns the order or null. */
+  const acceptedOrder = async (label: string, orderSkus: string[]) => {
+    // Mockify sometimes never lets an order be accepted; start a fresh one then.
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      const id = await createOrder(label, orderSkus);
+      if (!id) return null;
+      const o = await loadOrder(id);
+      if (!o.lineIds.length) continue;
+      const acc = await stepRetry(() => Api.acceptOrder(id, wh, o.lineIds));
+      if (!acc.ok) continue;
+      await loadOrder(id, accepted);
+      return { id, lineIds: o.lineIds };
+    }
+    skip("Accept order", `Order ${label} could not be accepted after 3 fresh orders`);
+    return null;
   };
 
   // ── Scenario A: happy path, Myntra-generated invoice, delivered, customer return ──
   scenario = "Order A – accept, RTD (Myntra invoice), ship, deliver, customer return";
-  const a = await createOrder("A", skus.slice(0, 2));
+  const a = await acceptedOrder("A", skus.slice(0, 2));
   if (a) {
-    let o = await loadOrder(a);
-    if (!o.lineIds.length) skip("Accept order", "No orderLineIds found for order A");
+    await stepRetry(() => Api.readyToDispatchMyntraInvoice(wh, lineEntries(a.id, a.lineIds)));
+    const o = await loadOrder(a.id, packed);
+    if (!o.packetId) skip("Get Order by Packet Id", "No packetId after Ready To Dispatch");
     else {
-      await step(Api.acceptOrder(a, wh, o.lineIds));
-      await step(Api.readyToDispatchMyntraInvoice(wh, o.lineIds.map((orderLineId) => ({ sellerOrderId: a, orderLineId }))));
-      await sleep(2000);
-      o = await loadOrder(a);
-      if (!o.packetId) skip("Get Order by Packet Id", "No packetId after Ready To Dispatch");
-      else {
-        const packet = await step(Api.getPacket(o.packetId));
-        o.trackingNumber = o.trackingNumber ?? Api.deepFind(packet.json, ["trackingNumber"]) ?? null;
-        await step(Api.getInvoiceDetails(o.packetId));
-        await step(Api.downloadInvoice(o.packetId));
-        await step(Api.downloadShippingLabel(o.packetId));
-        if (o.trackingNumber) await step(Api.readyToShip(String(o.trackingNumber)));
-        else skip("Ready To Ship", "No tracking number on packet");
-        await step(Api.mockShipped(o.packetId, Api.outboundEndpoint("/storefront/v4/order/mockify/shipped", "PUT")));
-        await step(Api.mockDelivered(o.packetId, Api.outboundEndpoint("/storefront/v4/order/mockify/delivered", "PUT")));
-        const ret = await step(
-          Api.mockCustomerReturn(a, o.lineIds[0], Api.outboundEndpoint("/storefront/v4/return/mockify-customer", "POST")),
+      await sleep(5000); // let Mockify finish building the packet
+      const packet = await stepRetry(() => Api.getPacket(o.packetId!));
+      const tracking = o.trackingNumber ?? Api.deepFind(packet.json, ["trackingNumber"]) ?? null;
+      await stepRetry(() => Api.getInvoiceDetails(o.packetId!));
+      await stepRetry(() => Api.downloadInvoice(o.packetId!));
+      await stepRetry(() => Api.downloadShippingLabel(o.packetId!));
+      if (tracking) await stepRetry(() => Api.readyToShip(String(tracking)));
+      else skip("Ready To Ship", "No tracking number on packet");
+      await stepRetry(() => Api.mockShipped(o.packetId!, orderEvent(a.id, "shipped")));
+      await sleep(3000);
+      await stepRetry(() => Api.mockDelivered(o.packetId!, orderEvent(a.id, "delivered")));
+      await sleep(3000);
+      const ret = await stepRetry(() =>
+        Api.mockCustomerReturn(a.id, a.lineIds[0], Api.outboundEndpoint(`/storefront/v4/return/${a.id}-${a.lineIds[0]}`, "POST")),
+      );
+      const returnId = Api.deepFind(ret.json, ["returnId", "id", "returnReferenceId"]);
+      if (returnId)
+        await stepRetry(() =>
+          Api.mockRtvUpdate(String(returnId), Api.outboundEndpoint(`/storefront/v4/return/${returnId}/update`, "PUT")),
         );
-        const returnId = Api.deepFind(ret.json, ["returnId", "id", "returnReferenceId"]);
-        if (returnId)
-          await step(Api.mockRtvUpdate(String(returnId), Api.outboundEndpoint("/storefront/v4/return/mockify/update", "PUT")));
-        else skip("RTV Update Returns", "Customer return gave no returnId");
-      }
+      else skip("RTV Update Returns", "Customer return gave no returnId");
     }
   }
 
@@ -281,84 +363,50 @@ async function runAll(opts: RunOptions) {
   const b = await createOrder("B", [skus[0]]);
   if (b) {
     const o = await loadOrder(b);
-    if (o.lineIds.length) await step(Api.rejectOrder(b, wh, o.lineIds, 3));
+    if (o.lineIds.length) await stepRetry(() => Api.rejectOrder(b, wh, o.lineIds, 3));
     else skip("Reject Order", "No orderLineIds found for order B");
   }
 
   // ── Scenario C: seller-generated invoice, shipped, courier return / RTO ──
   scenario = "Order C – RTD (seller invoice), ship, RTO";
-  const c = await createOrder("C", [skus[1] ?? skus[0]]);
+  const c = await acceptedOrder("C", [skus[1] ?? skus[0]]);
   if (c) {
-    let o = await loadOrder(c);
-    if (!o.lineIds.length) skip("Ready To Dispatch Seller generated invoice", "No orderLineIds found for order C");
-    else {
-      await step(Api.acceptOrder(c, wh, o.lineIds));
-      await step(
-        Api.readyToDispatchSellerInvoice(
-          wh,
-          o.lineIds.map((orderLineId, i) => ({
-            sellerOrderId: c,
-            orderLineId,
-            invoiceNumber: `WZMYN${Date.now()}${i}`,
-            invoiceDate: myntraDateTime(0),
-            unitTotalAmount: 1050.0,
-            taxEntries: [
-              { taxRate: 2.5, taxType: "CGST", unitTaxAmount: 25.0, unitTaxableAmount: 1000.0 },
-              { taxRate: 2.5, taxType: "SGST", unitTaxAmount: 25.0, unitTaxableAmount: 1000.0 },
-            ],
-          })),
-        ),
-      );
-      await sleep(2000);
-      o = await loadOrder(c);
-      if (o.packetId) {
-        await step(Api.mockShipped(o.packetId, Api.outboundEndpoint("/storefront/v4/order/mockify/shipped", "PUT")));
-        await step(Api.mockCourierReturn(o.packetId, Api.outboundEndpoint("/storefront/v4/return/mockify-rto", "POST")));
-        await step(Api.mockRtoUpdate(o.packetId, Api.outboundEndpoint("/storefront/v4/return/mockify/update", "PUT")));
-      } else skip("Courier Return / Closed Box Return / RTO", "No packetId after Ready To Dispatch for order C");
-    }
+    await stepRetry(() => Api.readyToDispatchSellerInvoice(wh, sellerInvoice(c.id, c.lineIds)));
+    const o = await loadOrder(c.id, packed);
+    if (o.packetId) {
+      await stepRetry(() => Api.mockShipped(o.packetId!, orderEvent(c.id, "shipped")));
+      await sleep(3000);
+      await stepRetry(() => Api.mockCourierReturn(o.packetId!, Api.outboundEndpoint(`/storefront/v4/return/${o.packetId}`, "POST")));
+      await stepRetry(() => Api.mockRtoUpdate(o.packetId!, Api.outboundEndpoint(`/storefront/v4/return/${o.packetId}/update`, "PUT")));
+    } else skip("Courier Return / Closed Box Return / RTO", "No packetId after Ready To Dispatch for order C");
   }
 
   // ── Scenario D: lost in transit ──
   scenario = "Order D – ship, lost";
-  const d = await createOrder("D", [skus[0]]);
+  const d = await acceptedOrder("D", [skus[0]]);
   if (d) {
-    let o = await loadOrder(d);
-    if (o.lineIds.length) {
-      await step(Api.acceptOrder(d, wh, o.lineIds));
-      await step(Api.readyToDispatchMyntraInvoice(wh, o.lineIds.map((orderLineId) => ({ sellerOrderId: d, orderLineId }))));
-      await sleep(2000);
-      o = await loadOrder(d);
-      if (o.packetId) {
-        await step(Api.mockShipped(o.packetId, Api.outboundEndpoint("/storefront/v4/order/mockify/shipped", "PUT")));
-        await step(Api.mockLost(o.packetId, Api.outboundEndpoint("/storefront/v4/order/mockify/lost", "PUT")));
-      } else skip("Lost", "No packetId for order D");
-    } else skip("Lost", "No orderLineIds found for order D");
+    await stepRetry(() => Api.readyToDispatchMyntraInvoice(wh, lineEntries(d.id, d.lineIds)));
+    const o = await loadOrder(d.id, packed);
+    if (o.packetId) {
+      await stepRetry(() => Api.mockShipped(o.packetId!, orderEvent(d.id, "shipped")));
+      await stepRetry(() => Api.mockLost(o.packetId!, orderEvent(d.id, "lost")));
+    } else skip("Lost", "No packetId for order D");
   }
 
   // ── Scenario E: on hold, un-hold, customer cancellation ──
   scenario = "Order E – on hold, un-hold, customer cancellation";
-  const e = await createOrder("E", skus.slice(0, 2));
+  const e = await acceptedOrder("E", skus.slice(0, 2));
   if (e) {
-    const o = await loadOrder(e);
-    await step(Api.mockOnHold(e, Api.outboundEndpoint("/storefront/v4/order/mockify/onhold", "PUT")));
-    await step(Api.mockUnHold(e, Api.outboundEndpoint("/storefront/v4/order/mockify/unhold", "PUT")));
-    if (o.lineIds.length)
-      await step(
-        Api.mockItemCancellation(e, [o.lineIds[0]], Api.outboundEndpoint("/storefront/v4/order/mockify/itemCancellation", "PUT")),
-      );
-    else skip("Customer Item Cancellation", "No orderLineIds found for order E");
+    await stepRetry(() => Api.mockOnHold(e.id, orderEvent(e.id, "onhold")));
+    await stepRetry(() => Api.mockUnHold(e.id, orderEvent(e.id, "unhold")));
+    await stepRetry(() => Api.mockItemCancellation(e.id, [e.lineIds[0]], orderEvent(e.id, "ItemCancellation")));
   }
 
   // ── Scenario F: seller cancellation ──
   scenario = "Order F – seller cancellation";
-  const f = await createOrder("F", [skus[0]]);
+  const f = await acceptedOrder("F", [skus[0]]);
   if (f) {
-    const o = await loadOrder(f);
-    if (o.lineIds.length) {
-      await step(Api.acceptOrder(f, wh, o.lineIds));
-      await step(Api.sellerCancelItems(f, [{ orderLineId: o.lineIds[0], comment: "Seller cancellation test" }]));
-    } else skip("VFS Seller cancellation", "No orderLineIds found for order F");
+    await stepRetry(() => Api.sellerCancelItems(f.id, [{ orderLineId: f.lineIds[0], comment: "Seller cancellation test" }]));
   }
 
   scenario = "Not available";
