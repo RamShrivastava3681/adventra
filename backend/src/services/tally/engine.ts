@@ -166,6 +166,15 @@ export interface TallyRequestContext {
   purchaseInvoices(): Promise<any[]>;
   receipts(): Promise<any[]>;
   notes(): Promise<any[]>;
+  getDebtor(id: string): Promise<any | null>;
+  getSupplier(id: string): Promise<any | null>;
+  getVendor(id: string): Promise<any | null>;
+  getProduct(id: string): Promise<any | null>;
+  getInvoice(id: string): Promise<any | null>;
+  getPurchaseInvoice(id: string): Promise<any | null>;
+  getReceipt(id: string): Promise<any | null>;
+  getNote(id: string): Promise<any | null>;
+  getMovement(id: string): Promise<any | null>;
   exportRecords(): Promise<Tally.TallyExportRecord[]>;
   exportRecordMap(): Promise<Map<string, Tally.TallyExportRecord>>;
   batches(): Promise<Tally.TallyBatchSummary[]>;
@@ -174,6 +183,18 @@ export interface TallyRequestContext {
 function memoRead<T>(load: () => Promise<T>): () => Promise<T> {
   let cached: Promise<T> | null = null;
   return () => (cached ??= load());
+}
+
+function memoReadById<T>(load: (id: string) => Promise<T | null>): (id: string) => Promise<T | null> {
+  const cache = new Map<string, Promise<T | null>>();
+  return (id: string) => {
+    let p = cache.get(id);
+    if (!p) {
+      p = load(id).catch(() => null as T | null);
+      cache.set(id, p);
+    }
+    return p;
+  };
 }
 
 function allByType(entityType: string): Promise<any[]> {
@@ -202,6 +223,15 @@ export function createRequestContext(clientId: string): TallyRequestContext {
     purchaseInvoices: memoRead(() => allByType("PurchaseInvoice")),
     receipts: memoRead(() => allByType("PaymentReceipt")),
     notes: memoRead(() => allByType("CreditDebitNote")),
+    getDebtor: memoReadById((id) => Debtor.get(id)),
+    getSupplier: memoReadById((id) => Supplier.get(id)),
+    getVendor: memoReadById((id) => Vendor.get(id)),
+    getProduct: memoReadById((id) => Product.get(id)),
+    getInvoice: memoReadById((id) => Invoice.get(id)),
+    getPurchaseInvoice: memoReadById((id) => PurchaseInvoice.get(id)),
+    getReceipt: memoReadById((id) => PaymentReceipt.get(id)),
+    getNote: memoReadById((id) => CreditDebitNote.get(id)),
+    getMovement: memoReadById((id) => StockMovement.get(id)),
     exportRecords,
     exportRecordMap: memoRead(async () => {
       const map = new Map<string, Tally.TallyExportRecord>();
@@ -449,36 +479,122 @@ export async function loadContext(
   config: TallyConfig,
   exportType?: TallyExportType,
   context?: TallyRequestContext,
+  ids?: string[],
 ): Promise<BuildContext> {
   const request = context ?? createRequestContext(clientId);
+
+  if (!ids || !ids.length) {
+    throw Object.assign(new Error("Record IDs are required for Tally export."), { status: 400 });
+  }
+  return loadContextByIds(request, clientId, config, exportType, ids);
+}
+
+function collectProductIds(row: any, out: Set<string>) {
+  const lines = row.items || row.lineItems || row.lines || [];
+  for (const line of lines) {
+    if (line?.productId) out.add(line.productId);
+    if (line?.product) out.add(line.product);
+  }
+}
+
+async function loadContextByIds(
+  request: TallyRequestContext,
+  clientId: string,
+  config: TallyConfig,
+  exportType: TallyExportType | undefined,
+  ids: string[],
+): Promise<BuildContext> {
   const needsDebtors = !exportType || ["customers", "sales", "receipts", "credit-notes"].includes(exportType);
   const needsSuppliers = !exportType || ["suppliers", "purchases", "payments", "debit-notes"].includes(exportType);
   const needsVendors = needsSuppliers;
-  // Receipts and payments are accounting vouchers: their serializers resolve
-  // only the party ledger, so loading the whole product catalogue for them is
-  // a wasted full scan.
   const needsProducts = !exportType || ["stock-items", "sales", "purchases", "credit-notes", "debit-notes"].includes(exportType);
   const needsMovements = !exportType || exportType === "stock-items";
 
-  const debtorsPromise = needsDebtors ? request.debtors() : Promise.resolve([] as any[]);
-  const suppliersPromise = needsSuppliers ? request.suppliers() : Promise.resolve([] as any[]);
-  const vendorsPromise = needsVendors ? request.vendors() : Promise.resolve([] as any[]);
-  const productsPromise = needsProducts ? request.products() : Promise.resolve([] as any[]);
-  const movementsPromise = needsMovements ? request.movements() : Promise.resolve([] as any[]);
-  const [debtors, suppliers, vendors, products, movements] = await Promise.all([
-    debtorsPromise,
-    suppliersPromise,
-    vendorsPromise,
-    productsPromise,
-    movementsPromise,
-  ]);
-  const debtorsById = new Map<string, any>();
-  for (const d of debtors as any[]) {
-    debtorsById.set(d.id, d);
+  const debtorIds = new Set<string>();
+  const supplierIds = new Set<string>();
+  const vendorIds = new Set<string>();
+  const productIds = new Set<string>();
+  const invoiceIds = new Set<string>();
+  const purchaseInvoiceIds = new Set<string>();
+
+  // Phase 1: fetch primary records by ID
+  const primaryRows: any[] = [];
+  switch (exportType) {
+    case "customers":
+      primaryRows.push(...(await Promise.all(ids.map((id) => request.getDebtor(id)))).filter(Boolean));
+      break;
+    case "suppliers": {
+      const [sups, vens] = await Promise.all([
+        Promise.all(ids.map((id) => request.getSupplier(id))),
+        Promise.all(ids.map((id) => request.getVendor(id))),
+      ]);
+      primaryRows.push(...sups.filter(Boolean), ...vens.filter(Boolean));
+      break;
+    }
+    case "stock-items":
+      primaryRows.push(...(await Promise.all(ids.map((id) => request.getProduct(id)))).filter(Boolean));
+      break;
+    case "sales":
+      primaryRows.push(...(await Promise.all(ids.map((id) => request.getInvoice(id)))).filter(Boolean));
+      break;
+    case "purchases":
+      primaryRows.push(...(await Promise.all(ids.map((id) => request.getPurchaseInvoice(id)))).filter(Boolean));
+      break;
+    case "receipts":
+      primaryRows.push(...(await Promise.all(ids.map((id) => request.getReceipt(id)))).filter(Boolean));
+      break;
+    case "payments":
+      primaryRows.push(...(await Promise.all(ids.map((id) => request.getPurchaseInvoice(id)))).filter(Boolean));
+      break;
+    case "credit-notes":
+    case "debit-notes":
+      primaryRows.push(...(await Promise.all(ids.map((id) => request.getNote(id)))).filter(Boolean));
+      break;
   }
+
+  // Phase 2: collect referenced IDs from primary records
+  for (const row of primaryRows) {
+    if (row.debtorId) debtorIds.add(row.debtorId);
+    if (row.supplierId) supplierIds.add(row.supplierId);
+    if (row.vendorId) vendorIds.add(row.vendorId);
+    if (row.productId) productIds.add(row.productId);
+    if (row.invoiceId) invoiceIds.add(row.invoiceId);
+    if (row.purchaseInvoiceId) purchaseInvoiceIds.add(row.purchaseInvoiceId);
+    collectProductIds(row, productIds);
+  }
+
+  // Phase 3: resolve invoice/purchase-invoice references to find more party refs
+  if (invoiceIds.size > 0) {
+    const invoices = await Promise.all([...invoiceIds].map((id) => request.getInvoice(id)));
+    for (const inv of invoices.filter(Boolean)) {
+      if (inv?.debtorId) debtorIds.add(inv.debtorId);
+      if (inv?.supplierId) supplierIds.add(inv.supplierId);
+      collectProductIds(inv, productIds);
+    }
+  }
+  if (purchaseInvoiceIds.size > 0) {
+    const purchases = await Promise.all([...purchaseInvoiceIds].map((id) => request.getPurchaseInvoice(id)));
+    for (const pi of purchases.filter(Boolean)) {
+      if (pi?.supplierId) supplierIds.add(pi.supplierId);
+      if (pi?.vendorId) vendorIds.add(pi.vendorId);
+      collectProductIds(pi, productIds);
+    }
+  }
+
+  // Phase 4: fetch referenced parties and products by ID (no scans)
+  const [debtors, suppliers, vendors, products] = await Promise.all([
+    needsDebtors ? Promise.all([...debtorIds].map((id) => request.getDebtor(id))) : Promise.resolve([] as any[]),
+    needsSuppliers ? Promise.all([...supplierIds].map((id) => request.getSupplier(id))) : Promise.resolve([] as any[]),
+    needsVendors ? Promise.all([...vendorIds].map((id) => request.getVendor(id))) : Promise.resolve([] as any[]),
+    needsProducts ? Promise.all([...productIds].map((id) => request.getProduct(id))) : Promise.resolve([] as any[]),
+  ]);
+
+  const debtorsById = new Map<string, any>();
+  for (const d of debtors.filter(Boolean)) debtorsById.set(d.id, d);
+
   const suppliersById = new Map<string, any>();
-  for (const s of suppliers as any[]) suppliersById.set(s.id, s);
-  for (const v of vendors as any[]) {
+  for (const s of suppliers.filter(Boolean)) suppliersById.set(s.id, s);
+  for (const v of vendors.filter(Boolean)) {
     suppliersById.set(v.id, {
       ...v,
       companyName: v.companyName || v.name,
@@ -486,18 +602,29 @@ export async function loadContext(
       state: v.state || null,
     });
   }
+
   const productsById = new Map<string, any>();
-  for (const p of products as any[]) productsById.set(p.id, p);
+  for (const p of products.filter(Boolean)) productsById.set(p.id, p);
+
+  // Phase 5: opening balances for referenced products (GSI1 queries, not scans)
   const openingByProduct = new Map<string, { qty: number; value: number }>();
-  for (const m of movements as any[]) {
-    if (m.status !== "confirmed" || !m.productId) continue;
-    const bucket = openingByProduct.get(m.productId) || { qty: 0, value: 0 };
-    const q = Number(m.quantity) || 0;
-    const delta = m.direction === "in" ? q : -q;
-    bucket.qty = round2(bucket.qty + delta);
-    bucket.value = round2(bucket.value + delta * (Number(m.unitCost) || 0));
-    openingByProduct.set(m.productId, bucket);
+  if (needsMovements && productIds.size > 0) {
+    const movementLists = await Promise.all(
+      [...productIds].map((pid) => StockMovement.getByProduct(clientId, pid).catch(() => [] as any[])),
+    );
+    for (const movements of movementLists) {
+      for (const m of movements as any[]) {
+        if (m.status !== "confirmed" || !m.productId) continue;
+        const bucket = openingByProduct.get(m.productId) || { qty: 0, value: 0 };
+        const q = Number(m.quantity) || 0;
+        const delta = m.direction === "in" ? q : -q;
+        bucket.qty = round2(bucket.qty + delta);
+        bucket.value = round2(bucket.value + delta * (Number(m.unitCost) || 0));
+        openingByProduct.set(m.productId, bucket);
+      }
+    }
   }
+
   return { config, debtorsById, suppliersById, productsById, openingByProduct };
 }
 
@@ -840,7 +967,7 @@ export async function buildRecords(
   context?: TallyRequestContext,
 ): Promise<{ reportName: "All Masters" | "Vouchers"; prepared: PreparedRecord[] }> {
   const request = context ?? createRequestContext(clientId);
-  const ctx = await loadContext(clientId, config, exportType, request);
+  const ctx = await loadContext(clientId, config, exportType, request, ids);
   const idSet = ids && ids.length ? new Set(ids) : null;
   const prepared: PreparedRecord[] = [];
 
@@ -848,15 +975,15 @@ export async function buildRecords(
   if (exportType === "customers" || exportType === "suppliers") {
     let rows: any[];
     if (exportType === "customers") {
-      rows = await request.debtors();
+      rows = (await Promise.all([...idSet!].map((id) => request.getDebtor(id)))).filter(Boolean);
     } else {
       const [suppliers, vendors] = await Promise.all([
-        request.suppliers(),
-        request.vendors(),
+        Promise.all([...idSet!].map((id) => request.getSupplier(id))),
+        Promise.all([...idSet!].map((id) => request.getVendor(id))),
       ]);
       rows = [
-        ...suppliers,
-        ...vendors.map((v: any) => ({
+        ...suppliers.filter(Boolean),
+        ...vendors.filter(Boolean).map((v: any) => ({
           ...v,
           companyName: v.companyName || v.name,
           supplierCode: v.vendorCode || v.supplierCode,
@@ -910,7 +1037,7 @@ export async function buildRecords(
   }
 
   if (exportType === "stock-items") {
-    const rows = await request.products();
+    const rows = (await Promise.all([...idSet!].map((id) => request.getProduct(id)))).filter(Boolean);
     // One bulk lookup instead of a GetItem per stock item.
     const exportRecords = await request.exportRecordMap();
     for (const row of rows as any[]) {
@@ -1024,20 +1151,49 @@ export async function buildRecords(
 
   // Transactions
   const needsNotes = exportType === "credit-notes" || exportType === "debit-notes";
-  const [invoices, purchases, receipts, notes] = await Promise.all([
-    exportType === "receipts" || needsNotes
-      ? (idSet && exportType !== "receipts" ? selectedInvoiceRows(idSet, request) : request.invoices())
-      : Promise.resolve([] as any[]),
-    needsNotes
-      ? (idSet ? selectedPurchaseInvoiceRows(idSet, request) : request.purchaseInvoices())
-      : Promise.resolve([] as any[]),
-    exportType === "receipts" ? request.receipts() : Promise.resolve([] as any[]),
-    needsNotes ? request.notes() : Promise.resolve([] as any[]),
-  ]);
+  let invoices: any[] = [];
+  let purchases: any[] = [];
+  let receipts: any[] = [];
+  let notes: any[] = [];
+
+  if (idSet) {
+    // ID-based fetching: no scans, only GetItem per requested record
+    switch (exportType) {
+      case "sales":
+        invoices = await selectedInvoiceRows(idSet, request);
+        break;
+      case "purchases":
+        purchases = (await Promise.all([...idSet!].map((id) => request.getPurchaseInvoice(id)))).filter(Boolean);
+        break;
+      case "receipts": {
+        receipts = (await Promise.all([...idSet!].map((id) => request.getReceipt(id)))).filter(Boolean);
+        const refInvoiceIds = new Set<string>();
+        for (const r of receipts) if (r.invoiceId) refInvoiceIds.add(r.invoiceId);
+        invoices = (await Promise.all([...refInvoiceIds].map((id) => request.getInvoice(id)))).filter(Boolean);
+        break;
+      }
+      case "payments":
+        purchases = (await Promise.all([...idSet!].map((id) => request.getPurchaseInvoice(id)))).filter(Boolean);
+        break;
+      case "credit-notes":
+      case "debit-notes": {
+        notes = (await Promise.all([...idSet!].map((id) => request.getNote(id)))).filter(Boolean);
+        const refInvoiceIds = new Set<string>();
+        const refPurchaseIds = new Set<string>();
+        for (const n of notes) {
+          if (n.sourceInvoiceId) refInvoiceIds.add(n.sourceInvoiceId);
+          if (n.sourcePurchaseInvoiceId) refPurchaseIds.add(n.sourcePurchaseInvoiceId);
+        }
+        invoices = (await Promise.all([...refInvoiceIds].map((id) => request.getInvoice(id)))).filter(Boolean);
+        purchases = (await Promise.all([...refPurchaseIds].map((id) => request.getPurchaseInvoice(id)))).filter(Boolean);
+        break;
+      }
+    }
+  }
   const invoicesById = new Map<string, any>();
-  for (const i of invoices as any[]) invoicesById.set(i.id, i);
+  for (const i of invoices) invoicesById.set(i.id, i);
   const purchasesById = new Map<string, any>();
-  for (const p of purchases as any[]) purchasesById.set(p.id, p);
+  for (const p of purchases) purchasesById.set(p.id, p);
 
   const sharedVoucherCtx = {
     ...ctx,
@@ -1077,7 +1233,7 @@ export async function buildRecords(
       });
     }
   } else if (exportType === "purchases") {
-    const rows = await request.purchaseInvoices();
+    const rows = purchases;
     for (const row of rows as any[]) {
       if (idSet && !idSet.has(row.id)) continue;
       const res = serializePurchaseVoucher(row, sharedVoucherCtx);
@@ -1121,7 +1277,7 @@ export async function buildRecords(
       });
     }
   } else if (exportType === "payments") {
-    const rows = await request.purchaseInvoices();
+    const rows = purchases;
     for (const row of rows as any[]) {
       if (!(Number(row.amountPaid) > 0)) continue;
       if (idSet && !idSet.has(row.id)) continue;
@@ -1183,6 +1339,7 @@ export async function validateRecords(
   if (!config) return { configError: "Tally company name is not configured. Open Configuration & Mapping and enter the exact company name shown in Tally.", records: [] as PreparedRecord[] };
   const problems = configProblems(config, exportType);
   if (problems.length) return { configError: problems.join(" "), records: [] as PreparedRecord[] };
+  if (!ids || !ids.length) return { configError: "Record IDs are required for Tally export.", records: [] as PreparedRecord[] };
   const { prepared } = await buildRecords(clientId, exportType, config, ids, request);
   if (!config.allowDuplicateReExport) {
     const existing = await request.exportRecords();
@@ -1256,6 +1413,7 @@ export async function generateBatch(opts: GenerateOptions) {
   if (!config) throw Object.assign(new Error("Tally configuration has not been set up yet."), { status: 400 });
   const problems = configProblems(config, opts.exportType);
   if (problems.length) throw Object.assign(new Error(problems.join(" ")), { status: 400 });
+  if (!opts.ids || !opts.ids.length) throw Object.assign(new Error("Record IDs are required for Tally export."), { status: 400 });
 
   const { reportName, prepared } = await buildRecords(opts.clientId, opts.exportType, config, opts.ids, request);
   if (!prepared.length) throw Object.assign(new Error("No records selected for export."), { status: 400 });

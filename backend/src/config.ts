@@ -19,20 +19,26 @@ function awsCredentials(): AwsCredentials | undefined {
 const isProduction = (process.env.NODE_ENV || "development") === "production";
 
 /**
- * Chooses the entity-read source. Defaults to a table scan so every record —
- * indexed or not — remains visible to exports. GSI2 is opt-in and only honoured
- * once the backfill verification has been recorded in the environment.
+ * Chooses the entity-read source.
+ *
+ * GSI2 is the default: normal workflows and Tally exports must not full-scan
+ * the table. The index is only complete after `backfill-gsi2.ts --apply` and a
+ * clean `--verify` run, so production must have that migration applied first.
+ *
+ * Two explicit escape hatches remain:
+ *   DYNAMODB_SCAN_SOURCE=scan       force legacy scans
+ *   DYNAMODB_GSI2_VERIFIED=false    force legacy scans (emergency rollback)
+ * An unset environment never silently falls back to scans.
  */
 export function resolveScanSource(
   requested: string | undefined,
   verified: string | undefined,
 ): "scan" | "gsi2" {
-  if (requested !== "gsi2") return "scan";
-  if (verified !== "true") {
+  if (requested === "scan") return "scan";
+  if (verified === "false") {
     console.warn(
-      "[dynamodb] DYNAMODB_SCAN_SOURCE=gsi2 ignored until DYNAMODB_GSI2_VERIFIED=true " +
-        "(run `npx tsx scripts/backfill-gsi2.ts --verify` first). Using table scans so " +
-        "unbackfilled records stay exportable.",
+      "[dynamodb] DYNAMODB_GSI2_VERIFIED=false — using table scans for entity reads. " +
+        "Unset it (or set it to true) to return to GSI2 queries.",
     );
     return "scan";
   }
@@ -138,11 +144,10 @@ export const config = {
     // Tally exports use a dedicated uncapped helper and are the only exception.
     readDiagnostics: process.env.DYNAMODB_READ_DIAGNOSTICS === "true",
 
-    // GSI2 only contains records whose index keys were written (new writes plus
-    // a completed backfill). Reading through it before the backfill is verified
-    // silently hides legacy records — including from Tally exports — so the
-    // table scan stays the default and GSI2 requires both an explicit request
-    // and a passed `backfill-gsi2.ts --verify` run.
+    // GSI2 is the default read source so normal workflows never scan the table.
+    // It contains every record only after `backfill-gsi2.ts --apply` and a
+    // clean `--verify`; set DYNAMODB_SCAN_SOURCE=scan or
+    // DYNAMODB_GSI2_VERIFIED=false to roll back to table scans.
     scanSource: resolveScanSource(
       process.env.DYNAMODB_SCAN_SOURCE,
       process.env.DYNAMODB_GSI2_VERIFIED,

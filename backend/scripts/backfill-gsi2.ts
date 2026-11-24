@@ -55,6 +55,13 @@ const checkpointFile =
   DEFAULT_CHECKPOINT_FILE;
 const maxItems = Math.max(0, parseInt(argValue("--max-items") || "0", 10) || 0);
 const pageSize = Math.max(1, parseInt(argValue("--page-size") || "1000", 10) || 1000);
+// Updates are independent, so a bounded set runs in parallel. Sequential writes
+// cap the migration at one round trip per item (~40/s here), which makes a
+// 500k-record backfill take hours; 16 keeps throughput high without bursting.
+const concurrency = Math.min(
+  50,
+  Math.max(1, parseInt(argValue("--concurrency") || "16", 10) || 16),
+);
 const requestsPerMinute = Math.max(
   1,
   parseInt(
@@ -167,6 +174,60 @@ async function main() {
     { eligible: number; missing: number; wrongPartition: number; sortDrift: number }
   >();
 
+  const processItem = async (item: Record<string, any>) => {
+    if (!shouldBackfillGsi2(item)) return;
+    counters.eligible++;
+    byEntityType.set(item.entityType, (byEntityType.get(item.entityType) ?? 0) + 1);
+
+    if (!apply) return;
+
+    if (!item.pk || !item.sk) {
+      counters.skipped++;
+      return;
+    }
+    const keys = gsi2KeysFor(item);
+    if (!keys) return;
+    try {
+      await rateLimiter.waitForSlot();
+      const update = await withThrottleRetry(() =>
+        doc.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: { pk: item.pk, sk: item.sk },
+            UpdateExpression: "SET gsi2pk = :pk, gsi2sk = :sk",
+            // Fill a missing partition OR sort key; a record with only one of
+            // them is not projected into GSI2 at all.
+            ConditionExpression:
+              "attribute_exists(pk) AND (attribute_not_exists(gsi2pk) OR attribute_not_exists(gsi2sk))",
+            ExpressionAttributeValues: {
+              ":pk": keys.gsi2pk,
+              ":sk": keys.gsi2sk,
+            },
+            ReturnConsumedCapacity: "TOTAL",
+          }),
+        ),
+      );
+      counters.updated++;
+      updateConsumedCapacity += update.ConsumedCapacity?.CapacityUnits ?? 0;
+    } catch (err) {
+      // A concurrent application write may have populated the key first; that
+      // is a skip, not a failure. Anything else is isolated and counted.
+      if (isConditionFailure(err)) {
+        counters.skipped++;
+      } else {
+        counters.failed++;
+        if (failures.length < MAX_FAILURE_SAMPLES) {
+          failures.push({
+            pk: String(item.pk ?? ""),
+            sk: String(item.sk ?? ""),
+            entityType: item.entityType ?? null,
+            error: err instanceof Error ? err.message : String(err),
+          });
+        }
+      }
+    }
+  };
+
   const persist = async (completed: boolean) => {
     checkpoint.lastKey = lastKey ?? null;
     checkpoint.scanned = counters.scanned;
@@ -193,10 +254,11 @@ async function main() {
     );
     pages++;
 
-    for (const item of result.Items ?? []) {
-      counters.scanned++;
+    const items = result.Items ?? [];
+    counters.scanned += items.length;
 
-      if (verify) {
+    if (verify) {
+      for (const item of items) {
         if (!isIndexableEntityType(item.entityType)) continue;
         const expected = expectedGsi2Keys(item);
         if (!expected) continue;
@@ -207,60 +269,15 @@ async function main() {
           sortDrift: 0,
         };
         stats.eligible++;
-        if (!item.gsi2pk) stats.missing++;
+        if (typeof item.gsi2pk !== "string" || typeof item.gsi2sk !== "string") stats.missing++;
         else if (item.gsi2pk !== expected.gsi2pk) stats.wrongPartition++;
         if (item.gsi2pk && item.gsi2sk !== expected.gsi2sk) stats.sortDrift++;
         verifyByType.set(item.entityType, stats);
-        continue;
       }
-
-      if (!shouldBackfillGsi2(item)) continue;
-      counters.eligible++;
-      byEntityType.set(item.entityType, (byEntityType.get(item.entityType) ?? 0) + 1);
-
-      if (!apply) continue;
-
-      if (!item.pk || !item.sk) {
-        counters.skipped++;
-        continue;
-      }
-      const keys = gsi2KeysFor(item);
-      if (!keys) continue;
-      try {
-        await rateLimiter.waitForSlot();
-        const update = await withThrottleRetry(() =>
-          doc.send(
-            new UpdateCommand({
-              TableName: tableName,
-              Key: { pk: item.pk, sk: item.sk },
-              UpdateExpression: "SET gsi2pk = :pk, gsi2sk = :sk",
-              ConditionExpression: "attribute_exists(pk) AND attribute_not_exists(gsi2pk)",
-              ExpressionAttributeValues: {
-                ":pk": keys.gsi2pk,
-                ":sk": keys.gsi2sk,
-              },
-              ReturnConsumedCapacity: "TOTAL",
-            }),
-          ),
-        );
-        counters.updated++;
-        updateConsumedCapacity += update.ConsumedCapacity?.CapacityUnits ?? 0;
-      } catch (err) {
-        // A concurrent application write may have populated the key first; that
-        // is a skip, not a failure. Anything else is isolated and counted.
-        if (isConditionFailure(err)) {
-          counters.skipped++;
-        } else {
-          counters.failed++;
-          if (failures.length < MAX_FAILURE_SAMPLES) {
-            failures.push({
-              pk: String(item.pk ?? ""),
-              sk: String(item.sk ?? ""),
-              entityType: item.entityType ?? null,
-              error: err instanceof Error ? err.message : String(err),
-            });
-          }
-        }
+    } else {
+      for (let i = 0; i < items.length; i += concurrency) {
+        const chunk = items.slice(i, i + concurrency);
+        await Promise.all(chunk.map((item) => processItem(item)));
       }
     }
 
@@ -319,6 +336,7 @@ async function main() {
         pages,
         requestsPerMinute,
         pageSize,
+        concurrency,
         scanned: counters.scanned,
         eligible: counters.eligible,
         updated: counters.updated,

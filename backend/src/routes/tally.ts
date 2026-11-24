@@ -161,6 +161,9 @@ router.post("/tally/masters/export", authMiddleware, CAN_EXPORT, async (req, res
     if (!["customers", "suppliers", "stock-items", "units", "ledgers"].includes(exportType)) {
       return res.status(400).json({ error: "Invalid master export type" });
     }
+    if (!Array.isArray(ids) || !ids.length) {
+      return res.status(400).json({ error: "Record IDs are required for export." });
+    }
     const result = await engine.generateBatch({
       clientId: clientId(req),
       exportType,
@@ -251,6 +254,9 @@ router.post("/tally/transactions/export", authMiddleware, CAN_EXPORT, async (req
     if (!["sales", "purchases", "receipts", "payments", "credit-notes", "debit-notes"].includes(exportType)) {
       return res.status(400).json({ error: "Invalid transaction export type" });
     }
+    if (!Array.isArray(ids) || !ids.length) {
+      return res.status(400).json({ error: "Record IDs are required for export." });
+    }
     const result = await engine.generateBatch({
       clientId: clientId(req),
       exportType,
@@ -296,6 +302,9 @@ router.post("/tally/validate", authMiddleware, CAN_EXPORT, async (req, res) => {
   try {
     const { exportType, ids } = req.body ?? {};
     if (!isExportType(exportType)) return res.status(400).json({ error: "Unknown export type" });
+    if (!Array.isArray(ids) || !ids.length) {
+      return res.status(400).json({ error: "Record IDs are required for validation." });
+    }
     const result = await engine.validateRecords(
       clientId(req),
       exportType,
@@ -383,6 +392,9 @@ router.post("/tally/export", authMiddleware, CAN_EXPORT, async (req, res) => {
   try {
     const { exportType, ids, force } = req.body ?? {};
     if (!isExportType(exportType)) return res.status(400).json({ error: "Unknown export type" });
+    if (!Array.isArray(ids) || !ids.length) {
+      return res.status(400).json({ error: "Record IDs are required for export." });
+    }
     const result = await engine.generateBatch({
       clientId: clientId(req),
       exportType,
