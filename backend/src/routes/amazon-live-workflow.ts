@@ -1,41 +1,82 @@
-/** Live marketplace workflow adapter. Uses the authenticated client's tenant and shared Hub workflow. */
+/**
+ * Live marketplace workflow routes. Uses the authenticated client's tenant and shared Hub workflow.
+ */
 import { Router, Request, Response } from "express";
 import { authMiddleware } from "../middleware/auth.js";
-import * as Debtor from "../models/debtor.js";
-import * as StockLocation from "../models/stock-location.js";
-import * as P from "../services/marketplace-fulfilment.service.js";
-import * as AmazonOrder from "../models/marketplace-amazon-order.js";
-import * as AmazonReturn from "../models/marketplace-amazon-return.js";
-import * as MarketplaceSettlement from "../models/marketplace-settlement.js";
+import { PipelineError } from "../services/marketplace-fulfilment.service.js";
+import { AmazonLiveWorkflowService as Live } from "../services/amazon-live-workflow.service.js";
 
 const router = Router();
-type Body = Record<string, any>;
-function actor(req: Request): P.Actor { return { userId: req.user?.userId ?? null, email: req.user?.email ?? "marketplace-user" }; }
-async function context(req: Request, body: Body): Promise<P.FulfilmentContext> {
-  const clientId = req.user!.userId;
-  const customerId = String(body.customerId || "").trim();
-  if (!customerId) throw new P.PipelineError("customerId is required for the marketplace customer", "Validation");
-  const customer = await Debtor.get(customerId);
-  if (!customer || ((customer as any).clientId && (customer as any).clientId !== clientId)) throw new P.PipelineError("Marketplace customer was not found in this client account", "Forbidden", 403);
-  const location = body.warehouseLocationId ? await StockLocation.get(String(body.warehouseLocationId)) : await StockLocation.getDefaultLocation(clientId);
-  if (!location || location.clientId !== clientId || location.status !== "active") throw new P.PipelineError("An active warehouseLocationId is required", "Validation");
-  const inspection = body.inspectionLocationId ? await StockLocation.get(String(body.inspectionLocationId)) : location;
-  if (!inspection || inspection.clientId !== clientId || inspection.status !== "active") throw new P.PipelineError("inspectionLocationId must belong to this client account", "Validation");
-  const channel = String(body.channel || "Amazon India").trim();
-  return { clientId, channel, customerId: customer.id, customerName: customer.name, warehouseLocationId: location.id, warehouseName: location.name, inspectionLocationId: inspection.id, inspectionName: inspection.name, docPrefix: String(body.docPrefix || "MKT-"), auditPrefix: `marketplace_${channel.toLowerCase().replace(/[^a-z0-9]+/g, "_")}` };
-}
-function sendError(res: Response, err: any) { const status = err instanceof P.PipelineError ? err.status : 400; res.status(status).json({ success: false, error: err?.message || "Marketplace request failed", code: err?.code || "MarketplaceError" }); }
 
-router.get("/amazon/live/state", authMiddleware, async (req, res) => {
-  try { const clientId = req.user!.userId; const [orders, returns, settlements] = await Promise.all([AmazonOrder.list(clientId), AmazonReturn.list(clientId), MarketplaceSettlement.list(clientId)]); res.json({ success: true, mode: "live", orders, returns, settlements }); } catch (err) { sendError(res, err); }
+function actorOf(req: Request) {
+  return { userId: req.user?.userId ?? null, email: req.user?.email ?? "marketplace-user" };
+}
+
+function handle(fn: (req: Request) => Promise<unknown>) {
+  return async (req: Request, res: Response) => {
+    try {
+      res.json(await fn(req));
+    } catch (err: any) {
+      if (err instanceof PipelineError) return res.status(err.status).json({ error: err.message, code: err.code });
+      res.status(500).json({ error: err?.message ?? "Live marketplace workflow error" });
+    }
+  };
+}
+
+const base = "/amazon/live";
+
+router.get(`${base}/state`, authMiddleware, handle((req) => Live.getState(actorOf(req), req.user!.userId)));
+router.post(`${base}/orders`, authMiddleware, handle((req) => Live.createOrder(req.body ?? {}, actorOf(req), req.user!.userId)));
+router.post(`${base}/orders/import`, authMiddleware, handle((req) => Live.createOrder(req.body ?? {}, actorOf(req), req.user!.userId)));
+router.post(`${base}/sku-mappings`, authMiddleware, handle((req) => Live.addSkuMapping(req.body ?? {}, actorOf(req), req.user!.userId)));
+router.post(`${base}/stock`, authMiddleware, handle((req) => Live.addStock(req.body ?? {}, actorOf(req), req.user!.userId)));
+
+router.post(`${base}/orders/:orderNo/invoice`, authMiddleware, handle((req) => Live.receiveInvoice(req.params.orderNo, actorOf(req), req.user!.userId)));
+router.post(`${base}/orders/:orderNo/pack`, authMiddleware, handle((req) => Live.markPacked(req.params.orderNo, actorOf(req), req.user!.userId)));
+router.post(
+  `${base}/orders/:orderNo/dispatch`,
+  authMiddleware,
+  handle((req) => Live.confirmDispatch(req.params.orderNo, actorOf(req), req.user!.userId, req.body ?? {})),
+);
+router.post(`${base}/orders/:orderNo/deliver`, authMiddleware, handle((req) => Live.markDelivered(req.params.orderNo, actorOf(req), req.user!.userId)));
+
+router.post(`${base}/returns`, authMiddleware, handle((req) => Live.createReturn(req.body ?? {}, actorOf(req), req.user!.userId)));
+router.post(`${base}/returns/damaged`, authMiddleware, handle((req) => Live.createDamagedReturn(req.body ?? {}, actorOf(req), req.user!.userId)));
+router.post(
+  `${base}/returns/:id/:action`,
+  authMiddleware,
+  handle((req) => Live.returnAction(req.params.id, req.params.action, req.body ?? {}, actorOf(req), req.user!.userId)),
+);
+
+router.post(`${base}/refunds`, authMiddleware, handle((req) => Live.simulateRefund(req.body ?? {}, actorOf(req), req.user!.userId)));
+router.post(`${base}/settlements`, authMiddleware, handle((req) => Live.simulateSettlement(req.body ?? {}, actorOf(req), req.user!.userId)));
+router.post(
+  `${base}/settlements/:id/bank-receipt`,
+  authMiddleware,
+  handle((req) => Live.recordBankReceipt(req.params.id, req.body ?? {}, actorOf(req), req.user!.userId)),
+);
+router.post(`${base}/settlements/:id/reconcile`, authMiddleware, handle((req) => Live.reconcileSettlement(req.params.id, actorOf(req), req.user!.userId)));
+
+router.post(
+  `${base}/errors/:id/retry`,
+  authMiddleware,
+  handle((req) => Live.retryFailedEvent(req.params.id, req.body ?? {}, actorOf(req), req.user!.userId)),
+);
+
+/** Document PDFs for live orders */
+router.get(`${base}/documents/:kind/:orderNo`, authMiddleware, async (req: Request, res: Response) => {
+  const kind = req.params.kind;
+  if (kind !== "invoice" && kind !== "packing-slip" && kind !== "settlement") {
+    return res.status(400).json({ error: "kind must be invoice, packing-slip or settlement" });
+  }
+  try {
+    const { filename, pdf } = await Live.getDocument(kind, req.params.orderNo, actorOf(req), req.user!.userId);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="${filename.replace(/"/g, "")}"`);
+    res.send(pdf);
+  } catch (err: any) {
+    res.status(err instanceof PipelineError ? err.status : 500).json({ error: err?.message ?? "Document error" });
+  }
 });
-router.post("/amazon/live/orders/import", authMiddleware, async (req, res) => {
-  try { const b = req.body || {}; const order = await P.importOrder(await context(req, b), { amazonOrderId: b.amazonOrderId, orderDate: b.orderDate, amazonSku: b.amazonSku, internalSku: b.internalSku, productName: b.productName, colour: b.colour, size: b.size, quantity: b.quantity, sellingPrice: b.sellingPrice, discount: b.discount, taxRate: b.taxRate, deliveryAddress: b.deliveryAddress, expectedDispatchDate: b.expectedDispatchDate, fulfilmentType: b.fulfilmentType, shippingMethod: b.shippingMethod }, actor(req)); res.status(201).json({ success: true, order, sharedWorkflow: true }); } catch (err) { sendError(res, err); }
-});
-router.post("/amazon/live/orders/:orderNo/invoice", authMiddleware, async (req, res) => { try { const b = req.body || {}; const order = await P.recordChannelInvoice(await context(req, b), req.params.orderNo, { invoiceNumber: String(b.invoiceNumber || ""), invoiceDate: String(b.invoiceDate || ""), attachmentUrl: b.attachmentUrl || null }, actor(req)); res.json({ success: true, order, warehouseTaskCreated: Boolean(order.dispatchId) }); } catch (err) { sendError(res, err); } });
-router.post("/amazon/live/orders/:orderNo/pack", authMiddleware, async (req, res) => { try { res.json({ success: true, order: await P.markPacked(await context(req, req.body || {}), req.params.orderNo, actor(req)) }); } catch (err) { sendError(res, err); } });
-router.post("/amazon/live/orders/:orderNo/dispatch", authMiddleware, async (req, res) => { try { const b = req.body || {}; res.json({ success: true, order: await P.confirmDispatch(await context(req, b), req.params.orderNo, { courier: String(b.courier || ""), awbNumber: b.awbNumber || null }, actor(req)) }); } catch (err) { sendError(res, err); } });
-router.post("/amazon/live/orders/:orderNo/deliver", authMiddleware, async (req, res) => { try { res.json({ success: true, order: await P.markDelivered(await context(req, req.body || {}), req.params.orderNo, actor(req)) }); } catch (err) { sendError(res, err); } });
-router.post("/amazon/live/returns", authMiddleware, async (req, res) => { try { const b = req.body || {}; res.status(201).json({ success: true, return: await P.createReturn(await context(req, b), b.amazonOrderId, { quantity: b.quantity, reason: b.reason, amazonReturnId: b.amazonReturnId }, actor(req)) }); } catch (err) { sendError(res, err); } });
-router.post("/amazon/live/settlements", authMiddleware, async (req, res) => { try { const b = req.body || {}; if (!b.amazonOrderId) throw new P.PipelineError("amazonOrderId is required for a settlement", "Validation"); res.status(201).json({ success: true, settlement: await P.createSettlement(await context(req, b), b.amazonOrderId, { commission: b.commission, shippingFee: b.shippingFee, otherDeductions: b.otherDeductions, settlementReference: b.settlementReference, expectedDate: b.expectedDate }, actor(req)) }); } catch (err) { sendError(res, err); } });
+
 export default router;

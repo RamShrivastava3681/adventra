@@ -239,6 +239,21 @@ router.get("/amazon/invoices", authMiddleware, async (req: Request, res: Respons
 });
 
 /**
+ * GET /amazon/invoices/by-order/:amazonOrderId
+ * Get synced Amazon invoice record(s) for a specific Amazon order.
+ */
+router.get("/amazon/invoices/by-order/:amazonOrderId", authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const clientId = (req as any).user.userId;
+    const all = await listInvoices(clientId);
+    const matches = all.filter((i) => i.amazonOrderId === req.params.amazonOrderId);
+    res.json({ success: true, invoices: matches });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
  * POST /amazon/invoices
  * Create Amazon invoice record.
  */
@@ -796,7 +811,7 @@ router.get("/amazon/sync-logs", authMiddleware, async (req: Request, res: Respon
  * POST /amazon/sync
  * Trigger a manual SP-API synchronization. Returns 202 immediately; sync runs
  * in the background. Poll GET /amazon/sync-status for progress.
- * Body: { module?: "orders"|"order-items"|"inventory"|"listings"|"returns"|"all" }
+ * Body: { module?: "orders"|"order-items"|"inventory"|"listings"|"returns"|"invoices"|"all" }
  */
 router.post("/amazon/sync", authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -868,6 +883,10 @@ router.get("/amazon/diagnostics", authMiddleware, async (req: Request, res: Resp
       const rets = await ReturnModel.list(clientId);
       dbCounts.returns = rets.length;
     } catch { dbCounts.returns = -1; }
+    try {
+      const invs = await listInvoices(clientId);
+      dbCounts.invoices = invs.length;
+    } catch { dbCounts.invoices = -1; }
 
     const moduleMap: Record<string, { status: string; records: number; lastSync: string | null; error: string | null; errorCode: string | null; dbCount: number }> = {};
     for (const s of snapshot) {
@@ -882,7 +901,7 @@ router.get("/amazon/diagnostics", authMiddleware, async (req: Request, res: Resp
     }
 
     // Ensure all expected modules appear even if never synced.
-    for (const m of ["orders", "order-items", "inventory", "listings", "returns"]) {
+    for (const m of ["orders", "order-items", "inventory", "listings", "returns", "invoices"]) {
       if (!moduleMap[m]) {
         moduleMap[m] = {
           status: "NOT_STARTED",
@@ -967,6 +986,10 @@ router.get("/amazon/sp-api/diagnostics", authMiddleware, async (req: Request, re
       const rets = await ReturnModel.list(clientId);
       dbCounts.returns = rets.length;
     } catch { dbCounts.returns = -1; }
+    try {
+      const invs = await listInvoices(clientId);
+      dbCounts.invoices = invs.length;
+    } catch { dbCounts.invoices = -1; }
 
     const moduleMap: Record<string, {
       status: string;
@@ -1023,7 +1046,7 @@ router.get("/amazon/sp-api/diagnostics", authMiddleware, async (req: Request, re
     }
 
     // Ensure all expected modules appear even if never synced.
-    for (const m of ["orders", "order-items", "inventory", "listings", "returns"]) {
+    for (const m of ["orders", "order-items", "inventory", "listings", "returns", "invoices"]) {
       if (!moduleMap[m]) {
         moduleMap[m] = {
           status: "NOT_STARTED",
@@ -1082,6 +1105,7 @@ router.get("/amazon/sp-api/diagnostics", authMiddleware, async (req: Request, re
         inventory: moduleMap.inventory?.status === "Synchronized" || moduleMap.inventory?.status === "EMPTY" ? "pass" : moduleMap.inventory?.status === "Failed" ? "fail" : "unknown",
         listings: moduleMap.listings?.status === "Synchronized" || moduleMap.listings?.status === "EMPTY" ? "pass" : moduleMap.listings?.status === "Failed" ? "fail" : "unknown",
         returns: moduleMap.returns?.status === "Synchronized" || moduleMap.returns?.status === "EMPTY" ? "pass" : moduleMap.returns?.status === "Failed" ? "fail" : "unknown",
+        invoices: moduleMap.invoices?.status === "Synchronized" || moduleMap.invoices?.status === "EMPTY" ? "pass" : (moduleMap.invoices?.status === "Failed" || moduleMap.invoices?.status === "AccessRestricted") ? "fail" : "unknown",
         database: dbCounts.orders >= 0 && dbCounts.inventory >= 0 ? "pass" : "fail",
       },
       modules: moduleMap,
@@ -1163,7 +1187,7 @@ router.get("/amazon/application-status", authMiddleware, async (req: Request, re
     try {
       const snapshot = await amazonSync.statusSnapshot(clientId);
       const moduleMap: Record<string, any> = {};
-      for (const m of ["orders", "order-items", "inventory", "listings", "returns"]) {
+      for (const m of ["orders", "order-items", "inventory", "listings", "returns", "invoices"]) {
         moduleMap[m] = {
           module: m,
           status: "REVIEW_PENDING",
@@ -1214,6 +1238,7 @@ router.get("/amazon/application-status", authMiddleware, async (req: Request, re
       try { const inv = await InventoryModel.list(clientId, { limit: 10000 }); dbCounts.inventory = inv.items.length; } catch { dbCounts.inventory = 0; }
       try { const list = await ListingModel.list(clientId, { limit: 10000 }); dbCounts.listings = list.items.length; } catch { dbCounts.listings = 0; }
       try { const rets = await ReturnModel.list(clientId); dbCounts.returns = rets.length; } catch { dbCounts.returns = 0; }
+      try { const invs = await listInvoices(clientId); dbCounts.invoices = invs.length; } catch { dbCounts.invoices = 0; }
 
       const modules: any[] = [];
       let totalReceived = 0;
@@ -1222,7 +1247,7 @@ router.get("/amazon/application-status", authMiddleware, async (req: Request, re
       let hasAccessRestricted = false;
       let hasFailed = false;
 
-      for (const m of ["orders", "order-items", "inventory", "listings", "returns"]) {
+      for (const m of ["orders", "order-items", "inventory", "listings", "returns", "invoices"]) {
         const mod = moduleMap[m];
         mod.databaseRecordCount = dbCounts[m] ?? 0;
         // Derive dashboard status from stored sync status when classification is absent.

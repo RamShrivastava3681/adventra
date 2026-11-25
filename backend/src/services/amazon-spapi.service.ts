@@ -1,3 +1,4 @@
+import { gunzipSync } from "zlib";
 import { config } from "../config.js";
 import { AmazonDebugLogger, generateTraceId } from "../lib/amazon-debug-logger.js";
 import { validateMarketplaceConfig, getSigningConfig } from "../lib/amazon-marketplace-config.js";
@@ -31,7 +32,9 @@ const OPERATION_RATE_LIMITS: Record<string, number> = {
   getListingsItems: 1,
   getCatalogItem: 1,
   getInventorySummaries: 1,
+  getReports: 1,
   getReport: 1,
+  getReportDocument: 1,
   createReport: 1,
   default: 1,
 };
@@ -585,6 +588,10 @@ export class AmazonSpApiService {
           const text = await res.text().catch(() => "");
           const err = new Error(`SP-API ${method} ${path} failed (${res.status}): ${text.slice(0, 500)}`);
           const classified = classifyError(err, res.headers, text.slice(0, 200));
+          Object.assign(err, {
+            status: res.status,
+            amazonRequestId: classified.amazonRequestId,
+          });
           // Attach classification so the catch block knows if this is retryable
           Object.defineProperty(err, 'classified', { value: classified, enumerable: false, writable: false });
           log.error({
@@ -1104,11 +1111,53 @@ export class AmazonSpApiService {
   // Reports API (instrumented)
   // ──────────────────────────────────────────────────────────────────────────
 
+  async getReports({
+    reportTypes,
+    processingStatuses,
+    marketplaceIds = this.requireMarketplaceIds(),
+    createdSince,
+    pageSize = 10,
+    nextToken,
+    traceId,
+    clientId,
+    sellerId,
+  }: {
+    reportTypes?: string[];
+    processingStatuses?: string[];
+    marketplaceIds?: string[];
+    createdSince?: string;
+    pageSize?: number;
+    nextToken?: string;
+    traceId?: string;
+    clientId?: string | null;
+    sellerId?: string | null;
+  }) {
+    const query: Record<string, string | number | boolean | undefined> = {
+      pageSize: String(pageSize),
+    };
+    if (reportTypes?.length) query.reportTypes = reportTypes.join(",");
+    if (processingStatuses?.length) query.processingStatuses = processingStatuses.join(",");
+    if (marketplaceIds?.length) query.marketplaceIds = marketplaceIds.join(",");
+    if (createdSince) query.createdSince = createdSince;
+    if (nextToken) query.nextToken = nextToken;
+
+    return this.request({
+      operation: "getReports",
+      path: "/reports/2021-06-30/reports",
+      query,
+      traceId,
+      clientId,
+      sellerId,
+      module: "reports",
+    });
+  }
+
   async createReport({
     reportType,
     marketplaceIds = this.requireMarketplaceIds(),
     dataStartTime,
     dataEndTime,
+    reportOptions,
     traceId,
     clientId,
     sellerId,
@@ -1117,6 +1166,7 @@ export class AmazonSpApiService {
     marketplaceIds?: string[];
     dataStartTime?: string;
     dataEndTime?: string;
+    reportOptions?: Record<string, string>;
     traceId?: string;
     clientId?: string | null;
     sellerId?: string | null;
@@ -1130,6 +1180,7 @@ export class AmazonSpApiService {
         marketplaceIds,
         ...(dataStartTime ? { dataStartTime } : {}),
         ...(dataEndTime ? { dataEndTime } : {}),
+        ...(reportOptions ? { reportOptions } : {}),
       },
       traceId,
       clientId,
@@ -1162,10 +1213,107 @@ export class AmazonSpApiService {
     });
   }
 
-  async getReportDocumentContents({ url }: { url: string }) {
-    const res = await fetch(url, { headers: { Accept: "text/csv,application/json" } });
+  async getReportDocumentContents({ url, compressionAlgorithm }: { url: string; compressionAlgorithm?: string | null }) {
+    const res = await fetch(url, { headers: { Accept: "text/csv,text/tab-separated-values,application/json,*/*" } });
     if (!res.ok) throw new Error(`Report document fetch failed (${res.status})`);
-    return res.text();
+    const rawBuffer = Buffer.from(await res.arrayBuffer());
+    const isGzip =
+      String(compressionAlgorithm || "").toUpperCase() === "GZIP" ||
+      (rawBuffer.length >= 2 && rawBuffer[0] === 0x1f && rawBuffer[1] === 0x8b);
+    const decoded = isGzip ? gunzipSync(rawBuffer) : rawBuffer;
+    return decoded.toString("utf8");
+  }
+
+  /**
+   * Request a report from SP-API, poll until DONE / DONE_NO_DATA, and download + decompress its contents.
+   */
+  async fetchReportContent({
+    reportType,
+    marketplaceIds = this.requireMarketplaceIds(),
+    dataStartTime,
+    dataEndTime,
+    reportOptions,
+    maxPollAttempts = 24,
+    pollIntervalMs = 3000,
+    traceId,
+    clientId,
+    sellerId,
+  }: {
+    reportType: string;
+    marketplaceIds?: string[];
+    dataStartTime?: string;
+    dataEndTime?: string;
+    reportOptions?: Record<string, string>;
+    maxPollAttempts?: number;
+    pollIntervalMs?: number;
+    traceId?: string;
+    clientId?: string | null;
+    sellerId?: string | null;
+  }): Promise<{
+    reportId: string;
+    processingStatus: string;
+    reportDocumentId: string | null;
+    content: string;
+  }> {
+    const created = await this.createReport({
+      reportType,
+      marketplaceIds,
+      dataStartTime,
+      dataEndTime,
+      reportOptions,
+      traceId,
+      clientId,
+      sellerId,
+    });
+    const reportId = created?.reportId ?? created?.payload?.reportId;
+    if (!reportId) {
+      throw new Error(`SP-API createReport for ${reportType} did not return a reportId`);
+    }
+
+    let processingStatus = "IN_QUEUE";
+    let reportDocumentId: string | null = null;
+
+    for (let attempt = 0; attempt < maxPollAttempts; attempt += 1) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+      }
+      const statusResp = await this.getReport({ reportId, traceId, clientId, sellerId });
+      const report = statusResp?.payload ?? statusResp ?? {};
+      processingStatus = String(report.processingStatus || "IN_QUEUE");
+      reportDocumentId = report.reportDocumentId ?? null;
+
+      if (processingStatus === "DONE") break;
+      if (processingStatus === "DONE_NO_DATA") {
+        return { reportId, processingStatus, reportDocumentId: null, content: "" };
+      }
+      if (processingStatus === "CANCELLED" || processingStatus === "FATAL") {
+        throw new Error(`SP-API report ${reportType} (${reportId}) ended with status ${processingStatus}`);
+      }
+    }
+
+    if (processingStatus !== "DONE" || !reportDocumentId) {
+      throw new Error(
+        `SP-API report ${reportType} (${reportId}) timed out in status ${processingStatus}`,
+      );
+    }
+
+    const docResp = await this.getReportDocument({
+      documentId: reportDocumentId,
+      traceId,
+      clientId,
+      sellerId,
+    });
+    const doc = docResp?.payload ?? docResp ?? {};
+    if (!doc.url) {
+      throw new Error(`SP-API report document ${reportDocumentId} missing download url`);
+    }
+
+    const content = await this.getReportDocumentContents({
+      url: doc.url,
+      compressionAlgorithm: doc.compressionAlgorithm ?? null,
+    });
+
+    return { reportId, processingStatus, reportDocumentId, content };
   }
 }
 

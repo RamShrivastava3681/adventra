@@ -27,6 +27,22 @@ export interface MarketplaceAmazonInvoiceRecord {
   attachedAt: string | null;
   attachmentUrl: string | null;
   notes: string | null;
+  transactionType?: string | null;
+  shipmentId?: string | null;
+  sku?: string | null;
+  asin?: string | null;
+  hsnCode?: string | null;
+  quantity?: number | null;
+  cgstAmount?: number | null;
+  sgstAmount?: number | null;
+  igstAmount?: number | null;
+  utgstAmount?: number | null;
+  buyerGstin?: string | null;
+  sellerGstin?: string | null;
+  placeOfSupply?: string | null;
+  irnNumber?: string | null;
+  reportType?: string | null;
+  isB2B?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -93,6 +109,22 @@ export async function create(
     attachedAt: data.attachedAt ?? null,
     attachmentUrl: data.attachmentUrl ?? null,
     notes: data.notes ?? null,
+    transactionType: data.transactionType ?? null,
+    shipmentId: data.shipmentId ?? null,
+    sku: data.sku ?? null,
+    asin: data.asin ?? null,
+    hsnCode: data.hsnCode ?? null,
+    quantity: data.quantity ?? null,
+    cgstAmount: data.cgstAmount ?? null,
+    sgstAmount: data.sgstAmount ?? null,
+    igstAmount: data.igstAmount ?? null,
+    utgstAmount: data.utgstAmount ?? null,
+    buyerGstin: data.buyerGstin ?? null,
+    sellerGstin: data.sellerGstin ?? null,
+    placeOfSupply: data.placeOfSupply ?? null,
+    irnNumber: data.irnNumber ?? null,
+    reportType: data.reportType ?? null,
+    isB2B: data.isB2B ?? false,
     createdAt: now,
     updatedAt: now,
   };
@@ -111,6 +143,21 @@ export async function update(id: string, updates: Partial<MarketplaceAmazonInvoi
 export async function findByAmazonOrderId(clientId: string, amazonOrderId: string): Promise<MarketplaceAmazonInvoiceRecord | null> {
   const items = await list(clientId);
   return items.find((i) => i.amazonOrderId === amazonOrderId) || null;
+}
+
+export async function findByOrderAndInvoiceNumber(
+  clientId: string,
+  amazonOrderId: string,
+  invoiceNumber: string | null,
+): Promise<MarketplaceAmazonInvoiceRecord | null> {
+  const items = await list(clientId);
+  if (invoiceNumber) {
+    const exact = items.find(
+      (i) => i.amazonOrderId === amazonOrderId && i.invoiceNumber === invoiceNumber,
+    );
+    if (exact) return exact;
+  }
+  return items.find((i) => i.amazonOrderId === amazonOrderId && !i.invoiceNumber) || null;
 }
 
 export async function updateStatus(id: string, status: InvoiceRecordStatus) {

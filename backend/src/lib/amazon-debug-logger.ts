@@ -67,7 +67,7 @@ interface AmazonLogContext {
   traceId?: string;
   clientId?: string;
   sellerId?: string;        // non-sensitive identifier (marketplace/seller id suffix)
-  module?: string;          // orders | order-items | inventory | listings | returns | auth | db
+  module?: string;          // orders | order-items | inventory | listings | returns | invoices | auth | db
   operation?: string;
   endpoint?: string;        // URL without sensitive query params
   stage?: string;           // before | after | error | retry | refresh

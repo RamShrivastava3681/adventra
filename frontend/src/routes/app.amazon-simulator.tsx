@@ -34,8 +34,6 @@ export const Route = createFileRoute("/app/amazon-simulator")({
   component: AmazonSimulatorPage,
 });
 
-const sim = api.amazonSimulator;
-
 const ERROR_SIMULATIONS: Array<{ kind: string; label: string }> = [
   { kind: "unmapped_sku", label: "Unmapped SKU" },
   { kind: "insufficient_stock", label: "Insufficient stock" },
@@ -106,7 +104,14 @@ function Status({ value }: { value?: string | null }) {
   );
 }
 
-function DemoBadge() {
+function ModeBadge({ mode }: { mode: "demo" | "live" }) {
+  if (mode === "live") {
+    return (
+      <Badge className="border-emerald-500 bg-emerald-100 text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300">
+        ⚡ LIVE PRODUCTION DATA
+      </Badge>
+    );
+  }
   return (
     <Badge className="border-amber-300 bg-amber-100 text-amber-800 hover:bg-amber-100 dark:border-amber-700 dark:bg-amber-950/50 dark:text-amber-300">
       DEMO · MARKETPLACE-DEMO
@@ -204,12 +209,16 @@ const emptyOrderForm = (defaults: any) => ({
 
 export function AmazonSimulatorPage() {
   const queryClient = useQueryClient();
+  const [mode, setMode] = useState<"live" | "demo">("live");
+  const isLive = mode === "live";
+  const sim = isLive ? (api as any).amazonLive : api.amazonSimulator;
+
   const {
     data: state,
     isLoading,
     error,
   } = useQuery({
-    queryKey: ["amazon-simulator-state"],
+    queryKey: ["amazon-workflow-state", mode],
     queryFn: () => sim.getState(),
   });
   const [busy, setBusy] = useState<string | null>(null);
@@ -238,7 +247,7 @@ export function AmazonSimulatorPage() {
       return null;
     } finally {
       setBusy(null);
-      queryClient.invalidateQueries({ queryKey: ["amazon-simulator-state"] });
+      queryClient.invalidateQueries({ queryKey: ["amazon-workflow-state", mode] });
     }
   };
 
@@ -349,14 +358,14 @@ export function AmazonSimulatorPage() {
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 p-8 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" /> Loading the demo tenant…
+        <Loader2 className="h-4 w-4 animate-spin" /> {isLive ? "Loading live marketplace workflow data…" : "Loading the demo tenant…"}
       </div>
     );
   }
   if (error)
     return (
       <div className="p-8 text-sm text-rose-600">
-        Could not load the simulator: {(error as Error).message}
+        Could not load the workflow: {(error as Error).message}
       </div>
     );
 
@@ -364,22 +373,58 @@ export function AmazonSimulatorPage() {
 
   return (
     <div className="space-y-4 p-4 md:p-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-start justify-between gap-3">
+      {/* Header & Mode Switcher */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-xl font-semibold">Amazon Demo Simulator</h1>
-            <DemoBadge />
+            <h1 className="text-xl font-semibold">
+              {isLive ? "Amazon Real Data Workflow" : "Amazon Demo Simulator"}
+            </h1>
+            <ModeBadge mode={mode} />
           </div>
           <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
-            Simulated Amazon orders run through the real WhizUnik Sales Order, inventory ledger,
-            warehouse task, dispatch, return, credit note and settlement workflows — inside the
-            isolated demo tenant. Live customers, stock and documents are never touched.
+            {isLive
+              ? "Live Amazon marketplace workflow executing directly on your real client tenant: real central warehouse inventory ledger, actual SKU catalogue, live sales orders, dispatches, returns, credit notes, and bank settlements."
+              : "Simulated Amazon orders run through the real WhizUnik Sales Order, inventory ledger, warehouse task, dispatch, return, credit note and settlement workflows — inside the isolated demo tenant. Live customers, stock and documents are never touched."}
           </p>
+        </div>
+
+        {/* Mode Switcher Segmented Control */}
+        <div className="inline-flex items-center rounded-lg border bg-muted/60 p-1 text-xs shadow-sm">
+          <button
+            type="button"
+            onClick={() => {
+              setMode("live");
+              setJourney(null);
+            }}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors ${
+              mode === "live"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <span className="h-2 w-2 rounded-full bg-emerald-500" />
+            Live Data Workflow
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode("demo");
+              setJourney(null);
+            }}
+            className={`flex items-center gap-1.5 rounded-md px-3 py-1.5 font-medium transition-colors ${
+              mode === "demo"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <span className="h-2 w-2 rounded-full bg-amber-500" />
+            Demo Simulator
+          </button>
         </div>
       </div>
 
-      {/* Required demo buttons */}
+      {/* Action buttons */}
       <div className="flex flex-wrap gap-2 rounded-lg border bg-card p-3">
         <Button
           size="sm"
@@ -388,29 +433,31 @@ export function AmazonSimulatorPage() {
             setOrderOpen(true);
           }}
         >
-          <Plus className="mr-1 h-4 w-4" /> Add Demo Amazon Order
+          <Plus className="mr-1 h-4 w-4" /> {isLive ? "Create / Import Live Order" : "Add Demo Amazon Order"}
         </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={!!busy}
-          onClick={async () => {
-            const r = await act(
-              "journey",
-              () => sim.runFullJourney(),
-              (j) =>
-                j.completed ? "Full demo journey completed" : "Journey stopped at a failed step",
-            );
-            if (r) setJourney(r);
-          }}
-        >
-          {isBusy("journey") ? (
-            <Loader2 className="mr-1 h-4 w-4 animate-spin" />
-          ) : (
-            <Play className="mr-1 h-4 w-4" />
-          )}{" "}
-          Run Full Demo Journey
-        </Button>
+        {!isLive && (
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={!!busy}
+            onClick={async () => {
+              const r = await act(
+                "journey",
+                () => sim.runFullJourney(),
+                (j) =>
+                  j.completed ? "Full demo journey completed" : "Journey stopped at a failed step",
+              );
+              if (r) setJourney(r);
+            }}
+          >
+            {isBusy("journey") ? (
+              <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+            ) : (
+              <Play className="mr-1 h-4 w-4" />
+            )}{" "}
+            Run Full Demo Journey
+          </Button>
+        )}
         <Button
           size="sm"
           variant="outline"
@@ -423,7 +470,7 @@ export function AmazonSimulatorPage() {
             )
           }
         >
-          <Undo2 className="mr-1 h-4 w-4" /> Create Demo Return
+          <Undo2 className="mr-1 h-4 w-4" /> {isLive ? "Create Return" : "Create Demo Return"}
         </Button>
         <Button
           size="sm"
@@ -452,7 +499,7 @@ export function AmazonSimulatorPage() {
             )
           }
         >
-          <Wallet className="mr-1 h-4 w-4" /> Simulate Refund
+          <Wallet className="mr-1 h-4 w-4" /> {isLive ? "Record Refund" : "Simulate Refund"}
         </Button>
         <Button
           size="sm"
@@ -466,51 +513,65 @@ export function AmazonSimulatorPage() {
             )
           }
         >
-          <FileText className="mr-1 h-4 w-4" /> Simulate Settlement
+          <FileText className="mr-1 h-4 w-4" /> {isLive ? "Process Settlement" : "Simulate Settlement"}
         </Button>
-        <Button
-          size="sm"
-          variant="outline"
-          disabled={!!busy}
-          onClick={() =>
-            act(
-              "api",
-              () => sim.simulateError("api_failure"),
-              (r) => `API failure logged for ${r.affectedOrder}`,
-            )
-          }
-        >
-          <XCircle className="mr-1 h-4 w-4" /> Simulate API Failure
-        </Button>
+        {!isLive && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={!!busy}
+            onClick={() =>
+              act(
+                "api",
+                () => sim.simulateError("api_failure"),
+                (r) => `API failure logged for ${r.affectedOrder}`,
+              )
+            }
+          >
+            <XCircle className="mr-1 h-4 w-4" /> Simulate API Failure
+          </Button>
+        )}
         <Button
           size="sm"
           variant="outline"
           disabled={!!busy || openExceptions.length === 0}
-          onClick={() => setRetry({ ex: openExceptions[0], mapToSku: "GLV-RED-L", addStock: "20" })}
+          onClick={() => setRetry({ ex: openExceptions[0], mapToSku: catalogue[0]?.sku || "GLV-RED-L", addStock: "20" })}
         >
           <RefreshCw className="mr-1 h-4 w-4" /> Retry Failed Event
         </Button>
-        <Button
-          size="sm"
-          variant="destructive"
-          disabled={!!busy}
-          onClick={() => {
-            if (
-              window.confirm(
-                "Reset the demo tenant (MARKETPLACE-DEMO)? Only demo records are deleted; live data is not affected.",
-              )
-            ) {
-              act(
-                "reset",
-                () => sim.resetBaseline(),
-                (r) => `Demo baseline reset (${r.deletedRecords} demo records cleared)`,
-              );
-              setJourney(null);
-            }
-          }}
-        >
-          <RotateCcw className="mr-1 h-4 w-4" /> Reset Demo Baseline
-        </Button>
+        {!isLive ? (
+          <Button
+            size="sm"
+            variant="destructive"
+            disabled={!!busy}
+            onClick={() => {
+              if (
+                window.confirm(
+                  "Reset the demo tenant (MARKETPLACE-DEMO)? Only demo records are deleted; live data is not affected.",
+                )
+              ) {
+                act(
+                  "reset",
+                  () => sim.resetBaseline(),
+                  (r) => `Demo baseline reset (${r.deletedRecords} demo records cleared)`,
+                );
+                setJourney(null);
+              }
+            }}
+          >
+            <RotateCcw className="mr-1 h-4 w-4" /> Reset Demo Baseline
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled
+            className="cursor-not-allowed opacity-60"
+            title="Baseline reset is disabled in live mode to protect production data"
+          >
+            <ShieldCheck className="mr-1 h-4 w-4 text-emerald-600" /> Live Records Protected
+          </Button>
+        )}
       </div>
 
       {/* Journey */}
@@ -649,7 +710,7 @@ export function AmazonSimulatorPage() {
               actions.push(btn("pack", "Mark packed", () => sim.markPacked(o.amazonOrderId)));
             if (o.whizunikStatus === "Packed")
               actions.push(
-                btn("dsp", "Confirm Demo Dispatch", () => sim.confirmDispatch(o.amazonOrderId)),
+                btn("dsp", isLive ? "Confirm Dispatch" : "Confirm Demo Dispatch", () => sim.confirmDispatch(o.amazonOrderId)),
               );
             if (o.dispatchStatus === "in_transit")
               actions.push(btn("dlv", "Mark Delivered", () => sim.markDelivered(o.amazonOrderId)));
@@ -666,7 +727,7 @@ export function AmazonSimulatorPage() {
                 key={kind}
                 className="block text-left text-[11px] text-primary underline-offset-2 hover:underline"
                 onClick={() =>
-                  sim.openDocument(kind, o.amazonOrderId).catch((e) => toast.error(e.message))
+                  sim.openDocument(kind, o.amazonOrderId).catch((e: any) => toast.error(e.message))
                 }
               >
                 {label}
@@ -1021,7 +1082,7 @@ export function AmazonSimulatorPage() {
                   onClick={() =>
                     sim
                       .openDocument("settlement", st.amazonOrderId)
-                      .catch((e) => toast.error(e.message))
+                      .catch((e: any) => toast.error(e.message))
                   }
                 >
                   Report (PDF)
@@ -1050,36 +1111,42 @@ export function AmazonSimulatorPage() {
       {/* Exceptions */}
       <Section
         title="Errors & retries"
-        hint="Each simulation runs the real step; Retry Failed Event re-runs it."
+        hint={
+          isLive
+            ? "Marketplace exceptions tracked on live sales orders and tasks."
+            : "Each simulation runs the real step; Retry Failed Event re-runs it."
+        }
         right={
-          <div className="flex items-center gap-2">
-            <select
-              className="h-8 rounded-md border bg-background px-2 text-xs"
-              value={errorKind}
-              onChange={(e) => setErrorKind(e.target.value)}
-            >
-              {ERROR_SIMULATIONS.map((e) => (
-                <option key={e.kind} value={e.kind}>
-                  {e.label}
-                </option>
-              ))}
-            </select>
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={!!busy}
-              onClick={() =>
-                act(
-                  "err",
-                  () => sim.simulateError(errorKind),
-                  (r) =>
-                    `${ERROR_SIMULATIONS.find((e) => e.kind === errorKind)?.label} simulated on ${r.affectedOrder}`,
-                )
-              }
-            >
-              Simulate error
-            </Button>
-          </div>
+          !isLive ? (
+            <div className="flex items-center gap-2">
+              <select
+                className="h-8 rounded-md border bg-background px-2 text-xs"
+                value={errorKind}
+                onChange={(e) => setErrorKind(e.target.value)}
+              >
+                {ERROR_SIMULATIONS.map((e) => (
+                  <option key={e.kind} value={e.kind}>
+                    {e.label}
+                  </option>
+                ))}
+              </select>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={!!busy}
+                onClick={() =>
+                  act(
+                    "err",
+                    () => sim.simulateError(errorKind),
+                    (r) =>
+                      `${ERROR_SIMULATIONS.find((e) => e.kind === errorKind)?.label} simulated on ${r.affectedOrder}`,
+                  )
+                }
+              >
+                Simulate error
+              </Button>
+            </div>
+          ) : undefined
         }
       >
         <Table
@@ -1094,7 +1161,11 @@ export function AmazonSimulatorPage() {
             "Last attempt",
             "",
           ]}
-          empty="No errors — use Simulate error to test the failure paths."
+          empty={
+            isLive
+              ? "No marketplace exceptions reported on live orders."
+              : "No errors — use Simulate error to test the failure paths."
+          }
           rows={(s.exceptions ?? []).map((e: any) => [
             <span className="font-mono">{e.affectedOrder}</span>,
             e.errorReason,
@@ -1179,7 +1250,7 @@ export function AmazonSimulatorPage() {
 
       {/* Ledger + audit */}
       <div className="grid gap-4 xl:grid-cols-2">
-        <Section title="Inventory ledger (demo stock movements)">
+        <Section title={isLive ? "Inventory ledger (stock movements)" : "Inventory ledger (demo stock movements)"}>
           <Table
             head={["When", "SKU", "In / out", "Qty", "Location", "Reason", "Document"]}
             empty="No movements."
@@ -1196,7 +1267,7 @@ export function AmazonSimulatorPage() {
               ])}
           />
         </Section>
-        <Section title="Audit trail" hint="Every simulator event, newest first.">
+        <Section title="Audit trail" hint="Every event, newest first.">
           <Table
             head={["When", "Event", "Target", "By"]}
             empty="No events yet."
@@ -1205,7 +1276,7 @@ export function AmazonSimulatorPage() {
               .map((a: any) => [
                 when(a.createdAt),
                 <span className="font-mono text-[11px]">
-                  {String(a.action).replace(/^amazon_demo\./, "")}
+                  {String(a.action).replace(/^(amazon_demo|amazon_live)\./, "")}
                 </span>,
                 <span className="font-mono text-[11px]">{a.target}</span>,
                 <span className="text-[11px]">{a.actorEmail}</span>,
@@ -1215,8 +1286,10 @@ export function AmazonSimulatorPage() {
       </div>
 
       <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <ShieldCheck className="h-3.5 w-3.5" /> All records on this page live in tenant {s.tenantId}{" "}
-        with isDemoData = true. Reset clears only that tenant.
+        <ShieldCheck className="h-3.5 w-3.5" />{" "}
+        {isLive
+          ? `Operating on live production tenant (${s.tenantId}). Warehouse: ${s.warehouse || "Central Warehouse"}. Customer: ${s.customer || "Amazon India"}.`
+          : `All records on this page live in tenant ${s.tenantId} with isDemoData = true. Reset clears only that tenant.`}
       </p>
 
       {/* Add order dialog */}
@@ -1224,7 +1297,8 @@ export function AmazonSimulatorPage() {
         <DialogContent className="max-w-2xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              Add Demo Amazon Order <DemoBadge />
+              {isLive ? "Create / Import Live Amazon Order" : "Add Demo Amazon Order"}{" "}
+              <ModeBadge mode={mode} />
             </DialogTitle>
             <DialogDescription>
               Selling price is per unit and includes GST. Leave the order number blank to

@@ -49,6 +49,7 @@ import {
   Zap,
   Eye,
   FileCheck2,
+  FileText,
   Search,
   RefreshCw as SyncIcon,
   Clock,
@@ -265,6 +266,41 @@ interface AmazonReturn {
   createdAt: string;
 }
 
+interface AmazonInvoice {
+  id: string;
+  amazonOrderId: string;
+  whizunikSalesOrderId?: string | null;
+  invoiceNumber: string | null;
+  invoiceIssueDate: string | null;
+  issuer: "Amazon" | "WhizUnik";
+  amount: number;
+  grandTotal: number;
+  taxableAmount: number;
+  taxAmount: number;
+  taxRate: number;
+  currency: string;
+  status: string;
+  transactionType?: string | null;
+  shipmentId?: string | null;
+  sku?: string | null;
+  asin?: string | null;
+  hsnCode?: string | null;
+  quantity?: number | null;
+  cgstAmount?: number | null;
+  sgstAmount?: number | null;
+  igstAmount?: number | null;
+  utgstAmount?: number | null;
+  buyerGstin?: string | null;
+  sellerGstin?: string | null;
+  placeOfSupply?: string | null;
+  irnNumber?: string | null;
+  reportType?: string | null;
+  isB2B?: boolean;
+  notes?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 interface KpiStat {
   title: string;
   value: number | string;
@@ -477,6 +513,15 @@ export function AmazonDashboardPage() {
     enabled: !!clientId,
   });
 
+  const invoicesQuery = useQuery({
+    queryKey: ["amazon-invoices", clientId],
+    queryFn: async () => {
+      const res = await api.amazonInvoices.list(clientId);
+      return (Array.isArray(res) ? res : []) as AmazonInvoice[];
+    },
+    enabled: !!clientId,
+  });
+
   const inventoryQuery = useQuery({
     queryKey: ["amazon-inventory", clientId],
     queryFn: async () => {
@@ -534,9 +579,20 @@ export function AmazonDashboardPage() {
   // ── Derived data ──
   const orders = ordersQuery.data ?? [];
   const returns = returnsQuery.data ?? [];
+  const invoices = invoicesQuery.data ?? [];
   const inventory = inventoryQuery.data ?? [];
   const listings = listingsQuery.data ?? [];
   const syncStatuses = syncStatusQuery.data ?? [];
+
+  const invoicesByOrder = useMemo(() => {
+    const map = new Map<string, AmazonInvoice[]>();
+    for (const inv of invoices) {
+      const list = map.get(inv.amazonOrderId) ?? [];
+      list.push(inv);
+      map.set(inv.amazonOrderId, list);
+    }
+    return map;
+  }, [invoices]);
   const inventoryAgg = inventoryAggQuery.data ?? {};
   const listingsAgg = listingsAggQuery.data ?? {};
   const applicationHealth = applicationStatusQuery.data as AmazonApplicationHealth | undefined;
@@ -763,6 +819,8 @@ export function AmazonDashboardPage() {
           queryClient.invalidateQueries({ queryKey: ["amazon-inventory", clientId] });
           queryClient.invalidateQueries({ queryKey: ["amazon-listings", clientId] });
           queryClient.invalidateQueries({ queryKey: ["amazon-returns", clientId] });
+          queryClient.invalidateQueries({ queryKey: ["amazon-invoices", clientId] });
+          queryClient.invalidateQueries({ queryKey: ["amazon-application-status", clientId] });
           const failed = latest.some(
             (s: any) =>
               s.status === "Failed" ||
@@ -805,6 +863,7 @@ export function AmazonDashboardPage() {
   const [orderItemsLoading, setOrderItemsLoading] = useState(false);
   const [openListing, setOpenListing] = useState<AmazonListing | null>(null);
   const [openReturn, setOpenReturn] = useState<AmazonReturn | null>(null);
+  const [openInvoice, setOpenInvoice] = useState<AmazonInvoice | null>(null);
 
   const viewOrder = async (order: AmazonOrder) => {
     setOpenOrder(order);
@@ -1088,6 +1147,17 @@ export function AmazonDashboardPage() {
                 className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100"
               >
                 <ArrowRightLeft className="w-3.5 h-3.5" /> Returns
+              </TabsTrigger>
+              <TabsTrigger
+                value="invoices"
+                className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium rounded-lg transition-colors data-[state=active]:bg-slate-100 dark:data-[state=active]:bg-slate-800 data-[state=active]:font-semibold data-[state=active]:text-slate-900 dark:data-[state=active]:text-slate-100"
+              >
+                <FileText className="w-3.5 h-3.5" /> Invoices
+                {invoices.length > 0 && (
+                  <span className="ml-0.5 rounded-full bg-slate-200 dark:bg-slate-700 px-1.5 py-0.2 text-[10px] font-semibold">
+                    {invoices.length}
+                  </span>
+                )}
               </TabsTrigger>
               <TabsTrigger
                 value="analytics"
@@ -1380,6 +1450,7 @@ export function AmazonDashboardPage() {
                 ordersPage={ordersPage}
                 viewOrder={viewOrder}
                 loading={ordersQuery.isLoading}
+                invoicesByOrder={invoicesByOrder}
               />
             </TabsContent>
 
@@ -1408,6 +1479,21 @@ export function AmazonDashboardPage() {
                 returns={returns}
                 loading={returnsQuery.isLoading}
                 onViewReturn={setOpenReturn}
+              />
+            </TabsContent>
+
+            {/* ── Invoices Tab ── */}
+            <TabsContent value="invoices" className="border-none p-0">
+              <InvoicesSection
+                invoices={invoices}
+                loading={invoicesQuery.isLoading}
+                invoiceSyncStatus={
+                  syncStatuses.find((s) => s.module === "invoices") ??
+                  appModules.find((m) => m.module === "invoices")
+                }
+                onSyncInvoices={() => syncMutation.mutate({ module: "invoices" })}
+                syncing={syncing}
+                onViewInvoice={setOpenInvoice}
               />
             </TabsContent>
 
@@ -1542,6 +1628,73 @@ export function AmazonDashboardPage() {
                   </table>
                 </div>
               )}
+
+              {/* Related Amazon Invoices */}
+              <Separator className="my-4" />
+              <h3 className="font-bold text-slate-900 dark:text-slate-100 mb-2">
+                Amazon Invoices
+              </h3>
+              {openOrder ? (
+                (() => {
+                  const orderInvoices = invoicesByOrder.get(openOrder.amazonOrderId) ?? [];
+                  return orderInvoices.length === 0 ? (
+                    <p className="text-slate-500 dark:text-slate-400 text-sm">
+                      No Amazon invoice synced yet for this order.
+                    </p>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm border border-slate-200 dark:border-slate-800 rounded-lg">
+                        <thead className="bg-slate-50 dark:bg-slate-800/50">
+                          <tr>
+                            <th className="p-3 text-left text-slate-500 font-medium">Invoice #</th>
+                            <th className="p-3 text-left text-slate-500 font-medium">Date</th>
+                            <th className="p-3 text-left text-slate-500 font-medium">Type</th>
+                            <th className="p-3 text-right text-slate-500 font-medium">Taxable</th>
+                            <th className="p-3 text-right text-slate-500 font-medium">GST / Tax</th>
+                            <th className="p-3 text-right text-slate-500 font-medium">Grand Total</th>
+                            <th className="p-3 text-right text-slate-500 font-medium">Details</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {orderInvoices.map((inv) => (
+                            <tr
+                              key={inv.id}
+                              className="border-b border-slate-100 dark:border-slate-800 last:border-0"
+                            >
+                              <td className="p-3 font-mono text-sm font-medium">
+                                {inv.invoiceNumber || "Pending"}
+                              </td>
+                              <td className="p-3 text-sm">{inv.invoiceIssueDate || "—"}</td>
+                              <td className="p-3 text-sm">
+                                {inv.transactionType || "Shipment"}
+                                {inv.isB2B ? " · B2B" : ""}
+                              </td>
+                              <td className="p-3 text-right text-sm">
+                                {inv.currency || "INR"} {(inv.taxableAmount ?? 0).toFixed(2)}
+                              </td>
+                              <td className="p-3 text-right text-sm">
+                                {inv.currency || "INR"} {(inv.taxAmount ?? 0).toFixed(2)}
+                              </td>
+                              <td className="p-3 text-right text-sm font-semibold">
+                                {inv.currency || "INR"} {(inv.grandTotal ?? inv.amount ?? 0).toFixed(2)}
+                              </td>
+                              <td className="p-3 text-right">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  onClick={() => setOpenInvoice(inv)}
+                                >
+                                  <Eye className="w-3.5 h-3.5" />
+                                </Button>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                })()
+              ) : null}
 
               {/* Related Returns */}
               <Separator className="my-4" />
@@ -1738,6 +1891,157 @@ export function AmazonDashboardPage() {
           </DrawerContent>
         </Drawer>
       )}
+      {/* Invoice detail drawer */}
+      {openInvoice && (
+        <Drawer
+          modal
+          open={!!openInvoice}
+          onOpenChange={(o) => {
+            if (!o) setOpenInvoice(null);
+          }}
+        >
+          <DrawerOverlay />
+          <DrawerContent className="h-[90vh] w-[650px]">
+            <DrawerClose />
+            <div className="p-6 overflow-y-auto space-y-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="font-bold text-lg text-slate-900 dark:text-slate-100">
+                      Invoice {openInvoice.invoiceNumber || "Pending"}
+                    </h2>
+                    <span
+                      className={`inline-block px-2 py-0.5 rounded text-xs font-semibold ${statusColor(openInvoice.status)}`}
+                    >
+                      {openInvoice.status}
+                    </span>
+                    {openInvoice.isB2B && (
+                      <Badge variant="outline" className="text-[10px]">
+                        B2B
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-1">
+                    Order ID: <span className="font-mono">{openInvoice.amazonOrderId}</span>
+                  </p>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => setOpenInvoice(null)}>
+                  Close
+                </Button>
+              </div>
+
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4 p-4 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800">
+                <div>
+                  <p className="text-xs text-slate-500">Issue Date</p>
+                  <p className="text-sm font-medium">{openInvoice.invoiceIssueDate || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Transaction Type</p>
+                  <p className="text-sm font-medium">{openInvoice.transactionType || "Shipment"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Issuer</p>
+                  <p className="text-sm font-medium">{openInvoice.issuer}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">SKU(s)</p>
+                  <p className="text-sm font-mono">{openInvoice.sku || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">HSN / SAC</p>
+                  <p className="text-sm font-mono">{openInvoice.hsnCode || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Quantity</p>
+                  <p className="text-sm font-medium">{openInvoice.quantity ?? "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Seller GSTIN</p>
+                  <p className="text-sm font-mono">{openInvoice.sellerGstin || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Buyer GSTIN</p>
+                  <p className="text-sm font-mono">{openInvoice.buyerGstin || "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500">Place of Supply</p>
+                  <p className="text-sm font-medium">{openInvoice.placeOfSupply || "—"}</p>
+                </div>
+                {openInvoice.irnNumber && (
+                  <div className="col-span-2 md:col-span-3">
+                    <p className="text-xs text-slate-500">E-Invoice IRN</p>
+                    <p className="text-xs font-mono break-all">{openInvoice.irnNumber}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 rounded-xl border border-slate-200 dark:border-slate-800 space-y-2.5 text-sm">
+                <h3 className="font-semibold text-slate-900 dark:text-slate-100 mb-3">
+                  GST & Amount Breakdown
+                </h3>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Taxable Value</span>
+                  <span className="font-mono">
+                    {openInvoice.currency || "INR"} {(openInvoice.taxableAmount ?? 0).toFixed(2)}
+                  </span>
+                </div>
+                {(openInvoice.cgstAmount ?? 0) !== 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">CGST</span>
+                    <span className="font-mono">
+                      {openInvoice.currency || "INR"} {(openInvoice.cgstAmount ?? 0).toFixed(2)}
+                    </span>
+                  </div>
+                )}
+                {(openInvoice.sgstAmount ?? 0) !== 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">SGST</span>
+                    <span className="font-mono">
+                      {openInvoice.currency || "INR"} {(openInvoice.sgstAmount ?? 0).toFixed(2)}
+                    </span>
+                  </div>
+                )}
+                {(openInvoice.igstAmount ?? 0) !== 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">IGST</span>
+                    <span className="font-mono">
+                      {openInvoice.currency || "INR"} {(openInvoice.igstAmount ?? 0).toFixed(2)}
+                    </span>
+                  </div>
+                )}
+                {(openInvoice.utgstAmount ?? 0) !== 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">UTGST</span>
+                    <span className="font-mono">
+                      {openInvoice.currency || "INR"} {(openInvoice.utgstAmount ?? 0).toFixed(2)}
+                    </span>
+                  </div>
+                )}
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Total Tax ({openInvoice.taxRate ?? 0}%)</span>
+                  <span className="font-mono">
+                    {openInvoice.currency || "INR"} {(openInvoice.taxAmount ?? 0).toFixed(2)}
+                  </span>
+                </div>
+                <Separator />
+                <div className="flex justify-between font-bold text-base">
+                  <span>Grand Total</span>
+                  <span className="font-mono">
+                    {openInvoice.currency || "INR"}{" "}
+                    {(openInvoice.grandTotal ?? openInvoice.amount ?? 0).toFixed(2)}
+                  </span>
+                </div>
+              </div>
+
+              {(openInvoice.reportType || openInvoice.notes) && (
+                <p className="text-xs text-slate-500">
+                  Source: {openInvoice.reportType || "Manual"} — {openInvoice.notes}
+                </p>
+              )}
+            </div>
+          </DrawerContent>
+        </Drawer>
+      )}
     </div>
   );
 }
@@ -1752,12 +2056,14 @@ function OrdersSection({
   ordersPage,
   viewOrder,
   loading,
+  invoicesByOrder,
 }: {
   orders: AmazonOrder[];
   setOrdersPage: (p: number) => void;
   ordersPage: number;
   viewOrder: (o: AmazonOrder) => void;
   loading: boolean;
+  invoicesByOrder?: Map<string, AmazonInvoice[]>;
 }) {
   const PAGE = 20;
   const total = orders.length;
@@ -1841,12 +2147,16 @@ function OrdersSection({
                 <th className="p-3 text-left text-slate-500 font-medium">Currency</th>
                 <th className="p-3 text-left text-slate-500 font-medium">Fulfilment</th>
                 <th className="p-3 text-left text-slate-500 font-medium">Status</th>
+                <th className="p-3 text-left text-slate-500 font-medium">Invoice</th>
                 <th className="p-3 text-left text-slate-500 font-medium">Marketplace</th>
                 <th className="p-3 text-right text-slate-500 font-medium">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filtered.map((o) => (
+              {filtered.map((o) => {
+                const matchedInvoices = invoicesByOrder?.get(o.amazonOrderId) ?? [];
+                const primaryInvoice = matchedInvoices[0];
+                return (
                 <tr
                   key={o.id}
                   className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer group"
@@ -1869,6 +2179,15 @@ function OrdersSection({
                       {o.amazonOrderStatus}
                     </span>
                   </td>
+                  <td className="p-3 text-sm">
+                    {primaryInvoice?.invoiceNumber ? (
+                      <span className="inline-block px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800">
+                        {primaryInvoice.invoiceNumber}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400">{o.invoiceStatus || "Pending"}</span>
+                    )}
+                  </td>
                   <td className="p-3 text-sm text-slate-500">Amazon.in</td>
                   <td className="p-3 text-right">
                     <Button
@@ -1883,7 +2202,8 @@ function OrdersSection({
                     </Button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </TableContainer>
@@ -2417,6 +2737,231 @@ function ReturnsSection({
   );
 }
 
+function InvoicesSection({
+  invoices,
+  loading,
+  invoiceSyncStatus,
+  onSyncInvoices,
+  syncing,
+  onViewInvoice,
+}: {
+  invoices: AmazonInvoice[];
+  loading: boolean;
+  invoiceSyncStatus?: SyncStatusItem | AmazonModuleHealth;
+  onSyncInvoices: () => void;
+  syncing: boolean;
+  onViewInvoice: (inv: AmazonInvoice) => void;
+}) {
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return invoices.filter((inv) => {
+      if (typeFilter === "b2b" && !inv.isB2B) return false;
+      if (typeFilter === "b2c" && inv.isB2B) return false;
+      if (typeFilter === "shipment" && /refund|cancel/i.test(inv.transactionType || "")) return false;
+      if (typeFilter === "refund" && !/refund|cancel/i.test(inv.transactionType || "")) return false;
+      if (!q) return true;
+      return (
+        inv.amazonOrderId.toLowerCase().includes(q) ||
+        (inv.invoiceNumber || "").toLowerCase().includes(q) ||
+        (inv.sku || "").toLowerCase().includes(q) ||
+        (inv.buyerGstin || "").toLowerCase().includes(q)
+      );
+    });
+  }, [invoices, search, typeFilter]);
+
+  const totalAmount = useMemo(
+    () => filtered.reduce((sum, inv) => sum + (Number(inv.grandTotal ?? inv.amount) || 0), 0),
+    [filtered],
+  );
+  const totalTax = useMemo(
+    () => filtered.reduce((sum, inv) => sum + (Number(inv.taxAmount) || 0), 0),
+    [filtered],
+  );
+  const b2bCount = useMemo(() => filtered.filter((inv) => inv.isB2B).length, [filtered]);
+
+  const syncStatusVal = String(invoiceSyncStatus?.status || "").toLowerCase();
+  const isRestricted =
+    syncStatusVal === "accessrestricted" || syncStatusVal === "access_restricted";
+  const syncErrorMsg =
+    (invoiceSyncStatus as any)?.errorMessage ?? (invoiceSyncStatus as any)?.error ?? null;
+
+  return (
+    <div className="space-y-4">
+      {isRestricted && (
+        <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+            <div className="text-xs space-y-1">
+              <p className="font-semibold text-amber-900 dark:text-amber-200">
+                Amazon SP-API Permission Required: Tax Invoicing (Restricted)
+              </p>
+              <p className="text-amber-800 dark:text-amber-300">
+                Invoice sync code is active, but Amazon returned 403 Access Forbidden for GST / Tax
+                Invoicing reports. Once &ldquo;Tax Invoicing (Restricted)&rdquo; role is approved
+                in Seller Central, click &ldquo;Sync Invoices&rdquo; to fetch all invoices.
+              </p>
+              {syncErrorMsg && (
+                <p className="font-mono text-[11px] text-amber-700 dark:text-amber-400">
+                  {syncErrorMsg}
+                </p>
+              )}
+            </div>
+          </div>
+          <Button size="sm" variant="outline" onClick={onSyncInvoices} disabled={syncing}>
+            <SyncIcon className={cn("w-3.5 h-3.5 mr-1.5", syncing && "animate-spin")} />
+            Retry Sync
+          </Button>
+        </div>
+      )}
+
+      {/* Summary strip */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+          <p className="text-xs text-slate-500">Total Invoices</p>
+          <p className="text-xl font-bold mt-1">{filtered.length}</p>
+        </div>
+        <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+          <p className="text-xs text-slate-500">Total Invoice Value</p>
+          <p className="text-xl font-bold mt-1">
+            ₹{totalAmount.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+          </p>
+        </div>
+        <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+          <p className="text-xs text-slate-500">Total GST / Tax</p>
+          <p className="text-xl font-bold mt-1">
+            ₹{totalTax.toLocaleString("en-IN", { maximumFractionDigits: 2 })}
+          </p>
+        </div>
+        <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
+          <p className="text-xs text-slate-500">B2B / B2C Split</p>
+          <p className="text-xl font-bold mt-1">
+            {b2bCount} B2B · {filtered.length - b2bCount} B2C
+          </p>
+        </div>
+      </div>
+
+      {/* Controls */}
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <Search className="w-4 h-4 text-slate-400" />
+          <Input
+            placeholder="Search invoice #, order ID, SKU, GSTIN…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-72 text-[12px] h-8"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <SelectTrigger className="text-[12px] h-8 w-44">
+              <SelectValue placeholder="Filter type" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All Invoices</SelectItem>
+              <SelectItem value="shipment">Shipments Only</SelectItem>
+              <SelectItem value="refund">Refunds / Credit Notes</SelectItem>
+              <SelectItem value="b2b">B2B (GSTIN)</SelectItem>
+              <SelectItem value="b2c">B2C</SelectItem>
+            </SelectContent>
+          </Select>
+          <Button size="sm" onClick={onSyncInvoices} disabled={syncing} className="h-8 text-xs">
+            <SyncIcon className={cn("w-3.5 h-3.5 mr-1.5", syncing && "animate-spin")} />
+            {syncing ? "Syncing…" : "Sync Invoices"}
+          </Button>
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="h-64 flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin" />
+        </div>
+      ) : filtered.length === 0 ? (
+        <EmptyState
+          icon={<FileText className="w-8 h-8 mx-auto mb-3 opacity-40" />}
+          title="No Amazon invoices"
+          subtitle="Click Sync Invoices to fetch GST B2C/B2B and tax invoice reports from Amazon SP-API."
+        />
+      ) : (
+        <TableContainer>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 dark:bg-slate-800/50 sticky top-0 z-10">
+              <tr>
+                <th className="p-3 text-left text-slate-500 font-medium">Invoice #</th>
+                <th className="p-3 text-left text-slate-500 font-medium">Date</th>
+                <th className="p-3 text-left text-slate-500 font-medium">Amazon Order ID</th>
+                <th className="p-3 text-left text-slate-500 font-medium">Type</th>
+                <th className="p-3 text-left text-slate-500 font-medium">SKU</th>
+                <th className="p-3 text-right text-slate-500 font-medium">Taxable</th>
+                <th className="p-3 text-right text-slate-500 font-medium">GST / Tax</th>
+                <th className="p-3 text-right text-slate-500 font-medium">Total</th>
+                <th className="p-3 text-left text-slate-500 font-medium">Status</th>
+                <th className="p-3 text-right text-slate-500 font-medium">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((inv) => (
+                <tr
+                  key={inv.id}
+                  className="border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer"
+                  onClick={() => onViewInvoice(inv)}
+                >
+                  <td className="p-3 font-mono text-sm font-medium">
+                    {inv.invoiceNumber || "—"}
+                  </td>
+                  <td className="p-3 text-sm text-slate-500">{inv.invoiceIssueDate || "—"}</td>
+                  <td className="p-3 font-mono text-sm">{inv.amazonOrderId}</td>
+                  <td className="p-3 text-sm">
+                    <span>{inv.transactionType || "Shipment"}</span>
+                    {inv.isB2B && (
+                      <Badge variant="outline" className="ml-1.5 text-[10px]">
+                        B2B
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="p-3 font-mono text-xs text-slate-600 dark:text-slate-300">
+                    {inv.sku || "—"}
+                  </td>
+                  <td className="p-3 text-right text-sm font-mono">
+                    {inv.currency || "INR"} {(inv.taxableAmount ?? 0).toFixed(2)}
+                  </td>
+                  <td className="p-3 text-right text-sm font-mono">
+                    {inv.currency || "INR"} {(inv.taxAmount ?? 0).toFixed(2)}
+                  </td>
+                  <td className="p-3 text-right text-sm font-semibold font-mono">
+                    {inv.currency || "INR"} {(inv.grandTotal ?? inv.amount ?? 0).toFixed(2)}
+                  </td>
+                  <td className="p-3 text-sm">
+                    <span
+                      className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold ${statusColor(inv.status)}`}
+                    >
+                      {inv.status}
+                    </span>
+                  </td>
+                  <td className="p-3 text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onViewInvoice(inv);
+                      }}
+                    >
+                      <Eye className="w-3.5 h-3.5" />
+                    </Button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </TableContainer>
+      )}
+    </div>
+  );
+}
+
 function AnalyticsSection({
   orders,
   inventory,
@@ -2633,7 +3178,7 @@ function ApiHealthSection({
   appSummary?: AmazonApplicationHealth["summary"];
   onRetryAll: () => void;
 }) {
-  const modules = ["orders", "order-items", "inventory", "listings", "returns"];
+  const modules = ["orders", "order-items", "inventory", "listings", "returns", "invoices"];
   const reviewPending = Boolean(
     appState &&
     (appState.overallClassification === "APPLICATION_REVIEW_PENDING" ||

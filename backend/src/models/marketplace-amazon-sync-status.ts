@@ -22,7 +22,7 @@ export interface MarketplaceAmazonSyncStatus {
   entityType: "MarketplaceAmazonSyncStatus";
   id: string;
   clientId: string;
-  module: "orders" | "order-items" | "inventory" | "listings" | "returns";
+  module: "orders" | "order-items" | "inventory" | "listings" | "returns" | "invoices";
   status: SyncStatus;
   lastSyncAt: string | null;
   lastAttemptedAt: string | null;
