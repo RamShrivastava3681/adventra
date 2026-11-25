@@ -1644,7 +1644,7 @@ function SignoffApproveModal({
   const checkMap = useMemo(() => {
     const map = new Map<string, { available: number; onHand: number; reservedByOthers: number }>();
     for (const c of stockCheckQ.data?.lineChecks ?? []) {
-      map.set(c.productId, c);
+      map.set(c.product_id, c);
     }
     return map;
   }, [stockCheckQ.data]);

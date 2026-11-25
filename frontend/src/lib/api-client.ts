@@ -559,33 +559,9 @@ const api = {
     checkerApprove: (id: string, action: "approve" | "reject", notes?: string) =>
       api.post<any>(`/goods-sales-orders/${id}/checker-approve`, { action, notes }),
     checkStock: (id: string, locationId?: string) =>
-      api
-        .get<any>(
-          `/goods-sales-orders/${id}/stock-check${locationId ? `?locationId=${encodeURIComponent(locationId)}` : ""}`,
-        )
-        .then(
-          (res) =>
-            camelizeResponse(res) as {
-              sufficient: boolean;
-              shortLines: Array<{
-                productId: string;
-                name: string;
-                required: number;
-                available: number;
-                onHand: number;
-                reservedByOthers: number;
-              }>;
-              lineChecks: Array<{
-                productId: string;
-                name: string;
-                required: number;
-                available: number;
-                onHand: number;
-                reservedByOthers: number;
-                sufficient: boolean;
-              }>;
-            },
-        ),
+      api.get<any>(
+        `/goods-sales-orders/${id}/stock-check${locationId ? `?locationId=${encodeURIComponent(locationId)}` : ""}`,
+      ),
   },
 
   // Public document approvals (tokenised links emailed to debtors/checkers)
