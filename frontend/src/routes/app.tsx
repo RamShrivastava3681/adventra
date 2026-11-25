@@ -239,6 +239,8 @@ function buildNavSections(roles: string[]): NavSection[] {
       { to: "/app/amazon-dashboard", label: "Amazon Dashboard", icon: LayoutDashboard },
       { to: "/app/flipkart-dashboard", label: "Flipkart Dashboard", icon: LayoutDashboard },
       { to: "/app/myntra-dashboard", label: "Myntra Dashboard", icon: LayoutDashboard },
+      { to: "/app/ajio-dashboard", label: "AJIO Dashboard", icon: LayoutDashboard },
+      { to: "/app/shopify-dashboard", label: "Shopify Dashboard", icon: LayoutDashboard },
       { to: "/app/amazon-order-import", label: "Order Import", icon: ShoppingBag },
       { to: "/app/amazon-sku-mappings", label: "SKU Mappings", icon: Tag },
       { to: "/app/amazon-returns-settlement", label: "Returns & Settlements", icon: RotateCcw },

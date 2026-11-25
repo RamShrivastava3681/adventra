@@ -15,6 +15,7 @@ import { Route as AuthRouteImport } from './auth'
 import { Route as AppAccountingRouteImport } from './app.accounting'
 import { Route as AppAdminRouteImport } from './app.admin'
 import { Route as AppAdvancesRouteImport } from './app.advances'
+import { Route as AppAjioDashboardRouteImport } from './app.ajio-dashboard'
 import { Route as AppAlertsRouteImport } from './app.alerts'
 import { Route as AppAmazonDashboardRouteImport } from './app.amazon-dashboard'
 import { Route as AppAmazonExceptionsRouteImport } from './app.amazon-exceptions'
@@ -60,6 +61,7 @@ import { Route as AppSalesOrdersRouteImport } from './app.sales-orders'
 import { Route as AppSalesWorkbenchRouteImport } from './app.sales-workbench'
 import { Route as AppSampleDistributionRouteImport } from './app.sample-distribution'
 import { Route as AppSettingsRouteImport } from './app.settings'
+import { Route as AppShopifyDashboardRouteImport } from './app.shopify-dashboard'
 import { Route as AppStockAllocationRouteImport } from './app.stock-allocation'
 import { Route as AppSuppliersRouteImport } from './app.suppliers'
 import { Route as AppTallyConnectorRouteImport } from './app.tally-connector'
@@ -105,6 +107,11 @@ const AppAdminRoute = AppAdminRouteImport.update({
 const AppAdvancesRoute = AppAdvancesRouteImport.update({
   id: '/advances',
   path: '/advances',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppAjioDashboardRoute = AppAjioDashboardRouteImport.update({
+  id: '/ajio-dashboard',
+  path: '/ajio-dashboard',
   getParentRoute: () => AppRoute,
 } as any)
 const AppAlertsRoute = AppAlertsRouteImport.update({
@@ -334,6 +341,11 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
+const AppShopifyDashboardRoute = AppShopifyDashboardRouteImport.update({
+  id: '/shopify-dashboard',
+  path: '/shopify-dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppStockAllocationRoute = AppStockAllocationRouteImport.update({
   id: '/stock-allocation',
   path: '/stock-allocation',
@@ -422,6 +434,7 @@ export interface FileRoutesByFullPath {
   '/app/accounting': typeof AppAccountingRoute
   '/app/admin': typeof AppAdminRoute
   '/app/advances': typeof AppAdvancesRoute
+  '/app/ajio-dashboard': typeof AppAjioDashboardRoute
   '/app/alerts': typeof AppAlertsRoute
   '/app/amazon-dashboard': typeof AppAmazonDashboardRoute
   '/app/amazon-exceptions': typeof AppAmazonExceptionsRoute
@@ -467,6 +480,7 @@ export interface FileRoutesByFullPath {
   '/app/sales-workbench': typeof AppSalesWorkbenchRoute
   '/app/sample-distribution': typeof AppSampleDistributionRoute
   '/app/settings': typeof AppSettingsRoute
+  '/app/shopify-dashboard': typeof AppShopifyDashboardRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/tally-connector': typeof AppTallyConnectorRoute
@@ -491,6 +505,7 @@ export interface FileRoutesByTo {
   '/app/accounting': typeof AppAccountingRoute
   '/app/admin': typeof AppAdminRoute
   '/app/advances': typeof AppAdvancesRoute
+  '/app/ajio-dashboard': typeof AppAjioDashboardRoute
   '/app/alerts': typeof AppAlertsRoute
   '/app/amazon-dashboard': typeof AppAmazonDashboardRoute
   '/app/amazon-exceptions': typeof AppAmazonExceptionsRoute
@@ -535,6 +550,7 @@ export interface FileRoutesByTo {
   '/app/sales-workbench': typeof AppSalesWorkbenchRoute
   '/app/sample-distribution': typeof AppSampleDistributionRoute
   '/app/settings': typeof AppSettingsRoute
+  '/app/shopify-dashboard': typeof AppShopifyDashboardRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/tally-connector': typeof AppTallyConnectorRoute
@@ -560,6 +576,7 @@ export interface FileRoutesById {
   '/app/accounting': typeof AppAccountingRoute
   '/app/admin': typeof AppAdminRoute
   '/app/advances': typeof AppAdvancesRoute
+  '/app/ajio-dashboard': typeof AppAjioDashboardRoute
   '/app/alerts': typeof AppAlertsRoute
   '/app/amazon-dashboard': typeof AppAmazonDashboardRoute
   '/app/amazon-exceptions': typeof AppAmazonExceptionsRoute
@@ -605,6 +622,7 @@ export interface FileRoutesById {
   '/app/sales-workbench': typeof AppSalesWorkbenchRoute
   '/app/sample-distribution': typeof AppSampleDistributionRoute
   '/app/settings': typeof AppSettingsRoute
+  '/app/shopify-dashboard': typeof AppShopifyDashboardRoute
   '/app/stock-allocation': typeof AppStockAllocationRoute
   '/app/suppliers': typeof AppSuppliersRoute
   '/app/tally-connector': typeof AppTallyConnectorRoute
@@ -631,6 +649,7 @@ export interface FileRouteTypes {
     | '/app/accounting'
     | '/app/admin'
     | '/app/advances'
+    | '/app/ajio-dashboard'
     | '/app/alerts'
     | '/app/amazon-dashboard'
     | '/app/amazon-exceptions'
@@ -676,6 +695,7 @@ export interface FileRouteTypes {
     | '/app/sales-workbench'
     | '/app/sample-distribution'
     | '/app/settings'
+    | '/app/shopify-dashboard'
     | '/app/stock-allocation'
     | '/app/suppliers'
     | '/app/tally-connector'
@@ -700,6 +720,7 @@ export interface FileRouteTypes {
     | '/app/accounting'
     | '/app/admin'
     | '/app/advances'
+    | '/app/ajio-dashboard'
     | '/app/alerts'
     | '/app/amazon-dashboard'
     | '/app/amazon-exceptions'
@@ -744,6 +765,7 @@ export interface FileRouteTypes {
     | '/app/sales-workbench'
     | '/app/sample-distribution'
     | '/app/settings'
+    | '/app/shopify-dashboard'
     | '/app/stock-allocation'
     | '/app/suppliers'
     | '/app/tally-connector'
@@ -768,6 +790,7 @@ export interface FileRouteTypes {
     | '/app/accounting'
     | '/app/admin'
     | '/app/advances'
+    | '/app/ajio-dashboard'
     | '/app/alerts'
     | '/app/amazon-dashboard'
     | '/app/amazon-exceptions'
@@ -813,6 +836,7 @@ export interface FileRouteTypes {
     | '/app/sales-workbench'
     | '/app/sample-distribution'
     | '/app/settings'
+    | '/app/shopify-dashboard'
     | '/app/stock-allocation'
     | '/app/suppliers'
     | '/app/tally-connector'
@@ -881,6 +905,13 @@ declare module '@tanstack/react-router' {
       path: '/advances'
       fullPath: '/app/advances'
       preLoaderRoute: typeof AppAdvancesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/app/ajio-dashboard': {
+      id: '/app/ajio-dashboard'
+      path: '/ajio-dashboard'
+      fullPath: '/app/ajio-dashboard'
+      preLoaderRoute: typeof AppAjioDashboardRouteImport
       parentRoute: typeof AppRoute
     }
     '/app/alerts': {
@@ -1198,6 +1229,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/app/shopify-dashboard': {
+      id: '/app/shopify-dashboard'
+      path: '/shopify-dashboard'
+      fullPath: '/app/shopify-dashboard'
+      preLoaderRoute: typeof AppShopifyDashboardRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/app/stock-allocation': {
       id: '/app/stock-allocation'
       path: '/stock-allocation'
@@ -1331,6 +1369,7 @@ interface AppRouteChildren {
   AppAccountingRoute: typeof AppAccountingRoute
   AppAdminRoute: typeof AppAdminRoute
   AppAdvancesRoute: typeof AppAdvancesRoute
+  AppAjioDashboardRoute: typeof AppAjioDashboardRoute
   AppAlertsRoute: typeof AppAlertsRoute
   AppAmazonDashboardRoute: typeof AppAmazonDashboardRoute
   AppAmazonExceptionsRoute: typeof AppAmazonExceptionsRoute
@@ -1376,6 +1415,7 @@ interface AppRouteChildren {
   AppSalesWorkbenchRoute: typeof AppSalesWorkbenchRoute
   AppSampleDistributionRoute: typeof AppSampleDistributionRoute
   AppSettingsRoute: typeof AppSettingsRoute
+  AppShopifyDashboardRoute: typeof AppShopifyDashboardRoute
   AppStockAllocationRoute: typeof AppStockAllocationRoute
   AppSuppliersRoute: typeof AppSuppliersRoute
   AppTallyConnectorRoute: typeof AppTallyConnectorRoute
@@ -1394,6 +1434,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppAccountingRoute: AppAccountingRoute,
   AppAdminRoute: AppAdminRoute,
   AppAdvancesRoute: AppAdvancesRoute,
+  AppAjioDashboardRoute: AppAjioDashboardRoute,
   AppAlertsRoute: AppAlertsRoute,
   AppAmazonDashboardRoute: AppAmazonDashboardRoute,
   AppAmazonExceptionsRoute: AppAmazonExceptionsRoute,
@@ -1439,6 +1480,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSalesWorkbenchRoute: AppSalesWorkbenchRoute,
   AppSampleDistributionRoute: AppSampleDistributionRoute,
   AppSettingsRoute: AppSettingsRoute,
+  AppShopifyDashboardRoute: AppShopifyDashboardRoute,
   AppStockAllocationRoute: AppStockAllocationRoute,
   AppSuppliersRoute: AppSuppliersRoute,
   AppTallyConnectorRoute: AppTallyConnectorRoute,
