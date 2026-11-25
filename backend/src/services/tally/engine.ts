@@ -490,7 +490,14 @@ export async function loadContext(
 }
 
 function collectProductIds(row: any, out: Set<string>) {
-  const lines = row.items || row.lineItems || row.lines || [];
+  // Read every line array. A record can carry an empty `lineItems: []` next to
+  // its real `lines` (invoices do); `a || b` would stop at the empty array and
+  // miss every product, giving "Referenced master missing — stock item".
+  const lines = [
+    ...(Array.isArray(row?.items) ? row.items : []),
+    ...(Array.isArray(row?.lineItems) ? row.lineItems : []),
+    ...(Array.isArray(row?.lines) ? row.lines : []),
+  ];
   for (const line of lines) {
     if (line?.productId) out.add(line.productId);
     if (line?.product) out.add(line.product);
