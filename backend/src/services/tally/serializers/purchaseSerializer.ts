@@ -79,7 +79,7 @@ export function serializePurchaseVoucher(pi: any, ctx: PurchaseBuildContext) {
     const product = ctx.productsById.get(line.productId);
     const stockItem = product?.name
       ? String(product.name).replace(/\s+/g, " ").trim()
-      : "";
+      : String(line.name || line.sku || "").replace(/\s+/g, " ").trim();
     if (!product) {
       errors.push(`Referenced master missing — stock item "${line.name || line.sku || "unknown"}".`);
     } else if (!stockItem) {
