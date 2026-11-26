@@ -1,7 +1,16 @@
 import { customerLedger, unitMaster, accountLedgerMaster, tag, list, num, qty, rate, esc, tallyDate } from "../xml.js";
 import { type TallyConfig } from "../../../models/tally.js";
-import { stateNameFromCode } from "../engine.js";
+import { stateNameFromCode, STATE_CODES } from "../engine.js";
 import { round2 } from "../../../lib/gst.js";
+
+const INDIAN_STATE_NAMES = new Set(
+  Object.values(STATE_CODES).map((name) => name.trim().toLowerCase()),
+);
+
+function exportCountry(value: unknown): string {
+  const country = String(value ?? "").trim();
+  return country && !INDIAN_STATE_NAMES.has(country.toLowerCase()) ? country : "India";
+}
 
 export interface MasterBuildContext {
   config: TallyConfig;
@@ -23,7 +32,7 @@ export function serializeCustomerMaster(debtor: any, config: TallyConfig): strin
     gstin: debtor.gstin || null,
     addressLines,
     state,
-    country: debtor.country || "India",
+    country: exportCountry(debtor.country),
     registrationType: debtor.gstRegistrationType || config.gstRegistrationType || "Regular",
     openingBalance: debtor.openingBalance ? Number(debtor.openingBalance) : 0,
   });
@@ -44,7 +53,7 @@ export function serializeSupplierMaster(supplier: any, config: TallyConfig, stat
     gstin: supplier.gstin || null,
     addressLines,
     state,
-    country: supplier.country || "India",
+    country: exportCountry(supplier.country),
     registrationType: supplier.gstRegistrationType || config.gstRegistrationType || "Regular",
     openingBalance: supplier.openingBalance ? Number(supplier.openingBalance) : 0,
   });

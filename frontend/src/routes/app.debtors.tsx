@@ -35,6 +35,24 @@ export const Route = createFileRoute("/app/debtors")({
   component: DebtorsPage,
 });
 
+const COUNTRIES = [
+  "India",
+  "Australia",
+  "Bangladesh",
+  "Canada",
+  "China",
+  "Germany",
+  "Nepal",
+  "Singapore",
+  "Sri Lanka",
+  "United Arab Emirates",
+  "United Kingdom",
+  "United States",
+] as const;
+const DEFAULT_COUNTRY = "India";
+const countryValue = (v: unknown): string =>
+  typeof v === "string" && (COUNTRIES as readonly string[]).includes(v) ? v : DEFAULT_COUNTRY;
+
 // Customer master edits (new billing/shipping addresses, terms, contacts)
 // feed every order form — invalidate all derived lists, not just this page.
 export function invalidateCustomerQueries(qc: QueryClient) {
@@ -336,6 +354,7 @@ function DebtorModal({
     ...toTermsFormFields(debtor),
     gstin: debtor?.gstin ?? "",
     panCardNo: debtor?.panCardNo ?? debtor?.pan_card_no ?? "",
+    country: countryValue(debtor?.country),
     billing_addresses: addressesFromDebtor(debtor, "billing"),
     shipping_addresses: addressesFromDebtor(debtor, "shipping"),
     credit_limit: debtor?.creditLimit ?? debtor?.credit_limit ?? "",
@@ -464,7 +483,7 @@ function DebtorModal({
         billingAddresses: cleanBilling.length ? cleanBilling : null,
         shippingAddresses: cleanShipping.length ? cleanShipping : null,
         city: cleanBilling[0]?.city || null,
-        country: cleanBilling[0]?.state || null,
+        country: form.country || DEFAULT_COUNTRY,
         postalCode: cleanBilling[0]?.postalCode || null,
         creditLimit,
         enforceCreditLimit: !!form.enforce_credit_limit,
@@ -603,6 +622,19 @@ function DebtorModal({
               </L>
               <L label="Phone">
                 <input maxLength={40} className={inputBase} value={form.phone} onChange={set("phone")} />
+              </L>
+              <L label="Country">
+                <select
+                  className={selectBase}
+                  value={form.country}
+                  onChange={(e) => setForm({ ...form, country: e.target.value })}
+                >
+                  {COUNTRIES.map((c) => (
+                    <option key={c} value={c}>
+                      {c}
+                    </option>
+                  ))}
+                </select>
               </L>
               <L label="GSTIN (for E-Way Bill)">
                 <input
@@ -1150,6 +1182,7 @@ function DebtorDetailModal({
             />
             <D label="PAN" value={debtor.panCardNo ?? debtor.pan_card_no ?? "—"} />
             <D label="GSTIN" value={debtor.gstin ?? "—"} />
+            <D label="Country" value={countryValue(debtor.country)} />
             <D label="Website" value={debtor.website ?? "—"} />
             <D label="Phone" value={debtor.phone ?? "—"} />
           </div>

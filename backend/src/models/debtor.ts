@@ -136,7 +136,7 @@ export async function create(data: Partial<Debtor> & { name: string }) {
     // Top-level city/country/postal kept in sync from the first billing
     // address for legacy reports/PDFs; the master is now per-address.
     city: data.city || firstBilling?.city || null,
-    country: data.country || firstBilling?.state || null,
+    country: data.country || "India",
     state: (data as any).state || firstBilling?.state || null,
     customerType: normalizeCustomerType((data as any).customerType),
     postalCode: data.postalCode || firstBilling?.postalCode || null, phone: data.phone || null, website: data.website || null,
@@ -208,7 +208,7 @@ export async function update(id: string, updates: Partial<Debtor>) {
       const f = norm[0] as any;
       patch.billingAddress = [f.address, f.city, f.state, f.postalCode].filter(Boolean).join(", ") || f.address;
       if (patch.city === undefined && f.city) patch.city = f.city;
-      if (patch.country === undefined && f.state) patch.country = f.state;
+      if (patch.country === undefined) patch.country = "India";
       if (patch.postalCode === undefined && f.postalCode) patch.postalCode = f.postalCode;
     } else if (patch.billingAddress === undefined) patch.billingAddress = null;
   }
