@@ -1,6 +1,7 @@
 import { customerLedger, unitMaster, accountLedgerMaster, tag, list, num, qty, rate, esc, tallyDate } from "../xml.js";
 import { type TallyConfig } from "../../../models/tally.js";
-import { stateNameFromCode, STATE_CODES } from "../engine.js";
+import { stateNameFromCode } from "../engine.js";
+import { STATE_CODES } from "../states.js";
 import { round2 } from "../../../lib/gst.js";
 
 const INDIAN_STATE_NAMES = new Set(
