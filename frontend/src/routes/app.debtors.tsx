@@ -440,10 +440,18 @@ function DebtorModal({
        const termsPayload = toTermsPayload(form);
       // Delivery-based terms always carry 0 balance days (toPayload enforces
       // it) — the due date is the invoice date entered by the user.
+      const CUSTOMER_TYPE_MAP: Record<string, string | null> = {
+        "": null,
+        mrp: null,
+        ecommerce: null,
+        retailer: "Retailer",
+        distributor: "Distributor",
+        flexible: null,
+      };
       const payload = {
         name: form.name.trim(),
         industry: form.industry || null,
-        customerType: form.customer_type || null,
+        customerType: CUSTOMER_TYPE_MAP[form.customer_type] ?? null,
         ...termsPayload,
         gstin: form.gstin || null,
         panCardNo: form.panCardNo || null,
