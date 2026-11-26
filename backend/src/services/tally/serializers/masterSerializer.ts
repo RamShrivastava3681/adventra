@@ -36,6 +36,7 @@ export function serializeCustomerMaster(debtor: any, config: TallyConfig): strin
     country: exportCountry(debtor.country),
     registrationType: debtor.gstRegistrationType || config.gstRegistrationType || "Regular",
     openingBalance: debtor.openingBalance ? Number(debtor.openingBalance) : 0,
+    pincode: postal,
   });
 }
 
@@ -57,6 +58,7 @@ export function serializeSupplierMaster(supplier: any, config: TallyConfig, stat
     country: exportCountry(supplier.country),
     registrationType: supplier.gstRegistrationType || config.gstRegistrationType || "Regular",
     openingBalance: supplier.openingBalance ? Number(supplier.openingBalance) : 0,
+    pincode: postal,
   });
 }
 

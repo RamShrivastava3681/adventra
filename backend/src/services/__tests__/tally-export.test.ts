@@ -104,7 +104,14 @@ describe("Master Serializers", () => {
     expect(xml).toContain("<ISBILLWISEON>Yes</ISBILLWISEON>");
     expect(xml).toContain("<OPENINGBALANCE>0.00</OPENINGBALANCE>");
     expect(xml).toContain("<PARTYGSTIN>09AAACS1429B1ZT</PARTYGSTIN>");
+    expect(xml).toContain("<COUNTRYNAME>India</COUNTRYNAME>");
+    expect(xml).toContain("<STATENAME>Uttar Pradesh</STATENAME>");
+    expect(xml).toContain("<LEDSTATENAME>Uttar Pradesh</LEDSTATENAME>");
+    expect(xml).toContain("<PINCODE>201301</PINCODE>");
+    expect(xml).toContain("<PLACEOFSUPPLY>Uttar Pradesh</PLACEOFSUPPLY>");
     expect(xml).toContain("<STATE>Uttar Pradesh</STATE>");
+    expect(xml).toContain("<COUNTRY>India</COUNTRY>");
+    expect(xml).toMatch(/<LEDMAILINGDETAILS\.LIST>[\s\S]*<ADDRESS\.LIST>[\s\S]*<\/ADDRESS\.LIST>[\s\S]*<\/LEDMAILINGDETAILS\.LIST>/);
   });
 
   it("exports supplier master with required Tally structure", () => {

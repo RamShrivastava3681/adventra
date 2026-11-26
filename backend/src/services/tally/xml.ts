@@ -256,6 +256,7 @@ export function customerLedger(opts: {
   country?: string | null;
   registrationType?: string | null;
   openingBalance?: number;
+  pincode?: string | null;
 }): string {
   const action = opts.action || "Create";
   const today = new Date();
@@ -265,6 +266,11 @@ export function customerLedger(opts: {
     String(today.getDate()).padStart(2, "0"),
   ].join("");
   const country = opts.country || "India";
+  const registrationType = opts.registrationType || "Regular";
+  const lines = (opts.addressLines || []).filter(Boolean);
+  const addressList = lines.length
+    ? list("ADDRESS", lines.map((l) => tag("ADDRESS", l)).join(""))
+    : "";
   const parts = [
     tag("NAME", opts.name),
     tag("PARENT", opts.parent),
@@ -272,26 +278,31 @@ export function customerLedger(opts: {
     tag("OPENINGBALANCE", money(opts.openingBalance ?? 0)),
     tag("MAILINGNAME", opts.name),
     tag("COUNTRYNAME", country),
+    opts.state ? tag("STATENAME", opts.state) : "",
     opts.state ? tag("LEDSTATENAME", opts.state) : "",
     opts.gstin ? tag("PARTYGSTIN", opts.gstin) : "",
+    opts.gstin ? tag("GSTREGISTRATIONTYPE", registrationType) : "",
+    opts.pincode ? tag("PINCODE", opts.pincode) : "",
     opts.state
       ? list(
           "LEDGSTREGDETAILS",
-          tag("GSTREGISTRATIONTYPE", opts.registrationType || "Regular") +
+          tag("APPLICABLEFROM", applicableFrom) +
+            tag("GSTREGISTRATIONTYPE", registrationType) +
             tag("GSTIN", opts.gstin || "") +
-            tag("STATE", opts.state),
+            tag("STATE", opts.state) +
+            tag("PLACEOFSUPPLY", opts.state),
         )
       : "",
     list(
       "LEDMAILINGDETAILS",
       tag("APPLICABLEFROM", applicableFrom) +
         tag("MAILINGNAME", opts.name) +
+        addressList +
+        (opts.pincode ? tag("PINCODE", opts.pincode) : "") +
         tag("STATE", opts.state || "") +
         tag("COUNTRY", country),
     ),
-    opts.addressLines && opts.addressLines.length
-      ? list("ADDRESS", opts.addressLines.filter(Boolean).map((l) => tag("ADDRESS", l)).join(""))
-      : "",
+    addressList,
   ];
   return `<LEDGER NAME="${esc(opts.name)}" ACTION="${action}">${parts.join("")}</LEDGER>`;
 }
