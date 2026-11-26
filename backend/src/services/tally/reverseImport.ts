@@ -64,6 +64,7 @@ export interface StagedTallyMaster {
   parent: string | null;
   gstin: string | null;
   state: string | null;
+  country: string | null;
   addressLines: string[];
   city: string | null;
   postalCode: string | null;
@@ -318,12 +319,14 @@ export function parseTallyMasters(xmlContent: string): StagedTallyMaster[] {
       extractTag(block, "STATENAME") ||
       extractTag(block, "STATE") ||
       parsedAddress.state;
+    const country = extractTag(block, "COUNTRY");
     masters.push({
       kind,
       name,
       parent,
       gstin,
       state,
+      country,
       addressLines,
       city: parsedAddress.city,
       postalCode: parsedAddress.postalCode,
@@ -347,6 +350,7 @@ export function parseTallyMasters(xmlContent: string): StagedTallyMaster[] {
       parent: extractTag(block, "PARENT"),
       gstin: null,
       state: null,
+      country: null,
       addressLines: [],
       city: null,
       postalCode: null,
@@ -370,6 +374,7 @@ export function parseTallyMasters(xmlContent: string): StagedTallyMaster[] {
       parent: null,
       gstin: null,
       state: null,
+      country: null,
       addressLines: [],
       city: null,
       postalCode: null,
@@ -844,6 +849,7 @@ async function importMasters(
         const updates: any = {};
         if (!existing.gstin && gstin) updates.gstin = gstin;
         if (!existing.state && master.state) updates.state = master.state;
+        if (!existing.country && master.country) updates.country = master.country;
         if (!existing.stateCode && gstin) updates.stateCode = gstin.slice(0, 2);
         if (!existing.city && master.city) updates.city = master.city;
         if (!existing.postalCode && master.postalCode) updates.postalCode = master.postalCode;
@@ -869,6 +875,7 @@ async function importMasters(
           name: master.name,
           gstin: gstin || null,
           state: master.state || null,
+          country: master.country || null,
           stateCode: gstin ? gstin.slice(0, 2) : null,
           city: master.city,
           postalCode: master.postalCode,
@@ -901,6 +908,7 @@ async function importMasters(
         const updates: any = {};
         if (!existing.gstin && gstin) updates.gstin = gstin;
         if (!existing.stateCode && gstin) updates.stateCode = gstin.slice(0, 2);
+        if (!existing.country && master.country) updates.country = master.country;
         if (!existing.addressLine && master.addressLines.length) {
           updates.addressLine = master.addressLines.join(", ");
         }
@@ -917,6 +925,7 @@ async function importMasters(
           companyName: master.name,
           gstin: gstin || null,
           stateCode: gstin ? gstin.slice(0, 2) : null,
+          country: master.country || null,
           addressLine: master.addressLines.length ? master.addressLines.join(", ") : null,
           city: master.city,
           postalCode: master.postalCode,
