@@ -74,7 +74,9 @@ function normalizeOrder(clientId: string, order: any): Partial<OrderModel.Market
 } {
   const items = Array.isArray(order.OrderItems) ? order.OrderItems : [];
   const firstItem = items[0] ?? {};
-  const sku = firstItem.SellerSKU || order.PurchaseOrderNumber || "";
+  // Orders v0 getOrders returns no items, so the SKU is usually filled in later by
+  // the order-items sync. (PurchaseOrderNumber is the buyer's PO, never a SKU.)
+  const sku = firstItem.SellerSKU || "";
   const productName = firstItem.Title || "";
   // Orders v0 getOrders has no OrderItems: units come from NumberOfItemsShipped + NumberOfItemsUnshipped
   // and the value from OrderTotal. ItemPrice (when items are present) is the line total.
@@ -131,6 +133,7 @@ function normalizeOrder(clientId: string, order: any): Partial<OrderModel.Market
     expectedDispatchDate: null,
     amazonOrderStatus: mapAmazonOrderStatus(order.OrderStatus) as any,
     invoiceStatus: "Pending",
+    amazonLastUpdatedAt: order.LastUpdateDate ?? null,
   };
 }
 
@@ -413,8 +416,11 @@ export class AmazonSyncService {
               await OrderModel.update(existingOrder.id, {
                 orderDate: normalized.orderDate,
                 amazonOrderStatus: normalized.amazonOrderStatus,
-                sellingPrice: normalized.sellingPrice,
-                quantity: normalized.quantity,
+                amazonLastUpdatedAt: normalized.amazonLastUpdatedAt,
+                // Once the item sync has run, its per-item quantity and price are more exact.
+                ...(existingOrder.itemsSyncedAt
+                  ? {}
+                  : { sellingPrice: normalized.sellingPrice, quantity: normalized.quantity }),
                 updatedAt: nowISO(),
               });
               updated += 1;
@@ -527,11 +533,16 @@ export class AmazonSyncService {
     await SyncStatusModel.markSyncing({ clientId, module: "order-items" });
     log.info({ operation: "syncOrderItems", stage: "before", config: { startTime } });
 
-    const orders = await OrderModel.list(clientId);
+    // One record per real Amazon order (through the lookup records); fall back to
+    // the order list for clients whose orders predate the lookup records.
+    const refs = await OrderModel.listOrderRefs(clientId);
+    const orders = refs.length
+      ? ((await Promise.all(refs.map((r) => OrderModel.get(r.orderId)))).filter(Boolean) as OrderModel.MarketplaceAmazonOrder[])
+      : await OrderModel.list(clientId);
     log.info({
       operation: "syncOrderItems",
       stage: "before",
-      config: { sourceOrders: orders.length },
+      config: { sourceOrders: orders.length, fromLookupRecords: refs.length > 0 },
     });
 
     if (orders.length === 0) {
@@ -569,6 +580,16 @@ export class AmazonSyncService {
 
     for (const order of orders) {
       processedOrders += 1;
+      // Items only change when Amazon changes the order: fetch them for orders never
+      // item-synced, missing a SKU, or updated on Amazon since the last item sync.
+      const needsItems =
+        !order.itemsSyncedAt ||
+        !String(order.amazonSku ?? "").trim() ||
+        (order.amazonLastUpdatedAt != null && order.amazonLastUpdatedAt > order.itemsSyncedAt);
+      if (!needsItems) {
+        totalSkipped += 1;
+        continue;
+      }
       try {
         const resp = await amazonSpApi.getOrderItems({ amazonOrderId: order.amazonOrderId, traceId, clientId, sellerId: config.amazon.sellerId });
         const orderItems = spApiBody(resp).OrderItems;
@@ -581,41 +602,63 @@ export class AmazonSyncService {
           config: { amazonOrderId: order.amazonOrderId, recordsReceived: items.length },
         });
 
-        let inserted = 0;
-        for (const item of items) {
+        let written = 0;
+        for (const [index, item] of items.entries()) {
           try {
             const normalized = normalizeOrderItem(clientId, order.amazonOrderId, item);
-            const id = `${order.amazonOrderId}#${item.LineNumber || item.lineNumber || totalInserted}`;
+            // Amazon's OrderItemId makes the record key stable, so a re-sync
+            // overwrites the item instead of adding another copy.
+            const orderItemId = String(item.OrderItemId ?? item.orderItemId ?? `${normalized.sellerSku || "item"}-${index}`);
+            const id = `${order.amazonOrderId}#${orderItemId}`;
+            const now = nowISO();
             await db.putItem({
               pk: `MARKETPLACE_AMAZON_ORDER_ITEM#${order.amazonOrderId}`,
               sk: `MARKETPLACE_AMAZON_ORDER_ITEM#${id}`,
               gsi1pk: `CLIENT#${clientId}`,
-              gsi1sk: `MarketplaceAmazonOrderItem#${nowISO()}`,
+              gsi1sk: `MarketplaceAmazonOrderItem#${order.orderDate}#${id}`,
               entityType: "MarketplaceAmazonOrderItem",
               id,
+              orderItemId,
               orderId: order.id,
               ...normalized,
-              createdAt: nowISO(),
-              updatedAt: nowISO(),
+              createdAt: order.createdAt ?? now,
+              updatedAt: now,
             } as any);
-            inserted += 1;
+            written += 1;
             totalInserted += 1;
           } catch (err: any) {
             totalRejected += 1;
             log.error({
               operation: "syncOrderItems",
               stage: "db-write",
-              config: { amazonOrderId: order.amazonOrderId, lineNumber: item.LineNumber },
+              config: { amazonOrderId: order.amazonOrderId, orderItemId: item.OrderItemId },
               errorCode: err?.code ?? "DbWriteError",
               errorMessage: err?.message ?? String(err),
             });
           }
         }
 
+        // The order list from Amazon has no items, so copy SKU, title, quantity and
+        // unit price from the items onto the order the dashboard shows.
+        if (items.length) {
+          const first = items[0];
+          const quantity = items.reduce((sum: number, it: any) => sum + Number(it.QuantityOrdered ?? it.Quantity ?? 0), 0);
+          const firstQty = Number(first.QuantityOrdered ?? first.Quantity ?? 0);
+          const linePrice = Number(first.ItemPrice?.Amount);
+          await OrderModel.update(order.id, {
+            amazonSku: String(first.SellerSKU ?? "") || order.amazonSku,
+            productName: String(first.Title ?? "") || order.productName,
+            ...(quantity > 0 ? { quantity } : {}),
+            ...(Number.isFinite(linePrice) && firstQty > 0 ? { sellingPrice: linePrice / firstQty } : {}),
+            itemsSyncedAt: nowISO(),
+          });
+          totalUpdated += 1;
+        }
+
         log.info({
           operation: "syncOrderItems",
           stage: "db-write.summary",
-          config: { amazonOrderId: order.amazonOrderId, itemsReceived: items.length, inserted },
+          config: { amazonOrderId: order.amazonOrderId, itemsReceived: items.length, written },
         });
       } catch (err: any) {
         totalRejected += 1;
@@ -631,8 +674,10 @@ export class AmazonSyncService {
 
     const endMs = Date.now();
     const hasFailures = totalRejected > 0;
-    const status = totalReceived === 0 ? "EMPTY" : (hasFailures ? "PARTIAL" : "Synchronized");
-    const dashboardStatus = totalReceived === 0 ? "EMPTY" : (hasFailures ? "PARTIAL" : "SUCCESS");
+    // Nothing fetched because every order's items were already current = in sync, not empty.
+    const nothingToDo = totalReceived === 0 && totalSkipped > 0 && !hasFailures;
+    const status = nothingToDo ? "Synchronized" : totalReceived === 0 ? "EMPTY" : (hasFailures ? "PARTIAL" : "Synchronized");
+    const dashboardStatus = nothingToDo ? "SUCCESS" : totalReceived === 0 ? "EMPTY" : (hasFailures ? "PARTIAL" : "SUCCESS");
     await SyncStatusModel.upsert({
       clientId,
       module: "order-items",
