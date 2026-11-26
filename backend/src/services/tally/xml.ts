@@ -258,13 +258,20 @@ export function customerLedger(opts: {
   openingBalance?: number;
 }): string {
   const action = opts.action || "Create";
+  const today = new Date();
+  const applicableFrom = [
+    today.getFullYear(),
+    String(today.getMonth() + 1).padStart(2, "0"),
+    String(today.getDate()).padStart(2, "0"),
+  ].join("");
+  const country = opts.country || "India";
   const parts = [
     tag("NAME", opts.name),
     tag("PARENT", opts.parent),
     tag("ISBILLWISEON", "Yes"),
     tag("OPENINGBALANCE", money(opts.openingBalance ?? 0)),
     tag("MAILINGNAME", opts.name),
-    tag("COUNTRYNAME", opts.country || "India"),
+    tag("COUNTRYNAME", country),
     opts.state ? tag("LEDSTATENAME", opts.state) : "",
     opts.gstin ? tag("PARTYGSTIN", opts.gstin) : "",
     opts.state
@@ -275,6 +282,13 @@ export function customerLedger(opts: {
             tag("STATE", opts.state),
         )
       : "",
+    list(
+      "LEDMAILINGDETAILS",
+      tag("APPLICABLEFROM", applicableFrom) +
+        tag("MAILINGNAME", opts.name) +
+        tag("STATE", opts.state || "") +
+        tag("COUNTRY", country),
+    ),
     opts.addressLines && opts.addressLines.length
       ? list("ADDRESS", opts.addressLines.filter(Boolean).map((l) => tag("ADDRESS", l)).join(""))
       : "",
