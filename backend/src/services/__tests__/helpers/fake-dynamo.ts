@@ -110,6 +110,7 @@ class Command {
   constructor(public input: any) {}
 }
 export class GetCommand extends Command {}
+export class BatchGetCommand extends Command {}
 export class PutCommand extends Command {}
 export class UpdateCommand extends Command {}
 export class DeleteCommand extends Command {}
@@ -119,6 +120,24 @@ export class ScanCommand extends Command {}
 async function send(cmd: Command): Promise<any> {
   const input = cmd.input;
   if (cmd instanceof GetCommand) return { Item: clone(table.get(keyOf(input.Key))) };
+  if (cmd instanceof BatchGetCommand) {
+    const firstRequest = Object.entries(input.RequestItems ?? {})[0] as [string, Item] | undefined;
+    const [tableName, request] = firstRequest ?? [];
+    if (!tableName || !request) return { Responses: {} };
+    const names = request.ExpressionAttributeNames ?? {};
+    const projection = request.ProjectionExpression
+      ?.split(",")
+      .map((attribute: string) => names[attribute.trim()] ?? attribute.trim());
+    const items = (request.Keys ?? [])
+      .map((key: { pk: string; sk: string }) => table.get(keyOf(key)))
+      .filter((item: Item | undefined): item is Item => item !== undefined)
+      .map((item: Item) =>
+        projection
+          ? Object.fromEntries(projection.filter((name: string) => name in item).map((name: string) => [name, item[name]]))
+          : item,
+      );
+    return { Responses: { [tableName]: items.map(clone) } };
+  }
   if (cmd instanceof PutCommand) {
     const k = keyOf(input.Item);
     checkCondition(input, table.get(k));
@@ -145,7 +164,8 @@ async function send(cmd: Command): Promise<any> {
     return {};
   }
   if (cmd instanceof QueryCommand) {
-    const field = input.IndexName === "GSI1" ? "gsi1" : input.IndexName === "GSI2" ? "gsi2" : "";
+    const indexName = String(input.IndexName ?? "");
+    const field = indexName.startsWith("GSI1") ? "gsi1" : indexName.startsWith("GSI2") ? "gsi2" : "";
     const pkField = field ? `${field}pk` : "pk";
     const skField = field ? `${field}sk` : "sk";
     const values = input.ExpressionAttributeValues;
@@ -153,7 +173,17 @@ async function send(cmd: Command): Promise<any> {
     if (values[":type"]) items = items.filter((i) => String(i[skField] ?? "").startsWith(values[":type"]));
     items.sort((a, b) => String(a[skField]).localeCompare(String(b[skField])));
     if (input.ScanIndexForward === false) items.reverse();
-    return { Items: items.slice(0, input.Limit ?? items.length).map(clone) };
+    const names = input.ExpressionAttributeNames ?? {};
+    const projection = input.ProjectionExpression
+      ?.split(",")
+      .map((attribute: string) => names[attribute.trim()] ?? attribute.trim());
+    return {
+      Items: items.slice(0, input.Limit ?? items.length).map((item) =>
+        projection
+          ? Object.fromEntries(projection.filter((name: string) => name in item).map((name: string) => [name, item[name]]))
+          : clone(item),
+      ),
+    };
   }
   if (cmd instanceof ScanCommand) {
     const items = [...table.values()].filter((i) =>

@@ -134,9 +134,12 @@ export const config = {
   corsOrigins,
 
   dynamodb: {
-    region: process.env.AWS_REGION || "us-east-1",
+    region: process.env.AWS_REGION || "ap-south-1",
     credentials: awsCredentials(),
-    tableName: process.env.DYNAMODB_TABLE || "InsightFactor",
+    tableName: process.env.DYNAMODB_TABLE || "adventra",
+    gsi1Name: process.env.DYNAMODB_GSI1_NAME || "GSI1",
+    gsi2Name: process.env.DYNAMODB_GSI2_NAME || "GSI2",
+    gsiKeysOnly: process.env.DYNAMODB_GSI_KEYS_ONLY === "true",
     endpoint: process.env.DYNAMODB_ENDPOINT || undefined,
 
     // Read-path safety (see "Safe DynamoDB Scan Fix"). Every unbounded read is

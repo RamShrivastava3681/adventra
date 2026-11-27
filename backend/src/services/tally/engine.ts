@@ -502,9 +502,14 @@ async function loadContextByIds(
       primaryRows.push(...sups.filter(Boolean), ...vens.filter(Boolean));
       break;
     }
-    case "stock-items":
-      primaryRows.push(...(await Promise.all(ids.map((id) => request.getProduct(id)))).filter(Boolean));
+    case "stock-items": {
+      const products = (await Promise.all(ids.map((id) => request.getProduct(id)))).filter(Boolean);
+      primaryRows.push(...products);
+      for (const product of products as any[]) {
+        if (product?.id) productIds.add(product.id);
+      }
       break;
+    }
     case "sales":
       primaryRows.push(...(await Promise.all(ids.map((id) => request.getInvoice(id)))).filter(Boolean));
       break;
@@ -528,6 +533,7 @@ async function loadContextByIds(
     if (row.debtorId) debtorIds.add(row.debtorId);
     if (row.supplierId) supplierIds.add(row.supplierId);
     if (row.vendorId) vendorIds.add(row.vendorId);
+    if (row.billToSupplierId) vendorIds.add(row.billToSupplierId);
     if (row.productId) productIds.add(row.productId);
     if (row.invoiceId) invoiceIds.add(row.invoiceId);
     if (row.purchaseInvoiceId) purchaseInvoiceIds.add(row.purchaseInvoiceId);
@@ -556,7 +562,9 @@ async function loadContextByIds(
   const [debtors, suppliers, vendors, products] = await Promise.all([
     needsDebtors ? Promise.all([...debtorIds].map((id) => request.getDebtor(id))) : Promise.resolve([] as any[]),
     needsSuppliers ? Promise.all([...supplierIds].map((id) => request.getSupplier(id))) : Promise.resolve([] as any[]),
-    needsVendors ? Promise.all([...vendorIds].map((id) => request.getVendor(id))) : Promise.resolve([] as any[]),
+    needsVendors
+      ? Promise.all([...vendorIds].map(async (id) => (await request.getVendor(id)) || (await request.getSupplier(id))))
+      : Promise.resolve([] as any[]),
     needsProducts ? Promise.all([...productIds].map((id) => request.getProduct(id))) : Promise.resolve([] as any[]),
   ]);
 

@@ -166,7 +166,9 @@ export function serializeSalesVoucher(inv: any, ctx: SalesBuildContext) {
   }
 
   const body = b.finish(config.mappings.roundOffLedger, `Invoice ${inv.invoiceNumber}`, { errors, warnings });
-  const buyerAddress = inv.billingAddress || (debtor?.billingAddress ? debtor.billingAddress : null);
+  const buyerAddress = inv.billingAddress || (debtor?.billingAddress ? debtor.billingAddress : null) || "";
+  const deliverySameAsConsignee = inv.isDeliverySameAsConsignee ?? "No";
+  const dispatchSameAsConsignor = inv.isDispatchSameAsConsignor ?? "No";
 
   const parts = [
     tag("DATE", tallyDate(inv.issueDate)),
@@ -185,6 +187,8 @@ export function serializeSalesVoucher(inv: any, ctx: SalesBuildContext) {
     buyerAddress
       ? list("BASICBUYERADDRESS", tag("BASICBUYERADDRESS", buyerAddress))
       : "",
+    tag("ISDELIVERYSAMEASCONSIGNEE", deliverySameAsConsignee),
+    tag("ISDISPATCHSAMEASCONSIGNOR", dispatchSameAsConsignor),
     body,
   ];
 

@@ -2,6 +2,7 @@ import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
   GetCommand,
+  BatchGetCommand,
   PutCommand,
   UpdateCommand,
   DeleteCommand,
@@ -93,7 +94,7 @@ export class DynamoReadAbortedError extends Error {
 }
 
 interface ReadMeta {
-  operation: "GetItem" | "Query" | "Scan";
+  operation: "GetItem" | "BatchGetItem" | "Query" | "Scan";
   entityType?: string | null;
   tenantId?: string | null;
 }
@@ -129,8 +130,11 @@ async function instrumentRead<T>(
   const res = await run();
   if (config.dynamodb.readDiagnostics) {
     const capacity = (res as any)?.ConsumedCapacity;
-    const consumedCapacity =
-      typeof capacity === "number" ? capacity : capacity?.CapacityUnits ?? undefined;
+    const consumedCapacity = Array.isArray(capacity)
+      ? capacity.reduce((sum, entry) => sum + (entry?.CapacityUnits ?? 0), 0)
+      : typeof capacity === "number"
+        ? capacity
+        : capacity?.CapacityUnits ?? undefined;
     // Deliberately excludes item contents, QR payloads and GST data (PDF §9).
     console.log(
       JSON.stringify({
@@ -211,6 +215,89 @@ function applyProjection(
   };
 }
 
+function applyIndexKeyProjection(params: Record<string, any>): void {
+  if (!config.dynamodb.gsiKeysOnly) return;
+  params.ProjectionExpression = "#pk, #sk";
+  params.ExpressionAttributeNames = {
+    ...(params.ExpressionAttributeNames ?? {}),
+    "#pk": "pk",
+    "#sk": "sk",
+  };
+}
+
+function projectionOptions(projection?: string[]) {
+  if (!projection?.length) return {};
+  const attributes = Array.from(new Set([...projection, "isDemoData", "pk", "sk"]));
+  return {
+    ProjectionExpression: attributes.map((_, i) => `#b${i}`).join(", "),
+    ExpressionAttributeNames: Object.fromEntries(
+      attributes.map((attribute, i) => [`#b${i}`, attribute]),
+    ),
+  };
+}
+
+const MAX_BATCH_GET_KEYS = 100;
+const MAX_UNPROCESSED_KEY_RETRIES = 5;
+
+async function hydrateIndexItems(
+  indexItems: Record<string, any>[],
+  projection?: string[],
+): Promise<Record<string, any>[]> {
+  if (!config.dynamodb.gsiKeysOnly) return indexItems;
+  if (!indexItems.length) return [];
+
+  const keys = indexItems.map((item) => {
+    if (typeof item.pk !== "string" || typeof item.sk !== "string") {
+      throw new Error("DynamoDB index item is missing its base-table primary key.");
+    }
+    return { pk: item.pk, sk: item.sk };
+  });
+  const fullItems = new Map<string, Record<string, any>>();
+
+  for (let offset = 0; offset < keys.length; offset += MAX_BATCH_GET_KEYS) {
+    let pendingKeys = keys.slice(offset, offset + MAX_BATCH_GET_KEYS);
+    let retries = 0;
+
+    while (pendingKeys.length) {
+      const requestItems = {
+        [TABLE]: {
+          Keys: pendingKeys,
+          ...projectionOptions(projection),
+        },
+      };
+      const result = await instrumentRead(
+        { operation: "BatchGetItem" },
+        () =>
+          docClient.send(
+            new BatchGetCommand(
+              withReadDiagnostics({ RequestItems: requestItems }),
+            ),
+          ),
+        (res: any) => (res.Responses?.[TABLE] ?? []).length,
+      );
+
+      for (const item of (result as any).Responses?.[TABLE] ?? []) {
+        fullItems.set(JSON.stringify([item.pk, item.sk]), item);
+      }
+
+      pendingKeys = (result as any).UnprocessedKeys?.[TABLE]?.Keys ?? [];
+      if (pendingKeys.length) {
+        if (retries >= MAX_UNPROCESSED_KEY_RETRIES) {
+          throw new Error(
+            `DynamoDB BatchGetItem left ${pendingKeys.length} keys unprocessed after ${retries} retries.`,
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25 * 2 ** retries));
+        retries++;
+      }
+    }
+  }
+
+  return keys
+    .map((key) => fullItems.get(JSON.stringify([key.pk, key.sk])))
+    .filter((item): item is Record<string, any> => item !== undefined);
+}
+
 function assertWithinCaps(
   operation: "Scan" | "Query",
   entityType: string,
@@ -275,13 +362,17 @@ async function readAllByEntityType(
           }
         : {
             TableName: TABLE,
-            IndexName: "GSI2",
+            IndexName: config.dynamodb.gsi2Name,
             KeyConditionExpression: "gsi2pk = :pk",
             ExpressionAttributeValues: { ":pk": entityType },
             Limit: pageSize,
             ExclusiveStartKey: lastKey,
           };
-    applyProjection(params, options?.projection);
+    if (mode === "scan" || !config.dynamodb.gsiKeysOnly) {
+      applyProjection(params, options?.projection);
+    } else {
+      applyIndexKeyProjection(params);
+    }
     withReadDiagnostics(params);
 
     const result = await instrumentRead(
@@ -296,7 +387,11 @@ async function readAllByEntityType(
     );
 
     state.pages++;
-    const items = (result as any).Items ?? [];
+    const indexItems = (result as any).Items ?? [];
+    const items =
+      mode === "gsi2" && config.dynamodb.gsiKeysOnly
+        ? await hydrateIndexItems(indexItems, options?.projection)
+        : indexItems;
     if (items.length) {
       // Check before appending so a capped read never blows past its budget.
       if (state.items + items.length > caps.maxItems) {
@@ -540,13 +635,14 @@ export async function queryByGSI1(
 ) {
   const params: QueryCommandInput = withReadDiagnostics({
     TableName: TABLE,
-    IndexName: "GSI1",
+    IndexName: config.dynamodb.gsi1Name,
     KeyConditionExpression: "gsi1pk = :pk",
     ExpressionAttributeValues: { ":pk": `CLIENT#${clientId}` },
     Limit: options?.limit || 100,
     ScanIndexForward: options?.reverse !== undefined ? !options.reverse : false,
     ExclusiveStartKey: options?.exclusiveStartKey,
   });
+  applyIndexKeyProjection(params as Record<string, any>);
 
   if (options?.entityType) {
     params.KeyConditionExpression += " AND begins_with(gsi1sk, :type)";
@@ -558,7 +654,10 @@ export async function queryByGSI1(
     () => docClient.send(new QueryCommand(params)),
     (res: any) => (res.Items ?? []).length,
   );
-  const items = (result as any).Items ?? [];
+  const indexItems = (result as any).Items ?? [];
+  const items = config.dynamodb.gsiKeysOnly
+    ? await hydrateIndexItems(indexItems)
+    : indexItems;
   return {
     items: filterForCurrentMode(items),
     lastKey: (result as any).LastEvaluatedKey,
@@ -705,19 +804,23 @@ export async function queryByGSI2(
 ) {
   const params: QueryCommandInput = withReadDiagnostics({
     TableName: TABLE,
-    IndexName: "GSI2",
+    IndexName: config.dynamodb.gsi2Name,
     KeyConditionExpression: "gsi2pk = :pk",
     ExpressionAttributeValues: { ":pk": entityType },
     Limit: options?.limit || 1000,
     ScanIndexForward: options?.reverse !== undefined ? !options.reverse : true,
     ExclusiveStartKey: options?.exclusiveStartKey,
   });
+  applyIndexKeyProjection(params as Record<string, any>);
   const result = await instrumentRead(
     { operation: "Query", entityType },
     () => docClient.send(new QueryCommand(params)),
     (res: any) => (res.Items ?? []).length,
   );
-  const items = (result as any).Items ?? [];
+  const indexItems = (result as any).Items ?? [];
+  const items = config.dynamodb.gsiKeysOnly
+    ? await hydrateIndexItems(indexItems)
+    : indexItems;
   return {
     items: filterForCurrentMode(items),
     lastKey: (result as any).LastEvaluatedKey,
