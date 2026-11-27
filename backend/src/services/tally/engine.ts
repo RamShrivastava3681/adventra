@@ -1367,6 +1367,9 @@ export function configProblems(config: TallyConfig, exportType?: TallyExportType
   const needsOutputTax = needsSales;
   const needsInputTax = needsPurchases;
   if (needsSales && !config.homeState) problems.push("Home state is required for sales vouchers (used to decide CGST/SGST vs IGST).");
+  if (needsSales && !config.gstin) problems.push("Company GSTIN is required for sales voucher exports.");
+  if (needsSales && config.gstin && !isValidGstin(config.gstin)) problems.push("Company GSTIN must be a valid 15-character GSTIN for sales voucher exports.");
+  if (needsSales && !config.gstRegistrationType) problems.push("Company GST registration type is required for sales voucher exports.");
   if (needsSales && !m.salesLedger) problems.push("Sales ledger is not configured.");
   if (needsPurchases && !m.purchaseLedger) problems.push("Purchase ledger is not configured.");
   if ((exportType === "customers" || !exportType) && !m.debtorsGroup) problems.push("Customer ledger group is not configured.");

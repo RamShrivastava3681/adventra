@@ -26,6 +26,7 @@ import {
   normState,
   stateNameFromCode,
   partyStateForInvoice,
+  configProblems,
 } from "../tally/engine.js";
 import { isUnionTerritory, type TallyConfig, SUGGESTED_MAPPING } from "../../models/tally.js";
 
@@ -220,6 +221,7 @@ describe("Voucher Serializers", () => {
       debtorId: "d1",
       customerName: "Ram Shrivastava3",
       placeOfSupply: "Delhi", // Inter-state from UP
+      consigneePlace: "Dehradun",
       grandTotal: 9535.0,
       lines: [
         {
@@ -241,15 +243,38 @@ describe("Voucher Serializers", () => {
     expect(res.errors).toHaveLength(0);
     expect(res.xml).toContain('<VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">');
     expect(res.xml).toContain("<REFERENCE>ADV-26/27-SI-005</REFERENCE>");
+    expect(res.xml).toContain("<VCHENTRYMODE>Item Invoice</VCHENTRYMODE>");
+    expect(res.xml).toContain("<ISINVOICE>Yes</ISINVOICE>");
+    expect(res.xml).toContain("<VCHGSTSTATUSISAPPLICABLE>Yes</VCHGSTSTATUSISAPPLICABLE>");
+    expect(res.xml).toContain(`<CMPGSTIN>${mockConfig.gstin}</CMPGSTIN>`);
+    expect(res.xml).toContain(
+      `<CMPGSTREGISTRATIONTYPE>${mockConfig.gstRegistrationType}</CMPGSTREGISTRATIONTYPE>`,
+    );
+    expect(res.xml).toContain("<CONSIGNEEPLACE>Dehradun</CONSIGNEEPLACE>");
     expect(res.xml).toContain("<PARTYLEDGERNAME>Ram Shrivastava3</PARTYLEDGERNAME>");
     expect(res.xml).toContain("<LEDGERNAME>Ram Shrivastava3</LEDGERNAME>");
     expect(res.xml).toContain("<AMOUNT>-9535.00</AMOUNT>");
     expect(res.xml).toContain("<LEDGERNAME>IGST Output</LEDGERNAME>");
     expect(res.xml).toContain("<AMOUNT>454.05</AMOUNT>");
+    expect(res.xml).not.toContain("<LEDGERNAME>CGST Output</LEDGERNAME>");
+    expect(res.xml).not.toContain("<LEDGERNAME>SGST Output</LEDGERNAME>");
     expect(res.xml).toContain("<STOCKITEMNAME>Men Running Shoes Lightweight Navy Black 36</STOCKITEMNAME>");
     expect(res.xml).toContain("<AMOUNT>9080.95</AMOUNT>");
     expect(res.xml).toContain("<LEDGERNAME>Sales Account</LEDGERNAME>");
     expect(res.xml).toContain("<GSTRATEDUTYHEAD>IGST</GSTRATEDUTYHEAD>");
+  });
+
+  it("requires a configured, valid seller GSTIN and registration type for sales exports", () => {
+    const errors = configProblems(
+      { ...mockConfig, gstin: "DEMO", gstRegistrationType: "" },
+      "sales",
+    );
+    expect(errors).toContain(
+      "Company GSTIN must be a valid 15-character GSTIN for sales voucher exports.",
+    );
+    expect(errors).toContain(
+      "Company GST registration type is required for sales voucher exports.",
+    );
   });
 
   it("exports Sales Invoice with CGST + SGST for intra-state customer", () => {

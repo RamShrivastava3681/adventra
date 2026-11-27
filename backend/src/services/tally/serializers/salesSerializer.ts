@@ -186,6 +186,8 @@ export function serializeSalesVoucher(inv: any, ctx: SalesBuildContext) {
     ctx.stateNameFromCode(inv.consigneeStateCode) ||
     debtorShippingAddress?.state ||
     buyerState;
+  const consigneePlace =
+    inv.consigneePlace || inv.consigneeCity || debtorShippingAddress?.city || "";
   const country = debtor?.country || "India";
   const buyerPostalCode = debtor?.postalCode || debtor?.pincode || "";
   const consigneePostalCode =
@@ -197,7 +199,13 @@ export function serializeSalesVoucher(inv: any, ctx: SalesBuildContext) {
     tag("VOUCHERTYPENAME", "Sales"),
     tag("VOUCHERNUMBER", inv.invoiceNumber),
     tag("PERSISTEDVIEW", "Invoice Voucher View"),
+    tag("VCHENTRYMODE", "Item Invoice"),
     tag("ISINVOICE", "Yes"),
+    tag("VCHGSTSTATUSISAPPLICABLE", "Yes"),
+    config.gstin ? tag("CMPGSTIN", config.gstin) : "",
+    config.gstRegistrationType
+      ? tag("CMPGSTREGISTRATIONTYPE", config.gstRegistrationType)
+      : "",
     tag("REFERENCE", inv.invoiceNumber),
     tag("NARRATION", `WhizUnik Ref: ${inv.invoiceNumber}${inv.goodsSalesOrderNumber ? ` | SO: ${inv.goodsSalesOrderNumber}` : ""}`),
     tag("PARTYLEDGERNAME", party || "UNKNOWN"),
@@ -212,6 +220,7 @@ export function serializeSalesVoucher(inv: any, ctx: SalesBuildContext) {
       ? list("BASICBUYERADDRESS", tag("BASICBUYERADDRESS", buyerAddress))
       : "",
     tag("CONSIGNEEMAILINGNAME", inv.consigneeName || party || "UNKNOWN"),
+    consigneePlace ? tag("CONSIGNEEPLACE", consigneePlace) : "",
     consigneeState ? tag("CONSIGNEESTATENAME", consigneeState) : "",
     tag("CONSIGNEECOUNTRYNAME", country),
     inv.consigneeGstin ? tag("CONSIGNEEGSTIN", inv.consigneeGstin) : "",
