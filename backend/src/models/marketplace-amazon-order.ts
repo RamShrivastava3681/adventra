@@ -55,6 +55,10 @@ export interface MarketplaceAmazonOrder {
   deliveredAt?: string | null;
   /** Demo simulator: the Amazon invoice is deliberately held back ("Awaiting Amazon Invoice"). */
   invoiceDelayed?: boolean | null;
+  /** Amazon's LastUpdateDate for the order, as of the last orders sync. */
+  amazonLastUpdatedAt?: string | null;
+  /** When the order's items (SKU, title, quantity, price) were last fetched from Amazon. */
+  itemsSyncedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -63,14 +67,70 @@ function key(id: string) {
   return { pk: `MARKETPLACE_AMAZON_ORDER#${id}`, sk: `MARKETPLACE_AMAZON_ORDER#${id}` };
 }
 
-export async function list(clientId?: string) {
-  if (clientId) {
-    const { items } = await db.queryByGSI1(clientId, {
-      entityType: "MarketplaceAmazonOrder",
-      limit: 500,
-      reverse: true,
+// ── Lookup record: one per (client, Amazon Order ID) ─────────────────────────
+// Points at the single order record for that Amazon order, so the sync finds it
+// with one read instead of listing orders. Without it, the old lookup only saw
+// the newest 500 orders and re-created every older order on each sync.
+
+export const ORDER_REF_ENTITY = "MarketplaceAmazonOrderRef";
+
+function refKey(clientId: string, amazonOrderId: string) {
+  const k = `MARKETPLACE_AMAZON_ORDER_REF#${clientId}#${amazonOrderId}`;
+  return { pk: k, sk: k };
+}
+
+export function orderRefItem(clientId: string, amazonOrderId: string, orderId: string) {
+  return {
+    ...refKey(clientId, amazonOrderId),
+    gsi1pk: `CLIENT#${clientId}`,
+    gsi1sk: `${ORDER_REF_ENTITY}#${amazonOrderId}`,
+    entityType: ORDER_REF_ENTITY,
+    clientId,
+    amazonOrderId,
+    orderId,
+  };
+}
+
+/** Writes the lookup record unless one exists; returns the order id it points at. */
+async function claimOrderRef(clientId: string, amazonOrderId: string, orderId: string): Promise<string> {
+  const created = await db.putItemIfAbsent(orderRefItem(clientId, amazonOrderId, orderId));
+  if (created) return orderId;
+  const ref = (await db.getItem(refKey(clientId, amazonOrderId).pk)) as { orderId?: string } | null;
+  return ref?.orderId ?? orderId;
+}
+
+/** Every Amazon Order ID → order id pointer for a client (one record per real order). */
+export async function listOrderRefs(clientId: string): Promise<{ amazonOrderId: string; orderId: string }[]> {
+  const out: { amazonOrderId: string; orderId: string }[] = [];
+  let startKey: Record<string, any> | undefined;
+  do {
+    const { items, lastKey } = await db.queryByGSI1(clientId, {
+      entityType: ORDER_REF_ENTITY,
+      limit: 1000,
+      exclusiveStartKey: startKey,
     });
-    return items as MarketplaceAmazonOrder[];
+    for (const r of items as any[]) out.push({ amazonOrderId: r.amazonOrderId, orderId: r.orderId });
+    startKey = lastKey;
+  } while (startKey);
+  return out;
+}
+
+/** Newest orders first, paged through GSI1 up to `max` records. */
+export async function list(clientId?: string, max = 5000) {
+  if (clientId) {
+    const out: MarketplaceAmazonOrder[] = [];
+    let startKey: Record<string, any> | undefined;
+    do {
+      const { items, lastKey } = await db.queryByGSI1(clientId, {
+        entityType: "MarketplaceAmazonOrder",
+        limit: Math.min(1000, max - out.length),
+        reverse: true,
+        exclusiveStartKey: startKey,
+      });
+      out.push(...(items as MarketplaceAmazonOrder[]));
+      startKey = lastKey;
+    } while (startKey && out.length < max);
+    return out;
   }
   return db.scanByType("MarketplaceAmazonOrder", { limit: 1000 }) as Promise<MarketplaceAmazonOrder[]>;
 }
@@ -131,10 +191,18 @@ export async function create(
     expectedDispatchDate: data.expectedDispatchDate ?? null,
     amazonOrderStatus: data.amazonOrderStatus || "Pending",
     invoiceStatus: data.invoiceStatus || "Pending",
+    amazonLastUpdatedAt: data.amazonLastUpdatedAt ?? null,
+    itemsSyncedAt: data.itemsSyncedAt ?? null,
     createdAt: now,
     updatedAt: now,
   };
   await db.putItem(item);
+  // If another writer registered this Amazon order first, keep theirs and drop ours.
+  const ownerId = await claimOrderRef(data.clientId, data.amazonOrderId, id);
+  if (ownerId !== id) {
+    await db.deleteItem(item.pk, item.sk);
+    return (await get(ownerId)) ?? item;
+  }
   return item;
 }
 
@@ -147,8 +215,17 @@ export async function update(id: string, updates: Partial<MarketplaceAmazonOrder
 }
 
 export async function findByAmazonOrderId(clientId: string, amazonOrderId: string): Promise<MarketplaceAmazonOrder | null> {
-  const items = await list(clientId);
-  return items.find((o) => o.amazonOrderId === amazonOrderId) || null;
+  const ref = (await db.getItem(refKey(clientId, amazonOrderId).pk)) as { orderId?: string } | null;
+  if (ref?.orderId) {
+    const order = await get(ref.orderId);
+    if (order) return order;
+  }
+  // Orders written before the lookup record existed: search the newest ones once,
+  // then register the match so the next lookup is a single read.
+  const items = await list(clientId, 500);
+  const found = items.find((o) => o.amazonOrderId === amazonOrderId) || null;
+  if (found) await db.putItem(orderRefItem(clientId, amazonOrderId, found.id));
+  return found;
 }
 
 export async function updateStatus(id: string, status: string, invoiceStatus?: string) {

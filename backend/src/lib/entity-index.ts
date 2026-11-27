@@ -19,6 +19,8 @@ const NON_INDEXED_ENTITY_TYPES = new Set([
   "NoaToken",
   "WorkflowTaskRef",
   "NotificationLogRef",
+  // Amazon Order ID → order pointer; read by key and listed through GSI1 only.
+  "MarketplaceAmazonOrderRef",
 ]);
 
 /** Entity types that do not use `entityType` as their GSI2 partition. */
