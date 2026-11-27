@@ -6,6 +6,8 @@ import * as InventoryModel from "../models/marketplace-amazon-inventory.js";
 import * as ListingModel from "../models/marketplace-amazon-listing.js";
 import * as ReturnModel from "../models/marketplace-amazon-return.js";
 import * as RefundModel from "../models/marketplace-amazon-refund.js";
+import * as InvoiceModel from "../models/marketplace-amazon-invoice-record.js";
+import { parseAmazonReportTable, normalizeInvoiceReportRows, type ParsedAmazonInvoice } from "../lib/amazon-report-parser.js";
 import { config } from "../config.js";
 import * as db from "../dynamodb.js";
 import { amazonApplicationStatus, type DashboardStatus } from "../lib/amazon-application-status.js";
@@ -244,9 +246,9 @@ export class AmazonSyncService {
   /** Sync all modules for a client. */
   async syncAll(clientId: string, traceId?: string): Promise<Record<Module, SyncResult>> {
     const log = new AmazonDebugLogger({ traceId, clientId }).child({ module: "all" });
-    log.info({ operation: "syncAll.enqueue", stage: "before", config: { modules: ["orders", "order-items", "inventory", "listings", "returns"] } });
+    log.info({ operation: "syncAll.enqueue", stage: "before", config: { modules: ["orders", "order-items", "inventory", "listings", "returns", "invoices"] } });
 
-    const modules: Module[] = ["orders", "order-items", "inventory", "listings", "returns"];
+    const modules: Module[] = ["orders", "order-items", "inventory", "listings", "returns", "invoices"];
     const results: Record<Module, SyncResult> = {} as any;
     for (const module of modules) {
       // Order Items depends on Orders - if Orders failed/empty, mark Order Items accordingly
@@ -1035,6 +1037,343 @@ export class AmazonSyncService {
     }
   }
 
+  private async syncInvoices(clientId: string, traceId?: string): Promise<SyncResult> {
+    const log = new AmazonDebugLogger({ traceId, clientId }).child({ module: "invoices" });
+    const startTime = nowISO();
+    const startMs = Date.now();
+    const lastAttemptedAt = startTime;
+
+    await SyncStatusModel.markSyncing({ clientId, module: "invoices" });
+    log.info({ operation: "syncInvoices", stage: "before", config: { startTime } });
+
+    if (!config.amazon.isConfigured) {
+      const err = new Error("Amazon SP-API is not configured");
+      log.error({ operation: "syncInvoices", stage: "error", errorCode: "NotConfigured", errorMessage: err.message });
+      await SyncStatusModel.upsert({
+        clientId,
+        module: "invoices",
+        status: "NotConfigured",
+        lastAttemptedAt,
+        lastSyncAt: nowISO(),
+        error: err.message,
+        errorCode: "NotConfigured",
+        errorClassification: "CONFIGURATION_ERROR",
+      });
+      return this._result("invoices", "NotConfigured", 0, 0, 0, 0, 0, 0, 0, null, err.message, "NotConfigured", startTime, nowISO(), Date.now() - startMs, 0);
+    }
+
+    const marketplaceId = config.amazon.marketplaceId || "";
+    const lookbackDays = Math.min(Math.max(1, config.amazon.syncLookbackDays || 30), 30);
+    const dataEndTime = new Date(Date.now() - 2 * 60_000).toISOString();
+    const minWindowStart = new Date(Date.now() - lookbackDays * 86_400_000);
+
+    const existing = await SyncStatusModel.findByClientAndModule(clientId, "invoices");
+    let dataStartTime = minWindowStart.toISOString();
+    if (existing?.lastCursor) {
+      // Amazon's GST MTR / invoicing reports are populated with a delay, so always re-read a
+      // few days before the last cursor. Upserts below are idempotent, so the overlap is safe.
+      const overlapMs = 3 * 86_400_000;
+      const cursorDate = new Date(new Date(existing.lastCursor).getTime() - overlapMs);
+      if (!Number.isNaN(cursorDate.getTime()) && cursorDate >= minWindowStart && cursorDate < new Date(dataEndTime)) {
+        dataStartTime = cursorDate.toISOString();
+      }
+    }
+
+    const isIndia = marketplaceId === "A21TJRUUN4KGV" || String(config.amazon.countryCode || "").toUpperCase() === "IN";
+    const reportTypes = isIndia
+      ? ["GET_GST_MTR_B2C_CUSTOM", "GET_GST_MTR_B2B_CUSTOM", "GET_FLAT_FILE_ORDER_REPORT_DATA_INVOICING"]
+      : ["GET_FLAT_FILE_VAT_INVOICE_DATA_REPORT", "GET_FLAT_FILE_ORDER_REPORT_DATA_INVOICING", "GET_AMAZON_FULFILLED_SHIPMENTS_DATA_INVOICING"];
+
+    let totalReceived = 0;
+    let totalParsed = 0;
+    let totalInserted = 0;
+    let totalUpdated = 0;
+    let totalSkipped = 0;
+    let totalRejected = 0;
+    let reportsSucceeded = 0;
+    let pages = 0;
+    let lastError: any = null;
+    const failedReports: string[] = [];
+
+    try {
+      const collected = new Map<string, ParsedAmazonInvoice>();
+
+      for (const reportType of reportTypes) {
+        pages += 1;
+        try {
+          log.info({
+            operation: "syncInvoices",
+            stage: "report.request",
+            config: { reportType, dataStartTime, dataEndTime, marketplaceId },
+          });
+
+          const rep = await amazonSpApi.fetchReportContent({
+            reportType,
+            marketplaceIds: marketplaceId ? [marketplaceId] : undefined,
+            dataStartTime,
+            dataEndTime,
+            traceId,
+            clientId,
+            sellerId: config.amazon.sellerId,
+          });
+          reportsSucceeded += 1;
+
+          if (rep.processingStatus === "DONE_NO_DATA" || !rep.content.trim()) {
+            log.info({
+              operation: "syncInvoices",
+              stage: "report.empty",
+              config: { reportType, reportId: rep.reportId, processingStatus: rep.processingStatus },
+            });
+            continue;
+          }
+
+          const tableRows = parseAmazonReportTable(rep.content);
+          totalReceived += tableRows.length;
+          const parsedInvoices = normalizeInvoiceReportRows(tableRows, reportType);
+
+          log.info({
+            operation: "syncInvoices",
+            stage: "report.parsed",
+            config: { reportType, rawRows: tableRows.length, invoices: parsedInvoices.length },
+          });
+
+          for (const inv of parsedInvoices) {
+            const key = `${inv.amazonOrderId}::${inv.invoiceNumber || inv.shipmentId || inv.transactionType}`;
+            const prev = collected.get(key);
+            // Prefer GST MTR reports over generic invoicing report when both contain the same invoice
+            if (!prev || (inv.reportType.includes("GST_MTR") && !prev.reportType.includes("GST_MTR"))) {
+              collected.set(key, inv);
+            }
+          }
+        } catch (reportErr: any) {
+          lastError = reportErr;
+          const classified = classifyError(reportErr);
+          failedReports.push(`${reportType}: ${classified.message}`.slice(0, 300));
+          log.warn({
+            operation: "syncInvoices",
+            stage: "report.failed",
+            config: { reportType, status: classified.status, code: classified.code },
+            errorMessage: classified.message,
+          });
+        }
+      }
+
+      if (reportsSucceeded === 0 && lastError) {
+        throw lastError;
+      }
+
+      const invoicesToPersist = Array.from(collected.values());
+      totalParsed = invoicesToPersist.length;
+
+      for (const inv of invoicesToPersist) {
+        try {
+          const matchingOrder = await OrderModel.findByAmazonOrderId(clientId, inv.amazonOrderId);
+          const existingRecord = await InvoiceModel.findByOrderAndInvoiceNumber(
+            clientId,
+            inv.amazonOrderId,
+            inv.invoiceNumber,
+          );
+
+          const isCreditOrCancel = /refund|cancel/i.test(inv.transactionType);
+          const nextStatus: InvoiceModel.InvoiceRecordStatus = isCreditOrCancel
+            ? "Cancelled"
+            : inv.invoiceNumber
+              ? "InvoiceReceived"
+              : "AwaitingAmazonInvoice";
+
+          const recordPayload = {
+            whizunikSalesOrderId: matchingOrder?.salesOrderId || existingRecord?.whizunikSalesOrderId || "",
+            invoiceNumber: inv.invoiceNumber,
+            invoiceIssueDate: inv.invoiceIssueDate,
+            issuer: "Amazon" as const,
+            amount: inv.grandTotal,
+            grandTotal: inv.grandTotal,
+            taxableAmount: inv.taxableAmount,
+            taxAmount: inv.taxAmount,
+            taxRate: inv.taxRate,
+            currency: inv.currency,
+            status: nextStatus,
+            amazonInvoiceId: inv.invoiceNumber || inv.shipmentId || null,
+            attachedAt: inv.invoiceNumber ? nowISO() : existingRecord?.attachedAt ?? null,
+            notes: `Synced from Amazon SP-API (${inv.reportType}) · ${inv.transactionType}`,
+            transactionType: inv.transactionType,
+            shipmentId: inv.shipmentId,
+            sku: inv.sku,
+            asin: inv.asin,
+            hsnCode: inv.hsnCode,
+            quantity: inv.quantity,
+            cgstAmount: inv.cgstAmount,
+            sgstAmount: inv.sgstAmount,
+            igstAmount: inv.igstAmount,
+            utgstAmount: inv.utgstAmount,
+            buyerGstin: inv.buyerGstin,
+            sellerGstin: inv.sellerGstin,
+            placeOfSupply: inv.placeOfSupply,
+            irnNumber: inv.irnNumber,
+            reportType: inv.reportType,
+            isB2B: inv.isB2B,
+          };
+
+          let savedId = existingRecord?.id ?? "";
+          if (existingRecord) {
+            await InvoiceModel.update(existingRecord.id, recordPayload);
+            totalUpdated += 1;
+          } else {
+            const created = await InvoiceModel.create({
+              clientId,
+              amazonOrderId: inv.amazonOrderId,
+              ...recordPayload,
+            });
+            savedId = created.id;
+            totalInserted += 1;
+          }
+
+          if (matchingOrder && savedId && inv.invoiceNumber && !isCreditOrCancel) {
+            const patch: Partial<OrderModel.MarketplaceAmazonOrder> = {};
+            if (!matchingOrder.invoiceRecordId) patch.invoiceRecordId = savedId;
+            if (matchingOrder.invoiceStatus === "Pending" || matchingOrder.invoiceStatus === "AwaitingAmazonInvoice") {
+              patch.invoiceStatus = "InvoiceReceived";
+            }
+            if (Object.keys(patch).length > 0) {
+              await OrderModel.update(matchingOrder.id, patch);
+            }
+          }
+        } catch (err: any) {
+          totalRejected += 1;
+          log.error({
+            operation: "syncInvoices",
+            stage: "db-write",
+            config: { amazonOrderId: inv.amazonOrderId, invoiceNumber: inv.invoiceNumber },
+            errorCode: err?.code ?? "DbWriteError",
+            errorMessage: err?.message ?? String(err),
+          });
+        }
+      }
+
+      const endMs = Date.now();
+      // A failed report (e.g. GST MTR denied without the Tax Invoicing role) must not be hidden
+      // as EMPTY, and must not move the cursor forward, or that window is never fetched again.
+      const anyReportFailed = failedReports.length > 0;
+      const status =
+        totalRejected > 0 || anyReportFailed
+          ? "PARTIAL"
+          : totalParsed === 0
+            ? "EMPTY"
+            : "Synchronized";
+      const lastCursor = anyReportFailed ? existing?.lastCursor ?? null : dataEndTime;
+      await SyncStatusModel.upsert({
+        clientId,
+        module: "invoices",
+        status,
+        lastSyncAt: nowISO(),
+        lastAttemptedAt,
+        lastSuccessfulAt: totalParsed > 0 ? nowISO() : null,
+        recordsSynced: totalInserted + totalUpdated,
+        recordsReceived: totalReceived,
+        recordsProcessed: totalParsed,
+        recordsInserted: totalInserted,
+        recordsUpdated: totalUpdated,
+        recordsSkipped: totalSkipped,
+        recordsRejected: totalRejected,
+        lastCursor,
+        error: anyReportFailed ? `Some Amazon invoice reports failed: ${failedReports.join(" | ")}` : null,
+        errorClassification:
+          totalRejected > 0 || anyReportFailed ? "SYNC_PARTIAL" : totalParsed === 0 ? "EMPTY_RESPONSE" : "SYNC_SUCCESS",
+        durationMs: endMs - startMs,
+        paginationCount: pages,
+      });
+
+      log.info({
+        operation: "syncInvoices",
+        stage: "after",
+        durationMs: endMs - startMs,
+        recordsReceived: totalReceived,
+        recordsParsed: totalParsed,
+        recordsInserted: totalInserted,
+        recordsUpdated: totalUpdated,
+        recordsRejected: totalRejected,
+        config: { pages, status },
+      });
+
+      return this._result(
+        "invoices",
+        status,
+        totalReceived,
+        totalParsed,
+        totalInserted,
+        totalUpdated,
+        totalSkipped,
+        totalRejected,
+        totalInserted + totalUpdated,
+        lastCursor,
+        null,
+        null,
+        startTime,
+        nowISO(),
+        endMs - startMs,
+        pages,
+      );
+    } catch (err: any) {
+      const endMs = Date.now();
+      const { status, code, message } = classifyError(err);
+      const { classification } = amazonApplicationStatus.classifyAmazonError(err, undefined, message);
+      const friendlyMessage =
+        status === "AccessRestricted"
+          ? `Tax Invoicing (Restricted) permission required in Amazon Seller Central to fetch invoice reports. ${message}`
+          : message;
+
+      log.error({
+        operation: "syncInvoices",
+        stage: "error",
+        durationMs: endMs - startMs,
+        errorCode: code,
+        errorMessage: friendlyMessage,
+        recordsReceived: totalReceived,
+        errorClassification: classification,
+      });
+
+      await SyncStatusModel.upsert({
+        clientId,
+        module: "invoices",
+        status,
+        lastSyncAt: nowISO(),
+        lastAttemptedAt,
+        recordsSynced: totalInserted + totalUpdated,
+        recordsReceived: totalReceived,
+        recordsProcessed: totalParsed,
+        recordsInserted: totalInserted,
+        recordsUpdated: totalUpdated,
+        recordsSkipped: totalSkipped,
+        recordsRejected: totalRejected,
+        httpStatus: err?.status ?? (status === "AccessRestricted" ? 403 : null),
+        error: friendlyMessage,
+        errorCode: code,
+        errorClassification: classification,
+        durationMs: endMs - startMs,
+        paginationCount: pages,
+      });
+
+      return this._result(
+        "invoices",
+        status,
+        totalReceived,
+        totalParsed,
+        totalInserted,
+        totalUpdated,
+        totalSkipped,
+        totalRejected,
+        totalInserted + totalUpdated,
+        null,
+        friendlyMessage,
+        code,
+        startTime,
+        nowISO(),
+        endMs - startMs,
+        pages,
+      );
+    }
+  }
+
   private _result(
     module: Module,
     status: SyncStatus,
@@ -1084,6 +1423,7 @@ export class AmazonSyncService {
       case "inventory": return this.syncInventory(clientId, traceId);
       case "listings": return this.syncListings(clientId, traceId);
       case "returns": return this.syncReturns(clientId, traceId);
+      case "invoices": return this.syncInvoices(clientId, traceId);
     }
   }
 }
