@@ -103,6 +103,7 @@ export function serializePurchaseVoucher(pi: any, ctx: PurchaseBuildContext) {
     b.addInventory({
       stockItem,
       hsn: product?.hsnCode || line.hsnCode || null,
+      hsnDescription: line.description || product?.description || stockItem,
       amount: -split.taxableValue,
       quantity: qtyValue,
       unit,

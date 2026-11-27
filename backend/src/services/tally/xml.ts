@@ -172,6 +172,7 @@ export interface GstRateDuty {
 export function inventoryEntry(opts: {
   stockItem: string;
   hsn: string | null;
+  hsnDescription?: string | null;
   amount: number;
   quantity: number;
   unit: string;
@@ -216,6 +217,7 @@ export function inventoryEntry(opts: {
     tag("GSTOVRDNTYPEOFSUPPLY", "Goods"),
     tag("GSTRATEINFERAPPLICABILITY", "As per Masters/Company"),
     opts.hsn ? tag("GSTHSNNAME", opts.hsn) : "",
+    opts.hsnDescription ? tag("GSTHSNDESCRIPTION", opts.hsnDescription) : "",
     tag("GSTHSNINFERAPPLICABILITY", "As per Masters/Company"),
     tag("ISDEEMEDPOSITIVE", opts.positive ? "Yes" : "No"),
     tag("ISLASTDEEMEDPOSITIVE", opts.positive ? "Yes" : "No"),

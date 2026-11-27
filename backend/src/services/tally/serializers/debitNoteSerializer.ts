@@ -92,6 +92,7 @@ export function serializeDebitNoteVoucher(
       b.addInventory({
         stockItem,
         hsn: line.hsnCode || product?.hsnCode || null,
+        hsnDescription: line.description || product?.description || stockItem,
         amount: split.taxableValue,
         quantity: qtyValue,
         unit,

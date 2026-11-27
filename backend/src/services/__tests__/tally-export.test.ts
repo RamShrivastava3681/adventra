@@ -196,8 +196,8 @@ const sharedCtx = {
     ["s1", { id: "s1", companyName: "DEVAGOND OUTDOOR PRIVATE LIMITED", state: "Karnataka", gstin: "29AAECD9988C1ZR" }],
   ]),
   productsById: new Map([
-    ["p1", { id: "p1", name: "Men Running Shoes Lightweight Navy Black 36", hsnCode: "64041900", unitOfMeasure: "pics", gstRate: 5 }],
-    ["p2", { id: "p2", name: "Trekking Bag Black MT1000 Unisex", hsnCode: "4202", unitOfMeasure: "pics", gstRate: 18 }],
+    ["p1", { id: "p1", name: "Men Running Shoes Lightweight Navy Black 36", description: "Lightweight running shoes", hsnCode: "64041900", unitOfMeasure: "pics", gstRate: 5 }],
+    ["p2", { id: "p2", name: "Trekking Bag Black MT1000 Unisex", description: "Unisex trekking bag", hsnCode: "4202", unitOfMeasure: "pics", gstRate: 18 }],
   ]),
   partyStateForInvoice: (inv: any) => inv.placeOfSupply || "Delhi",
   stateNameFromCode,
@@ -277,6 +277,34 @@ describe("Voucher Serializers", () => {
     expect(errors).toContain(
       "Company GST registration type is required for sales voucher exports.",
     );
+  });
+
+  it("writes the HSN code and description into each sales inventory entry", () => {
+    const invoice = {
+      id: "inv-hsn-lines",
+      invoiceNumber: "ADV-HSN-001",
+      issueDate: "2026-10-01",
+      debtorId: "d1",
+      grandTotal: 341,
+      subtotal: 300,
+      gstTotal: 41,
+      lines: [
+        { productId: "p1", quantity: 1, unitPrice: 100, gstRate: 5, unit: "pics" },
+        { productId: "p2", quantity: 1, unitPrice: 200, gstRate: 18, unit: "pics" },
+      ],
+    };
+
+    const res = serializeSalesVoucher(invoice, {
+      ...sharedCtx,
+      partyStateForInvoice: () => "Delhi",
+    });
+
+    expect(res.errors).toHaveLength(0);
+    expect(res.xml).toContain("<GSTHSNNAME>64041900</GSTHSNNAME>");
+    expect(res.xml).toContain("<GSTHSNDESCRIPTION>Lightweight running shoes</GSTHSNDESCRIPTION>");
+    expect(res.xml).toContain("<GSTHSNNAME>4202</GSTHSNNAME>");
+    expect(res.xml).toContain("<GSTHSNDESCRIPTION>Unisex trekking bag</GSTHSNDESCRIPTION>");
+    expect(res.xml.match(/<GSTHSNDESCRIPTION>/g)).toHaveLength(2);
   });
 
   it("uses shared Tally settings before a legacy per-user config", async () => {
