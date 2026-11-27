@@ -1390,9 +1390,9 @@ export function configProblems(config: TallyConfig, exportType?: TallyExportType
 }
 
 async function getTallyConfig(clientId: string): Promise<TallyConfig | null> {
-  // Prefer per-user config for backward compatibility, then fall back to the
-  // shared company config used by current installations.
-  return (await Tally.getConfig(clientId)) || (await Tally.getConfig("shared"));
+  // The configuration screen writes the shared company config. Prefer it so a
+  // legacy per-user record cannot shadow the values shown in the UI.
+  return (await Tally.getConfig("shared")) || (await Tally.getConfig(clientId));
 }
 
 export interface GenerateOptions {

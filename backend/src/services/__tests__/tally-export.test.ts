@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { esc, tallyDate, envelope, message, validateXml1 } from "../tally/xml.js";
 import {
   serializeCustomerMaster,
@@ -27,7 +27,9 @@ import {
   stateNameFromCode,
   partyStateForInvoice,
   configProblems,
+  createRequestContext,
 } from "../tally/engine.js";
+import * as TallyModel from "../../models/tally.js";
 import { isUnionTerritory, type TallyConfig, SUGGESTED_MAPPING } from "../../models/tally.js";
 
 const mockConfig: TallyConfig = {
@@ -275,6 +277,23 @@ describe("Voucher Serializers", () => {
     expect(errors).toContain(
       "Company GST registration type is required for sales voucher exports.",
     );
+  });
+
+  it("uses shared Tally settings before a legacy per-user config", async () => {
+    const getConfig = vi
+      .spyOn(TallyModel, "getConfig")
+      .mockImplementation(async (clientId) =>
+        clientId === "shared" ? mockConfig : { ...mockConfig, gstin: "" },
+      );
+
+    try {
+      const config = await createRequestContext("user-1").config();
+      expect(config).toBe(mockConfig);
+      expect(getConfig).toHaveBeenCalledTimes(1);
+      expect(getConfig).toHaveBeenCalledWith("shared");
+    } finally {
+      getConfig.mockRestore();
+    }
   });
 
   it("exports Sales Invoice with CGST + SGST for intra-state customer", () => {
