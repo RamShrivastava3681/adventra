@@ -44,7 +44,7 @@ export function serializeSupplierMaster(supplier: any, config: TallyConfig, stat
   const name = supplier.companyName || supplier.name || "";
   const address = supplier.addressLine || supplier.address || "";
   const city = supplier.city || "";
-  const state = (stateNameFromCode && supplier.stateCode ? stateNameFromCode(supplier.stateCode) : null) || supplier.state || null;
+  const state = supplier.state || (supplier.stateCode && stateNameFromCode ? stateNameFromCode(supplier.stateCode) : null) || null;
   const postal = supplier.postalCode || supplier.pincode || "";
   const addressLines = [address, [city, state, postal].filter(Boolean).join(", ")].filter(Boolean) as string[];
 
