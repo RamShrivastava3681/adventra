@@ -1,7 +1,7 @@
 import { customerLedger, unitMaster, accountLedgerMaster, tag, list, num, qty, rate, esc, tallyDate } from "../xml.js";
 import { type TallyConfig } from "../../../models/tally.js";
 import { stateNameFromCode } from "../engine.js";
-import { STATE_CODES } from "../states.js";
+import { STATE_CODES, stateNameFromGstin } from "../states.js";
 import { round2 } from "../../../lib/gst.js";
 
 const INDIAN_STATE_NAMES = new Set(
@@ -20,10 +20,20 @@ export interface MasterBuildContext {
 
 export function serializeCustomerMaster(debtor: any, config: TallyConfig): string {
   const name = debtor.name || "";
-  const address = debtor.billingAddress || debtor.address || "";
-  const city = debtor.city || "";
-  const state = debtor.state || (debtor.stateCode ? stateNameFromCode(debtor.stateCode) : null) || null;
-  const postal = debtor.postalCode || debtor.pincode || "";
+  const primaryBillingAddress = debtor.billingAddresses?.[0];
+  const address = debtor.billingAddress || debtor.address || primaryBillingAddress?.address || "";
+  const city = debtor.city || primaryBillingAddress?.city || "";
+  const state =
+    debtor.state ||
+    (debtor.stateCode ? stateNameFromCode(debtor.stateCode) : null) ||
+    primaryBillingAddress?.state ||
+    stateNameFromGstin(debtor.gstin) ||
+    null;
+  const postal =
+    debtor.postalCode ||
+    debtor.pincode ||
+    primaryBillingAddress?.postalCode ||
+    "";
   const addressLines = [address, [city, state, postal].filter(Boolean).join(", ")].filter(Boolean) as string[];
 
   return customerLedger({

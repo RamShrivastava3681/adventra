@@ -41,6 +41,10 @@ const mockConfig: TallyConfig = {
   homeState: "Uttar Pradesh",
   gstin: "09AABCU9603R1ZM",
   gstRegistrationType: "Regular",
+  dispatchFromName: "Whizunik Dispatch",
+  dispatchFromAddress: "Industrial Area, Delhi",
+  dispatchFromPlace: "Delhi",
+  dispatchFromPincode: "110082",
   godownName: "Main Warehouse",
   defaultUnit: "pics",
   stockGroup: "Primary",
@@ -119,6 +123,22 @@ describe("Master Serializers", () => {
     expect(xml).toMatch(/<LEDMAILINGDETAILS\.LIST>[\s\S]*<ADDRESS\.LIST>[\s\S]*<\/ADDRESS\.LIST>[\s\S]*<\/LEDMAILINGDETAILS\.LIST>/);
   });
 
+  it("uses a registered buyer GSTIN state when the customer state is absent", () => {
+    const xml = serializeCustomerMaster(
+      {
+        id: "cust-uk",
+        name: "Uttarakhand Buyer",
+        billingAddress: "World Trade Tower",
+        city: "Dehradun",
+        postalCode: "248001",
+        gstin: "05ACNFA8485C1Z8",
+      },
+      mockConfig,
+    );
+    expect(xml).toContain("<LEDSTATENAME>Uttarakhand</LEDSTATENAME>");
+    expect(xml).toContain("<STATE>Uttarakhand</STATE>");
+  });
+
   it("exports supplier master with required Tally structure", () => {
     const supplier = {
       id: "supp-001",
@@ -188,9 +208,9 @@ describe("Master Serializers", () => {
 const sharedCtx = {
   config: mockConfig,
   debtorsById: new Map([
-    ["d1", { id: "d1", name: "Ram Shrivastava3", state: "Delhi", gstin: "07AABCR1234D1Z5", billingAddress: "Noida, UP" }],
-    ["d2", { id: "d2", name: "Sunrise Traders", state: "Uttar Pradesh", gstin: "09AAACS1429B1ZT" }],
-    ["d3", { id: "d3", name: "Metro Retail", state: "Chandigarh", gstin: "04AAACM5555C1Z1" }],
+    ["d1", { id: "d1", name: "Ram Shrivastava3", state: "Delhi", gstin: "07AABCR1234D1Z5", billingAddress: "11th Avenue, Sector-2", city: "Delhi", postalCode: "110082" }],
+    ["d2", { id: "d2", name: "Sunrise Traders", state: "Uttar Pradesh", gstin: "09AAACS1429B1ZT", billingAddress: "Market Road", city: "Noida", postalCode: "201301" }],
+    ["d3", { id: "d3", name: "Metro Retail", state: "Chandigarh", gstin: "04AAACM5555C1Z1", billingAddress: "Sector 17", city: "Chandigarh", postalCode: "160017" }],
   ]),
   suppliersById: new Map([
     ["s1", { id: "s1", companyName: "DEVAGOND OUTDOOR PRIVATE LIMITED", state: "Karnataka", gstin: "29AAECD9988C1ZR" }],
@@ -266,6 +286,112 @@ describe("Voucher Serializers", () => {
     expect(res.xml).toContain("<GSTRATEDUTYHEAD>IGST</GSTRATEDUTYHEAD>");
   });
 
+  it("writes consistent Uttarakhand buyer and Delhi dispatch details for an interstate sale", () => {
+    const delhiConfig = {
+      ...mockConfig,
+      homeState: "Delhi",
+      gstin: "07AABCU9603R1ZM",
+    };
+    const debtor = {
+      id: "buyer-uk",
+      name: "Uttarakhand Buyer",
+      state: "Uttarakhand",
+      gstin: "05ACNFA8485C1Z8",
+      billingAddress: "World Trade Tower",
+      city: "Dehradun",
+      postalCode: "248001",
+      shippingAddresses: [
+        {
+          address: "World Trade Tower, Dehradun, Uttarakhand, 248001",
+          city: "Dehradun",
+          state: "Uttarakhand",
+          postalCode: "248001",
+        },
+      ],
+    };
+    const invoice = {
+      id: "inv-delhi-uk",
+      invoiceNumber: "ADV-DEL-UK-001",
+      issueDate: "2026-10-01",
+      debtorId: debtor.id,
+      buyerState: "Uttarakhand",
+      placeOfSupply: "Uttarakhand",
+      consigneeState: "Uttarakhand",
+      consigneePlace: "Dehradun",
+      consigneeGstin: debtor.gstin,
+      consigneePostalCode: "248001",
+      grandTotal: 9535,
+      lines: [
+        {
+          productId: "p1",
+          name: "Men Running Shoes Lightweight Navy Black 36",
+          quantity: 4,
+          unitPrice: 2383.75,
+          gstRate: 5,
+          unit: "pics",
+        },
+      ],
+    };
+    const res = serializeSalesVoucher(invoice, {
+      ...sharedCtx,
+      config: delhiConfig,
+      debtorsById: new Map([[debtor.id, debtor]]),
+      partyStateForInvoice: (record) =>
+        partyStateForInvoice(record, {
+          debtorsById: new Map([[debtor.id, debtor]]),
+        }),
+    });
+
+    expect(res.errors).toHaveLength(0);
+    expect(res.xml).toContain("<CMPGSTIN>07AABCU9603R1ZM</CMPGSTIN>");
+    expect(res.xml).toContain("<DISPATCHFROMSTATENAME>Delhi</DISPATCHFROMSTATENAME>");
+    expect(res.xml).toContain("<DISPATCHFROMPLACE>Delhi</DISPATCHFROMPLACE>");
+    expect(res.xml).toContain("<DISPATCHFROMPINCODE>110082</DISPATCHFROMPINCODE>");
+    expect(res.xml).toContain(
+      "<DISPATCHFROMADDRESS.LIST><DISPATCHFROMADDRESS>Industrial Area, Delhi</DISPATCHFROMADDRESS></DISPATCHFROMADDRESS.LIST>",
+    );
+    expect(res.xml).toContain("<PARTYGSTIN>05ACNFA8485C1Z8</PARTYGSTIN>");
+    expect(res.xml).toContain("<PLACEOFSUPPLY>Uttarakhand</PLACEOFSUPPLY>");
+    expect(res.xml).toContain("<BASICBUYERSTATENAME>Uttarakhand</BASICBUYERSTATENAME>");
+    expect(res.xml).toContain("<BASICBUYERPINCODE>248001</BASICBUYERPINCODE>");
+    expect(res.xml).toContain("<CONSIGNEEGSTIN>05ACNFA8485C1Z8</CONSIGNEEGSTIN>");
+    expect(res.xml).toContain("<CONSIGNEESTATENAME>Uttarakhand</CONSIGNEESTATENAME>");
+    expect(res.xml).toContain("<CONSIGNEEPLACE>Dehradun</CONSIGNEEPLACE>");
+    expect(res.xml).toContain("<CONSIGNEEPINCODE>248001</CONSIGNEEPINCODE>");
+    expect(res.xml).toContain("<LEDGERNAME>IGST Output</LEDGERNAME>");
+    expect(res.xml).not.toContain("<LEDGERNAME>CGST Output</LEDGERNAME>");
+    expect(res.xml).not.toContain("<LEDGERNAME>SGST Output</LEDGERNAME>");
+  });
+
+  it("rejects conflicting explicit place-of-supply and consignee states", () => {
+    const invoice = {
+      id: "inv-state-conflict",
+      invoiceNumber: "ADV-STATE-CONFLICT-001",
+      issueDate: "2026-10-01",
+      debtorId: "d1",
+      buyerState: "Delhi",
+      placeOfSupply: "Uttarakhand",
+      consigneeState: "Delhi",
+      consigneeAddress: "Old Delhi address",
+      consigneePostalCode: "110082",
+      grandTotal: 105,
+      subtotal: 100,
+      gstTotal: 5,
+      lines: [
+        { productId: "p1", quantity: 1, unitPrice: 100, gstRate: 5, unit: "pics" },
+      ],
+    };
+    const res = serializeSalesVoucher(invoice, {
+      ...sharedCtx,
+      partyStateForInvoice: (record) =>
+        partyStateForInvoice(record, { debtorsById: sharedCtx.debtorsById }),
+    });
+
+    expect(res.errors).toContain(
+      "Place of supply Uttarakhand conflicts with the invoice/consignee state Delhi.",
+    );
+  });
+
   it("requires a configured, valid seller GSTIN and registration type for sales exports", () => {
     const errors = configProblems(
       { ...mockConfig, gstin: "DEMO", gstRegistrationType: "" },
@@ -277,6 +403,22 @@ describe("Voucher Serializers", () => {
     expect(errors).toContain(
       "Company GST registration type is required for sales voucher exports.",
     );
+  });
+
+  it("rejects a seller GSTIN whose state prefix conflicts with the configured home state", () => {
+    const errors = configProblems({ ...mockConfig, homeState: "Delhi" }, "sales");
+    expect(errors).toContain(
+      "Company GSTIN state Uttar Pradesh conflicts with configured home state Delhi.",
+    );
+  });
+
+  it("rejects missing dispatch address configuration for sales exports", () => {
+    const errors = configProblems(
+      { ...mockConfig, dispatchFromAddress: "", dispatchFromPincode: "" },
+      "sales",
+    );
+    expect(errors).toContain("Dispatch-from address is required for sales voucher exports.");
+    expect(errors).toContain("Dispatch-from PIN code must be a valid 6-digit PIN.");
   });
 
   it("writes the HSN code and description into each sales inventory entry", () => {

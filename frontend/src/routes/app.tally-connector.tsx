@@ -2257,6 +2257,10 @@ function ConfigTab({
     homeState: config.homeState ?? "",
     gstin: config.gstin ?? "",
     gstRegistrationType: config.gstRegistrationType ?? "Regular",
+    dispatchFromName: config.dispatchFromName ?? "",
+    dispatchFromAddress: config.dispatchFromAddress ?? "",
+    dispatchFromPlace: config.dispatchFromPlace ?? "",
+    dispatchFromPincode: config.dispatchFromPincode ?? "",
     godownName: config.godownName ?? "",
     defaultUnit: config.defaultUnit ?? "pics",
     stockGroup: config.stockGroup ?? "Primary",
@@ -2274,6 +2278,10 @@ function ConfigTab({
       homeState: latest.homeState ?? "",
       gstin: latest.gstin ?? "",
       gstRegistrationType: latest.gstRegistrationType ?? "Regular",
+      dispatchFromName: latest.dispatchFromName ?? "",
+      dispatchFromAddress: latest.dispatchFromAddress ?? "",
+      dispatchFromPlace: latest.dispatchFromPlace ?? "",
+      dispatchFromPincode: latest.dispatchFromPincode ?? "",
       godownName: latest.godownName ?? "",
       defaultUnit: latest.defaultUnit ?? "pics",
       stockGroup: latest.stockGroup ?? "Primary",
@@ -2295,6 +2303,10 @@ function ConfigTab({
         companyName: String(form.companyName || "").replace(/\s+/g, " ").trim(),
         homeState: String(form.homeState || "").replace(/\s+/g, " ").trim(),
         gstin: String(form.gstin || "").replace(/\s+/g, "").trim().toUpperCase(),
+        dispatchFromName: String(form.dispatchFromName || "").replace(/\s+/g, " ").trim(),
+        dispatchFromAddress: String(form.dispatchFromAddress || "").replace(/\s+/g, " ").trim(),
+        dispatchFromPlace: String(form.dispatchFromPlace || "").replace(/\s+/g, " ").trim(),
+        dispatchFromPincode: String(form.dispatchFromPincode || "").replace(/\s+/g, "").trim(),
         godownName: String(form.godownName || "").replace(/\s+/g, " ").trim(),
         defaultUnit: String(form.defaultUnit || "").replace(/\s+/g, " ").trim(),
         stockGroup: String(form.stockGroup || "").replace(/\s+/g, " ").trim(),
@@ -2318,6 +2330,10 @@ function ConfigTab({
           homeState: saved.homeState ?? "",
           gstin: saved.gstin ?? "",
           gstRegistrationType: saved.gstRegistrationType ?? "Regular",
+          dispatchFromName: saved.dispatchFromName ?? "",
+          dispatchFromAddress: saved.dispatchFromAddress ?? "",
+          dispatchFromPlace: saved.dispatchFromPlace ?? "",
+          dispatchFromPincode: saved.dispatchFromPincode ?? "",
           godownName: saved.godownName ?? "",
           defaultUnit: saved.defaultUnit ?? "pics",
           stockGroup: saved.stockGroup ?? "Primary",
@@ -2353,6 +2369,10 @@ function ConfigTab({
       ["Company GST Home State", config.homeState],
       ["Tally Godown / Warehouse", config.godownName],
       ["Company GSTIN", config.gstin],
+      ["Dispatch From Name", config.dispatchFromName],
+      ["Dispatch Address", config.dispatchFromAddress],
+      ["Dispatch Place", config.dispatchFromPlace],
+      ["Dispatch PIN Code", config.dispatchFromPincode],
       ["Default Unit", config.defaultUnit],
       ["Stock Group", config.stockGroup],
       ["Default Stock Batch", config.batchName],
@@ -2503,6 +2523,55 @@ function ConfigTab({
               placeholder="09AABCU9603R1ZM"
               className="mt-1 font-mono text-xs uppercase"
             />
+          </div>
+
+          <div>
+            <Label htmlFor="dispatchFromName">Dispatch From Name *</Label>
+            <Input
+              id="dispatchFromName"
+              value={form.dispatchFromName}
+              onChange={(e) => setField("dispatchFromName", e.target.value)}
+              placeholder="Registered dispatch location name"
+              className="mt-1"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="dispatchFromAddress">Dispatch From Address *</Label>
+            <Input
+              id="dispatchFromAddress"
+              value={form.dispatchFromAddress}
+              onChange={(e) => setField("dispatchFromAddress", e.target.value)}
+              placeholder="Complete dispatch address"
+              className="mt-1"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="dispatchFromPlace">Dispatch From Place *</Label>
+            <Input
+              id="dispatchFromPlace"
+              value={form.dispatchFromPlace}
+              onChange={(e) => setField("dispatchFromPlace", e.target.value)}
+              placeholder="City / place"
+              className="mt-1"
+            />
+          </div>
+
+          <div>
+            <Label htmlFor="dispatchFromPincode">Dispatch From PIN Code *</Label>
+            <Input
+              id="dispatchFromPincode"
+              value={form.dispatchFromPincode}
+              onChange={(e) => setField("dispatchFromPincode", e.target.value)}
+              placeholder="6-digit PIN code"
+              maxLength={6}
+              className="mt-1"
+            />
+          </div>
+
+          <div className="text-[11px] text-muted-foreground">
+            Dispatch state is taken from Company GST Home State.
           </div>
 
           <div>

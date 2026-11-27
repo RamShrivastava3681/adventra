@@ -37,7 +37,7 @@ import { serializePaymentVoucher } from "./serializers/paymentSerializer.js";
 import { serializeCreditNoteVoucher } from "./serializers/creditNoteSerializer.js";
 import { serializeDebitNoteVoucher } from "./serializers/debitNoteSerializer.js";
 import { generateManifestCsv } from "./manifestService.js";
-import { STATE_CODES } from "./states.js";
+import { STATE_CODES, isValidGstin, stateNameFromGstin } from "./states.js";
 
 export { STATE_CODES } from "./states.js";
 
@@ -288,11 +288,6 @@ export function normalizeName(value: unknown): string {
     .replace(/&#(?:x0*[0-8BbCcEeEfF]|0*4);?/gi, "")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-export function isValidGstin(value: unknown): boolean {
-  const gstin = normalizeName(value).toUpperCase();
-  return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z][Z][0-9A-Z]$/.test(gstin);
 }
 
 export function unitFor(value: string | null | undefined, fallback: string): string {
@@ -997,7 +992,25 @@ export async function buildRecords(
           : "Invalid supplier GSTIN. Leave it blank for demo data or enter a valid 15-character GSTIN.");
       }
       if (exportType === "customers") {
-        if (!row.state && !row.stateCode) errors.push("Customer state or state code is missing.");
+        const customerState =
+          row.state ||
+          stateNameFromCode(row.stateCode) ||
+          row.billingAddresses?.[0]?.state ||
+          stateNameFromGstin(row.gstin);
+        const gstinState = stateNameFromGstin(row.gstin);
+        if (!customerState) errors.push("Customer state or valid GSTIN state prefix is missing.");
+        if (gstin && isValidGstin(gstin) && !gstinState) {
+          errors.push("Customer GSTIN has an unknown state prefix.");
+        }
+        if (
+          customerState &&
+          gstinState &&
+          normState(customerState) !== normState(gstinState)
+        ) {
+          errors.push(
+            `Customer GSTIN state ${gstinState} conflicts with customer master state ${customerState}.`,
+          );
+        }
         if (!row.billingAddress) errors.push("Customer billing address is missing.");
       } else {
         if (!row.state && !row.stateCode) errors.push("Supplier state or state code is missing.");
@@ -1369,7 +1382,28 @@ export function configProblems(config: TallyConfig, exportType?: TallyExportType
   if (needsSales && !config.homeState) problems.push("Home state is required for sales vouchers (used to decide CGST/SGST vs IGST).");
   if (needsSales && !config.gstin) problems.push("Company GSTIN is required for sales voucher exports.");
   if (needsSales && config.gstin && !isValidGstin(config.gstin)) problems.push("Company GSTIN must be a valid 15-character GSTIN for sales voucher exports.");
+  const sellerGstinState = stateNameFromGstin(config.gstin);
+  if (needsSales && config.gstin && isValidGstin(config.gstin) && !sellerGstinState) {
+    problems.push("Company GSTIN has an unknown state prefix.");
+  }
+  if (
+    needsSales &&
+    sellerGstinState &&
+    config.homeState &&
+    normState(sellerGstinState) !== normState(config.homeState)
+  ) {
+    problems.push(
+      `Company GSTIN state ${sellerGstinState} conflicts with configured home state ${config.homeState}.`,
+    );
+  }
   if (needsSales && !config.gstRegistrationType) problems.push("Company GST registration type is required for sales voucher exports.");
+  const needsDispatchDetails = !exportType || exportType === "sales";
+  if (needsDispatchDetails && !config.dispatchFromName) problems.push("Dispatch-from name is required for sales voucher exports.");
+  if (needsDispatchDetails && !config.dispatchFromAddress) problems.push("Dispatch-from address is required for sales voucher exports.");
+  if (needsDispatchDetails && !config.dispatchFromPlace) problems.push("Dispatch-from place is required for sales voucher exports.");
+  if (needsDispatchDetails && !/^\d{6}$/.test(config.dispatchFromPincode || "")) {
+    problems.push("Dispatch-from PIN code must be a valid 6-digit PIN.");
+  }
   if (needsSales && !m.salesLedger) problems.push("Sales ledger is not configured.");
   if (needsPurchases && !m.purchaseLedger) problems.push("Purchase ledger is not configured.");
   if ((exportType === "customers" || !exportType) && !m.debtorsGroup) problems.push("Customer ledger group is not configured.");

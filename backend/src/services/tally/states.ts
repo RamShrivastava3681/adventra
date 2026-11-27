@@ -36,3 +36,18 @@ export const STATE_CODES: Record<string, string> = {
   "37": "Andhra Pradesh",
   "38": "Ladakh",
 };
+
+export function isValidGstin(value: unknown): boolean {
+  const gstin = String(value ?? "")
+    .replace(/[\u0000-\u001F\uFFFE\uFFFF]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toUpperCase();
+  return /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z][Z][0-9A-Z]$/.test(gstin);
+}
+
+export function stateNameFromGstin(value: unknown): string | null {
+  const gstin = String(value ?? "").trim().toUpperCase();
+  if (!isValidGstin(gstin)) return null;
+  return STATE_CODES[gstin.slice(0, 2)] ?? null;
+}

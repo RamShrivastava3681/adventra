@@ -116,6 +116,10 @@ export interface TallyConfig {
   homeState: string;
   gstin: string;
   gstRegistrationType: string;
+  dispatchFromName: string;
+  dispatchFromAddress: string;
+  dispatchFromPlace: string;
+  dispatchFromPincode: string;
   godownName: string;
   defaultUnit: string;
   stockGroup: string;
@@ -187,6 +191,10 @@ export async function saveConfig(
     gstin: normalize(data.gstin ?? existing?.gstin).toUpperCase(),
     gstRegistrationType:
       data.gstRegistrationType ?? existing?.gstRegistrationType ?? "Regular",
+    dispatchFromName: normalize(data.dispatchFromName ?? existing?.dispatchFromName),
+    dispatchFromAddress: normalize(data.dispatchFromAddress ?? existing?.dispatchFromAddress),
+    dispatchFromPlace: normalize(data.dispatchFromPlace ?? existing?.dispatchFromPlace),
+    dispatchFromPincode: normalize(data.dispatchFromPincode ?? existing?.dispatchFromPincode),
     godownName: normalize(data.godownName ?? existing?.godownName),
     defaultUnit: (data.defaultUnit ?? existing?.defaultUnit ?? "pics").trim() || "pics",
     stockGroup: (data.stockGroup ?? existing?.stockGroup ?? "").trim(),
