@@ -43,6 +43,7 @@ export interface StagedTallyVoucher {
   partyName: string | null;
   partyGstin: string | null;
   placeOfSupply: string | null;
+  billingAddress: string | null;
   amount: number;
   narration: string | null;
   irn: string | null;
@@ -433,6 +434,11 @@ export function parseTallyXml(xmlContent: string): StagedTallyVoucher[] {
       (ewayBlock ? extractTag(ewayBlock, "VALIDUNTIL") : null);
     const ewayBillDate = ewayBillDateRaw ? normalizeDate(ewayBillDateRaw) : null;
 
+const basicBuyerAddressBlock = extractAllTags(block, "BASICBUYERADDRESS.LIST")[0];
+    const billingAddress = basicBuyerAddressBlock
+      ? extractTag(basicBuyerAddressBlock, "BASICBUYERADDRESS") || null
+      : null;
+
     const ledgers: StagedTallyLedger[] = [];
     let voucherAmount = 0;
 
@@ -454,7 +460,7 @@ export function parseTallyXml(xmlContent: string): StagedTallyVoucher[] {
       if (Math.abs(amount) > voucherAmount) voucherAmount = Math.abs(amount);
     }
 
-    vouchers.push({
+vouchers.push({
       guid,
       voucherNumber,
       reference,
@@ -463,6 +469,7 @@ export function parseTallyXml(xmlContent: string): StagedTallyVoucher[] {
       partyName,
       partyGstin,
       placeOfSupply,
+      billingAddress,
       amount: round2(voucherAmount),
       narration,
       irn,
@@ -1158,7 +1165,7 @@ async function importVouchers(
             message: `IRN "${voucher.irn}" is not a valid 64-character IRP reference - not saved.`,
           });
         }
-        const created = await Invoice.create({
+const created = await Invoice.create({
           clientId,
           debtorId: debtor.id,
           invoiceNumber,
@@ -1172,6 +1179,7 @@ async function importVouchers(
           buyerGstin: voucher.partyGstin || debtor.gstin || null,
           buyerState: debtor.state || null,
           buyerStateCode: debtor.stateCode || null,
+          billingAddress: voucher.billingAddress || null,
           tallyVoucherRef: voucher.voucherNumber || voucher.reference || null,
           tallyInvoiceNumber: voucher.voucherNumber || voucher.reference || null,
           irn,
