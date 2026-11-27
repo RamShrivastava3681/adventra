@@ -7,6 +7,7 @@ export interface SalesBuildContext {
   debtorsById: Map<string, any>;
   productsById: Map<string, any>;
   partyStateForInvoice: (inv: any) => string | null;
+  stateNameFromCode: (code: string | null | undefined) => string | null;
   normState: (s: string | null | undefined) => string;
   isUnionTerritory: (s: string | null | undefined) => boolean;
   gstHeadNames: (config: TallyConfig, intra: boolean, ut: boolean, direction: "output" | "input") => { head: string; ledger: string }[];
@@ -167,6 +168,28 @@ export function serializeSalesVoucher(inv: any, ctx: SalesBuildContext) {
 
   const body = b.finish(config.mappings.roundOffLedger, `Invoice ${inv.invoiceNumber}`, { errors, warnings });
   const buyerAddress = inv.billingAddress || (debtor?.billingAddress ? debtor.billingAddress : null) || "";
+  const debtorShippingAddress = debtor?.shippingAddresses?.[0];
+  const consigneeAddress =
+    inv.consigneeAddress ||
+    inv.deliveryAddress ||
+    debtorShippingAddress?.address ||
+    debtor?.shippingAddress ||
+    "";
+  const buyerState =
+    inv.buyerState ||
+    ctx.stateNameFromCode(inv.buyerStateCode) ||
+    debtor?.state ||
+    ctx.stateNameFromCode(debtor?.stateCode) ||
+    null;
+  const consigneeState =
+    inv.consigneeState ||
+    ctx.stateNameFromCode(inv.consigneeStateCode) ||
+    debtorShippingAddress?.state ||
+    buyerState;
+  const country = debtor?.country || "India";
+  const buyerPostalCode = debtor?.postalCode || debtor?.pincode || "";
+  const consigneePostalCode =
+    debtorShippingAddress?.postalCode || buyerPostalCode;
 
   const parts = [
     tag("DATE", tallyDate(inv.issueDate)),
@@ -182,8 +205,19 @@ export function serializeSalesVoucher(inv: any, ctx: SalesBuildContext) {
     inv.buyerGstin || debtor?.gstin ? tag("PARTYGSTIN", inv.buyerGstin || debtor?.gstin) : "",
     partyState ? tag("PLACEOFSUPPLY", partyState) : "",
     tag("BASICBASEPARTYNAME", party || "UNKNOWN"),
+    buyerState ? tag("BASICBUYERSTATENAME", buyerState) : "",
+    tag("BASICBUYERCOUNTRYNAME", country),
+    buyerPostalCode ? tag("BASICBUYERPINCODE", buyerPostalCode) : "",
     buyerAddress
       ? list("BASICBUYERADDRESS", tag("BASICBUYERADDRESS", buyerAddress))
+      : "",
+    tag("CONSIGNEEMAILINGNAME", inv.consigneeName || party || "UNKNOWN"),
+    consigneeState ? tag("CONSIGNEESTATENAME", consigneeState) : "",
+    tag("CONSIGNEECOUNTRYNAME", country),
+    inv.consigneeGstin ? tag("CONSIGNEEGSTIN", inv.consigneeGstin) : "",
+    consigneePostalCode ? tag("CONSIGNEEPINCODE", consigneePostalCode) : "",
+    consigneeAddress
+      ? list("CONSIGNEEADDRESS", tag("CONSIGNEEADDRESS", consigneeAddress))
       : "",
     body,
   ];

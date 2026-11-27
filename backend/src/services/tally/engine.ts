@@ -423,9 +423,24 @@ export interface BuildContext {
   openingByProduct: Map<string, { qty: number; value: number }>;
 }
 
-export function partyStateForInvoice(inv: any, ctx: BuildContext): string | null {
+export function partyStateForInvoice(
+  inv: any,
+  ctx: Pick<BuildContext, "debtorsById">,
+): string | null {
   const debtor = ctx.debtorsById.get(inv.debtorId);
-  return inv.placeOfSupply || inv.deliveryState || debtor?.state || null;
+  const shippingAddress = debtor?.shippingAddresses?.[0];
+  return (
+    inv.consigneeState ||
+    stateNameFromCode(inv.consigneeStateCode) ||
+    inv.deliveryState ||
+    shippingAddress?.state ||
+    inv.placeOfSupply ||
+    inv.buyerState ||
+    stateNameFromCode(inv.buyerStateCode) ||
+    debtor?.state ||
+    stateNameFromCode(debtor?.stateCode) ||
+    null
+  );
 }
 
 export function partyStateForPurchase(pi: any, ctx: BuildContext): string | null {
@@ -1178,6 +1193,7 @@ export async function buildRecords(
     ...ctx,
     partyStateForInvoice: (inv: any) => partyStateForInvoice(inv, ctx),
     partyStateForPurchase: (pi: any) => partyStateForPurchase(pi, ctx),
+    stateNameFromCode,
     normState,
     isUnionTerritory,
     gstHeadNames,

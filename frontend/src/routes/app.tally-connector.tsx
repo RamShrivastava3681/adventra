@@ -1789,26 +1789,56 @@ function sumImportCounts(group: any) {
   return totals;
 }
 
+// ─── Reverse Import Tab (3 options: Master / Transactions / E-Way Bill) ───────
+
+type ImportType = "all" | "masters" | "transactions" | "ewaybill";
+
+const IMPORT_OPTIONS: { value: ImportType; label: string; desc: string }[] = [
+  {
+    value: "all",
+    label: "Masters + Transactions",
+    desc: "Import both masters and transactions from the XML (default behaviour).",
+  },
+  {
+    value: "masters",
+    label: "Create Master",
+    desc: "Import only masters (customers, suppliers, stock items, units) from the XML.",
+  },
+  {
+    value: "transactions",
+    label: "Transactions",
+    desc: "Import only transactions (sales, purchases, receipts, payments, notes) from the XML.",
+  },
+  {
+    value: "ewaybill",
+    label: "E-Way Bill",
+    desc: "Fetch e-Way Bill details from the NIC portal and enter into matched invoices.",
+  },
+];
+
 function ReverseImportTab() {
   const [xmlText, setXmlText] = useState("");
   const [createMissingMasters, setCreateMissingMasters] = useState(true);
+  const [importType, setImportType] = useState<ImportType>("all");
   const [stagedResult, setStagedResult] = useState<any | null>(null);
   const [importResult, setImportResult] = useState<any | null>(null);
+  const [ewbFetching, setEwbFetching] = useState<Set<string>>(new Set());
+  const [ewbResults, setEwbResults] = useState<Map<string, any>>(new Map());
 
   const parseMutation = useMutation({
-    mutationFn: () => api.tally.reverseImportParse(xmlText),
+    mutationFn: () => api.tally.reverseImportParse(xmlText, importType),
     onSuccess: (data) => {
       setStagedResult(data);
       setImportResult(null);
       toast.success("Tally XML Parsed & Reconciled", {
-        description: `Identified ${data.totalCount} vouchers and ${data.masterCount ?? 0} masters.`,
+        description: `Identified ${data.totalCount} vouchers and ${data.masterCount ?? 0} masters (${data.importType}).`,
       });
     },
     onError: (e: any) => toast.error(e.message || "Failed to parse XML"),
   });
 
   const importMutation = useMutation({
-    mutationFn: () => api.tally.reverseImportCommit(xmlText, createMissingMasters),
+    mutationFn: () => api.tally.reverseImportCommit(xmlText, createMissingMasters, importType),
     onSuccess: (data) => {
       setImportResult(data);
       const masters = sumImportCounts(data.masters);
@@ -1820,6 +1850,18 @@ function ReverseImportTab() {
     onError: (e: any) => toast.error(e.message || "Failed to import XML"),
   });
 
+  const fetchEwbMutation = useMutation({
+    mutationFn: ({ invoiceId, ewbNumber }: { invoiceId: string; ewbNumber?: string | null }) =>
+      api.tally.reverseImportFetchEwayBill(invoiceId, ewbNumber),
+    onSuccess: (data, vars) => {
+      setEwbResults((prev) => new Map(prev).set(vars.invoiceId, data.invoice));
+      toast.success("E-Way Bill fetched & entered", {
+        description: `EWB ${data.invoice?.ewayBillNumber} recorded on invoice.`,
+      });
+    },
+    onError: (e: any) => toast.error(e.message || "Failed to fetch e-Way Bill"),
+  });
+
   async function handleFile(event: React.ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -1827,6 +1869,7 @@ function ReverseImportTab() {
     setXmlText(text);
     setStagedResult(null);
     setImportResult(null);
+    setEwbResults(new Map());
     toast.success("XML file loaded", {
       description: `${file.name} (${Math.max(1, Math.round(file.size / 1024))} KB)`,
     });
@@ -1841,17 +1884,55 @@ function ReverseImportTab() {
     if (ok) importMutation.mutate();
   }
 
+  function handleFetchEwb(invoiceId: string, ewbNumber?: string | null) {
+    setEwbFetching((prev) => new Set(prev).add(invoiceId));
+    fetchEwbMutation.mutate({ invoiceId, ewbNumber });
+  }
+
   const masterTotals = importResult ? sumImportCounts(importResult.masters) : null;
   const voucherTotals = importResult ? sumImportCounts(importResult.vouchers) : null;
+
+  // Matched sales vouchers eligible for EWB fetch (have a matched invoice).
+  const matchedSalesVouchers = useMemo(
+    () =>
+      (stagedResult?.vouchers ?? []).filter(
+        (v: any) =>
+          (v.voucherType || "").toLowerCase().includes("sales") && v.matchedId && v.matchedDocNumber,
+      ),
+    [stagedResult],
+  );
 
   return (
     <div className="space-y-5">
       <Card title="Reverse Import from TallyPrime">
         <p className="mb-4 text-sm text-muted-foreground">
-          Upload a TallyPrime XML export to import masters (customers, suppliers, stock items) and transactions
-          (sales, purchases, receipts, payments, credit/debit notes) into WhizUnik. Records are matched by document
+          Upload a TallyPrime XML export and choose what to import into WhizUnik. Records are matched by document
           number; existing records are skipped rather than overwritten.
         </p>
+
+        {/* Import type selector */}
+        <div className="mb-4 rounded-xl border border-input bg-background p-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-3">
+            Import type
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
+            {IMPORT_OPTIONS.map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setImportType(opt.value)}
+                className={`rounded-lg border px-3 py-2.5 text-sm font-medium transition-all flex flex-col gap-1 ${
+                  importType === opt.value
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "border-border bg-background text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+                }`}
+              >
+                <span className="font-semibold">{opt.label}</span>
+                <span className="text-[11px] opacity-80">{opt.desc}</span>
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
@@ -1878,18 +1959,23 @@ function ReverseImportTab() {
             onChange={(e) => setXmlText(e.target.value)}
           />
 
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={createMissingMasters}
-              onChange={(e) => setCreateMissingMasters(e.target.checked)}
-              className="h-4 w-4 rounded border-input"
-            />
-            Create missing customers, suppliers and stock items automatically
-          </label>
+          {importType !== "ewaybill" && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={createMissingMasters}
+                onChange={(e) => setCreateMissingMasters(e.target.checked)}
+                className="h-4 w-4 rounded border-input"
+              />
+              Create missing customers, suppliers and stock items automatically
+            </label>
+          )}
 
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => parseMutation.mutate()} disabled={!xmlText.trim() || parseMutation.isPending}>
+            <Button
+              onClick={() => parseMutation.mutate()}
+              disabled={!xmlText.trim() || parseMutation.isPending}
+            >
               {parseMutation.isPending ? (
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               ) : (
@@ -1897,24 +1983,27 @@ function ReverseImportTab() {
               )}
               Parse & Reconcile with WhizUnik
             </Button>
-            <Button
-              onClick={handleImport}
-              disabled={!xmlText.trim() || importMutation.isPending}
-              className="bg-emerald-600 hover:bg-emerald-700"
-            >
-              {importMutation.isPending ? (
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              ) : (
-                <UploadCloud className="mr-2 h-4 w-4" />
-              )}
-              Import into WhizUnik
-            </Button>
+            {importType !== "ewaybill" && (
+              <Button
+                onClick={handleImport}
+                disabled={!xmlText.trim() || importMutation.isPending || !stagedResult}
+                className="bg-emerald-600 hover:bg-emerald-700"
+              >
+                {importMutation.isPending ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <UploadCloud className="mr-2 h-4 w-4" />
+                )}
+                Import into WhizUnik
+              </Button>
+            )}
             <Button
               variant="outline"
               onClick={() => {
                 setXmlText("");
                 setStagedResult(null);
                 setImportResult(null);
+                setEwbResults(new Map());
               }}
             >
               Clear
@@ -1922,6 +2011,7 @@ function ReverseImportTab() {
           </div>
         </div>
 
+        {/* Staged results */}
         {stagedResult && (
           <div className="mt-6 space-y-4">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-5 text-xs">
@@ -1947,59 +2037,141 @@ function ReverseImportTab() {
               </div>
             </div>
 
-            <div className="max-h-72 overflow-auto rounded-xl border border-border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Invoice / Reference</TableHead>
-                    <TableHead>Tally #</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Party</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
-                    <TableHead>Lines</TableHead>
-                    <TableHead>IRN / EWB</TableHead>
-                    <TableHead>Classification</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {stagedResult.vouchers?.map((v: any, i: number) => (
-                    <TableRow key={i}>
-                      <TableCell className="font-mono text-xs font-semibold">{v.reference || v.voucherNumber}</TableCell>
-                      <TableCell className="font-mono text-xs">{v.voucherNumber || "-"}</TableCell>
-                      <TableCell className="text-xs">{v.voucherType}</TableCell>
-                      <TableCell className="text-xs">{v.partyName}</TableCell>
-                      <TableCell className="text-right tabular-nums text-xs font-bold">{money(v.amount)}</TableCell>
-                      <TableCell className="text-xs">{v.lines?.length ?? 0}</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">
-                        {v.irn ? (
-                          <Badge variant="outline" className="text-[10px]" title={v.irn}>
-                            IRN {String(v.irn).slice(0, 8)}...
-                          </Badge>
-                        ) : (
-                          "—"
-                        )}
-                        {v.ewayBillNo ? (
-                          <Badge variant="outline" className="ml-1 text-[10px]" title={v.ewayBillNo}>
-                            EWB {v.ewayBillNo}
-                          </Badge>
-                        ) : null}
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={v.classification === "Matched" ? "default" : "secondary"}
-                          className="text-[10px]"
-                        >
-                          {v.classification}
-                        </Badge>
-                      </TableCell>
+            {/* Masters table (shown for masters/all) */}
+            {(importType === "masters" || importType === "all") && stagedResult.masters && stagedResult.masters.length > 0 && (
+              <div className="max-h-72 overflow-auto rounded-xl border border-border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Master Type</TableHead>
+                      <TableHead>Name</TableHead>
+                      <TableHead>GSTIN</TableHead>
+                      <TableHead>State</TableHead>
+                      <TableHead>Classification</TableHead>
                     </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {stagedResult.masters.map((m: any, i: number) => (
+                      <TableRow key={i}>
+                        <TableCell className="text-xs capitalize">{m.kind}</TableCell>
+                        <TableCell className="text-xs font-semibold">{m.name}</TableCell>
+                        <TableCell className="text-xs font-mono">{m.gstin || "—"}</TableCell>
+                        <TableCell className="text-xs">{m.state || "—"}</TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={m.classification === "Matched" ? "default" : "secondary"}
+                            className="text-[10px]"
+                          >
+                            {m.classification}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {/* Vouchers table (shown for transactions/all/ewaybill) */}
+            {(importType === "transactions" || importType === "all" || importType === "ewaybill") && (
+              <div className="max-h-72 overflow-auto rounded-xl border border-border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Invoice / Reference</TableHead>
+                      <TableHead>Tally #</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Party</TableHead>
+                      <TableHead className="text-right">Amount</TableHead>
+                      <TableHead>Lines</TableHead>
+                      <TableHead>IRN / EWB</TableHead>
+                      <TableHead>Classification</TableHead>
+                      {importType === "ewaybill" ? (
+                        <TableHead className="text-right">Action</TableHead>
+                      ) : null}
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(stagedResult.vouchers ?? []).map((v: any, i: number) => (
+                      <TableRow key={i}>
+                        <TableCell className="font-mono text-xs font-semibold">{v.reference || v.voucherNumber}</TableCell>
+                        <TableCell className="font-mono text-xs">{v.voucherNumber || "-"}</TableCell>
+                        <TableCell className="text-xs">{v.voucherType}</TableCell>
+                        <TableCell className="text-xs">{v.partyName}</TableCell>
+                        <TableCell className="text-right tabular-nums text-xs font-bold">{money(v.amount)}</TableCell>
+                        <TableCell className="text-xs">{v.lines?.length ?? 0}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">
+                          {v.irn ? (
+                            <Badge variant="outline" className="text-[10px]" title={v.irn}>
+                              IRN {String(v.irn).slice(0, 8)}...
+                            </Badge>
+                          ) : (
+                            "—"
+                          )}
+                          {v.ewayBillNo ? (
+                            <Badge variant="outline" className="ml-1 text-[10px]" title={v.ewayBillNo}>
+                              EWB {v.ewayBillNo}
+                            </Badge>
+                          ) : null}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={v.classification === "Matched" ? "default" : "secondary"}
+                            className="text-[10px]"
+                          >
+                            {v.classification}
+                          </Badge>
+                        </TableCell>
+                        {importType === "ewaybill" && (
+                          <TableCell className="text-right">
+                            {v.matchedId ? (
+                              <Button
+                                size="sm"
+                                onClick={() => handleFetchEwb(v.matchedId, v.ewayBillNo || null)}
+                                disabled={ewbFetching.has(v.matchedId) || fetchEwbMutation.isPending}
+                              >
+                                {ewbFetching.has(v.matchedId) ? (
+                                  <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                                ) : (
+                                  <RefreshCw className="mr-1 h-3 w-3" />
+                                )}
+                                Fetch EWB
+                              </Button>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                                No match
+                              </Badge>
+                            )}
+                          </TableCell>
+                        )}
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+
+            {/* EWB fetch results */}
+            {importType === "ewaybill" && ewbResults.size > 0 && (
+              <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
+                <div className="mb-2 flex items-center gap-2 text-sm font-semibold text-emerald-800">
+                  <CheckCircle2 className="h-4 w-4" />
+                  Fetched E-Way Bills
+                </div>
+                <ul className="max-h-40 space-y-1 overflow-auto text-xs text-emerald-700">
+                  {[...ewbResults.entries()].map(([invId, inv]) => (
+                    <li key={invId}>
+                      Invoice <span className="font-mono">{inv.invoiceNumber}</span>: EWB{" "}
+                      <span className="font-semibold">{inv.ewayBillNumber}</span>
+                    </li>
                   ))}
-                </TableBody>
-              </Table>
-            </div>
+                </ul>
+              </div>
+            )}
           </div>
         )}
 
+        {/* Import result */}
         {importResult && (
           <div className="mt-6 space-y-4">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 text-xs">

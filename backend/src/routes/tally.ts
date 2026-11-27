@@ -10,6 +10,7 @@ import {
   matchAndClassifyStaged,
   matchAndClassifyMasters,
   importTallyXml,
+  fetchEwayBillForInvoice,
 } from "../services/tally/reverseImport.js";
 
 const router = Router();
@@ -554,17 +555,26 @@ router.post("/tally/batches/:id/retry", authMiddleware, CAN_EXPORT, async (req, 
 
 router.post("/tally/reverse-import/parse", authMiddleware, async (req, res) => {
   try {
-    const { xml } = req.body ?? {};
+    const { xml, importType } = req.body ?? {};
     if (!xml || typeof xml !== "string") {
       return res.status(400).json({ error: "XML content string is required" });
     }
+    const importKind = importType || "all";
     const staged = parseTallyXml(xml);
     const masters = parseTallyMasters(xml);
-    const [classified, classifiedMasters] = await Promise.all([
-      matchAndClassifyStaged(clientId(req), staged),
-      matchAndClassifyMasters(clientId(req), masters),
-    ]);
+
+    let classified: any[] = [];
+    let classifiedMasters: any[] = [];
+
+    if (importKind === "masters" || importKind === "all") {
+      classifiedMasters = await matchAndClassifyMasters(clientId(req), masters);
+    }
+    if (importKind === "transactions" || importKind === "all") {
+      classified = await matchAndClassifyStaged(clientId(req), staged);
+    }
+
     res.json({
+      importType: importKind,
       totalCount: classified.length,
       matchedCount: classified.filter((r) => r.classification === "Matched").length,
       changedCount: classified.filter((r) => r.classification === "Changed").length,
@@ -581,7 +591,7 @@ router.post("/tally/reverse-import/parse", authMiddleware, async (req, res) => {
 
 router.post("/tally/reverse-import/commit", authMiddleware, CAN_EXPORT, async (req, res) => {
   try {
-    const { xml, createMissingMasters } = req.body ?? {};
+    const { xml, createMissingMasters, importType } = req.body ?? {};
     if (!xml || typeof xml !== "string") {
       return res.status(400).json({ error: "XML content string is required" });
     }
@@ -589,10 +599,30 @@ router.post("/tally/reverse-import/commit", authMiddleware, CAN_EXPORT, async (r
       clientId: clientId(req),
       createMissingMasters: createMissingMasters !== false,
       updatedBy: req.user?.email ?? req.user?.userId ?? null,
+      importType: importType || "all",
     });
     res.json(report);
   } catch (err) {
     handleError(res, err, "Failed to import Tally XML");
+  }
+});
+
+// ─── Reverse Import: Fetch E-Way Bill from NIC and enter into invoice ───────
+
+router.post("/tally/reverse-import/eway-bill", authMiddleware, CAN_EXPORT, async (req, res) => {
+  try {
+    const { invoiceId, ewbNumber } = req.body ?? {};
+    if (!invoiceId || typeof invoiceId !== "string") {
+      return res.status(400).json({ error: "invoiceId is required" });
+    }
+    const updated = await fetchEwayBillForInvoice(invoiceId, {
+      ewbNumber: ewbNumber || null,
+      clientId: clientId(req),
+      updatedBy: req.user?.email ?? req.user?.userId ?? null,
+    });
+    res.json({ invoice: updated });
+  } catch (err) {
+    handleError(res, err, "Failed to fetch e-Way Bill details");
   }
 });
 

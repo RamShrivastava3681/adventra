@@ -1157,11 +1157,15 @@ const api = {
     ) => api.post<any>(`/tally/batches/${id}/confirm-import`, data).then(camelizeResponse),
     retryBatch: (id: string) =>
       api.post<any>(`/tally/batches/${id}/retry`, {}).then(camelizeResponse),
-    reverseImportParse: (xml: string) =>
-      api.post<any>("/tally/reverse-import/parse", { xml }).then(camelizeResponse),
-    reverseImportCommit: (xml: string, createMissingMasters = true) =>
+    reverseImportParse: (xml: string, importType = "all") =>
+      api.post<any>("/tally/reverse-import/parse", { xml, importType }).then(camelizeResponse),
+    reverseImportCommit: (xml: string, createMissingMasters = true, importType = "all") =>
       api
-        .post<any>("/tally/reverse-import/commit", { xml, createMissingMasters })
+        .post<any>("/tally/reverse-import/commit", { xml, createMissingMasters, importType })
+        .then(camelizeResponse),
+    reverseImportFetchEwayBill: (invoiceId: string, ewbNumber?: string | null) =>
+      api
+        .post<any>("/tally/reverse-import/eway-bill", { invoiceId, ewbNumber })
         .then(camelizeResponse),
     instructions: () => api.get<any>("/tally/instructions").then(camelizeResponse),
   },

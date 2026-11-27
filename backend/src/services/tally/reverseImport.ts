@@ -9,6 +9,9 @@ import * as Vendor from "../../models/vendor.js";
 import * as Product from "../../models/product.js";
 import { round2 } from "../../lib/gst.js";
 import { stateNameFromCode } from "./engine.js";
+import { getDirectClient, fromNicDate } from "../../services/eway-bill-direct-client.js";
+import { getByClientIdAndGstin } from "../../services/eway-bill-credentials.js";
+import * as db from "../../dynamodb.js";
 
 export interface StagedTallyLine {
   stockItem: string;
@@ -100,6 +103,8 @@ export interface TallyImportOptions {
   clientId: string;
   createMissingMasters?: boolean;
   updatedBy?: string | null;
+  /** "masters" | "transactions" | "all". Defaults to "all" (both masters and vouchers). */
+  importType?: "masters" | "transactions" | "all";
 }
 
 function escapeRegExp(value: string): string {
@@ -1483,9 +1488,69 @@ export async function importTallyXml(
   const masters = parseTallyMasters(xmlContent);
   const vouchers = parseTallyXml(xmlContent);
 
-  await importMasters(options.clientId, masters, options, report);
-  await importVouchers(options.clientId, vouchers, options, report);
+  const importType = options.importType || "all";
+
+  if (importType === "masters" || importType === "all") {
+    await importMasters(options.clientId, masters, options, report);
+  }
+  if (importType === "transactions" || importType === "all") {
+    await importVouchers(options.clientId, vouchers, options, report);
+  }
 
   return report;
+}
+
+/**
+ * Fetch e-Way Bill details from the NIC portal for a given invoice and enter
+ * them into the invoice record. Requires configured EWB credentials for the
+ * client's GSTIN.
+ */
+export async function fetchEwayBillForInvoice(
+  invoiceId: string,
+  input: {
+    ewbNumber?: string | null;
+    clientId: string;
+    updatedBy?: string | null;
+  },
+): Promise<Invoice.Invoice> {
+  const current = await Invoice.get(invoiceId);
+  if (!current) throw new Error("Invoice not found");
+
+  const ewbNumber = (input.ewbNumber || current.ewayBillNumber || "").trim();
+  if (!ewbNumber) {
+    throw new Error("No e-Way Bill number available to fetch details for this invoice.");
+  }
+
+  // Resolve supplier GSTIN — prefer invoice seller GSTIN, fall back to debtor GSTIN.
+  const supplierGstin = current.sellerGstin || current.buyerGstin || null;
+  if (!supplierGstin) {
+    throw new Error("No GSTIN on invoice to resolve E-Way Bill credentials.");
+  }
+
+  const cred = await getByClientIdAndGstin(input.clientId, supplierGstin);
+  if (!cred) {
+    throw new Error(
+      `No E-Way Bill credentials configured for GSTIN ${supplierGstin}. Configure API credentials in Settings → E-Way Bill Configuration.`,
+    );
+  }
+  if (cred.onboardingStatus === "DISABLED") {
+    throw new Error(`E-Way Bill credentials for GSTIN ${supplierGstin} are disabled.`);
+  }
+
+  const client = getDirectClient();
+  const details = await client.getEwbDetails(cred.id, parseInt(ewbNumber, 10));
+
+  const generatedDate = details.generatedDate ? fromNicDate(details.generatedDate) : null;
+  const validUntil = details.validUpto ? fromNicDate(details.validUpto) : null;
+
+  const updated = await Invoice.update(invoiceId, {
+    ewayBillNumber: String(details.ewbNo || ewbNumber),
+    ewbDate: generatedDate || current.ewbDate || null,
+    ewbGeneratedAt: generatedDate ? new Date(generatedDate).toISOString() : null,
+    ewbValidUntil: validUntil || null,
+    updatedAt: db.nowISO(),
+  });
+
+  return (await Invoice.get(invoiceId)) as Invoice.Invoice;
 }
 

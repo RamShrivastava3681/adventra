@@ -24,6 +24,8 @@ import {
   splitLine,
   unitFor,
   normState,
+  stateNameFromCode,
+  partyStateForInvoice,
 } from "../tally/engine.js";
 import { isUnionTerritory, type TallyConfig, SUGGESTED_MAPPING } from "../../models/tally.js";
 
@@ -195,6 +197,7 @@ const sharedCtx = {
     ["p2", { id: "p2", name: "Trekking Bag Black MT1000 Unisex", hsnCode: "4202", unitOfMeasure: "pics", gstRate: 18 }],
   ]),
   partyStateForInvoice: (inv: any) => inv.placeOfSupply || "Delhi",
+  stateNameFromCode,
   partyStateForPurchase: (pi: any) => pi.placeOfSupply || "Karnataka",
   normState,
   isUnionTerritory,
@@ -230,7 +233,11 @@ describe("Voucher Serializers", () => {
       ],
     };
 
-    const res = serializeSalesVoucher(invoice, sharedCtx);
+    const res = serializeSalesVoucher(invoice, {
+      ...sharedCtx,
+      partyStateForInvoice: (record) =>
+        partyStateForInvoice(record, { debtorsById: sharedCtx.debtorsById }),
+    });
     expect(res.errors).toHaveLength(0);
     expect(res.xml).toContain('<VOUCHER VCHTYPE="Sales" ACTION="Create" OBJVIEW="Invoice Voucher View">');
     expect(res.xml).toContain("<REFERENCE>ADV-26/27-SI-005</REFERENCE>");
@@ -314,6 +321,45 @@ describe("Voucher Serializers", () => {
     expect(res.errors).toHaveLength(0);
     expect(res.xml).toContain("<LEDGERNAME>CGST Output</LEDGERNAME>");
     expect(res.xml).toContain("<LEDGERNAME>UTGST Output</LEDGERNAME>");
+  });
+
+  it("uses ship-to state for tax and exports buyer and consignee state and country", () => {
+    const invoice = {
+      id: "inv-addresses",
+      invoiceNumber: "ADV-ADDRESS-001",
+      issueDate: "2026-10-01",
+      debtorId: "d2",
+      customerName: "Sunrise Traders",
+      buyerState: "Uttar Pradesh",
+      consigneeName: "Sunrise Traders - Delhi Branch",
+      consigneeAddress: "22 Market Road, Delhi",
+      consigneeState: "Delhi",
+      consigneeStateCode: "07",
+      grandTotal: 2383.75,
+      lines: [
+        {
+          productId: "p1",
+          name: "Men Running Shoes Lightweight Navy Black 36",
+          quantity: 1,
+          unitPrice: 2383.75,
+          gstRate: 5,
+          unit: "pics",
+        },
+      ],
+    };
+
+    const res = serializeSalesVoucher(invoice, {
+      ...sharedCtx,
+      partyStateForInvoice: (record) =>
+        partyStateForInvoice(record, { debtorsById: sharedCtx.debtorsById }),
+    });
+    expect(res.errors).toHaveLength(0);
+    expect(res.xml).toContain("<LEDGERNAME>IGST Output</LEDGERNAME>");
+    expect(res.xml).toContain("<BASICBUYERSTATENAME>Uttar Pradesh</BASICBUYERSTATENAME>");
+    expect(res.xml).toContain("<BASICBUYERCOUNTRYNAME>India</BASICBUYERCOUNTRYNAME>");
+    expect(res.xml).toContain("<CONSIGNEESTATENAME>Delhi</CONSIGNEESTATENAME>");
+    expect(res.xml).toContain("<CONSIGNEECOUNTRYNAME>India</CONSIGNEECOUNTRYNAME>");
+    expect(res.xml).toContain("<CONSIGNEEADDRESS>22 Market Road, Delhi</CONSIGNEEADDRESS>");
   });
 
   it("exports Purchase Invoice with multiple items and item invoice view", () => {
